@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#08080a">
+<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiQmVhdENvbGxhYiIsInNob3J0X25hbWUiOiJCZWF0Q29sbGFiIiwic3RhcnRfdXJsIjoiLiIsImRpc3BsYXkiOiJzdGFuZGFsb25lIiwiYmFja2dyb3VuZF9jb2xvciI6IiMwODA4MGEiLCJ0aGVtZV9jb2xvciI6IiNkYzI2MjYifQ==">
+<title>BeatCollab</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#08080a;--bg2:#111114;--bg3:#19191e;--card:#131316;--acc:#dc2626;--accH:#ef4444;--accM:rgba(220,38,38,.12);--tx:#f0f0f0;--tx2:#888;--tx3:#555;--brd:#222228;--play:#0c0c0e;--side:#0a0a0c;--grad:linear-gradient(135deg,#dc2626,#991b1b)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--tx);overflow:hidden;height:100vh;height:100dvh;font-size:14px;-webkit-tap-highlight-color:transparent}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--brd);border-radius:3px}
+input,select,textarea,button{font-family:inherit;outline:none}
+.i{width:100%;padding:10px 14px;border-radius:8px;border:1px solid var(--brd);background:var(--bg2);color:var(--tx);font-size:14px}
+.s{padding:10px 14px;border-radius:8px;border:1px solid var(--brd);background:var(--bg2);color:var(--tx);font-size:14px;cursor:pointer}
+.t{width:100%;padding:14px;border-radius:10px;border:1px solid var(--brd);background:var(--bg2);color:var(--tx);font-size:14px;min-height:140px;resize:vertical;line-height:1.6}
+.bp{padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-weight:600;font-size:13px;background:var(--grad);color:#fff;display:inline-flex;align-items:center;gap:7px;transition:all .12s}.bp:hover{filter:brightness(1.1)}
+.bg{padding:9px 18px;border-radius:8px;border:1px solid var(--brd);cursor:pointer;font-weight:500;font-size:13px;background:transparent;color:var(--tx2);display:inline-flex;align-items:center;gap:7px;transition:all .12s}.bg:hover{border-color:var(--acc);color:var(--acc)}
+.c{background:var(--card);border:1px solid var(--brd);border-radius:14px;padding:18px;transition:border-color .12s}.c:hover{border-color:color-mix(in srgb,var(--acc),transparent 50%)}
+.cc{cursor:pointer}.cc:hover{transform:translateY(-2px)}
+.b{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:var(--accM);color:var(--acc)}
+.tg{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;background:var(--bg3);color:var(--tx2);margin-right:4px}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px)}
+.mo{background:var(--card);border-radius:16px;border:1px solid var(--brd);padding:24px;width:calc(100% - 32px);max-width:540px;max-height:85vh;overflow-y:auto}
+.tb{padding:10px 14px;border-radius:8px 8px 0 0;cursor:pointer;font-size:13px;border:none;font-family:inherit;white-space:nowrap;background:transparent;color:var(--tx2);border-bottom:2px solid transparent;transition:all .12s}.tb.a{background:var(--accM);color:var(--acc);font-weight:700;border-bottom-color:var(--acc)}
+.si{display:flex;align-items:center;gap:12px;padding:10px 18px;margin:2px 8px;border-radius:10px;cursor:pointer;transition:all .1s;font-size:13px;color:var(--tx2);white-space:nowrap;overflow:hidden}.si:hover{background:var(--bg3)}.si.a{background:var(--accM);color:var(--acc);font-weight:600}
+.uz{position:relative;text-align:center;padding:40px 20px;color:var(--tx3);background:var(--bg2);border-radius:12px;border:2px dashed var(--brd);cursor:pointer;transition:all .12s}.uz:hover{border-color:var(--acc);background:var(--accM)}.uz input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.ub{position:relative;overflow:hidden;border-radius:8px;display:inline-flex}.ub input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.r{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;transition:background .1s}.r:hover{background:var(--bg3)}.r.act{background:var(--accM)}
+.ib{background:none;border:none;cursor:pointer;padding:2px;flex-shrink:0;color:var(--tx2);transition:color .1s}.ib:hover{color:var(--acc)}
+.eb{display:inline-flex;background:var(--bg3);border:1px solid var(--brd);border-radius:16px;padding:2px 8px;font-size:14px;cursor:pointer;transition:all .1s;margin:2px}.eb:hover{background:var(--accM);border-color:var(--acc)}
+.cm{margin-bottom:12px;padding:10px 14px;background:var(--bg2);border-radius:10px;border:1px solid var(--brd)}.cm.mi{border-left:2px solid var(--acc)}
+.pb{height:5px;background:var(--bg3);border-radius:3px;overflow:hidden}.pf{height:100%;background:var(--grad);border-radius:3px;transition:width .2s}
+.sc{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:18px;margin-bottom:12px}
+.sh{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:15px;font-weight:700}
+.fr{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.fl{font-size:11px;color:var(--tx2);margin-bottom:3px;display:block}
+.wv{width:100%;height:48px;border-radius:6px;cursor:pointer}
+@keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}.fi{animation:fi .2s ease}
+/* Mobile */
+@media(max-width:768px){
+  .desk{display:none!important}
+  .mob-tabs{display:flex!important}
+  body{overflow:auto}
+}
+@media(min-width:769px){
+  .mob-tabs{display:none!important}
+}
+.mob-tabs{position:fixed;bottom:0;left:0;right:0;height:60px;background:var(--play);border-top:1px solid var(--brd);display:flex;align-items:center;justify-content:space-around;z-index:40;padding-bottom:env(safe-area-inset-bottom)}
+.mob-tabs button{background:none;border:none;color:var(--tx3);font-size:11px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;padding:6px 10px;border-radius:8px;font-family:inherit}.mob-tabs button.a{color:var(--acc);background:var(--accM)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s),uid=()=>Math.random().toString(36).slice(2,9),now=()=>Date.now();
+const fmt=s=>{if(!s||!isFinite(s))return"0:00";return Math.floor(s/60)+":"+Math.floor(s%60).toString().padStart(2,"0")};
+const esc=s=>s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'):'';
+const mob=()=>window.innerWidth<769;
+
+// ═══ STATE ═══
+const S={
+  in:false,role:null,user:null,theme:'crimsonNight',
+  pg:'home',spid:null,said:null,ptab:'brano',atab:'progetti',sb:true,
+  artists:[
+    {id:"a1",name:"Onga",image:null,bio:"Artista urban emergente",genre:"Trap",email:"onga@mail.com",social:"@onga",spotify:"",instagram:"",pw:"1234"},
+    {id:"a2",name:"Jody",image:null,bio:"Cantautore R&B / Soul",genre:"R&B",email:"jody@mail.com",social:"@jody",spotify:"",instagram:"",pw:"123"},
+  ],
+  projects:[],tracks:[],
+  pl:[{id:"pl1",name:"I miei preferiti",tids:[]}],
+  msgs:[{id:"m0",u:"Sistema",txt:"Benvenuti su BeatCollab! 🎹",ts:now(),pid:null,tp:"sys",att:[]}],
+  creqs:[],notifs:[],
+  // player
+  tid:null,play:false,ct:0,vol:.8,shuf:false,rep:false,
+  // ui
+  upl:false,upP:0,upN:'',srch:'',
+  lg:'all',ls:'recent',splid:null,cf:'all',
+  auto:true,vis:{collab:1,library:0,charts:0},
+};
+
+const TH={
+  crimsonNight:{n:"Crimson Night",e:"🔴",bg:"#08080a",b2:"#111114",b3:"#19191e",cd:"#131316",ac:"#dc2626",am:"rgba(220,38,38,.12)",tx:"#f0f0f0",t2:"#888",t3:"#555",bd:"#222228",pl:"#0c0c0e",sd:"#0a0a0c",gr:"linear-gradient(135deg,#dc2626,#991b1b)"},
+  warmSlate:{n:"Warm Slate",e:"🟠",bg:"#0c0b09",b2:"#15140f",b3:"#1e1c16",cd:"#141310",ac:"#c2884a",am:"rgba(194,136,74,.10)",tx:"#e8e4dc",t2:"#8a8478",t3:"#5c5850",bd:"#28261e",pl:"#0e0d0a",sd:"#0a0908",gr:"linear-gradient(135deg,#c2884a,#8a5e30)"},
+  deepOcean:{n:"Deep Ocean",e:"🔵",bg:"#060a10",b2:"#0c1220",b3:"#141e30",cd:"#0e1524",ac:"#3b82f6",am:"rgba(59,130,246,.10)",tx:"#dce4f0",t2:"#6880a0",t3:"#3e5070",bd:"#1a2640",pl:"#080e18",sd:"#060a12",gr:"linear-gradient(135deg,#2563eb,#1e40af)"},
+  forestMoss:{n:"Forest Moss",e:"🟢",bg:"#080a08",b2:"#101410",b3:"#181e18",cd:"#0e120e",ac:"#4a9a5a",am:"rgba(74,154,90,.10)",tx:"#dce4dc",t2:"#708870",t3:"#4a5e4a",bd:"#1e2a1e",pl:"#0a0e0a",sd:"#06080a",gr:"linear-gradient(135deg,#4a9a5a,#2d6e3a)"},
+  studioLight:{n:"Studio Light",e:"⚪",bg:"#f5f5f4",b2:"#fff",b3:"#ececea",cd:"#fff",ac:"#292524",am:"rgba(41,37,36,.06)",tx:"#1c1917",t2:"#78716c",t3:"#a8a29e",bd:"#d6d3d1",pl:"#fafaf9",sd:"#f5f5f4",gr:"linear-gradient(135deg,#292524,#0c0a09)"},
+  purpleDusk:{n:"Purple Dusk",e:"🟣",bg:"#0a080e",b2:"#141020",b3:"#1e1830",cd:"#110e1c",ac:"#9070d0",am:"rgba(144,112,208,.10)",tx:"#e4e0f0",t2:"#8880a0",t3:"#585068",bd:"#241e38",pl:"#0c0a12",sd:"#08060c",gr:"linear-gradient(135deg,#9070d0,#6040a0)"},
+};
+const GEN=["Hip-Hop","Trap","R&B","Pop","Drill","Afrobeat","Reggaeton","Lo-Fi","House","Techno","Soul","Boom Bap"];
+const SCA=["C Maj","C Min","D Maj","D Min","E Min","F Maj","F# Min","G Maj","G Min","A Min","Bb Maj","B Min"];
+const MOO=["Dark","Melodic","Aggressive","Chill","Bouncy","Experimental","Emotional","Hard","Smooth","Ambient"];
+const PTY=["Singolo","EP","Disco"];
+const TABS=[{id:"brano",l:"♫ Brano"},{id:"recording",l:"🎙 Recording"},{id:"testo",l:"📝 Testo"},{id:"note",l:"💬 Note"},{id:"idea",l:"💡 Idea"},{id:"mix",l:"🎛 Mix"},{id:"master",l:"🏆 Master"},{id:"compenso",l:"💰 Compenso"}];
+const EMO=["🔥","❤️","👏","💯","🎵","😍","👀","💪","😂","🙌"];
+const MNAV=[{id:'home',l:'Home',ic:'🏠'},{id:'projects',l:'Progetti',ic:'📁'},{id:'artists',l:'Artisti',ic:'👥'},{id:'collab',l:'Collab',ic:'💬'},{id:'settings',l:'Altro',ic:'⚙️'}];
+
+// ═══ HELPERS ═══
+const au=new Audio();au.preload='auto';
+au.ontimeupdate=()=>{S.ct=au.currentTime;uPl()};
+au.onended=()=>{S.ct=0;if(S.rep){au.currentTime=0;au.play();return}pNx()};
+au.onloadedmetadata=()=>{const t=gt(S.tid);if(t&&au.duration&&isFinite(au.duration)){t.dur=au.duration;uPl();drawWave()}};
+function th(){const t=TH[S.theme],r=document.documentElement.style;r.setProperty('--bg',t.bg);r.setProperty('--bg2',t.b2);r.setProperty('--bg3',t.b3);r.setProperty('--card',t.cd);r.setProperty('--acc',t.ac);r.setProperty('--accM',t.am);r.setProperty('--tx',t.tx);r.setProperty('--tx2',t.t2);r.setProperty('--tx3',t.t3);r.setProperty('--brd',t.bd);r.setProperty('--play',t.pl);r.setProperty('--side',t.sd);r.setProperty('--grad',t.gr);document.querySelector('meta[name=theme-color]')?.setAttribute('content',t.bg)}
+function gt(id){return S.tracks.find(x=>x.id===id)}
+function gp(id){return S.projects.find(x=>x.id===id)}
+function ga(id){return S.artists.find(x=>x.id===id)}
+function vT(){return S.role==='bm'?S.tracks:S.tracks.filter(t=>t.aid===S.user?.aid)}
+function vP(){return S.role==='bm'?S.projects:S.projects.filter(p=>p.aid===S.user?.aid)}
+function vA(){return S.role==='bm'?S.artists:S.artists.filter(a=>a.id===S.user?.aid)}
+function ntf(t){S.notifs.unshift({id:uid(),t,ts:now(),r:0})}
+function q(){return vT().filter(t=>t.url)}
+
+// ═══ SEARCH ═══
+function doSearch(q){
+  if(!q)return[];q=q.toLowerCase();
+  const r=[];
+  S.projects.forEach(p=>{if(p.title.toLowerCase().includes(q)||p.artistName.toLowerCase().includes(q))r.push({type:'project',id:p.id,name:p.title,sub:p.artistName})});
+  S.artists.forEach(a=>{if(a.name.toLowerCase().includes(q))r.push({type:'artist',id:a.id,name:a.name,sub:a.genre})});
+  S.tracks.forEach(t=>{if(t.name.toLowerCase().includes(q))r.push({type:'track',id:t.id,name:t.name,sub:ga(t.aid)?.name||''})});
+  return r.slice(0,8);
+}
+function goResult(r){
+  if(r.type==='project'){S.spid=r.id;S.ptab='brano';S.pg='pd'}
+  else if(r.type==='artist'){S.said=r.id;S.atab='progetti';S.pg='ad'}
+  else if(r.type==='track'){play(r.id)}
+  S.srch='';R();
+}
+
+// ═══ AUDIO ═══
+function play(id){const t=gt(id);if(!t)return;if(S.tid===id){if(S.play){au.pause();S.play=0}else au.play().then(()=>{S.play=1}).catch(()=>{});uPl();uPC();return}S.tid=id;S.ct=0;t.plays=(t.plays||0)+1;if(t.url){au.pause();au.src=t.url;au.load();au.play().then(()=>{S.play=1;uPl();uPC();drawWave()}).catch(()=>{S.play=0;uPl();uPC()})}else{au.pause();S.play=0}uPl();uPC()}
+function pNx(){const L=q();if(!L.length){S.play=0;uPl();return}const i=L.findIndex(t=>t.id===S.tid);let n;if(S.shuf)n=Math.floor(Math.random()*L.length);else n=i>=0?(i+1)%L.length:0;play(L[n].id)}
+function pPv(){const L=q();if(!L.length)return;if(au.currentTime>3){au.currentTime=0;S.ct=0;uPl();return}const i=L.findIndex(t=>t.id===S.tid);play(L[i>0?i-1:L.length-1].id)}
+function sk(p){const d=au.duration||0;if(d&&isFinite(d)){au.currentTime=p*d;S.ct=p*d}}
+function gd(t){if(S.tid===t.id&&au.duration&&isFinite(au.duration))return au.duration;return t.dur||0}
+
+// ═══ WAVEFORM ═══
+function drawWave(){
+  const cv=$('#waveform');if(!cv)return;const ctx=cv.getContext('2d');const w=cv.width=cv.offsetWidth*2;const h=cv.height=96;ctx.clearRect(0,0,w,h);
+  const T=TH[S.theme];const bars=80;for(let i=0;i<bars;i++){const v=Math.random()*.6+.2;const bw=w/bars*.7;const x=i*(w/bars);ctx.fillStyle=T.am;ctx.fillRect(x,h/2-v*h/2,bw,v*h);}}
+
+// ═══ UPLOAD ═══
+function upl(files,pid,aid){if(!files||!files.length)return;const exts=["mp3","wav","flac","ogg","m4a","aac","mp4","webm","opus","wma","aiff"];let d=0,tot=files.length;
+  Array.from(files).forEach(f=>{S.upl=1;S.upN=f.name;S.upP=0;uUB();
+    const url=URL.createObjectURL(f);let st=0;const iv=setInterval(()=>{st++;S.upP=Math.min(Math.round(st/10*100),99);uUB();if(st>=10){clearInterval(iv);S.upP=100;uUB();
+      const ver=S.tracks.filter(t=>t.pid===pid&&t.name===f.name).length+1;
+      const nt={id:'t'+uid(),name:f.name,dur:0,pid,aid,genre:gp(pid)?.genre||'Hip-Hop',plays:0,at:now(),url,sz:f.size,ver};
+      S.tracks.unshift(nt);d++;if(d>=tot){setTimeout(()=>{S.upl=0;S.upP=0;play(nt.id);ntf('Traccia "'+f.name+'" caricata');R()},300)}}},50)});}
+function dl(t){if(!t||!t.url)return;const a=document.createElement('a');a.href=t.url;a.download=t.name;document.body.appendChild(a);a.click();document.body.removeChild(a)}
+
+// ═══ EXPORT ZIP (project) ═══
+function exportProj(pid){
+  const p=gp(pid);if(!p)return;
+  const info=JSON.stringify(p,null,2);
+  const blob=new Blob([info],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=p.title+'_info.json';document.body.appendChild(a);a.click();document.body.removeChild(a);
+  // Also download each track
+  S.tracks.filter(t=>t.pid===pid).forEach(t=>dl(t));
+  ntf('Progetto "'+p.title+'" esportato');
+}
+
+// ═══ CRUD ═══
+function delP(id){if(!confirm('Eliminare progetto e tracce?'))return;S.tracks.filter(t=>t.pid===id).forEach(t=>{if(t.url)URL.revokeObjectURL(t.url)});S.tracks=S.tracks.filter(t=>t.pid!==id);S.projects=S.projects.filter(p=>p.id!==id);if(S.tid&&!gt(S.tid)){au.pause();S.tid=null;S.play=0}if(S.spid===id){S.spid=null;S.pg='home'}ntf('Progetto eliminato');R()}
+function delA(id){if(!confirm('Eliminare artista e collegati?'))return;S.projects=S.projects.filter(p=>p.aid!==id);S.tracks=S.tracks.filter(t=>t.aid!==id);S.artists=S.artists.filter(a=>a.id!==id);if(S.said===id){S.said=null;S.pg='artists'}ntf('Artista eliminato');R()}
+function delT(id){if(S.tid===id){au.pause();S.tid=null;S.play=0}const t=gt(id);if(t?.url)URL.revokeObjectURL(t.url);S.tracks=S.tracks.filter(x=>x.id!==id);S.pl.forEach(p=>{p.tids=p.tids.filter(x=>x!==id)});R()}
+
+// ═══ COLLAB ═══
+function sMsg(){const el=$('#ci');if(!el)return;const t=el.value.trim();if(!t)return;S.msgs.push({id:'m'+uid(),u:S.user?.name||'User',txt:t,ts:now(),pid:S.cf!=='all'?S.cf:null,tp:'txt',att:[]});el.value='';uCh()}
+function sEmo(e){S.msgs.push({id:'m'+uid(),u:S.user?.name||'User',txt:e,ts:now(),pid:S.cf!=='all'?S.cf:null,tp:'emo',att:[]});uCh()}
+function cAtt(files){if(!files?.length)return;Array.from(files).forEach(f=>{const isI=f.type.startsWith('image/'),isA=f.type.startsWith('audio/'),isP=f.name.endsWith('.pdf');let pv='',url='';if(isI){url=URL.createObjectURL(f);pv='<img src="'+url+'" style="max-width:220px;max-height:140px;border-radius:8px;margin-top:6px;display:block">'}else if(isA){url=URL.createObjectURL(f);pv='<audio controls src="'+url+'" style="margin-top:6px;width:100%;max-width:300px;height:32px"></audio>'}else if(isP){url=URL.createObjectURL(f)}
+    S.msgs.push({id:'m'+uid(),u:S.user?.name||'User',txt:(isI?'🖼 ':isA?'🎵 ':isP?'📕 ':'📄 ')+f.name+' ('+(f.size/1048576).toFixed(1)+' MB)',ts:now(),pid:S.cf!=='all'?S.cf:null,tp:'file',att:[{name:f.name,tp:isI?'img':isA?'aud':'doc',url,pv}]})});uCh()}
+function cReq(aid){const a=ga(aid);if(!a)return;S.creqs.push({id:'cr'+uid(),from:S.user?.name,to:aid,ts:now(),st:'pending'});S.msgs.push({id:'m'+uid(),u:'Sistema',txt:'📩 '+S.user?.name+' → richiesta collab a '+a.name,ts:now(),pid:null,tp:'sys',att:[]});ntf('Richiesta collab → '+a.name);uCh()}
+function uCh(){const el=$('#cha');if(!el){R();return}const ms=S.cf==='all'?S.msgs:S.msgs.filter(m=>m.pid===S.cf);
+  el.innerHTML=ms.map(m=>{const mi=m.u===S.user?.name;const sy=m.tp==='sys';const em=m.tp==='emo';return`<div class="cm ${mi?'mi':''}" ${sy?'style="background:transparent;border:none;padding:3px 14px;opacity:.6"':''}>
+    ${!em?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px"><b style="font-size:12px;color:${mi?'var(--acc)':sy?'var(--tx3)':'var(--tx)'}">${esc(m.u)}</b><span style="font-size:10px;color:var(--tx3)">${new Date(m.ts).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</span>${m.pid&&gp(m.pid)?'<span class="tg">'+esc(gp(m.pid).title)+'</span>':''}</div>`:''}
+    ${em?`<div style="display:flex;align-items:center;gap:8px"><span style="font-size:28px">${esc(m.txt)}</span><span style="font-size:10px;color:var(--tx3)">${esc(m.u)}</span></div>`:`<p style="font-size:13px;color:${sy?'var(--tx3)':'var(--tx2)'};line-height:1.4;margin:0">${esc(m.txt)}</p>`}
+    ${(m.att||[]).map(a=>a.pv?a.pv:a.url&&a.tp==='doc'?'<a href="'+a.url+'" target="_blank" class="tg" style="margin-top:4px;padding:5px 10px;text-decoration:none;color:var(--acc)">📕 '+esc(a.name)+'</a>':'<div class="tg" style="margin-top:4px;padding:3px 8px">📄 '+esc(a.name)+'</div>').join('')}
+  </div>`}).join('');el.scrollTop=el.scrollHeight}
+function uUB(){const el=$('#upb');if(!el)return;el.innerHTML=S.upl?`<div style="padding:10px 14px;background:var(--card);border-radius:8px;border:1px solid var(--brd);margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:12px;font-weight:600">⬆ ${esc(S.upN)}</span><span style="font-size:12px;color:var(--acc);font-weight:700">${S.upP}%</span></div><div class="pb"><div class="pf" style="width:${S.upP}%"></div></div></div>`:'';}
+
+// ═══ PLAYER ═══
+function uPl(){const el=$('#pl');if(!el)return;const t=S.tid?gt(S.tid):null;const d=t?gd(t):0;const p=d>0?(S.ct/d)*100:0;const a=t?ga(t.aid):null;const sc=S.shuf?'var(--acc)':'var(--tx3)',rc=S.rep?'var(--acc)':'var(--tx3)';
+  el.innerHTML=t?`<div style="display:flex;align-items:center;gap:10px;width:${mob()?'auto':'200px'};flex-shrink:0;${mob()?'':''}"><div style="width:44px;height:44px;border-radius:8px;background:var(--grad);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px">🎵</div>${mob()?'':`<div style="min-width:0"><div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px">${esc(t.name)}</div><div style="font-size:10px;color:var(--tx2)">${esc(a?.name||'')}</div></div>`}</div>
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px"><div style="display:flex;align-items:center;gap:${mob()?10:14}px"><button class="ib" onclick="S.shuf=!S.shuf;uPl()" style="color:${sc};font-size:13px">🔀</button><button class="ib" onclick="pPv()" style="color:var(--tx);font-size:14px">⏮</button><button class="ib" onclick="play('${t.id}')" style="width:34px;height:34px;border-radius:50%;background:var(--grad);color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center">${S.play?'⏸':'▶'}</button><button class="ib" onclick="pNx()" style="color:var(--tx);font-size:14px">⏭</button><button class="ib" onclick="S.rep=!S.rep;uPl()" style="color:${rc};font-size:13px">🔁</button></div>
+  <div style="display:flex;align-items:center;gap:6px;width:100%;max-width:480px"><span style="font-size:9px;color:var(--tx3);width:32px;text-align:right">${fmt(S.ct)}</span><div style="flex:1;height:4px;background:var(--bg3);border-radius:2px;cursor:pointer;position:relative" onclick="sk(event.offsetX/this.offsetWidth)"><div style="height:100%;width:${p}%;background:var(--grad);border-radius:2px"></div><div style="position:absolute;top:-4px;left:${p}%;width:10px;height:10px;border-radius:50%;background:var(--acc);transform:translateX(-50%);pointer-events:none"></div></div><span style="font-size:9px;color:var(--tx3);width:32px">${fmt(d)}</span></div></div>
+  ${mob()?'':`<div style="display:flex;align-items:center;gap:6px;width:120px;flex-shrink:0"><span style="font-size:12px;cursor:pointer" onclick="S.vol=S.vol>0?0:.8;au.volume=S.vol;uPl()">${S.vol>0?'🔊':'🔇'}</span><div style="flex:1;height:3px;background:var(--bg3);border-radius:2px;cursor:pointer" onclick="S.vol=Math.max(0,Math.min(1,event.offsetX/this.offsetWidth));au.volume=S.vol;uPl()"><div style="height:100%;width:${S.vol*100}%;background:var(--acc);border-radius:2px"></div></div><button class="ib" onclick="dl(gt('${t.id}'))" style="font-size:13px">⬇</button></div>`}
+  `:`<div style="flex:1;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--tx3)">🎵 <span style="font-size:12px">Seleziona un brano</span></div>`}
+function uPC(){if(S.pg==='collab')return;const el=$('#pc');if(el)el.innerHTML=pgR()}
+
+// ═══ RENDER ═══
+function R(){th();au.volume=S.vol;if(!S.in){$('#app').innerHTML=lgn();return}
+  // Auto dark
+  if(window.matchMedia&&window.matchMedia('(prefers-color-scheme:light)').matches&&S.theme==='crimsonNight'){}
+  const isMob=mob();
+  $('#app').innerHTML=`<div style="display:flex;height:100vh;height:100dvh;overflow:hidden">
+    ${isMob?'':`<div class="desk" style="width:${S.sb?210:56}px;min-width:${S.sb?210:56}px;background:var(--side);border-right:1px solid var(--brd);display:flex;flex-direction:column;transition:all .2s;overflow:hidden">
+      <div onclick="S.pg='home';S.spid=S.said=null;R()" style="padding:${S.sb?'16px 18px':'16px 12px'};cursor:pointer;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:10px"><span style="font-size:20px">🎹</span>${S.sb?'<span style="font-size:15px;font-weight:900;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent">BeatCollab</span>':''}</div>
+      <div style="flex:1;padding:6px 0;overflow-y:auto">${navItems().map(i=>{const ac=S.pg===i.id||(i.id==='projects'&&S.pg==='pd')||(i.id==='artists'&&S.pg==='ad');return`<div class="si ${ac?'a':''}" onclick="S.pg='${i.id}';R()"><span style="font-size:15px">${i.ic}</span>${S.sb?'<span>'+i.l+'</span>':''}</div>`}).join('')}</div>
+      <div onclick="S.sb=!S.sb;R()" style="padding:12px;border-top:1px solid var(--brd);cursor:pointer;color:var(--tx3);font-size:11px;text-align:center">${S.sb?'← Comprimi':'→'}</div>
+    </div>`}
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+      <div style="height:48px;border-bottom:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;padding:0 16px;flex-shrink:0;gap:8px">
+        <div style="flex:1;max-width:300px;position:relative"><input class="i" style="padding:7px 12px 7px 30px;font-size:13px" placeholder="Cerca..." value="${esc(S.srch)}" oninput="S.srch=this.value;updSearch()" onfocus="updSearch()" onblur="setTimeout(()=>{const e=$('#sres');if(e)e.style.display='none'},200)"><span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--tx3)">🔍</span><div id="sres" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--brd);border-radius:10px;margin-top:4px;max-height:260px;overflow-y:auto;z-index:100"></div></div>
+        <div style="display:flex;align-items:center;gap:10px">${S.notifs.filter(n=>!n.r).length?`<span style="cursor:pointer;position:relative" onclick="S.notifs.forEach(n=>n.r=1);R()">🔔<span style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-radius:50%;background:var(--acc)"></span></span>`:''}<span style="font-size:11px;color:var(--tx2)">${esc(S.user?.name||'')}</span></div>
+      </div>
+      <div id="pc" style="flex:1;overflow-y:auto;padding:${isMob?'16px':'20px 28px'};padding-bottom:${isMob?'140px':'100px'}" class="fi">${pgR()}</div>
+    </div>
+    <div id="pl" style="position:fixed;bottom:${isMob?60:0}px;left:${isMob?0:S.sb?210:56}px;right:0;height:${isMob?64:76}px;background:var(--play);border-top:1px solid var(--brd);display:flex;align-items:center;padding:0 ${isMob?10:20}px;gap:${isMob?8:14}px;z-index:30;transition:left .2s"></div>
+    ${isMob?`<div class="mob-tabs">${MNAV.map(i=>`<button class="${S.pg===i.id||(i.id==='projects'&&S.pg==='pd')||(i.id==='artists'&&S.pg==='ad')?'a':''}" onclick="S.pg='${i.id}';R()"><span style="font-size:18px">${i.ic}</span><span>${i.l}</span></button>`).join('')}</div>`:''}
+  </div>`;uPl();if(S.pg==='collab')setTimeout(()=>{const c=$('#cha');if(c)c.scrollTop=c.scrollHeight},30)}
+
+function updSearch(){const el=$('#sres');if(!el)return;if(!S.srch){el.style.display='none';return}const r=doSearch(S.srch);if(!r.length){el.style.display='none';return}el.style.display='block';el.innerHTML=r.map(x=>`<div style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;border-bottom:1px solid var(--brd)" onmousedown="goResult(${JSON.stringify(x).replace(/"/g,'&quot;')})"><span style="font-size:14px">${x.type==='project'?'📁':x.type==='artist'?'👤':'🎵'}</span><div><div style="font-weight:600">${esc(x.name)}</div><div style="font-size:11px;color:var(--tx2)">${esc(x.sub)}</div></div></div>`).join('')}
+
+function navItems(){const all=[{id:'home',l:'Home',ic:'🏠'},{id:'projects',l:'Progetti',ic:'📁'},{id:'artists',l:'Artisti',ic:'👥'},{id:'library',l:'Libreria',ic:'📚'},{id:'playlist',l:'Playlist',ic:'🎧'},{id:'collab',l:'Collab',ic:'💬'},{id:'charts',l:'Grafici',ic:'📊'},{id:'settings',l:'Impostazioni',ic:'⚙️'}];return S.role==='bm'?all:all.filter(i=>['home','projects','artists','settings'].includes(i.id)||(S.vis.collab&&i.id==='collab')||(S.vis.library&&i.id==='library'))}
+
+function lgn(){return`<div style="min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center"><div style="text-align:center;width:360px;padding:24px">
+  <div style="font-size:52px;margin-bottom:4px">🎹</div><h1 style="font-size:28px;font-weight:900;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0 0 2px">BeatCollab</h1><p style="color:var(--tx2);font-size:13px;margin:0 0 24px">Piattaforma di collaborazione musicale</p>
+  <div style="display:flex;background:var(--bg2);border-radius:10px;margin-bottom:18px;border:1px solid var(--brd)"><button id="lb" class="tb a" style="flex:1;border-radius:10px;border-bottom:none" onclick="$$('#lb,#la').forEach(b=>b.classList.remove('a'));this.classList.add('a');window._lm='bm';$('#lf').placeholder='Email'">🎛 Beatmaker</button><button id="la" class="tb" style="flex:1;border-radius:10px;border-bottom:none" onclick="$$('#lb,#la').forEach(b=>b.classList.remove('a'));this.classList.add('a');window._lm='ar';$('#lf').placeholder='Nome Artista'">🎤 Artista</button></div>
+  <input id="lf" class="i" placeholder="Email" style="margin-bottom:8px;text-align:center"><input id="lp" class="i" type="password" placeholder="Password" style="text-align:center" onkeydown="if(event.key==='Enter')doL()"><div id="le" style="color:var(--acc);font-size:12px;margin-top:6px"></div>
+  <button class="bp" style="width:100%;justify-content:center;margin-top:14px;padding:12px 0;font-size:14px" onclick="doL()">Accedi</button>
+  <div style="margin-top:28px;border-top:1px solid var(--brd);padding-top:16px"><p style="font-size:11px;color:var(--tx3);margin-bottom:8px">Tema</p><div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">${Object.entries(TH).map(([k,t])=>`<button onclick="S.theme='${k}';R()" style="width:34px;height:34px;border-radius:50%;border:${k===S.theme?'2px solid '+t.ac:'1px solid var(--brd)'};background:${t.bg};cursor:pointer;font-size:14px">${t.e}</button>`).join('')}</div></div>
+</div></div>`}
+window._lm='bm';
+function doL(){const f=$('#lf').value,p=$('#lp').value;if(window._lm==='bm'){if(f==='beatcollabteam@gmail.com'&&p==='1234'){S.role='bm';S.user={name:'Beatmaker',role:'bm'};S.in=1;R();return}$('#le').textContent='Credenziali non valide'}else{const a=S.artists.find(x=>x.name.toLowerCase()===f.toLowerCase()&&x.pw===p);if(a){S.role='ar';S.user={name:a.name,role:'ar',aid:a.id};S.in=1;R();return}$('#le').textContent='Nome o password errati'}}
+
+// ═══ TRACK ROW ═══
+function tr(t,o={}){const ac=S.tid===t.id;const a=ga(t.aid);const p=gp(t.pid);const v=t.ver&&t.ver>1?' <span class="b" style="font-size:9px;padding:1px 6px">v'+t.ver+'</span>':'';
+  return`<div class="r ${ac?'act':''}"><button class="ib" onclick="play('${t.id}')" style="color:var(--acc)">${S.play&&ac?'⏸':'▶'}</button><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.name)}${v}</div><div style="font-size:11px;color:var(--tx2)">${o.sa?esc(a?.name||''):''}${o.sa&&o.sp?' · ':''}${o.sp?esc(p?.title||''):''}${t.sz?' · '+(t.sz/1048576).toFixed(1)+' MB':''}</div></div><span style="font-size:10px;color:var(--tx3)">${t.plays||0}▶</span><span style="font-size:10px;color:var(--tx3)">${t.dur>0?fmt(t.dur):'--:--'}</span>${t.url?`<button class="ib" onclick="dl(gt('${t.id}'))">⬇</button>`:''} ${o.del?`<button class="ib" style="color:var(--tx3)" onclick="delT('${t.id}')">🗑</button>`:''}</div>`}
+
+// ═══ PAGES ═══
+function pgR(){return({home:pgH,projects:pgPs,pd:pgPD,artists:pgAs,ad:pgAD,library:pgL,playlist:pgPl,collab:pgC,charts:pgCh,settings:pgS}[S.pg]||pgH)()}
+
+function pgH(){const ps=vP(),ts=vT();return`<div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px"><div><h1 style="font-size:${mob()?20:24}px;font-weight:800">Ciao, ${esc(S.user?.name)}</h1><p style="color:var(--tx2);margin-top:3px;font-size:13px">${ps.length} progetti</p></div>${S.role==='bm'?'<button class="bp" onclick="oPF()">+ Nuovo</button>':''}</div>
+  <div style="display:grid;grid-template-columns:repeat(${mob()?2:4},1fr);gap:10px;margin-bottom:24px">${[{l:'Progetti',v:ps.length,ic:'📁',pg:'projects'},{l:'Artisti',v:vA().length,ic:'👥',pg:'artists'},{l:'Tracce',v:ts.length,ic:'🎵',pg:'library'},{l:'Ascolti',v:ts.reduce((a,t)=>a+(t.plays||0),0),ic:'📊',pg:'charts'}].map(s=>`<div class="c cc" onclick="S.pg='${s.pg}';R()" style="text-align:center;padding:14px 10px"><div style="color:var(--acc);font-size:20px;margin-bottom:6px">${s.ic}</div><div style="font-size:20px;font-weight:800">${s.v}</div><div style="font-size:11px;color:var(--tx2);margin-top:2px">${s.l}</div></div>`).join('')}</div>
+  ${ps.length?`<h2 style="font-size:15px;font-weight:700;margin-bottom:12px">Progetti</h2><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(${mob()?'160px':'240px'},1fr));gap:12px">${ps.map(p=>`<div class="c cc" onclick="S.spid='${p.id}';S.ptab='brano';S.pg='pd';R()"><div style="display:flex;gap:12px;align-items:center"><div style="width:44px;height:44px;border-radius:10px;flex-shrink:0;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:18px">🎵</div><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.title)}</div><div style="font-size:11px;color:var(--tx2)">${esc(p.artistName)}</div><div style="margin-top:3px"><span class="tg">${p.bpm}</span><span class="tg">${esc(p.type)}</span></div></div></div></div>`).join('')}</div>`:'<div style="text-align:center;padding:50px 0;color:var(--tx3)"><div style="font-size:44px;margin-bottom:10px">🎵</div><p>Nessun progetto ancora.</p></div>'}
+</div>`}
+
+function pgPD(){const p=gp(S.spid);if(!p)return'';if(!p.sec)p.sec={};const pt=S.tracks.filter(t=>t.pid===p.id);
+  const secH=()=>{const tb=S.ptab;
+    if(tb==='brano')return`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="font-size:14px;font-weight:700">File Audio</h3><div style="display:flex;gap:8px"><button class="bg" style="font-size:12px" onclick="exportProj('${p.id}')">📦 Esporta</button><div class="ub"><div class="bp" style="pointer-events:none;font-size:12px">⬆ Carica</div><input type="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.mp4" multiple onchange="upl(this.files,'${p.id}','${p.aid}');this.value=''"></div></div></div><div id="upb"></div>
+      <canvas id="waveform" class="wv" style="margin-bottom:12px;background:var(--bg2);display:${S.tid&&pt.find(t=>t.id===S.tid)?'block':'none'}"></canvas>
+      ${pt.length===0?`<div class="uz"><div style="font-size:40px;margin-bottom:6px">⬆</div><p style="font-weight:600;color:var(--tx2)">Clicca o trascina audio</p><p style="font-size:12px;margin-top:4px">MP3, WAV, FLAC, OGG, M4A, MP4</p><input type="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.mp4" multiple onchange="upl(this.files,'${p.id}','${p.aid}');this.value=''"></div>`:
+      `<div class="c" style="padding:0;overflow:hidden">${pt.map(t=>tr(t,{sa:1,del:1})).join('')}</div><div class="uz" style="padding:14px;margin-top:10px;border-width:1px"><span>+ Aggiungi file</span><input type="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.mp4" multiple onchange="upl(this.files,'${p.id}','${p.aid}');this.value=''"></div>`}`;
+    if(tb==='recording')return`<div class="sc"><div class="sh">🎙 Recording Session</div><div class="fr"><div><span class="fl">Studio</span><input class="i" value="${esc(p.sec.rSt||'')}" onchange="gp('${p.id}').sec.rSt=this.value"></div><div><span class="fl">Data</span><input class="i" type="date" value="${esc(p.sec.rDt||'')}" onchange="gp('${p.id}').sec.rDt=this.value"></div></div><div class="fr"><div><span class="fl">Ingegnere</span><input class="i" value="${esc(p.sec.rEn||'')}" onchange="gp('${p.id}').sec.rEn=this.value"></div><div><span class="fl">Durata</span><input class="i" value="${esc(p.sec.rDr||'')}" onchange="gp('${p.id}').sec.rDr=this.value" placeholder="4 ore"></div></div><span class="fl">Note</span><textarea class="t" onchange="gp('${p.id}').sec.rNt=this.value">${esc(p.sec.rNt||'')}</textarea></div>`;
+    if(tb==='testo')return`<div class="sc"><div class="sh">📝 Testo</div><div class="fr"><div><span class="fl">Autore</span><input class="i" value="${esc(p.sec.tAu||'')}" onchange="gp('${p.id}').sec.tAu=this.value"></div><div><span class="fl">Lingua</span><input class="i" value="${esc(p.sec.tLn||'Italiano')}" onchange="gp('${p.id}').sec.tLn=this.value"></div></div><span class="fl">Testo</span><textarea class="t" style="min-height:220px;font-family:monospace" onchange="gp('${p.id}').sec.txt=this.value">${esc(p.sec.txt||'')}</textarea></div>`;
+    if(tb==='note')return`<div class="sc"><div class="sh">💬 Note & Commenti</div><p style="font-size:12px;color:var(--tx3);margin-bottom:8px">Usa [1:32] per note con timestamp — clicca per saltare a quel punto</p><textarea class="t" id="notes-ta" onchange="gp('${p.id}').sec.nt=this.value">${esc(p.sec.nt||'')}</textarea><div id="ts-links" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px"></div></div>`;
+    if(tb==='idea')return`<div class="sc"><div class="sh">💡 Idea & Concept</div><div class="fr"><div><span class="fl">Mood</span><input class="i" value="${esc(p.sec.iMo||'')}" onchange="gp('${p.id}').sec.iMo=this.value" placeholder="Notturno, malinconico"></div><div><span class="fl">Riferimenti</span><input class="i" value="${esc(p.sec.iRf||'')}" onchange="gp('${p.id}').sec.iRf=this.value" placeholder="Travis Scott, Drake"></div></div><span class="fl">Concept</span><textarea class="t" onchange="gp('${p.id}').sec.iDe=this.value">${esc(p.sec.iDe||'')}</textarea></div>`;
+    if(tb==='mix')return`<div class="sc"><div class="sh">🎛 Mix</div><div class="fr"><div><span class="fl">Mix Engineer</span><input class="i" value="${esc(p.sec.mEn||'')}" onchange="gp('${p.id}').sec.mEn=this.value"></div><div><span class="fl">Stato</span><select class="s" style="width:100%" onchange="gp('${p.id}').sec.mSt=this.value">${['Da iniziare','In corso','Revisione','Completato'].map(s=>`<option ${p.sec.mSt===s?'selected':''}>${s}</option>`).join('')}</select></div></div><span class="fl">Note mix</span><textarea class="t" onchange="gp('${p.id}').sec.mNt=this.value">${esc(p.sec.mNt||'')}</textarea></div>`;
+    if(tb==='master')return`<div class="sc"><div class="sh">🏆 Master</div><div class="fr"><div><span class="fl">Mastering Eng.</span><input class="i" value="${esc(p.sec.maEn||'')}" onchange="gp('${p.id}').sec.maEn=this.value"></div><div><span class="fl">Stato</span><select class="s" style="width:100%" onchange="gp('${p.id}').sec.maSt=this.value">${['Da iniziare','In corso','Completato'].map(s=>`<option ${p.sec.maSt===s?'selected':''}>${s}</option>`).join('')}</select></div></div><div class="fr"><div><span class="fl">LUFS</span><input class="i" value="${esc(p.sec.maLu||'-14')}" onchange="gp('${p.id}').sec.maLu=this.value"></div><div><span class="fl">Formato</span><input class="i" value="${esc(p.sec.maFm||'WAV 24bit')}" onchange="gp('${p.id}').sec.maFm=this.value"></div></div><span class="fl">Note</span><textarea class="t" style="min-height:80px" onchange="gp('${p.id}').sec.maNt=this.value">${esc(p.sec.maNt||'')}</textarea></div>`;
+    if(tb==='compenso')return`<div class="sc"><div class="sh">💰 Compenso</div><div class="fr"><div><span class="fl">Tipo</span><select class="s" style="width:100%" onchange="gp('${p.id}').sec.cTy=this.value">${['Flat fee','Royalty split','Collaborazione','Da definire'].map(s=>`<option ${p.sec.cTy===s?'selected':''}>${s}</option>`).join('')}</select></div><div><span class="fl">Importo/Split</span><input class="i" value="${esc(p.sec.cAm||'')}" onchange="gp('${p.id}').sec.cAm=this.value" placeholder="€500 o 50/50"></div></div><div class="fr"><div><span class="fl">Stato</span><select class="s" style="width:100%" onchange="gp('${p.id}').sec.cSt=this.value">${['Non pagato','Parziale','Pagato'].map(s=>`<option ${p.sec.cSt===s?'selected':''}>${s}</option>`).join('')}</select></div><div><span class="fl">Data</span><input class="i" type="date" value="${esc(p.sec.cDt||'')}" onchange="gp('${p.id}').sec.cDt=this.value"></div></div><span class="fl">Note</span><textarea class="t" style="min-height:60px" onchange="gp('${p.id}').sec.cNt=this.value">${esc(p.sec.cNt||'')}</textarea></div>`;
+    return''};
+  return`<div><div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:20px"><div style="width:${mob()?60:76}px;height:${mob()?60:76}px;border-radius:12px;flex-shrink:0;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:28px">🎵</div><div style="flex:1"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><h1 style="font-size:${mob()?18:22}px;font-weight:800">${esc(p.title)}</h1><span class="b">${p.type}</span></div><p style="color:var(--tx2);margin:3px 0;font-size:13px">${esc(p.artistName)} · ${p.bpm} BPM · ${esc(p.scale)} · ${esc(p.genre)}</p><div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="bg" style="font-size:12px" onclick="S.pg='home';R()">← Home</button>${S.role==='bm'?`<button class="bg" style="font-size:12px" onclick="oPF('${p.id}')">✏</button><button class="bg" style="font-size:12px;color:var(--acc)" onclick="delP('${p.id}')">🗑</button>`:''}</div></div></div>
+  <div style="display:flex;gap:2px;overflow-x:auto;margin-bottom:16px;padding-bottom:6px;border-bottom:1px solid var(--brd)">${TABS.map(t=>`<button class="tb ${S.ptab===t.id?'a':''}" onclick="S.ptab='${t.id}';R()">${t.l}</button>`).join('')}</div>
+  <div style="min-height:250px">${secH()}</div></div>`}
+
+function pgPs(){const ps=vP(),gr={};ps.forEach(p=>{(gr[p.artistName]=gr[p.artistName]||[]).push(p)});return`<div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px"><h1 style="font-size:20px;font-weight:800">Progetti</h1>${S.role==='bm'?'<button class="bp" onclick="oPF()">+ Nuovo</button>':''}</div>${Object.entries(gr).map(([n,ps])=>`<div style="margin-bottom:20px"><h3 style="font-size:13px;font-weight:700;color:var(--acc);margin-bottom:8px">👤 ${esc(n)}</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">${ps.map(p=>`<div class="c cc" onclick="S.spid='${p.id}';S.ptab='brano';S.pg='pd';R()"><div style="font-weight:700">${esc(p.title)}</div><div style="font-size:11px;color:var(--tx2);margin-top:2px">${p.bpm} BPM · ${esc(p.genre)} · <span class="b">${p.type}</span></div></div>`).join('')}</div></div>`).join('')}${!ps.length?'<p style="text-align:center;color:var(--tx3);padding:40px">Nessun progetto</p>':''}</div>`}
+
+function pgAs(){return`<div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px"><h1 style="font-size:20px;font-weight:800">Artisti</h1>${S.role==='bm'?'<button class="bp" onclick="oAF()">+ Aggiungi</button>':''}</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(${mob()?'150px':'200px'},1fr));gap:12px">${vA().map(a=>`<div class="c cc" onclick="S.said='${a.id}';S.atab='progetti';S.pg='ad';R()" style="text-align:center"><div style="width:56px;height:56px;border-radius:50%;margin:0 auto 8px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:24px">👤</div><div style="font-size:15px;font-weight:700">${esc(a.name)}</div><div style="font-size:11px;color:var(--tx2)">${esc(a.genre)}</div><div style="display:flex;justify-content:center;gap:4px;margin-top:4px">${a.spotify?'<span>🟢</span>':''}${a.instagram?'<span>📸</span>':''}</div></div>`).join('')}</div></div>`}
+
+function pgAD(){const a=ga(S.said);if(!a)return'';const ap=S.projects.filter(p=>p.aid===a.id),at=S.tracks.filter(t=>t.aid===a.id);
+  return`<div><div style="display:flex;gap:16px;align-items:center;margin-bottom:20px"><div style="width:76px;height:76px;border-radius:50%;flex-shrink:0;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:32px">👤</div><div><h1 style="font-size:22px;font-weight:800">${esc(a.name)}</h1><p style="color:var(--tx2);font-size:12px">${esc(a.genre)} · ${esc(a.bio)}</p><div style="display:flex;gap:6px;align-items:center;margin:3px 0;flex-wrap:wrap">${a.social?'<span style="font-size:11px;color:var(--acc)">'+esc(a.social)+'</span>':''}${a.spotify?'<a href="'+esc(a.spotify)+'" target="_blank" style="font-size:12px">🟢</a>':''}${a.instagram?'<a href="https://instagram.com/'+esc(a.instagram.replace('@',''))+'" target="_blank" style="font-size:12px">📸</a>':''}</div><div style="display:flex;gap:6px;margin-top:8px"><button class="bg" style="font-size:12px" onclick="S.pg='artists';R()">←</button>${S.role==='bm'?`<button class="bg" style="font-size:12px" onclick="oAF('${a.id}')">✏</button><button class="bg" style="font-size:12px;color:#e55" onclick="delA('${a.id}')">🗑</button>`:''}</div></div></div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">${[{l:'Progetti',v:ap.length},{l:'Tracce',v:at.length},{l:'Ascolti',v:at.reduce((s,t)=>s+(t.plays||0),0)}].map(s=>`<div class="c" style="text-align:center;padding:10px"><div style="font-size:18px;font-weight:800">${s.v}</div><div style="font-size:10px;color:var(--tx2)">${s.l}</div></div>`).join('')}</div>
+  <div style="display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--brd);padding-bottom:4px">${['progetti','tracce'].map(t=>`<button class="tb ${S.atab===t?'a':''}" onclick="S.atab='${t}';R()">${t==='progetti'?'📁 Progetti':'🎵 Tracce'}</button>`).join('')}</div>
+  ${S.atab==='progetti'?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">${ap.map(p=>`<div class="c cc" onclick="S.spid='${p.id}';S.pg='pd';R()"><div style="font-weight:600">${esc(p.title)}</div><div style="font-size:11px;color:var(--tx2)">${p.bpm} BPM · ${p.type}</div></div>`).join('')}</div>`:at.map(t=>tr(t,{sp:1})).join('')||'<p style="color:var(--tx3);text-align:center;padding:16px">Nessuna traccia</p>'}
+</div>`}
+
+function pgL(){let fl=[...vT()];if(S.lg!=='all')fl=fl.filter(t=>t.genre===S.lg);if(S.ls==='recent')fl.sort((a,b)=>b.at-a.at);if(S.ls==='plays')fl.sort((a,b)=>(b.plays||0)-(a.plays||0));if(S.ls==='name')fl.sort((a,b)=>a.name.localeCompare(b.name));
+  return`<div><h1 style="font-size:20px;font-weight:800;margin-bottom:14px">Libreria</h1><div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap"><select class="s" onchange="S.lg=this.value;R()"><option value="all">Tutti</option>${GEN.map(g=>`<option ${S.lg===g?'selected':''}>${g}</option>`).join('')}</select><select class="s" onchange="S.ls=this.value;R()"><option value="recent" ${S.ls==='recent'?'selected':''}>Recenti</option><option value="plays" ${S.ls==='plays'?'selected':''}>Ascoltati</option><option value="name" ${S.ls==='name'?'selected':''}>Nome</option></select></div><div class="c" style="padding:0;overflow:hidden">${fl.length?fl.map(t=>tr(t,{sa:1,sp:1,del:S.role==='bm'})).join(''):'<p style="padding:20px;text-align:center;color:var(--tx3)">Nessun brano</p>'}</div></div>`}
+
+function pgPl(){return`<div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px"><h1 style="font-size:20px;font-weight:800">Playlist</h1><button class="bp" onclick="const n=prompt('Nome:');if(n){S.pl.unshift({id:'pl'+uid(),name:n,tids:[]});R()}">+ Nuova</button></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px">${S.pl.map(p=>`<div class="c cc"><div style="width:100%;padding-top:70%;border-radius:8px;margin-bottom:10px;background:var(--grad);position:relative"><span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:32px">🎧</span></div><div style="font-weight:700;font-size:13px">${esc(p.name)}</div><div style="font-size:11px;color:var(--tx2)">${p.tids.length} brani</div></div>`).join('')}</div></div>`}
+
+function pgC(){const ms=S.cf==='all'?S.msgs:S.msgs.filter(m=>m.pid===S.cf);const oa=S.artists.filter(a=>a.id!==S.user?.aid);
+  return`<div style="display:flex;flex-direction:column;height:calc(100vh - ${mob()?'190px':'160px'})">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px">
+      <h1 style="font-size:20px;font-weight:800">Collab</h1>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><select class="s" style="font-size:12px;padding:6px 10px" onchange="S.cf=this.value;R()"><option value="all">Tutti</option>${S.projects.map(p=>`<option value="${p.id}" ${S.cf===p.id?'selected':''}>${esc(p.title)}</option>`).join('')}</select>${S.role==='bm'&&oa.length?`<select class="s" style="font-size:12px;padding:6px 10px" onchange="if(this.value){cReq(this.value);this.value=''}"><option value="">📩 Collab</option>${oa.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>`:''}</div>
+    </div>
+    <div id="cha" style="flex:1;overflow-y:auto;padding:2px;margin-bottom:6px">${ms.map(m=>{const mi=m.u===S.user?.name;const sy=m.tp==='sys';const em=m.tp==='emo';return`<div class="cm ${mi?'mi':''}" ${sy?'style="background:transparent;border:none;padding:2px 12px;opacity:.6"':''}>
+      ${!em?`<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><b style="font-size:12px;color:${mi?'var(--acc)':sy?'var(--tx3)':'var(--tx)'}">${esc(m.u)}</b><span style="font-size:9px;color:var(--tx3)">${new Date(m.ts).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</span>${m.pid&&gp(m.pid)?'<span class="tg">'+esc(gp(m.pid).title)+'</span>':''}</div>`:''}
+      ${em?`<div style="display:flex;align-items:center;gap:6px"><span style="font-size:26px">${esc(m.txt)}</span><span style="font-size:10px;color:var(--tx3)">${esc(m.u)}</span></div>`:`<p style="font-size:13px;color:${sy?'var(--tx3)':'var(--tx2)'};line-height:1.4;margin:0">${esc(m.txt)}</p>`}
+      ${(m.att||[]).map(a=>a.pv||'<div class="tg" style="margin-top:4px;padding:3px 8px">📄 '+esc(a.name)+'</div>').join('')}
+    </div>`}).join('')}</div>
+    <div style="display:flex;gap:3px;margin-bottom:6px;flex-wrap:wrap">${EMO.map(e=>`<button class="eb" onclick="sEmo('${e}')">${e}</button>`).join('')}</div>
+    <div style="display:flex;gap:6px;align-items:center"><div class="ub" style="flex-shrink:0"><button class="bg" style="padding:8px 10px;pointer-events:none;font-size:12px">📎</button><input type="file" accept="image/*,audio/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx" multiple onchange="cAtt(this.files);this.value=''"></div><input id="ci" class="i" style="flex:1;padding:8px 12px" placeholder="Messaggio..." onkeydown="if(event.key==='Enter'){event.preventDefault();sMsg()}"><button class="bp" style="padding:8px 14px" onclick="sMsg()">📤</button></div>
+  </div>`}
+
+function pgCh(){const ts=vT();if(!ts.length)return'<div><h1 style="font-size:20px;font-weight:800;margin-bottom:20px">Grafici</h1><p style="text-align:center;color:var(--tx3);padding:50px">Carica tracce per i grafici</p></div>';
+  const top=[...ts].sort((a,b)=>(b.plays||0)-(a.plays||0)).slice(0,8);const gd={};ts.forEach(t=>{gd[t.genre]=(gd[t.genre]||0)+(t.plays||0)});const mP=Math.max(...top.map(t=>t.plays||0),1),mG=Math.max(...Object.values(gd),1);
+  const ad={};ts.forEach(t=>{const n=ga(t.aid)?.name||'?';ad[n]=(ad[n]||0)+(t.plays||0)});const mA=Math.max(...Object.values(ad),1);
+  const mo={};ts.forEach(t=>{const d=new Date(t.at);const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');mo[k]=(mo[k]||0)+1});const mM=Math.max(...Object.values(mo),1);
+  return`<div><h1 style="font-size:20px;font-weight:800;margin-bottom:20px">Grafici</h1>
+  <div style="display:grid;grid-template-columns:${mob()?'1fr':'1fr 1fr'};gap:16px;margin-bottom:16px">
+    <div class="c"><h3 style="font-size:13px;font-weight:700;margin-bottom:12px">🔥 Top Brani</h3>${top.map(t=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="font-size:11px;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name.split('-')[0])}</div><div style="flex:1;height:14px;background:var(--bg3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${((t.plays||0)/mP)*100}%;background:var(--grad);border-radius:3px"></div></div><span style="font-size:10px;color:var(--tx2);width:22px;text-align:right">${t.plays||0}</span></div>`).join('')}</div>
+    <div class="c"><h3 style="font-size:13px;font-weight:700;margin-bottom:12px">🎵 Per Genere</h3>${Object.entries(gd).sort(([,a],[,b])=>b-a).map(([g,p])=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="font-size:11px;width:60px">${esc(g)}</div><div style="flex:1;height:14px;background:var(--bg3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${(p/mG)*100}%;background:var(--grad);border-radius:3px"></div></div><span style="font-size:10px;color:var(--tx2);width:22px;text-align:right">${p}</span></div>`).join('')}</div>
+  </div>
+  <div style="display:grid;grid-template-columns:${mob()?'1fr':'1fr 1fr'};gap:16px">
+    <div class="c"><h3 style="font-size:13px;font-weight:700;margin-bottom:12px">👤 Per Artista</h3><div style="display:flex;gap:14px;align-items:flex-end;height:130px">${Object.entries(ad).map(([n,p])=>`<div style="flex:1;text-align:center"><div style="height:${(p/mA)*100}px;background:var(--grad);border-radius:5px 5px 0 0;min-height:4px"></div><div style="font-size:10px;font-weight:600;margin-top:4px">${esc(n)}</div><div style="font-size:9px;color:var(--tx2)">${p}</div></div>`).join('')}</div></div>
+    <div class="c"><h3 style="font-size:13px;font-weight:700;margin-bottom:12px">📈 Upload/Mese</h3><div style="display:flex;gap:10px;align-items:flex-end;height:130px">${Object.entries(mo).sort().slice(-6).map(([k,v])=>`<div style="flex:1;text-align:center"><div style="height:${(v/mM)*100}px;background:var(--grad);border-radius:5px 5px 0 0;min-height:4px"></div><div style="font-size:9px;color:var(--tx2);margin-top:4px">${k.slice(5)}</div><div style="font-size:10px;font-weight:600">${v}</div></div>`).join('')}</div></div>
+  </div></div>`}
+
+function pgS(){const tg=(on,fn)=>`<div onclick="${fn}" style="width:40px;height:22px;border-radius:11px;background:${on?'var(--acc)':'var(--bg3)'};position:relative;cursor:pointer;flex-shrink:0"><div style="width:16px;height:16px;border-radius:50%;background:#fff;position:absolute;top:3px;left:${on?21:3}px;transition:left .15s"></div></div>`;
+  return`<div><h1 style="font-size:20px;font-weight:800;margin-bottom:20px">Impostazioni</h1>
+  <div class="c" style="margin-bottom:14px"><h3 style="font-size:14px;font-weight:700;margin-bottom:14px">🎨 Tema</h3><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${Object.entries(TH).map(([k,t])=>`<div onclick="S.theme='${k}';R()" style="padding:12px;border-radius:10px;cursor:pointer;text-align:center;background:${t.bg};border:${k===S.theme?'2px solid '+t.ac:'1px solid var(--brd)'}">${t.e}<div style="font-size:11px;font-weight:600;margin-top:4px;color:${t.tx}">${t.n}</div></div>`).join('')}</div></div>
+  <div class="c" style="margin-bottom:14px"><h3 style="font-size:14px;font-weight:700;margin-bottom:14px">⚙️ Generali</h3>
+    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px">${tg(S.auto,"S.auto=!S.auto;R()")}<span>Autosalvataggio</span></label>
+    ${S.role==='bm'?'<h4 style="font-size:12px;color:var(--tx2);margin:14px 0 8px">Visibilità Artisti</h4>'+[{k:'collab',l:'Collab'},{k:'library',l:'Libreria'},{k:'charts',l:'Grafici'}].map(({k,l})=>`<label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:6px">${tg(S.vis[k],`S.vis.${k}=!S.vis.${k};R()`)}<span>${l}</span></label>`).join(''):''}
+  </div>
+  <div class="c"><h3 style="font-size:14px;font-weight:700;margin-bottom:10px">👤 Account</h3><p style="font-size:13px;color:var(--tx2)">${esc(S.user?.name)} · ${S.role==='bm'?'Beatmaker':'Artista'}</p><button class="bg" style="margin-top:10px" onclick="S.in=0;R()">Logout</button></div></div>`}
+
+// ═══ FORMS ═══
+function oPF(eid){const p=eid?gp(eid):null;document.body.insertAdjacentHTML('beforeend',`<div class="ov" onclick="if(event.target===this)this.remove()"><div class="mo">
+  <div style="display:flex;justify-content:space-between;margin-bottom:16px"><h2 style="font-size:16px;font-weight:700">${p?'Modifica':'Nuovo'} Progetto</h2><button class="ib" onclick="this.closest('.ov').remove()" style="font-size:16px">✕</button></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div style="grid-column:1/-1"><span class="fl">Brano *</span><input id="pft" class="i" value="${esc(p?.title||'')}"></div>
+    <div style="grid-column:1/-1"><span class="fl">Artista *</span><select id="pfa" class="s" style="width:100%"><option value="">Seleziona</option>${S.artists.map(a=>`<option value="${a.id}" ${p?.aid===a.id?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
+    <div><span class="fl">BPM</span><input id="pfb" class="i" type="number" value="${p?.bpm||120}"></div>
+    <div><span class="fl">Scala</span><select id="pfs" class="s" style="width:100%">${SCA.map(s=>`<option ${p?.scale===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div><span class="fl">Mood</span><select id="pfm" class="s" style="width:100%">${MOO.map(m=>`<option ${p?.mood===m?'selected':''}>${m}</option>`).join('')}</select></div>
+    <div><span class="fl">Genere</span><select id="pfg" class="s" style="width:100%">${GEN.map(g=>`<option ${p?.genre===g?'selected':''}>${g}</option>`).join('')}</select></div>
+    <div><span class="fl">Tipo</span><select id="pfy" class="s" style="width:100%">${PTY.map(t=>`<option ${p?.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div><span class="fl">Durata</span><input id="pfd" class="i" value="${esc(p?.duration||'')}" placeholder="3:30"></div>
+  </div>
+  <button class="bp" style="width:100%;justify-content:center;margin-top:16px;padding:11px 0" onclick="sPF('${eid||''}')">✓ ${p?'Salva':'Crea'}</button>
+</div></div>`)}
+function sPF(eid){const t=$('#pft').value,ai=$('#pfa').value;if(!t||!ai)return;const a=ga(ai);const d={title:t,aid:ai,artistName:a?.name||'',bpm:+$('#pfb').value||120,scale:$('#pfs').value,mood:$('#pfm').value,genre:$('#pfg').value,type:$('#pfy').value,duration:$('#pfd').value};if(eid){const p=gp(eid);if(p)Object.assign(p,d)}else{S.projects.unshift({id:'p'+uid(),...d,cover:null,status:'active',createdAt:now(),sec:{}});ntf('Progetto "'+t+'" creato')}$('.ov')?.remove();R()}
+
+function oAF(eid){const a=eid?ga(eid):null;document.body.insertAdjacentHTML('beforeend',`<div class="ov" onclick="if(event.target===this)this.remove()"><div class="mo">
+  <div style="display:flex;justify-content:space-between;margin-bottom:16px"><h2 style="font-size:16px;font-weight:700">${a?'Modifica':'Nuovo'} Artista</h2><button class="ib" onclick="this.closest('.ov').remove()" style="font-size:16px">✕</button></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div style="grid-column:1/-1"><span class="fl">Nome *</span><input id="afn" class="i" value="${esc(a?.name||'')}"></div>
+    <div><span class="fl">Genere</span><select id="afg" class="s" style="width:100%">${GEN.map(g=>`<option ${a?.genre===g?'selected':''}>${g}</option>`).join('')}</select></div>
+    <div><span class="fl">Password</span><input id="afp" class="i" value="${esc(a?.pw||'')}"></div>
+    <div><span class="fl">Email</span><input id="afe" class="i" value="${esc(a?.email||'')}"></div>
+    <div><span class="fl">Social</span><input id="afs" class="i" value="${esc(a?.social||'')}"></div>
+    <div><span class="fl">Spotify</span><input id="afsp" class="i" value="${esc(a?.spotify||'')}" placeholder="https://open.spotify.com/..."></div>
+    <div><span class="fl">Instagram</span><input id="afig" class="i" value="${esc(a?.instagram||'')}" placeholder="@username"></div>
+    <div style="grid-column:1/-1"><span class="fl">Bio</span><textarea id="afb" class="t" style="min-height:50px">${esc(a?.bio||'')}</textarea></div>
+  </div>
+  <button class="bp" style="width:100%;justify-content:center;margin-top:16px;padding:11px 0" onclick="sAF('${eid||''}')">✓ ${a?'Salva':'Aggiungi'}</button>
+</div></div>`)}
+function sAF(eid){const n=$('#afn').value;if(!n)return;const d={name:n,genre:$('#afg').value,pw:$('#afp').value,email:$('#afe').value,social:$('#afs').value,spotify:$('#afsp').value,instagram:$('#afig').value,bio:$('#afb').value};if(eid){const a=ga(eid);if(a)Object.assign(a,d)}else{S.artists.unshift({id:'a'+uid(),...d,image:null});ntf('Artista "'+n+'" aggiunto')}$('.ov')?.remove();R()}
+
+// ═══ AUTO DARK MODE ═══
+if(window.matchMedia){
+  const mq=window.matchMedia('(prefers-color-scheme:light)');
+  const check=()=>{if(mq.matches&&S.theme==='crimsonNight')S.theme='studioLight';if(!mq.matches&&S.theme==='studioLight')S.theme='crimsonNight';};
+  try{mq.addEventListener('change',()=>{check();R()})}catch(e){mq.addListener(()=>{check();R()})}
+}
+
+// ═══ TIMESTAMP NOTES ═══
+// After render, parse [m:ss] in notes and make them clickable
+function parseTimestamps(){
+  const ta=$('#notes-ta');const el=$('#ts-links');if(!ta||!el)return;
+  const matches=ta.value.match(/\[\d+:\d{2}\]/g);if(!matches||!matches.length){el.innerHTML='';return}
+  el.innerHTML=matches.map(m=>{const t=m.slice(1,-1);const parts=t.split(':');const sec=parseInt(parts[0])*60+parseInt(parts[1]);return`<button class="eb" onclick="sk(${sec}/(au.duration||1));au.play().then(()=>{S.play=1;uPl()}).catch(()=>{})">${m}</button>`}).join('')}
+// Run after each render for notes tab
+const origR=R;
+// We'll call parseTimestamps in a MutationObserver pattern instead
+setInterval(parseTimestamps,500);
+
+// ═══ INIT ═══
+R();
+</script>
+</body>
+</html>
