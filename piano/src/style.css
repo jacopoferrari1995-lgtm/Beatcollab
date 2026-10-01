@@ -397,3 +397,26 @@ details.more summary::before{content:"▸ ";}details.more[open] summary::before{
 .step.gen{background:color-mix(in srgb,var(--pc) 22%,var(--panel))}
 .stepnums{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:4px;font-size:10px;color:var(--tx3);text-align:center}
 .qc.in.on,.qc.out.on,.qc.bor.on,.qc.chrom.on{background:var(--acc);border-color:var(--acc);color:var(--ink);opacity:1}.qc.on small,.qc.on .src{color:var(--ink);opacity:.75}
+
+/* ===================== Sequencer batteria ===================== */
+.seqwrap{overflow-x:auto;margin-top:12px;scrollbar-width:thin}
+.seq{display:grid;grid-template-columns:236px repeat(32,minmax(18px,1fr));gap:3px;min-width:860px;align-items:center}
+.sq-n{font-size:10px;color:var(--tx3);font-variant-numeric:tabular-nums;white-space:nowrap;height:16px}
+.sq-n.b{color:var(--tx2);font-weight:650}
+.sq-h{display:flex;align-items:center;gap:4px;height:30px;padding-right:6px;border-radius:8px;transition:background .1s}
+.sq-h.flash{background:color-mix(in srgb,var(--pc) 22%,transparent)}
+.sq-h.off .sq-name{opacity:.45;text-decoration:line-through}
+.sq-name{flex:1;min-width:0;display:flex;align-items:center;gap:7px;border:0;background:none;font-weight:650;font-size:12.5px;text-align:left;padding:4px 4px;border-radius:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sq-name:hover{background:var(--panel2)}
+.sq-name i{width:10px;height:10px;border-radius:3px;background:var(--pc);flex:none}
+.sq-h input[type=range]{width:52px;accent-color:var(--pc)}
+.ib.ghost{border-color:transparent;background:none;color:var(--tx3)}
+.sq-c{height:26px;border-radius:5px;background:var(--bg2);border:1px solid var(--line);cursor:pointer;position:relative;transition:transform .05s}
+.sq-c.b{border-left-color:var(--line2);background:color-mix(in srgb,var(--line) 35%,var(--bg2))}
+.sq-c.bar{margin-left:6px}
+.sq-c:hover{border-color:var(--tx3)}
+.sq-c.on{background:color-mix(in srgb,var(--pc) calc(var(--o)*100%),var(--panel));border-color:color-mix(in srgb,var(--pc) 70%,transparent)}
+.sq-c.on.man{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--tx) 25%,transparent)}
+.sq-c.ph{outline:2px solid var(--acc);outline-offset:0}
+.sq-c:active{transform:scale(.92)}
+@media (max-width:560px){.seq{grid-template-columns:150px repeat(32,22px)}.sq-h input[type=range]{display:none}}

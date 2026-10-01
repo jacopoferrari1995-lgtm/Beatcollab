@@ -73,8 +73,10 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
   </section>
 
   <section class="panel pads" id="padPanel" hidden>
-    <div class="padhead"><h3>Batteria · mappa dei 10 pad</h3><span class="muted" id="padInfo"></span><span class="spacer"></span><button class="ib" id="padClose" title="Chiudi">✕</button></div>
-    <div class="padgrid" id="padGrid"></div>
+    <div class="padhead"><h3>Batteria · sequencer</h3><span class="muted" id="padInfo"></span><span class="spacer"></span>
+      <button class="btn sm primary-soft" id="seqNew" title="Un groove completamente nuovo per tutto il brano">🎲 Nuovo groove</button><button class="ib" id="padClose" title="Chiudi">✕</button></div>
+    <div class="seqwrap"><div class="seq" id="padGrid"></div></div>
+    <p class="dim" style="font-size:11.5px;margin-top:8px">Clic su una cella: forte → ghost → vuota. Le celle scritte a mano sostituiscono la figura generata di quel pad nella sezione (✎ per tornare al generato). Il 🎲 di riga rigenera solo quel pad.</p>
   </section>
 
   <section class="panel secpanel">

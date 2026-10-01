@@ -987,9 +987,75 @@ function genBass(sec,ctx,r,L,plan,prevRef){
   }
   prevRef.n=prev;return null;
 }
+/* ---------------- Groove generativo ----------------
+   regole per genere -> un "DNA" di groove per brano (ogni pad ha il suo seme) -> due battute (A e variazione B) per sezione */
+const GROOVE={
+  pop:{back:[4,12],kick:[0],opt:[8,6,10,14,3,11],kn:[1,4],hats:['8','16','8acc'],open:[14,6,10],ghost:.15,shaker:.3,perc:[[3,8],[5,16]]},
+  rock:{back:[4,12],kick:[0,8],opt:[10,6,14,2,11],kn:[0,3],hats:['8','8acc','4'],open:[14],ghost:.08,perc:[[3,8]]},
+  jazz:{jazz:1},
+  blues:{back:[4,12],kick:[0],opt:[8,10,6,14],kn:[1,3],hats:['8','8acc'],open:[],ghost:.2},
+  soul:{back:[4,12],kick:[0],opt:[3,8,10,7,14,11],kn:[1,4],hats:['16','8acc','8'],open:[6,14],ghost:.35,shaker:.3},
+  lofi:{back:[4,12],kick:[0],opt:[7,8,10,11,14,3],kn:[1,3],hats:['8','16s','8s'],open:[14],ghost:.25},
+  cinematic:{back:[8],kick:[0],opt:[8,6,12,14,10],kn:[0,3],hats:[],open:[],ghost:0,perc:[[3,16],[5,16],[3,8]],toms:1},
+  gospel:{back:[4,12],kick:[0],opt:[6,8,10,14,3],kn:[1,4],hats:['16','8acc'],open:[14,6],ghost:.35,clapL:.5},
+  bossa:{back:[],clave:[[0,3,6,10,12],[0,3,6,10,13],[2,4,8,11,14]],kick:[0,8],opt:[6,14,7,15],kn:[1,3],hats:['16s'],open:[],shaker:.6,perc:[[5,16],[3,8]]},
+  trap:{back:[8],kick:[0],opt:[3,6,7,10,11,13,14,9],kn:[1,4],hats:['trap','trap','8'],open:[14,6,11],ghost:0,perc:[[3,16]]},
+  boombap:{back:[4,12],kick:[0],opt:[7,8,10,13,14,3,15],kn:[1,4],hats:['8','8acc','16s'],open:[14,6],ghost:.35},
+  triphop:{back:[4,12],kick:[0],opt:[6,10,7,11,14],kn:[1,3],hats:['8s','8','16s'],open:[14],ghost:.25},
+  afrobeat:{back:[4,12],kick:[0,8],opt:[3,11,6,14,10],kn:[1,3],hats:['16','8acc'],open:[],rim:[[3,8],[5,16],[3,16],[7,16]],shaker:.7,perc:[[5,16],[3,8],[7,16]]},
+  afrorage:{back:[4,12],kick:[0],opt:[6,8,10,3,11,14],kn:[1,4],hats:['16','trip','trap'],open:[],shaker:.5,trip:[[4,12],[5,12],[7,12],[3,12]],perc:[[5,16]]},
+  dancehall:{back:[3,6,11,14],kick:[0,8],opt:[4,12,3,11],kn:[0,3],hats:['8','16'],open:[6,14],shaker:.3,perc:[[3,8],[5,16]]},
+  reggae:{back:[8],rimBack:1,kick:[8],opt:[0,4,12],kn:[0,3],hats:['off8','8'],open:[2,6,10,14],ghost:.1}};
+function euclid(k,n,rot){const a=[];for(let i=0;i<n;i++)a.push(Math.floor(i*k/n)!==Math.floor((i-1)*k/n)?1:0);a[0]=1;return a.map((_,i)=>a[(i+rot+n)%n]);}
+// DNA del groove: ogni elemento (pad) ha il suo generatore, così si può rigenerare un pad da solo
+function grooveDNA(G,rp){
+  const S=GROOVE[G.drums]||GROOVE.pop,d={spec:S};
+  if(S.jazz){const r=rp(3);d.ride=pick(r,[[0,4,6,8,12,14],[0,4,7,8,12,15],[0,4,8,12,14],[0,2,4,8,10,12]]);d.comp=.4+rp(1)()*.4;return d;}
+  {const r=rp(0),o=S.opt.slice();for(let i=o.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[o[i],o[j]]=[o[j],o[i]];}d.kick=o;d.kickVar=r()<.5?(r()<.5?15:o[o.length-1]):null;}
+  {const r=rp(1);d.back=S.back;d.ghost=(S.ghost||0)*(.6+r()*.8);d.ghostPos=[3,7,9,11,15].filter(x=>r()<.6);d.snVar=pick(r,[null,15,14,[14,15]]);d.flam=r()<.2;}
+  {const r=rp(2);d.rim=S.rimBack?[8]:S.clave?pick(r,S.clave):S.rim&&r()<.8?(()=>{const [k,n]=pick(r,S.rim),e=euclid(k,n,Math.floor(r()*n)),out=[];e.forEach((v,i)=>{if(v)out.push(n===8?i*2:i);});return out;})():r()<.25?[pick(r,[6,10,14])]:[];}
+  {const r=rp(3);d.hat=S.hats.length?pick(r,S.hats):null;d.hatAcc=pick(r,[[7,4,5,4],[7,5,6,5],[6,3,7,3],[7,4,6,4]]);
+    d.rolls=[3,7,11,13,15].filter(()=>r()<.35);if(!d.rolls.length)d.rolls=[pick(r,[7,15])];d.rollType=d.rolls.map(()=>r()<.5?'r':'z');}
+  {const r=rp(4);d.open=S.open.filter(()=>r()<.55);}
+  {const r=rp(5);d.shaker=!!S.shaker&&r()<S.shaker+.15;d.shakAcc=pick(r,[[6,3,4,3],[5,4,6,4],[6,4,4,5]]);}
+  {const r=rp(6);d.p1=S.trip?(()=>{const [k,n]=pick(r,S.trip);return{n,e:euclid(k,n,Math.floor(r()*n))};})():S.perc?(()=>{const [k,n]=pick(r,S.perc);return{n,e:euclid(k,n,Math.floor(r()*n))};})():null;}
+  {const r=rp(7);d.p2=S.trip?(()=>{const [k,n]=pick(r,S.trip);return{n,e:euclid(k,n,Math.floor(r()*n))};})():S.perc&&r()<.7?(()=>{const [k,n]=pick(r,S.perc);return{n,e:euclid(k,n,Math.floor(r()*n))};})():null;}
+  return d;
+}
+// una battuta di groove: lista di colpi {pad, t (in tempi), v (0-9), roll}
+function grooveBar(d,tier,variant,r){
+  const S=d.spec,H=[],add=(pad,st,v,grid)=>H.push({pad,t:st*4/(grid||16),v,grid:grid||16,st});
+  if(S.jazz){d.ride.forEach(s=>add(3,s,s%4===0?7:5));add(3,4,6);add(3,12,6);if(tier>=1)[0,4,8,12].forEach(s=>add(0,s,3));
+    if(tier>=1)[2,6,7,10,14,15].forEach(s=>{if(r()<d.comp*.45)add(1,s,3+Math.floor(r()*3));});return H;}
+  const nK=Math.min(d.kick.length,S.kn[0]+tier*Math.ceil((S.kn[1]-S.kn[0])/2));
+  S.kick.forEach(s=>add(0,s,9));d.kick.slice(0,nK).forEach((s,i)=>add(0,s,7+(i===0?1:0)));
+  if(variant&&d.kickVar!=null&&tier>=1)add(0,d.kickVar,6);
+  d.back.forEach(s=>add(1,s,9));if(S.clapL&&tier>=2)d.back.forEach(s=>add(1,s,6));
+  if(d.flam&&tier>=1)d.back.forEach(s=>add(1,s-.5,4));
+  if(variant&&d.snVar!=null&&tier>=1)[].concat(d.snVar).forEach(s=>add(1,s,5));
+  if(d.ghost>0)d.ghostPos.forEach(s=>{if(!d.back.includes(s)&&r()<d.ghost*(.4+tier*.3))add(1,s,3);});
+  d.rim.forEach(s=>add(2,s,S.rimBack?8:7));
+  if(d.hat){const h=tier===0&&d.hat==='16'?'8':tier===0&&d.hat==='trap'?'8':d.hat,A=d.hatAcc;
+    const skip=new Set(tier>=1?d.open:[]);
+    if(h==='trip'){for(let i=0;i<12;i++)add(3,i,[6,4,4][i%3],12);}
+    else for(let s=0;s<16;s++){if(skip.has(s))continue;
+      if(h==='4'&&s%4===0)add(3,s,A[0]);
+      else if((h==='8'||h==='8acc'||h==='8s'||h==='trap')&&s%2===0)add(3,s,h==='8s'?A[s%4]-1:h==='8acc'?(s%4===2?A[0]:A[2]):A[s%4]);
+      else if((h==='16'||h==='16s')&&true)add(3,s,h==='16s'?A[s%4]-2:A[s%4]);
+      else if(h==='off8'&&s%4===2)add(3,s,6);}
+    if(h==='trap'&&tier>=1){const rl=variant?d.rolls.slice().reverse():d.rolls;rl.forEach((s,i)=>{const H2=H.find(x=>x.pad===3&&x.st===s-1);H.push({pad:3,t:s/4,v:5,grid:16,st:s,roll:d.rollType[i]});});}
+    if(tier>=1)d.open.forEach(s=>add(4,s,6));}
+  if(d.shaker&&tier>=1)for(let s=0;s<16;s++)add(5,s,d.shakAcc[s%4]);
+  if(d.p1&&tier>=1)d.p1.e.forEach((v,i)=>{if(v)add(6,i,6+(i===0?1:0),d.p1.n);});
+  if(d.p2&&tier>=2)d.p2.e.forEach((v,i)=>{if(v)add(7,i,6,d.p2.n);});
+  if(S.toms&&tier>=1&&!d.p1)[12,14].forEach(s=>add(7,s,7));
+  return H;
+}
+
 function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
-  const E=env(sec,ctx,L,'drums'),G=E.G,M=E.M,set=DRUMS[G.drums],p=set[Math.min(tier,set.length-1)],e=E.e,kit=drumKit(G);
+  const E=env(sec,ctx,L,'drums'),G=E.G,M=E.M,e=E.e,kit=drumKit(G);
   const R=()=>r();
+  const GA=grooveBar(ctx.sty.drums,tier,0,r),GB=grooveBar(ctx.sty.drums,tier,1,r);
   const G2=grid||{},PD=pdens||{};
   const hit=(t,pad,v,d,man)=>{if(G2[pad]&&!man)return;const k=PD[pad];
     if(k!=null&&k<1&&pad!==9&&pad!==8){const rel=(t-sec.startBeat)%1;if(Math.abs(rel)>.01&&r()>k)return;}
@@ -997,39 +1063,32 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
     if(k!=null&&k>1&&!man&&(pad===3||pad===5||pad===6||pad===7)&&r()<k-1)L.drums.push({t:t+.25,d:.1,n:kit.notes[pad],pad,v:clamp(Math.round(v*.6*E.dyn(t)),12,127)});};
   const lvl=d=>34+d*9*(.8+e*.3);
   const space=plan?plan.space:.3,dens=plan?plan.dens:.5,shape=plan?plan.shape:[1,1,1,1];
-  const ghostSn=['boombap','soul','gospel','jazz','afrobeat','lofi','blues'].includes(G.drums),groove=!!G.groove;
+  const groove=!!G.groove;
   const nx=sec.next,riseTo=nx&&nx.energy-sec.energy>=.2;
   // stop prima di una sezione più forte (vuoto che prepara il pieno)
   const stop=riseTo&&R()<(groove?.35:.15)*(1+space);
   for(let b=0;b<sec.bars;b++){
     const bs=sec.startBeat+b*4,lastBar=b===sec.bars-1,fill=lastBar&&nx&&e>=.4&&!stop&&R()<.85;
     const empty=space>.5&&shape[b%4]<.6;   // battuta "vuota": meno colpi
-    const taken=new Set();
-    for(const ins in p){if(ins==='g')continue;const line=p[ins],n=line.length,st=4/n,pad=LINE_PAD[ins];if(pad==null)continue;
-      for(let i=0;i<n;i++){const ch=line[i];if(ch==='.')continue;const t=bs+i*st,beat=t-bs;
-        if(fill&&beat>=3-1e-6&&(pad===0||pad===1||pad>=6))continue;
-        if(stop&&lastBar&&beat>=2-1e-6)continue;
-        if(empty&&pad===0&&beat>.01&&R()<.6)continue;
-        if(empty&&pad===3&&i%2===1&&R()<.5)continue;
-        const sw=n===16?swingDelay(G,i):0,jt=E.jit(r,.012),vel=pad===3&&ins==='p'?.8:1;
-        if(n===16)taken.add(pad+':'+i);
-        if(ch==='r'){hit(t+sw+jt,pad,lvl(6));hit(t+st/2+sw,pad,lvl(5));}
-        else if(ch==='z'){for(let k=0;k<3;k++)hit(t+sw+k*st*2/3,pad,lvl(5+(k===0?1:0)));}
-        else hit(t+sw+jt,pad,(lvl(+ch)+E.jit(r,10))*vel);}}
+    const taken=new Set(),bar=b%2?GB:GA;
+    for(const h of bar){const pad=h.pad,t=bs+h.t,beat=h.t,st=h.st;
+      if(fill&&beat>=3-1e-6&&(pad===0||pad===1||pad>=6))continue;
+      if(stop&&lastBar&&beat>=2-1e-6)continue;
+      if(empty&&pad===0&&beat>.01&&R()<.6)continue;
+      if(empty&&pad===3&&h.grid===16&&st%2===1&&R()<.5)continue;
+      const sw=h.grid===16&&Number.isInteger(st)?swingDelay(G,st):0,jt=E.jit(r,.012);
+      if(h.grid===16)taken.add(pad+':'+st);
+      if(h.roll==='r'){hit(t+sw+jt,pad,lvl(6));hit(t+.125+sw,pad,lvl(5));}
+      else if(h.roll==='z'){for(let k=0;k<3;k++)hit(t+sw+k*.5/3,pad,lvl(5+(k===0?1:0)));}
+      else hit(t+sw+jt,pad,lvl(h.v)+E.jit(r,10));}
     if(stop&&lastBar)continue;
-    // aggiunte secondo la densità
-    if(dens>.55&&!empty)for(let i=1;i<16;i+=2)if(!taken.has('3:'+i)&&!taken.has('3:'+(i-1))&&R()<(dens-.55)*.9)hit(bs+i/4+swingDelay(G,i),3,lvl(3)+E.jit(r,6));
-    if(ghostSn)for(const i of [3,7,9,15])if(!taken.has('1:'+i)&&R()<dens*.22*(1-space*.5))hit(bs+i/4+swingDelay(G,i),1,26+R()*18);
-    if(groove&&e>=.6&&!p.w&&dens>.45)for(let i=0;i<16;i++)if(R()<.85)hit(bs+i/4+swingDelay(G,i),5,(i%2?28:40)+R()*10);
-    if(b%2===1&&!lastBar&&!taken.has('0:14')&&R()<.3*dens)hit(bs+3.5+swingDelay(G,14),0,lvl(6));
-    if(p.g)for(let s=2;s<16;s+=4)if(R()<.25*p.g)hit(bs+s/4+swingDelay(G,s),1,28+R()*25);
     if(fill){const fl=G.drums==='afrorage'||kit.names[6].startsWith('Conga')?pick(r,[[6,0,6,7,7,7],[6,6,7,6,7,7]]):pick(r,[[1,1,1,1],[6,6,7,7],[1,1,6,7],[1,0,1,1]]);
       const st=1/fl.length;fl.forEach((pd,k)=>{if(pd||k===0)hit(bs+3+k*st,pd,70+k*8+e*20);});}
     if(b===0&&(e>=.6||(sec.prev&&sec.prev.type==='intro')))hit(bs,8,80+e*30,1);
   }
   // colpi scritti a mano sulla griglia (sostituiscono quelli generati per quel pad)
-  for(const pd in G2){const steps=G2[pd];if(!steps)continue;for(let b=0;b<sec.bars;b++){const bs=sec.startBeat+b*4;
-    steps.forEach((v,i)=>{if(v>0)hit(bs+i/4+swingDelay(G,i)+E.jit(r,.01),+pd,v,+pd===9?1:.12,true);});}}
+  for(const pd in G2){const steps=G2[pd];if(!steps)continue;for(let b=0;b<sec.bars;b++){const bs=sec.startBeat+b*4,o=steps.length>16?(b%2)*16:0;
+    for(let i=0;i<16;i++){const v=steps[o+i];if(v>0)hit(bs+i/4+swingDelay(G,i)+E.jit(r,.01),+pd,v,+pd===9?1:.12,true);}}}
   // FX: risalita prima di una sezione più forte, impatto all'attacco del ritornello
   if(riseTo)hit(sec.startBeat+(sec.bars-1)*4,9,64+e*20,4);
   if(sec.type==='chorus'&&sec.prev&&['trap','afrorage','cinematic','triphop'].includes(G.drums))hit(sec.startBeat,9,88,.6);
@@ -1147,6 +1206,7 @@ function generateSong(o){
   const L={mel:[],piano:[],arp:[],pad:[],bass:[],drums:[]},melCache={},bassRef={n:38};
   const rA=(tag,layer,type)=>subRng(seeds.a,tagx(tag,layer,type,'a'));
   ctx.sty=songStyle(G,M,rA('sty-piano','piano'),rA('sty-arp','arp'));
+  ctx.sty.drums=G.drums?grooveDNA(G,i=>subRng(seeds.a,tagx('sty-drums-p'+i,'drums')+((RS.L&&RS.L['drums.'+i])?'#P'+RS.L['drums.'+i]:''))):null;
   const mr=subRng(seeds.m,tagx('mel-dna','mel')),md=clamp(G.mel.dens+(M.dens-.5)*.4,.15,.9);
   const melDNA=[rhythmBar(mr,md*.9,G.mel.sync,G.mel.s16),rhythmBar(mr,md,G.mel.sync,G.mel.s16)];
   sections.forEach((sec,si)=>{
@@ -1300,5 +1360,5 @@ function makeZip(files){
   const all=[...parts,...central,end],out=new Uint8Array(all.reduce((a,p)=>a+p.length,0));let p=0;all.forEach(x=>{out.set(x,p);p+=x.length;});
   return out;
 }
-if(typeof module!=='undefined'&&module.exports)module.exports={chordAdvice,fitQ,PADS,drumKit,SEC_NAME,SEC_BARS,TYPE_ORDER,TEX_NAME,suggestChords,qTri,GENRES,MOODS,MODES,MODE_ORDER,STRUCTS,QT,KEY_NAMES,LAYERS,generateSong,toMidi,chordChart,makeZip,crc32,
+if(typeof module!=='undefined'&&module.exports)module.exports={grooveDNA,grooveBar,euclid,GROOVE,chordAdvice,fitQ,PADS,drumKit,SEC_NAME,SEC_BARS,TYPE_ORDER,TEX_NAME,suggestChords,qTri,GENRES,MOODS,MODES,MODE_ORDER,STRUCTS,QT,KEY_NAMES,LAYERS,generateSong,toMidi,chordChart,makeZip,crc32,
   degChord,numeral,parseRN,speller,rngFrom,mod12,stackVoicings,SHAPES,DRUMS};

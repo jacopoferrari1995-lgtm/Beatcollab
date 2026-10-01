@@ -138,7 +138,7 @@ function renderLanes(){
         <button class="ib ${St.feel[l.id]&&Object.keys(St.feel[l.id]).length?'on':''}" data-feel="${l.id}" title="Feel: umanizzazione, swing, anticipo/ritardo">≈</button>
         <button class="ib dl" data-dl="${l.id}" title="Scarica solo questa traccia (.mid)">⬇</button></div>
       <div class="r2"><label class="vol" style="--vc:var(--c-${l.id})" title="Volume ${l.n}"><input type="range" min="0" max="150" value="${v}" data-vol="${l.id}"><span>${v}%</span></label>
-        ${l.id==='drums'?`<button class="btn sm ${St.showPads?'primary-soft':''}" data-pads style="padding:3px 8px">Pad</button>`:`<span class="oct ${o?'on':''}" title="Ottava"><button data-oct="${l.id}" data-d="-1">−</button><span>${o>0?'+'+o:o}</span><button data-oct="${l.id}" data-d="1">+</button></span>`}</div></div>`;}).join('');
+        ${l.id==='drums'?`<button class="btn sm ${St.showPads?'primary-soft':''}" data-pads style="padding:3px 8px">Sequencer</button>`:`<span class="oct ${o?'on':''}" title="Ottava"><button data-oct="${l.id}" data-d="-1">−</button><span>${o>0?'+'+o:o}</span><button data-oct="${l.id}" data-d="1">+</button></span>`}</div></div>`;}).join('');
   h.querySelectorAll('[data-rl]').forEach(b=>b.onclick=()=>{const id=b.dataset.rl;St.reseed.L[id]=(St.reseed.L[id]||0)+1;
     if(St.mute[id])St.mute[id]=false;regen();toast(`${LAYERS.find(l=>l.id===id).n}: nuova versione`);});
   h.querySelectorAll('[data-mute]').forEach(b=>b.onclick=()=>{const id=b.dataset.mute;St.mute[id]=!St.mute[id];renderLanes();drawArr();track();});
@@ -179,46 +179,47 @@ document.addEventListener('pointerdown',e=>{const p=$('#feelPop');if(!p.hidden&&
 /* ---------------- Pad batteria ---------------- */
 const PAD_COL=['#ef4444','#f59e0b','#eab308','#22c55e','#14b8a6','#06b6d4','#3b82f6','#6366f1','#a855f7','#ec4899'];
 const NOTE_NM=n=>KEY_NAMES[n%12]+(Math.floor(n/12)-1);
+// sequencer: 10 pad × 32 passi (le due battute del groove della sezione selezionata)
+function seqData(){
+  const s=St.song,sec=s.sections[St.sel],t=sec.type,man=St.drumGrid[t]||{};
+  const gen=Array.from({length:10},()=>Array(32).fill(0));
+  s.layers.drums.forEach(e=>{const rel=e.t-sec.startBeat;if(rel<-.05||rel>=7.95)return;const st=clamp(Math.round(rel*4),0,31);gen[e.pad][st]=Math.max(gen[e.pad][st],e.v);});
+  return{sec,t,rows:gen.map((g,p)=>{const m=man[p];return m?{v:m.length>16?m:m.concat(m),man:true}:{v:g,man:false};})};
+}
 function renderPads(){
   const s=St.song,panel=$('#padPanel'),has=s.layers.drums.length>0;
   panel.hidden=!(St.showPads&&has);if(panel.hidden)return;
-  const kit=drumKit(GENRES[s.genre]),cnt=Array(10).fill(0);s.layers.drums.forEach(e=>cnt[e.pad]++);const mx=Math.max(1,...cnt);
-  $('#padInfo').textContent=`kit ${GENRES[s.genre].n} · clicca un pad per ascoltarlo e modificarlo`;
-  $('#padGrid').innerHTML=PADS.map((p,i)=>`<div class="dpad ${St.padMute[i]?'off':''} ${cnt[i]?'':'none'} ${St.padSel===i?'selp':''}" data-pad="${i}" style="--pc:${PAD_COL[i]}">
-    <span class="num">${i+1}</span><div><b>${kit.names[i]}</b><br><small>nota ${kit.notes[i]} · ${NOTE_NM(kit.notes[i])}${St.padVol[i]!=null&&St.padVol[i]!==1?' · vol '+Math.round(St.padVol[i]*100)+'%':''}</small></div>
-    <div><small>${cnt[i]} colpi</small><div class="bar"><i style="width:${cnt[i]/mx*100}%"></i></div></div>
-    <button class="ib pm ${St.padMute[i]?'on':''}" data-pm="${i}" title="Silenzia il pad">M</button></div>`).join('')+'<div id="padEdit" style="grid-column:1/-1"></div>';
-  $$('#padGrid .dpad').forEach(el=>el.onclick=e=>{const i=+el.dataset.pad;
-    if(e.target.closest('[data-pm]')){St.padMute[i]=!St.padMute[i];if(!St.padMute[i])delete St.padMute[i];renderPads();drawArr();track();return;}
-    Synth.init();Synth.hit(kit.notes[i],Synth.now()+.01,100*(St.padVol[i]!=null?St.padVol[i]:1),i===9?2:.2);flashPad(i);
-    St.padSel=St.padSel===i?null:i;renderPads();});
-  renderPadEdit(kit);
+  const kit=drumKit(GENRES[s.genre]),D=seqData(),nM=Object.keys(St.drumGrid[D.t]||{}).length;
+  $('#padInfo').textContent=`${D.sec.name} · 2 battute di groove (si ripetono per tutta la sezione)${nM?` · ${nM} pad scritti a mano`:''}`;
+  const head=`<div class="sq-h"></div>${Array.from({length:32},(_,k)=>`<div class="sq-n ${k%4===0?'b':''}">${k%16===0?'batt. '+(k/16+1):k%4===0?(k%16)/4+1:''}</div>`).join('')}`;
+  $('#padGrid').innerHTML=head+PADS.map((p,i)=>{const R=D.rows[i],vol=St.padVol[i]!=null?St.padVol[i]:1;
+    return`<div class="sq-h ${St.padMute[i]?'off':''}" data-row="${i}" style="--pc:${PAD_COL[i]}">
+        <button class="sq-name" data-aud="${i}" title="Ascolta · nota ${kit.notes[i]} (${NOTE_NM(kit.notes[i])})"><i></i>${kit.names[i]}</button>
+        <button class="ib ${St.padMute[i]?'on':''}" data-pm="${i}" title="Silenzia il pad">M</button>
+        <button class="ib rg" data-pr="${i}" title="Rigenera solo questo pad">🎲</button>
+        <input type="range" min="0" max="150" value="${Math.round(vol*100)}" data-pv="${i}" title="Volume ${Math.round(vol*100)}%">
+        ${R.man?`<button class="ib on" data-pg="${i}" title="Scritto a mano: torna al generato">✎</button>`:'<span class="ib ghost" title="Generato">·</span>'}</div>`+
+      R.v.map((v,k)=>`<div class="sq-c ${v>0?'on':''} ${R.man?'man':''} ${k%4===0?'b':''} ${k===16?'bar':''}" data-p="${i}" data-s="${k}" style="--pc:${PAD_COL[i]};--o:${v>0?(.35+v/127*.65).toFixed(2):0}"></div>`).join('');}).join('');
+  const g=$('#padGrid');
+  g.querySelectorAll('[data-aud]').forEach(b=>b.onclick=()=>{const i=+b.dataset.aud;Synth.init();Synth.hit(kit.notes[i],Synth.now()+.01,100*(St.padVol[i]!=null?St.padVol[i]:1),i===9?2:.2);flashPad(i);});
+  g.querySelectorAll('[data-pm]').forEach(b=>b.onclick=()=>{const i=+b.dataset.pm;St.padMute[i]=!St.padMute[i];if(!St.padMute[i])delete St.padMute[i];renderPads();drawArr();track();});
+  g.querySelectorAll('[data-pr]').forEach(b=>b.onclick=()=>{const i=+b.dataset.pr,k='drums.'+i;St.reseed.L[k]=(St.reseed.L[k]||0)+1;
+    if(St.drumGrid[D.t]&&St.drumGrid[D.t][i]){delete St.drumGrid[D.t][i];}regen();toast(`${kit.names[i]}: nuova figura`);});
+  g.querySelectorAll('[data-pv]').forEach(el=>{el.onchange=()=>{const i=+el.dataset.pv,v=+el.value/100;if(v===1)delete St.padVol[i];else St.padVol[i]=v;buildEv();track();};});
+  g.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>{const i=+b.dataset.pg;setGrid(D.t,i,null);});
+  g.querySelectorAll('.sq-c').forEach(el=>el.onclick=()=>{const i=+el.dataset.p,k=+el.dataset.s,arr=D.rows[i].v.map(x=>Math.round(x)),v=arr[k];
+    arr[k]=v===0?110:v>=85?60:0;setGrid(D.t,i,arr);if(arr[k]){Synth.init();Synth.hit(kit.notes[i],Synth.now()+.01,arr[k],.2);}});
 }
-function renderPadEdit(kit){
-  const box=$('#padEdit'),i=St.padSel;if(!box)return;if(i==null){box.innerHTML='';return;}
-  const s=St.song,sec=s.sections[St.sel],t=sec.type,man=(St.drumGrid[t]||{})[i],vol=St.padVol[i]!=null?St.padVol[i]:1,den=St.padDens[i]!=null?St.padDens[i]:1;
-  const gen=Array(16).fill(0);s.layers.drums.forEach(e=>{if(e.pad===i&&e.t>=sec.startBeat-.02&&e.t<sec.startBeat+3.98){const st=Math.round((e.t-sec.startBeat)*4);if(st>=0&&st<16)gen[st]=Math.max(gen[st],e.v);}});
-  const steps=man||gen;
-  box.innerHTML=`<div class="padedit" style="--pc:${PAD_COL[i]}">
-    <div class="prow"><b>${kit.names[i]}</b><span class="dim" style="font-size:12px">· griglia di ${sec.name} (vale per tutte le ${SEC_NAME[t].toLowerCase()})</span><span class="spacer"></span>
-      <span class="fitlab ${man?'out':'in'}">${man?'scritta a mano':'generata'}</span></div>
-    <div><div class="stepnums">${Array.from({length:16},(_,k)=>`<span>${k%4===0?k/4+1:'·'}</span>`).join('')}</div>
-      <div class="steps">${steps.map((v,k)=>`<div class="step ${v>0?'on':''} ${!man&&v>0?'gen':''}" data-st="${k}" style="--vh:${Math.round(v/127*80)}%" title="${v>0?'velocity '+Math.round(v):'vuoto'}"></div>`).join('')}</div></div>
-    <div class="prow"><span class="label">Volume</span><input type="range" id="pvVol" min="0" max="150" value="${Math.round(vol*100)}" style="width:140px"><span class="dim" id="pvVolV">${Math.round(vol*100)}%</span>
-      <span class="label" style="margin-left:12px">Densità</span><input type="range" id="pvDen" min="20" max="190" value="${Math.round(den*100)}" style="width:140px"><span class="dim" id="pvDenV">${den===1?'auto':Math.round(den*100)+'%'}</span>
-      <span class="spacer"></span>${man?'<button class="btn sm" id="pvGen">Torna alla griglia generata</button>':''}<button class="btn sm ghost" id="pvClear">Svuota</button></div>
-    <p class="dim" style="font-size:11.5px">Clic su un passo: acceso (forte) → ghost (piano) → spento. Scrivere sulla griglia sostituisce i colpi generati di questo pad in questa sezione.</p></div>`;
-  const setGrid=g=>{St.drumGrid[t]=Object.assign({},St.drumGrid[t]);if(g)St.drumGrid[t][i]=g;else delete St.drumGrid[t][i];if(!Object.keys(St.drumGrid[t]).length)delete St.drumGrid[t];regen();};
-  $$('#padEdit .step').forEach(el=>el.onclick=()=>{const k=+el.dataset.st,g=steps.map(v=>Math.round(v));const v=g[k];g[k]=v===0?105:v>=90?55:0;setGrid(g);
-    Synth.init();if(g[k])Synth.hit(kit.notes[i],Synth.now()+.01,g[k],.2);});
-  $('#pvVol').oninput=e=>$('#pvVolV').textContent=e.target.value+'%';
-  $('#pvVol').onchange=e=>{const v=+e.target.value/100;if(v===1)delete St.padVol[i];else St.padVol[i]=v;buildEv();renderPads();track();};
-  $('#pvDen').oninput=e=>$('#pvDenV').textContent=e.target.value+'%';
-  $('#pvDen').onchange=e=>{const v=+e.target.value/100;if(Math.abs(v-1)<.05)delete St.padDens[i];else St.padDens[i]=v;regen();};
-  $('#pvClear').onclick=()=>setGrid(Array(16).fill(0));
-  const pg=$('#pvGen');if(pg)pg.onclick=()=>setGrid(null);
+function setGrid(t,i,arr){St.drumGrid[t]=Object.assign({},St.drumGrid[t]);if(arr)St.drumGrid[t][i]=arr;else delete St.drumGrid[t][i];if(!Object.keys(St.drumGrid[t]).length)delete St.drumGrid[t];regen();}
+function flashPad(i){const el=$(`#padGrid .sq-h[data-row="${i}"]`);if(!el)return;el.classList.add('flash');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('flash'),110);}
+let lastSeqStep=-1;
+function seqPlayhead(p){
+  if(!St.showPads||$('#padPanel').hidden)return;const sec=St.song.sections[St.sel];
+  const k=p>=sec.startBeat&&p<sec.startBeat+sec.bars*4?Math.floor(((p-sec.startBeat)%8)*4):-1;
+  if(k===lastSeqStep)return;$$('#padGrid .sq-c.ph').forEach(e=>e.classList.remove('ph'));
+  if(k>=0)$$(`#padGrid .sq-c[data-s="${k}"]`).forEach(e=>e.classList.add('ph'));lastSeqStep=k;
 }
-function flashPad(i){const el=$(`#padGrid .dpad[data-pad="${i}"]`);if(!el)return;el.classList.add('flash');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('flash'),110);}
+$('#seqNew').onclick=()=>{St.reseed.L.drums=(St.reseed.L.drums||0)+1;Object.keys(St.reseed.L).forEach(k=>{if(k.startsWith('drums.'))delete St.reseed.L[k];});regen();toast('Nuovo groove');};
 $('#padClose').onclick=()=>{St.showPads=false;renderLanes();renderPads();};
 const cache=document.createElement('canvas');
 function cssVar(k){return getComputedStyle(document.documentElement).getPropertyValue(k).trim();}
@@ -447,7 +448,7 @@ const Player={playing:false,base:0,p:0,timer:null,raf:0,
       this.p++;
     }
   },
-  loop(){if(!this.playing)return;const p=this.pos();paintArr(p);updateTransport(p);
+  loop(){if(!this.playing)return;const p=this.pos();paintArr(p);updateTransport(p);seqPlayhead(p);
     const sc=$('#arrScroll'),X=p/4*St.layout.barW;if(X<sc.scrollLeft+20||X>sc.scrollLeft+sc.clientWidth-40)sc.scrollLeft=Math.max(0,X-60);
     this.raf=requestAnimationFrame(()=>this.loop());}};
 function renderProg(){
