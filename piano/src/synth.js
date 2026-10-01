@@ -139,12 +139,44 @@ const Synth=(()=>{
       default:{const f={41:90,43:100,45:110,47:140,48:165,50:200}[n]||130;tone(t,f*1.6,f,.32,k*.7,out);}
     }
   }
-  const INST={piano,epiano,pluck,bass,pad,b808};
-  function note(inst,n,t,d,v,layer,gl){init();(INST[inst]||piano)(n,t,d,v,bus[layer]||bus.ex,inst==='lead'?true:gl);}
+  /* ---- chitarra: Karplus-Strong (corda pizzicata calcolata), corpo e amplificatore per timbro ---- */
+  const TONES={acoustic:{br:.72,rho:.9965,pos:.18,len:3.4,body:[[110,4,1.2],[230,3,1.5],[2600,3,1]],lp:9000},
+    nylon:{br:.42,rho:.9945,pos:.22,len:3,body:[[100,4,1.1],[210,3,1.4],[1800,1,1]],lp:5200},
+    clean:{br:.6,rho:.9965,pos:.14,len:3.2,body:[[180,2,1],[2200,3,1.2]],lp:7000},
+    jazz:{br:.32,rho:.995,pos:.25,len:2.8,body:[[160,3,1],[900,2,1]],lp:3200},
+    crunch:{br:.85,rho:.998,pos:.12,len:3,body:[[120,3,1],[1800,4,1]],lp:4600,drive:6}};
+  let gTone='clean',gIn=null;const GBUF=new Map();
+  function gtrChain(){if(gIn)return gIn;const T=TONES[gTone];gIn=A.createGain();gIn.gain.value=T.drive?.55:1;let node=gIn;
+    if(T.drive){const sh=A.createWaveShaper(),c=new Float32Array(1024);for(let i=0;i<1024;i++){const x=i/511.5-1;c[i]=Math.tanh(x*T.drive)/Math.tanh(T.drive);}sh.curve=c;sh.oversample='2x';node.connect(sh);node=sh;}
+    T.body.forEach(([f,g,q])=>{const b=A.createBiquadFilter();b.type='peaking';b.frequency.value=f;b.gain.value=g;b.Q.value=q;node.connect(b);node=b;});
+    const lp=A.createBiquadFilter();lp.type='lowpass';lp.frequency.value=T.lp;node.connect(lp);lp.connect(bus.gtr);return gIn;}
+  function setGuitarTone(t){if(!TONES[t]||t===gTone)return;gTone=t;GBUF.clear();if(gIn){try{gIn.disconnect();}catch(e){}gIn=null;}}
+  function ksBuf(n,art){const key=n+'|'+art+'|'+gTone;if(GBUF.has(key))return GBUF.get(key);
+    const T=TONES[gTone],sr=A.sampleRate,f=hz(n),Nd=sr/f-.5,P=Math.max(2,Math.floor(Nd)),fr=Nd-P,C=(1-fr)/(1+fr);
+    const mute=art==='mute',pm=art==='pm',secs=mute?.14:pm?.6:T.len,len=Math.floor(sr*secs),y=new Float32Array(len);
+    const br=mute?.25:pm?T.br*.45:art==='hammer'?T.br*.5:T.br,rho0=mute?.86:pm?.982:T.rho,rho=1-(1-rho0)*Math.min(1.4,Math.sqrt(110/f));
+    // eccitazione: rumore filtrato (brillantezza) con il punto di pizzico (comb)
+    let lp=0;const ex=new Float32Array(P);for(let i=0;i<P;i++){const x=Math.random()*2-1;lp+=br*(x-lp);ex[i]=lp;}
+    const pk=Math.max(1,Math.floor(P*T.pos));for(let i=P-1;i>=pk;i--)ex[i]-=ex[i-pk];
+    let x1=0,y1=0;
+    for(let i=0;i<len;i++){if(i<P){y[i]=ex[i];continue;}
+      const v=rho*.5*(y[i-P]+(i-P-1>=0?y[i-P-1]:0)),o=C*v+x1-C*y1;x1=v;y1=o;y[i]=o;}
+    let mx=0;for(let i=0;i<Math.min(len,P*8);i++)mx=Math.max(mx,Math.abs(y[i]));const k=mx>0?.9/mx:1;for(let i=0;i<len;i++)y[i]*=k;
+    const b=A.createBuffer(1,len,sr);b.copyToChannel?b.copyToChannel(y,0):b.getChannelData(0).set(y);GBUF.set(key,b);if(GBUF.size>400)GBUF.clear();return b;}
+  function gtr(n,t,d,v,out,gl,art){
+    const inp=gtrChain(),src=A.createBufferSource();src.buffer=ksBuf(n,art==='mute'?'mute':art==='pm'?'pm':art==='hammer'?'hammer':'');
+    const g=A.createGain(),vel=Math.pow(v/127,1.3)*.9,end=t+Math.max(.04,d);src.connect(g);g.connect(inp);
+    if(art==='swell'){g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vel,t+Math.min(.6,d*.4));}else g.gain.setValueAtTime(vel,t);
+    g.gain.setTargetAtTime(0,end,art==='mute'?.01:.045);
+    if(art==='slide'){src.playbackRate.setValueAtTime(Math.pow(2,-1/12),t);src.playbackRate.linearRampToValueAtTime(1,t+.07);}
+    src.start(t);src.stop(Math.min(t+src.buffer.duration,end+.4));
+  }
+  const INST={piano,epiano,pluck,bass,pad,b808,gtr};
+  function note(inst,n,t,d,v,layer,gl,art){init();(INST[inst]||piano)(n,t,d,v,bus[layer]||bus.ex,inst==='lead'?true:gl,art);}
   function hit(n,t,v,d){init();drum(n,t,v,bus.drums,d);}
   const fac={};
   function setLayerGain(k,x){fac[k]=x;if(bus[k])bus[k].gain.value=LAYER_GAIN[k]*x;}
   function setVolume(x){init();master.gain.value=x;}
   function useSamples(on,onprog){SAMP.on=on;return on?loadSamples(onprog):Promise.resolve('off');}
-  return{init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
+  return{setGuitarTone,init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
 })();
