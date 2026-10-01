@@ -36,8 +36,10 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
     <label class="field"><span class="label">Tonalità</span><select id="key"></select></label>
     <label class="field"><span class="label">Struttura</span><select id="structure"></select></label>
     <label class="field"><span class="label">Accordi</span><select id="color"></select></label>
+    <label class="field"><span class="label">Pianoforte</span><select id="pstyle"><option value="live">Vivo (texture per sezione)</option><option value="classic">Classico (v3)</option></select></label>
     <label class="field"><span class="label">Codice brano</span><input type="text" id="code" spellcheck="false" title="Incolla un codice per rigenerare lo stesso brano"></label>
-    <div class="field" style="align-content:end"><label class="toggle"><input type="checkbox" id="human" checked>Esecuzione umana</label></div>
+    <div class="field" style="align-content:end;gap:8px"><label class="toggle"><input type="checkbox" id="human" checked>Esecuzione umana</label>
+      <label class="toggle"><input type="checkbox" id="pad">Pad atmosferico</label></div>
     <div class="actions">
       <button class="btn primary" id="btnGen"><svg width="15" height="15" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0l1.8 5.2L15 7l-5.2 1.8L8 14l-1.8-5.2L1 7l5.2-1.8z"/></svg>Genera nuovo brano</button>
       <button class="btn" data-re="h" title="Nuova armonia, stesso arrangiamento e melodia">🎲 Armonia</button>
@@ -56,8 +58,12 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
   </section>
 
   <section class="panel secpanel">
-    <div class="sechead"><h3 id="secTitle">—</h3><span class="muted" id="secInfo"></span></div>
-    <div class="chords" id="chords"></div>
+    <div class="sechead"><h3 id="secTitle">—</h3><span class="muted" id="secInfo"></span><span class="spacer"></span>
+      <div class="secact"><select id="addType" aria-label="Tipo di sezione"></select><button class="btn sm" id="addSec">+ Inserisci dopo</button>
+      <button class="btn sm ghost" id="delSec" title="Rimuovi questa sezione">Rimuovi</button></div></div>
+    <div class="tlwrap"><div class="tlbars" id="tlBars"></div><div class="tl" id="tl"></div></div>
+    <p class="dim tlhint">Clicca un accordo per modificarlo · trascina il bordo tra due accordi per allungarli o accorciarli (griglia a 1/16)</p>
+    <div class="tb" id="tb" hidden></div>
   </section>
 
   <div class="grid2">

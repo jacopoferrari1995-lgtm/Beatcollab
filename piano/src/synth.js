@@ -66,11 +66,20 @@ const Synth=(()=>{
     g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vel*.55,t+.008);g.gain.setTargetAtTime(vel*.38,t+.01,.25);g.gain.setTargetAtTime(0,end,.05);
     o.start(t);s.start(t);o.stop(end+.4);s.stop(end+.4);
   }
+  function b808(n,t,d,v,out,gl){
+    const f=hz(n),vel=Math.pow(v/127,1.1),o=A.createOscillator(),g=A.createGain(),sh=A.createWaveShaper();
+    if(!waves.curve){const c=new Float32Array(256);for(let i=0;i<256;i++){const x=i/128-1;c[i]=Math.tanh(x*2.2);}waves.curve=c;}
+    sh.curve=waves.curve;o.type='sine';
+    if(gl!=null){o.frequency.setValueAtTime(hz(gl),t);o.frequency.exponentialRampToValueAtTime(f,t+.09);}else o.frequency.setValueAtTime(f,t);
+    o.connect(sh);sh.connect(g);g.connect(out);const end=t+Math.max(.08,d);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vel*.62,t+.006);g.gain.setTargetAtTime(vel*.45,t+.01,.6);g.gain.setTargetAtTime(0,end,.06);
+    o.start(t);o.stop(end+.4);
+  }
   function pad(n,t,d,v,out){
     const f=hz(n),vel=v/127,g=A.createGain(),lp=A.createBiquadFilter();lp.type='lowpass';lp.frequency.value=1100+vel*900;lp.Q.value=.6;
     const os=[-7,7].map(c=>{const o=A.createOscillator();o.type='sawtooth';o.frequency.value=f;o.detune.value=c;o.connect(lp);return o;});
     lp.connect(g);g.connect(out);const end=t+Math.max(.2,d);
-    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vel*.12,t+.35);g.gain.setTargetAtTime(0,end,.35);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vel*.12,t+Math.min(1.2,Math.max(.35,d*.3)));g.gain.setTargetAtTime(0,end,.6);
     os.forEach(o=>{o.start(t);o.stop(end+1.8);});
   }
   function noiseHit(t,dur,type,freq,q,gain,out){
@@ -94,11 +103,16 @@ const Synth=(()=>{
       case 46:noiseHit(t,.32,'highpass',7000,.7,k*.22,out);break;
       case 51:noiseHit(t,.6,'bandpass',6500,2.5,k*.22,out);tone(t,3200,3150,.4,k*.03,out,'square');break;
       case 49:noiseHit(t,1.6,'highpass',4200,.6,k*.32,out);break;
-      default:{const f={45:110,47:140,48:165,50:200}[n]||130;tone(t,f*1.6,f,.32,k*.7,out);}
+      case 63:tone(t,420,330,.18,k*.5,out);noiseHit(t,.02,'bandpass',3000,2,k*.12,out);break;
+      case 64:tone(t,260,210,.26,k*.55,out);noiseHit(t,.02,'bandpass',2000,2,k*.1,out);break;
+      case 60:case 61:tone(t,n===60?520:400,n===60?470:360,.12,k*.4,out);break;
+      case 70:case 82:noiseHit(t,.06,'highpass',6000,.7,k*.18,out);break;
+      case 56:tone(t,800,800,.18,k*.18,out,'square');tone(t,540,540,.18,k*.18,out,'square');break;
+      default:{const f={41:90,43:100,45:110,47:140,48:165,50:200}[n]||130;tone(t,f*1.6,f,.32,k*.7,out);}
     }
   }
-  const INST={piano,epiano,pluck,bass,pad};
-  function note(inst,n,t,d,v,layer){init();(INST[inst]||piano)(n,t,d,v,bus[layer]||bus.ex,inst==='lead');}
+  const INST={piano,epiano,pluck,bass,pad,b808};
+  function note(inst,n,t,d,v,layer,gl){init();(INST[inst]||piano)(n,t,d,v,bus[layer]||bus.ex,inst==='lead'?true:gl);}
   function hit(n,t,v){init();drum(n,t,v,bus.drums);}
   function setLayerGain(k,x){if(bus[k])bus[k].gain.value=LAYER_GAIN[k]*x;}
   function setVolume(x){init();master.gain.value=x;}
