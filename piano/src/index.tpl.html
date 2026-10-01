@@ -49,7 +49,9 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
       <label class="field"><span class="label">Accordi</span><select id="color"></select></label>
       <label class="field"><span class="label">Pianoforte</span><select id="pstyle"><option value="live">Vivo (texture per sezione)</option><option value="classic">Classico (v3)</option></select></label>
       <div class="field"><span class="label">Opzioni</span><div class="toggles"><label class="toggle"><input type="checkbox" id="human" checked>Esecuzione umana</label>
-        <label class="toggle"><input type="checkbox" id="pad">Pad atmosferico</label></div></div></div></div>
+        <label class="toggle"><input type="checkbox" id="pad">Pad atmosferico</label>
+        <label class="toggle" title="Dall'ultimo ritornello in poi il brano sale di un tono"><input type="checkbox" id="modLast">Modula l'ultimo ritornello</label></div></div>
+      <label class="field"><span class="label">Suono del piano</span><select id="sound"><option value="samp">Campionato (Salamander Grand)</option><option value="synth">Sintetico (leggero)</option></select></label></div></div>
     <div class="actions">
       <button class="btn primary" id="btnGen"><svg width="15" height="15" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0l1.8 5.2L15 7l-5.2 1.8L8 14l-1.8-5.2L1 7l5.2-1.8z"/></svg>Genera nuovo brano</button>
       <span class="dim regenlab">Rigenera solo:</span>
@@ -122,6 +124,7 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
   <div class="tctl vol"><span>Vol</span><input type="range" id="vol" min="0" max="100" value="80"></div>
 </div></footer>
 <div class="toast" id="toast"></div>
+<div class="pop feelpop" id="feelPop" hidden><div class="parrow"></div><div id="feelBody"></div></div>
 <div class="pop" id="pop" hidden role="dialog" aria-label="Modifica accordo"><div class="parrow" id="parrow"></div><div id="popBody"></div></div>
 <div class="modal" id="modal" hidden><div class="mbox" role="dialog" aria-modal="true"><div class="mhead"><h3 id="mTitle"></h3><button class="ib" id="mClose" aria-label="Chiudi">✕</button></div><div class="mbody" id="mBody"></div></div></div>
 

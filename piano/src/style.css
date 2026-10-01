@@ -363,3 +363,37 @@ main>*,.panel{min-width:0}
 .dpad.none{opacity:.55}
 @media (max-width:700px){.padgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:560px){.lane-h .r2{display:none}.lane-h{grid-template-rows:auto auto}.lane-h .btns{grid-column:1/-1;grid-row:2}.themesel select{max-width:84px}}
+
+/* ===================== Pop-up guidato ===================== */
+.psec .hint{font-size:11px;color:var(--tx3);font-weight:500;text-transform:none;letter-spacing:0}
+.rec{display:grid;gap:5px}
+.reci{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid var(--line);background:var(--panel2);border-radius:10px;padding:7px 10px;transition:.12s}
+.reci:hover{border-color:var(--f-T);background:color-mix(in srgb,var(--f-T) 8%,var(--panel2))}
+.reci b{font-size:14px;min-width:64px}.reci .rnl{font-size:11.5px;color:var(--tx2);min-width:52px;font-weight:650}.reci small{font-size:11.5px;color:var(--tx3);flex:1}
+.reci .star{color:var(--f-T);font-size:12px}
+.qc.in{border-color:color-mix(in srgb,var(--f-T) 55%,var(--line));background:color-mix(in srgb,var(--f-T) 7%,var(--panel2))}
+.qc.out{opacity:.62;border-style:dashed}
+.qc.out:hover{opacity:1}
+.qc.chrom{border-style:dashed;border-color:color-mix(in srgb,var(--f-D) 55%,var(--line))}
+.qc.bor{border-color:color-mix(in srgb,var(--f-B) 55%,var(--line))}
+.qc .src{display:block;font-size:9.5px;color:var(--tx3);font-weight:550;margin-top:1px}
+.fitlab{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:650;padding:2px 8px;border-radius:20px}
+.fitlab.in{color:var(--f-T);background:color-mix(in srgb,var(--f-T) 12%,transparent)}.fitlab.out{color:var(--f-B);background:color-mix(in srgb,var(--f-B) 12%,transparent)}
+details.more summary{cursor:pointer;font-size:12px;color:var(--tx2);font-weight:650;list-style:none}
+details.more summary::before{content:"▸ ";}details.more[open] summary::before{content:"▾ ";}
+/* ===================== Feel per traccia ===================== */
+.feelpop{width:min(320px,calc(100vw - 24px))}
+.frow{display:grid;grid-template-columns:96px 1fr 52px;align-items:center;gap:8px;font-size:12.5px}
+.frow input{width:100%;accent-color:var(--acc)}.frow span:last-child{text-align:right;font-variant-numeric:tabular-nums;color:var(--tx2);font-size:12px}
+/* ===================== Pad: volume, densità, griglia ===================== */
+.dpad.selp{border-color:var(--pc);box-shadow:0 0 0 2px color-mix(in srgb,var(--pc) 35%,transparent)}
+.padedit{margin-top:14px;border:1px solid var(--line2);border-radius:14px;background:var(--panel2);padding:14px;display:grid;gap:12px}
+.padedit .prow{gap:10px}
+.steps{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:4px}
+.step{height:38px;border-radius:7px;border:1px solid var(--line2);background:var(--panel);cursor:pointer;position:relative;transition:.08s}
+.step:nth-child(4n+1){border-color:var(--tx3)}
+.step.on{background:var(--pc);border-color:var(--pc)}
+.step.on::after{content:"";position:absolute;left:3px;right:3px;bottom:3px;height:var(--vh,60%);background:rgba(255,255,255,.35);border-radius:3px}
+.step.gen{background:color-mix(in srgb,var(--pc) 22%,var(--panel))}
+.stepnums{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:4px;font-size:10px;color:var(--tx3);text-align:center}
+.qc.in.on,.qc.out.on,.qc.bor.on,.qc.chrom.on{background:var(--acc);border-color:var(--acc);color:var(--ink);opacity:1}.qc.on small,.qc.on .src{color:var(--ink);opacity:.75}

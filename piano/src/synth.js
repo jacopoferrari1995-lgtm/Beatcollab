@@ -28,7 +28,29 @@ const Synth=(()=>{
     g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(peak,t+att);
     g.gain.setTargetAtTime(peak*sus,t+att,dec);g.gain.setTargetAtTime(0,end,rel);
   }
+  /* ---- pianoforte campionato (Salamander Grand, via Tone.js) con ritorno al sintetico ---- */
+  const SAMP={on:false,state:'off',buf:{},base:'https://tonejs.github.io/audio/salamander/'};
+  const SNOTES=(()=>{const nm=['C','Ds','Fs','A'],out=[];for(let m=21;m<=108;m+=3){const pc=m%12,i=[0,3,6,9].indexOf(pc);if(i>=0)out.push([m,nm[i]+(Math.floor(m/12)-1)]);}return out;})();
+  function loadSamples(onprog){
+    if(SAMP.state==='loading'||SAMP.state==='ready')return Promise.resolve(SAMP.state);
+    init();SAMP.state='loading';let done=0,ok=0;
+    return Promise.all(SNOTES.map(([m,f])=>fetch(SAMP.base+f+'.mp3').then(r=>{if(!r.ok)throw 0;return r.arrayBuffer();})
+      .then(b=>new Promise((res,rej)=>A.decodeAudioData(b,res,rej))).then(buf=>{SAMP.buf[m]=buf;ok++;}).catch(()=>{})
+      .finally(()=>{done++;onprog&&onprog(done/SNOTES.length);})))
+      .then(()=>{SAMP.state=ok>=SNOTES.length*.8?'ready':'failed';return SAMP.state;});
+  }
+  function sampled(n,t,d,v,out){
+    let best=null,bd=99;for(const k in SAMP.buf){const dd=Math.abs(n-k);if(dd<bd){bd=dd;best=+k;}}
+    if(best==null)return false;
+    const src=A.createBufferSource(),g=A.createGain(),lp=A.createBiquadFilter(),vel=Math.pow(v/127,1.6);
+    src.buffer=SAMP.buf[best];src.playbackRate.value=Math.pow(2,(n-best)/12);
+    lp.type='lowpass';lp.frequency.value=900+vel*9000;
+    src.connect(lp);lp.connect(g);g.connect(out);const end=t+Math.max(.08,d);
+    g.gain.setValueAtTime(vel*.9,t);g.gain.setTargetAtTime(0,end,.18);
+    src.start(t);src.stop(end+1.2);return true;
+  }
   function piano(n,t,d,v,out,bright){
+    if(SAMP.on&&SAMP.state==='ready'&&sampled(n,t,d,v*(bright?1.08:1),out))return;
     const f=hz(n),vel=Math.pow(v/127,1.5),o=A.createOscillator(),o2=A.createOscillator(),g=A.createGain(),lp=A.createBiquadFilter();
     o.setPeriodicWave(n<52?waves.pLow:n<74?waves.pMid:waves.pHigh);o2.setPeriodicWave(waves.pMid);
     o.frequency.value=f;o2.frequency.value=f*1.0018;
@@ -121,5 +143,6 @@ const Synth=(()=>{
   const fac={};
   function setLayerGain(k,x){fac[k]=x;if(bus[k])bus[k].gain.value=LAYER_GAIN[k]*x;}
   function setVolume(x){init();master.gain.value=x;}
-  return{init,now,note,hit,setLayerGain,setVolume,get ctx(){return A;}};
+  function useSamples(on,onprog){SAMP.on=on;return on?loadSamples(onprog):Promise.resolve('off');}
+  return{init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
 })();
