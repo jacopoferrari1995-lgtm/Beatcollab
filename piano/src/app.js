@@ -466,9 +466,12 @@ addEventListener('scroll',()=>placePop(),{passive:true});
 $('.tlwrap').addEventListener('scroll',()=>placePop(),{passive:true});
 $('#addSec').onclick=()=>{
   const t=$('#addType').value,s=St.song,secs=s.secs.map(x=>x.slice()),order=s.typeOrder.slice();
-  const bars=secs.find(x=>x[0]===t)?secs.find(x=>x[0]===t)[1]:(GENRES[s.genre].blues&&(t==='verse'||t==='chorus')?12:SEC_BARS[t]);
+  const want=+$('#addLen').value||0,had=secs.find(x=>x[0]===t);
+  const bars=want||(had?had[1]:(GENRES[s.genre].blues&&(t==='verse'||t==='chorus')?12:SEC_BARS[t]));
+  // le sezioni dello stesso tipo condividono gli accordi: stessa lunghezza per tutte
+  if(want&&had)secs.forEach(x=>{if(x[0]===t)x[1]=want;});
   secs.splice(St.sel+1,0,[t,bars]);if(TYPE_ORDER.includes(t)&&!order.includes(t))order.push(t);
-  St.secs=secs;St.typeOrder=order;St.sel=St.sel+1;St.selChord=-1;regen();toast(`${SEC_NAME[t]} inserito dopo la sezione selezionata`);};
+  St.secs=secs;St.typeOrder=order;St.sel=St.sel+1;St.selChord=-1;regen();toast(`${SEC_NAME[t]} (${bars} battute) inserito dopo la sezione selezionata`);};
 $('#delSec').onclick=()=>{const s=St.song;if(s.sections.length<2)return;const secs=s.secs.map(x=>x.slice());const nm=s.sections[St.sel].name;
   secs.splice(St.sel,1);St.secs=secs;St.typeOrder=s.typeOrder.slice();St.sel=Math.max(0,St.sel-1);St.selChord=-1;regen();toast(`${nm} rimosso`);};
 
