@@ -30,6 +30,8 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
     <div class="hist"><button class="hb" id="undo" title="Indietro (Ctrl+Z)" aria-label="Indietro"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M6 3 2 7l4 4M2.5 7H10a4 4 0 0 1 0 8H8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button class="hb" id="redo" title="Avanti (Ctrl+Shift+Z)" aria-label="Avanti"><svg width="16" height="16" viewBox="0 0 16 16"><path d="m10 3 4 4-4 4M13.5 7H6a4 4 0 0 0 0 8h2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
     <button class="btn sm primary-soft" id="btnSave">Salva</button>
     <button class="btn sm ghost" id="btnProjects">Progetti</button>
+    <label class="themesel" title="Tema"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>
+      <select id="theme" aria-label="Tema"><option value="crema">Crema</option><option value="bianco">Bianco</option><option value="salvia">Salvia</option><option value="tramonto">Tramonto</option><option value="grafite">Grafite</option><option value="notte">Notte</option><option value="auto">Automatico</option></select></label>
   </div>
   <nav class="tabs"><button class="on" data-tab="gen">Generatore</button><button data-tab="ex">Esercizi</button></nav>
 </div></header>
@@ -66,6 +68,11 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
   <section class="panel arr" aria-label="Arrangiamento">
     <div class="lanes-head" id="laneHead"></div>
     <div class="arr-scroll" id="arrScroll"><canvas id="arr"></canvas></div>
+  </section>
+
+  <section class="panel pads" id="padPanel" hidden>
+    <div class="padhead"><h3>Batteria · mappa dei 10 pad</h3><span class="muted" id="padInfo"></span><span class="spacer"></span><button class="ib" id="padClose" title="Chiudi">✕</button></div>
+    <div class="padgrid" id="padGrid"></div>
   </section>
 
   <section class="panel secpanel">
