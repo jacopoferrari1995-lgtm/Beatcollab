@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Progressioni di Piano</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--brd:#2a2f3a;--tx:#eef0f4;--tx2:#8b93a3;--acc:#f5b942;--acc2:#e0902a}
+@media (prefers-color-scheme:light){:root{--bg:#f4f1ea;--card:#fffdf8;--brd:#ddd6c6;--tx:#22201b;--tx2:#7a7365;--acc:#c77d10;--acc2:#a5640a}}
+*{box-sizing:border-box;margin:0}
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;padding:16px}
+main{max-width:860px;margin:0 auto;display:grid;gap:16px}
+h1{font-size:24px;letter-spacing:-.3px}h1 span{color:var(--acc)}
+.sub{color:var(--tx2);font-size:14px;margin-top:4px}
+.card{background:var(--card);border:1px solid var(--brd);border-radius:14px;padding:16px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+label{display:grid;gap:5px;font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
+select,input[type=range]{font:inherit}
+select{padding:9px 12px;border-radius:8px;border:1px solid var(--brd);background:var(--bg);color:var(--tx);font-size:15px;text-transform:none;letter-spacing:0}
+input[type=range]{accent-color:var(--acc);width:150px}
+.chords{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}
+.ch{border:1px solid var(--brd);border-radius:12px;padding:14px 8px;text-align:center;cursor:pointer;background:var(--bg);transition:.12s;user-select:none}
+.ch:hover{border-color:var(--acc)}
+.ch.on{background:var(--acc);border-color:var(--acc);color:#1a1405;transform:translateY(-2px)}
+.ch b{display:block;font-size:24px}
+.ch small{display:block;margin-top:4px;font-size:12px;opacity:.75}
+.ch .rn{font-size:13px;font-weight:600;opacity:.9;margin-bottom:2px}
+.btns{display:flex;gap:10px;flex-wrap:wrap}
+button{font:inherit;font-weight:600;padding:10px 20px;border-radius:10px;border:1px solid var(--brd);background:var(--bg);color:var(--tx);cursor:pointer}
+button.p{background:var(--acc);border-color:var(--acc);color:#1a1405}
+button:hover{filter:brightness(1.1)}
+.kb{position:relative;height:130px;margin:0 auto;user-select:none;touch-action:none}
+.w,.k{position:absolute;top:0;border-radius:0 0 5px 5px;transition:background .1s}
+.w{background:#f3f1ea;border:1px solid #999;height:100%}
+.k{background:#15161a;height:62%;z-index:2}
+.w.on{background:var(--acc)}.k.on{background:var(--acc2)}
+.desc{font-size:14px;color:var(--tx2);line-height:1.5}
+.pills{display:flex;flex-wrap:wrap;gap:8px}
+.pill{padding:6px 12px;border-radius:20px;border:1px solid var(--brd);font-size:13px;cursor:pointer;background:var(--bg);color:var(--tx)}
+.pill.on{border-color:var(--acc);color:var(--acc)}
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>Progressioni di <span>Piano</span></h1>
+    <p class="sub">Scegli una tonalità e una progressione, poi premi Play per ascoltarla in loop.</p>
+  </div>
+
+  <div class="card row">
+    <label>Tonalità
+      <select id="key"></select>
+    </label>
+    <label>Modo
+      <select id="mode"><option value="maj">Maggiore</option><option value="min">Minore</option></select>
+    </label>
+    <label>Tempo: <span id="bpmv">90</span> BPM
+      <input type="range" id="bpm" min="50" max="160" value="90">
+    </label>
+    <label>Stile
+      <select id="style"><option value="block">Accordi</option><option value="arp">Arpeggio</option></select>
+    </label>
+  </div>
+
+  <div class="card">
+    <div class="pills" id="pills"></div>
+    <p class="desc" id="desc" style="margin-top:12px"></p>
+  </div>
+
+  <div class="card chords" id="chords"></div>
+
+  <div class="card"><div class="kb" id="kb"></div></div>
+
+  <div class="btns">
+    <button class="p" id="play">▶ Play</button>
+    <button id="rand">🎲 Casuale</button>
+  </div>
+</main>
+
+<script>
+const NOTES=['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
+const Q={maj:{s:'',i:[0,4,7]},min:{s:'m',i:[0,3,7]},dim:{s:'°',i:[0,3,6]},
+  maj7:{s:'maj7',i:[0,4,7,11]},m7:{s:'m7',i:[0,3,7,10]},dom7:{s:'7',i:[0,4,7,10]},
+  m7b5:{s:'ø7',i:[0,3,6,10]},sus4:{s:'sus4',i:[0,5,7]},add9:{s:'add9',i:[0,4,7,14]},
+  m9:{s:'m9',i:[0,3,7,10,14]}};
+// [numero romano, semitoni dalla tonica, qualità]
+const P={
+ maj:[
+  {n:'Pop (I–V–vi–IV)',d:'La progressione più usata della musica pop: «Let It Be», «No Woman No Cry».',c:[['I',0,'maj'],['V',7,'maj'],['vi',9,'min'],['IV',5,'maj']]},
+  {n:'50s (I–vi–IV–V)',d:'Il classico doo‑wop anni ’50: «Stand By Me».',c:[['I',0,'maj'],['vi',9,'min'],['IV',5,'maj'],['V',7,'maj']]},
+  {n:'Jazz (ii–V–I)',d:'Il cuore dell’armonia jazz, con settime.',c:[['iim7',2,'m7'],['V7',7,'dom7'],['Imaj7',0,'maj7'],['Imaj7',0,'maj7']]},
+  {n:'Turnaround (I–vi–ii–V)',d:'Il giro di Rhythm Changes, molto usato nel jazz e nello swing.',c:[['Imaj7',0,'maj7'],['vim7',9,'m7'],['iim7',2,'m7'],['V7',7,'dom7']]},
+  {n:'Canone (I–V–vi–iii–IV–I–IV–V)',d:'La sequenza del Canone di Pachelbel.',c:[['I',0,'maj'],['V',7,'maj'],['vi',9,'min'],['iii',4,'min'],['IV',5,'maj'],['I',0,'maj'],['IV',5,'maj'],['V',7,'maj']]},
+  {n:'Emozionale (vi–IV–I–V)',d:'Stessi accordi del pop ma partendo dal vi: più malinconica.',c:[['vi',9,'min'],['IV',5,'maj'],['I',0,'maj'],['V',7,'maj']]},
+  {n:'Soul (Imaj7–iii7–IV–V)',d:'Calda e romantica, tipica di R&B e neo‑soul.',c:[['Imaj7',0,'maj7'],['iiim7',4,'m7'],['IVmaj7',5,'maj7'],['V7',7,'dom7']]},
+  {n:'Cinematografica (I–iii–IV–iv)',d:'Il «prestito modale» iv crea un colore dolce‑amaro.',c:[['I',0,'maj'],['iii',4,'min'],['IV',5,'maj'],['iv',5,'min']]},
+  {n:'Gospel (I–IV–I–V)',d:'Semplice e solenne, con sospensioni.',c:[['I',0,'maj'],['IVadd9',5,'add9'],['I',0,'maj'],['Vsus4',7,'sus4']]}
+ ],
+ min:[
+  {n:'Epica (i–VI–III–VII)',d:'Drammatica e cinematografica, molto usata in colonne sonore.',c:[['i',0,'min'],['VI',8,'maj'],['III',3,'maj'],['VII',10,'maj']]},
+  {n:'Andalusa (i–VII–VI–V)',d:'Cadenza flamenca discendente.',c:[['i',0,'min'],['VII',10,'maj'],['VI',8,'maj'],['V',7,'maj']]},
+  {n:'Jazz minore (iiø–V–i)',d:'Il ii‑V‑i in minore, tesissimo e risolutivo.',c:[['iiø7',2,'m7b5'],['V7',7,'dom7'],['im7',0,'m7'],['im7',0,'m7']]},
+  {n:'Pop minore (i–iv–VII–III)',d:'Malinconica e moderna.',c:[['i',0,'min'],['iv',5,'min'],['VII',10,'maj'],['III',3,'maj']]},
+  {n:'Lo‑fi (im9–ivm7–VII7–IIImaj7)',d:'Accordi estesi tipici del lo‑fi hip hop.',c:[['im9',0,'m9'],['ivm7',5,'m7'],['VII7',10,'dom7'],['IIImaj7',3,'maj7']]},
+  {n:'Discendente (i–v–VI–iv)',d:'Linea di basso che scende, tragica e intensa.',c:[['i',0,'min'],['v',7,'min'],['VI',8,'maj'],['iv',5,'min']]}
+ ]};
+
+const $=id=>document.getElementById(id);
+let cur=0,voiced=[],timer=null,step=0,ctx=null,master=null,prev=null;
+
+NOTES.forEach((n,i)=>$('key').add(new Option(n,i)));
+$('key').value=0;
+
+/* Tastiera: C3 (48) – B5 (83) */
+const LO=48,HI=83,keys={};
+(function(){
+  const kb=$('kb'),whites=[];
+  for(let m=LO;m<=HI;m++) if(![1,3,6,8,10].includes(m%12)) whites.push(m);
+  const w=100/whites.length;
+  whites.forEach((m,i)=>{const e=document.createElement('div');e.className='w';e.style.left=i*w+'%';e.style.width=w+'%';kb.append(e);keys[m]=e;});
+  for(let m=LO;m<=HI;m++) if([1,3,6,8,10].includes(m%12)){
+    const i=whites.indexOf(m-1),e=document.createElement('div');
+    e.className='k';e.style.left=(i+1)*w-w*.3+'%';e.style.width=w*.6+'%';kb.append(e);keys[m]=e;
+  }
+})();
+function light(ns){Object.values(keys).forEach(k=>k.classList.remove('on'));ns.forEach(n=>keys[n]&&keys[n].classList.add('on'));}
+
+/* Armonia */
+function chordPcs(root,q){return Q[q].i.map(x=>root+x);}
+function voice(root,q,last){
+  const pcs=chordPcs(root,q).map(n=>n%12);let best=null,bs=1e9;
+  for(let inv=0;inv<pcs.length;inv++){
+    for(let base=52;base<=64;base++){
+      const arr=[];let p=base-1;
+      for(let j=0;j<pcs.length;j++){
+        let n=p+1;while(n%12!==pcs[(inv+j)%pcs.length])n++;
+        arr.push(n);p=n;
+      }
+      if(arr[arr.length-1]>78)continue;
+      const score=last?arr.reduce((s,n,i)=>s+Math.abs(n-last[Math.min(i,last.length-1)]),0):Math.abs(arr[0]-58);
+      if(score<bs){bs=score;best=arr;}
+    }
+  }
+  return best;
+}
+function key0(){return +$('key').value;}
+function build(){
+  const list=P[$('mode').value][cur];
+  let last=null;
+  voiced=list.c.map(([rn,off,q])=>{
+    const root=key0()+off,rp=root%12;
+    const rh=voice(root,q,last);last=rh;
+    return{rn,name:NOTES[rp]+Q[q].s,notes:rh,bass:36+rp,root:rp,q};
+  });
+  render();
+}
+function render(){
+  $('desc').textContent=P[$('mode').value][cur].d;
+  $('chords').innerHTML='';
+  voiced.forEach((v,i)=>{
+    const d=document.createElement('div');d.className='ch';d.id='ch'+i;
+    d.innerHTML=`<div class="rn">${v.rn}</div><b>${v.name}</b><small>${v.notes.map(n=>NOTES[n%12]).join(' ')}</small>`;
+    d.onclick=()=>{ensure();hit(i,60/ $('bpm').value*2);};
+    $('chords').append(d);
+  });
+}
+function pills(){
+  const el=$('pills');el.innerHTML='';
+  P[$('mode').value].forEach((p,i)=>{
+    const b=document.createElement('span');b.className='pill'+(i===cur?' on':'');b.textContent=p.n;
+    b.onclick=()=>{cur=i;pills();build();};el.append(b);
+  });
+}
+
+/* Audio: sintesi additiva stile piano */
+function ensure(){
+  if(!ctx){
+    ctx=new (window.AudioContext||window.webkitAudioContext)();
+    master=ctx.createGain();master.gain.value=.5;
+    const lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=3200;
+    master.connect(lp);lp.connect(ctx.destination);
+  }
+  if(ctx.state==='suspended')ctx.resume();
+}
+function tone(m,t,dur,vel=.2){
+  const f=440*Math.pow(2,(m-69)/12);
+  const g=ctx.createGain();
+  g.gain.setValueAtTime(0,t);
+  g.gain.linearRampToValueAtTime(vel,t+.008);
+  g.gain.exponentialRampToValueAtTime(vel*.35,t+.25);
+  g.gain.exponentialRampToValueAtTime(.0001,t+dur+.5);
+  g.connect(master);
+  [[1,1],[2,.5],[3,.25],[4,.12],[5,.06]].forEach(([h,a])=>{
+    const o=ctx.createOscillator(),ga=ctx.createGain();
+    o.type='sine';o.frequency.value=f*h;ga.gain.value=a/ (1+h*.3);
+    o.connect(ga);ga.connect(g);o.start(t);o.stop(t+dur+.6);
+  });
+}
+function hit(i,dur){
+  const v=voiced[i],t=ctx.currentTime+.02,beat=60/$('bpm').value;
+  const ns=v.notes;
+  tone(v.bass,t,dur,.28);tone(v.bass+12,t,dur,.12);
+  if($('style').value==='arp'){
+    const seq=[...ns,...ns.slice(1,-1).reverse()];
+    const n=Math.round(dur/(beat/2));
+    for(let k=0;k<n;k++)tone(seq[k%seq.length],t+k*beat/2,beat/2*1.8,.17);
+  }else ns.forEach((n,k)=>tone(n,t+k*.012,dur,.17));
+  document.querySelectorAll('.ch').forEach(c=>c.classList.remove('on'));
+  $('ch'+i)&&$('ch'+i).classList.add('on');
+  light([v.bass,...ns]);
+}
+function tick(){
+  hit(step%voiced.length,60/$('bpm').value*2);
+  step++;
+}
+function start(){
+  ensure();step=0;tick();
+  timer=setInterval(tick,60/$('bpm').value*2000);
+  $('play').textContent='■ Stop';
+}
+function stop(){
+  clearInterval(timer);timer=null;$('play').textContent='▶ Play';
+  document.querySelectorAll('.ch').forEach(c=>c.classList.remove('on'));light([]);
+}
+function restart(){if(timer){stop();start();}}
+
+$('play').onclick=()=>timer?stop():start();
+$('bpm').oninput=()=>{$('bpmv').textContent=$('bpm').value;restart();};
+$('key').onchange=()=>{build();restart();};
+$('style').onchange=restart;
+$('mode').onchange=()=>{cur=0;pills();build();restart();};
+$('rand').onclick=()=>{
+  $('mode').value=Math.random()<.7?'maj':'min';
+  $('key').value=Math.floor(Math.random()*12);
+  cur=Math.floor(Math.random()*P[$('mode').value].length);
+  pills();build();restart();
+};
+document.addEventListener('keydown',e=>{if(e.code==='Space'&&e.target.tagName!=='SELECT'){e.preventDefault();$('play').click();}});
+pills();build();
+</script>
+</body>
+</html>
