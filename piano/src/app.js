@@ -30,6 +30,8 @@ const instOf=l=>{const s=St.song,p=s.prog;
   if(l==='piano')return p.piano===4?'epiano':'piano';
   if(l==='arp')return p.arp===4?'epiano':(p.arp===24||p.arp===46)?'pluck':'piano';
   if(l==='bass')return s.bass808?'b808':'bass';
+  if(l==='cm')return'epiano';
+  if(l==='gtr')return'gtr';
   return{mel:'lead',pad:'pad'}[l]||'piano';};
 
 /* ---------------- Controlli ---------------- */
@@ -45,7 +47,7 @@ function syncControls(){['genre','mood','mode','key','structure','color','sound'
   $('#pstyle').value=St.opts.pianoStyle;$('#human').checked=St.opts.human;$('#pad').checked=St.opts.pad;}
 const saveOpts=()=>LS.set('pg_opts',St.opts);
 function clearReseed(k){const R=St.reseed;Object.keys(R.S).forEach(x=>{if(x.endsWith('.'+k))delete R.S[x];});
-  if(k==='a')['piano','arp','pad','bass','drums'].forEach(l=>delete R.L[l]);if(k==='m')delete R.L.mel;}
+  if(k==='a')['piano','arp','pad','bass','gtr','drums'].forEach(l=>delete R.L[l]);if(k==='m'){delete R.L.mel;delete R.L.cm;}}
 function dropEdits(){if(St.edits.length){St.edits=[];toast('Modifiche agli accordi azzerate (armonia nuova)');}}
 ['genre','mood','mode','key','structure','color'].forEach(k=>$('#'+k).addEventListener('change',e=>{
   St.opts[k]=e.target.value;saveOpts();
@@ -136,8 +138,8 @@ function renderHead(){
 }
 
 /* ---------------- Vista arrangiamento ---------------- */
-const LANE_NAME={mel:'Melodia',piano:'Piano',arp:'Arpeggio',pad:'Pad',bass:'Basso',drums:'Batteria'};
-const LANE_H={mel:62,piano:84,arp:62,pad:46,bass:58,drums:84},RULER=28,CHROW=22;
+const LANE_NAME={mel:'Melodia',cm:'Controcanto',gtr:'Chitarra',piano:'Piano',arp:'Arpeggio',pad:'Pad',bass:'Basso',drums:'Batteria'};
+const LANE_H={mel:62,cm:50,gtr:72,piano:84,arp:62,pad:46,bass:58,drums:84},RULER=28,CHROW=22;
 const lanes=()=>LAYERS.filter(l=>St.song.layers[l.id].length);
 const feelShift=()=>Object.fromEntries(Object.entries(St.feel).map(([k,v])=>[k,v.shift||0]));
 const volOf=id=>St.vol[id]!=null?St.vol[id]:1;
@@ -353,10 +355,10 @@ function renderSection(){
   renderPop();lastCi=-1;
 }
 // carattere della sezione: energia, densità, vuoto/pieno, strati (vale per tutte le ripetizioni di quel tipo)
-const LAY_LAB=[['piano','Piano'],['arp','Arpeggio'],['pad','Pad'],['bass','Basso'],['drums','Batteria'],['mel','Melodia']];
+const LAY_LAB=[['piano','Piano'],['arp','Arpeggio'],['gtr','Chitarra'],['pad','Pad'],['bass','Basso'],['drums','Batteria'],['mel','Melodia'],['cm','Controcanto']];
 function renderChar(sec){
   const t=sec.type,C=St.secCfg[t]||{},LY=C.layers||{},p=sec.plan||{},G=GENRES[St.song.genre];
-  const active={piano:p.piano!==false,arp:!!p.arp,pad:!!p.pad,bass:!!p.bass,drums:p.drums!=null,mel:!!p.mel};
+  const active={piano:p.piano!==false,arp:!!p.arp,gtr:!!p.gtr,pad:!!p.pad,bass:!!p.bass,drums:p.drums!=null,mel:!!p.mel,cm:!!p.mel&&p.cm!==false};
   const segBtns=(key,opts,cur)=>opts.map(([v,l])=>`<button data-ck="${key}" data-cv="${v}" class="${String(cur)===String(v)?'on':''}">${l}</button>`).join('');
   const has=Object.keys(C).length>0;
   // valori effettivi della sezione (propri o ereditati dal brano)

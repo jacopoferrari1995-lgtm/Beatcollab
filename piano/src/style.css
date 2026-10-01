@@ -1,7 +1,7 @@
 /* ===================== Token ===================== */
 :root{
   --ok:#34d399;--ko:#f87171;
-  --c-mel:#ff6f91;--c-piano:#f4b740;--c-arp:#a78bfa;--c-pad:#34d399;--c-bass:#60a5fa;--c-drums:#94a3b8;
+  --c-mel:#ff6f91;--c-cm:#f472b6;--c-gtr:#e07a3f;--c-piano:#f4b740;--c-arp:#a78bfa;--c-pad:#34d399;--c-bass:#60a5fa;--c-drums:#94a3b8;
   --s-intro:#64748b;--s-verse:#3b82f6;--s-pre:#8b5cf6;--s-chorus:#f59e0b;--s-bridge:#10b981;--s-special:#ec4899;--s-outro:#64748b;--s-loop:#f59e0b;
   --r:16px;--r2:11px;--ease:cubic-bezier(.2,.7,.2,1);--glow1:rgba(244,183,64,.08);--glow2:rgba(167,139,250,.07);
 }

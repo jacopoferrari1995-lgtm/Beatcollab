@@ -5,7 +5,7 @@
 const Synth=(()=>{
   let A=null,master,comp,revIn,noise,waves={};
   const bus={};
-  const LAYER_GAIN={mel:.95,piano:.78,arp:.5,pad:.32,bass:.9,drums:.62,ex:.9};
+  const LAYER_GAIN={mel:.95,cm:.62,gtr:.8,piano:.78,arp:.5,pad:.32,bass:.9,drums:.62,ex:.9};
   function impulse(sec,decay){const len=Math.floor(A.sampleRate*sec),b=A.createBuffer(2,len,A.sampleRate);
     for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay);}return b;}
   function wave(parts){const re=new Float32Array(parts.length+1),im=new Float32Array(parts.length+1);parts.forEach((a,i)=>im[i+1]=a);return A.createPeriodicWave(re,im);}
