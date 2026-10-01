@@ -464,3 +464,10 @@ button.exgh{cursor:pointer}button.exgh:hover{color:var(--tx)}.exgh small{font-we
 @media (max-width:700px){.tkbw{top:56px}.kb.tkb{height:72px}}
 .exlay>*{min-width:0}.exmain{min-width:0}
 .texs .tex{white-space:normal;text-align:left;max-width:100%}
+/* barre 0–100 */
+.rng{display:flex;align-items:center;gap:8px}.rng input[type=range]{flex:1;min-width:0;accent-color:var(--acc)}
+.rng input.auto{opacity:.55}.rng .btn{padding:4px 9px}
+.rng.sm input{width:120px;flex:none}.rng.sm .rv{font-size:12px;min-width:22px;font-variant-numeric:tabular-nums}
+.rv{font-weight:700;color:var(--acc);letter-spacing:0;text-transform:none;margin-left:4px}
+.rngl{display:flex;justify-content:space-between;font-size:10.5px;color:var(--tx3);margin-top:-2px;padding-right:62px}
+.field .label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.field .rng{width:100%;min-width:0}.field .rng .btn{flex:none}.field .rngl{padding-right:58px}

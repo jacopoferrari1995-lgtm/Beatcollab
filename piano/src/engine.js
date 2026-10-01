@@ -703,13 +703,108 @@ function songStyle(G,M,rp,ra,lock){
       broken:pick(rp,[...G.arps.filter(a=>SHAPES[a]),'updown8','broken8']),push:rp()<G.push},
     arp:lock.arp&&SHAPES[lock.arp]?lock.arp:pick(ra,G.arps.filter(a=>SHAPES[a]))};
 }
+/* ---- Densità e vuoto/pieno (0–100) ----
+   densità: ogni nota ha un'importanza (posizione nella battuta, cambio d'accordo, nota dell'accordo, ripetizione).
+   Sotto 50 si tolgono prima ripetizioni, colpi deboli e note di passaggio; a 0 resta lo scheletro. Sopra 50 gli strati suonano più fitti.
+   vuoto/pieno: oltre al respiro dentro la battuta, "figure" di pausa coordinate tra gli strumenti (stop, mezza battuta senza batteria, colpo saltato…) */
+const DENS_LEGACY={scarna:15,leggera:32,media:50,piena:72,moltopiena:92},SPACE_LEGACY={continuo:0,leggero:30,marcato:60,estremo:92};
+function densValue(o,C){
+  if(C&&C.densV!=null)return clamp(+C.densV,0,100);
+  if(C&&C.dens!=null)return C.dens<=.5?15:C.dens<=.75?32:C.dens<=1.35?72:92;
+  if(o.densV!=null&&o.densV!=='auto')return clamp(+o.densV,0,100);
+  if(DENS_LEGACY[o.dens]!=null)return DENS_LEGACY[o.dens];
+  return 50;
+}
+function spaceValue(o,C,auto){
+  if(C&&C.spaceV!=null)return clamp(+C.spaceV,0,100)/100;
+  if(C&&C.space!=null)return C.space;
+  if(o.spaceV!=null&&o.spaceV!=='auto')return clamp(+o.spaceV,0,100)/100;
+  if(o.space!=null)return o.space;
+  return auto;
+}
+const densMulOf=v=>v<50?.4+.6*v/50:1+(v-50)/50*.75;
+// importanza di una nota nella battuta
+function posW(p){const f=p-Math.floor(p+1e-6),b=Math.floor(p+1e-6)%4;
+  if(f<.04||f>.96)return b===0?1:b===2?.85:.7;if(Math.abs(f-.5)<.05)return .5;if(Math.abs(f-.25)<.05||Math.abs(f-.75)<.05)return .3;return .38;}
+function thinSection(L,sec,th){
+  if(th<=.001)return;
+  const from=sec.startBeat-.05,to=sec.startBeat+sec.bars*4-.05,att=t=>sec.chords.find(c=>Math.abs(c.start-t)<.07),chAt=t=>{let c=sec.chords[0];for(const x of sec.chords)if(x.start<=t+.07)c=x;return c;};
+  for(const k of ['mel','piano','arp','bass','gtr','cm']){if(!L[k])continue;
+    const ev=L[k].filter(e=>e.t>=from&&e.t<to).sort((a,b)=>a.t-b.t);if(!ev.length)continue;
+    const groups=[];for(const e of ev){const g=groups[groups.length-1];if(g&&e.t-g.t<.09)g.ev.push(e);else groups.push({t:e.t,ev:[e]});}
+    let prevSig=null,prevT=-9;const drop=new Set(),kept=[];
+    groups.forEach((g,gi)=>{
+      const rel=g.t-sec.startBeat,c=chAt(g.t),a=att(g.t),sig=g.ev.map(e=>e.n).sort().join(',');
+      let imp=posW(rel)+(a?.45:0);
+      if(!a&&sig===prevSig&&g.t-prevT<=1.05)imp-=.25;
+      if(k==='mel'){if(g.ev.some(e=>c.pcs&&c.pcs.has(mod12(e.n))))imp+=.25;if(g.ev[0].d>=.9)imp+=.15;}
+      if(k==='bass'&&mod12(Math.min(...g.ev.map(e=>e.n)))===c.bass)imp+=.2;
+      if(k==='arp'){imp*=.9;if(gi>0&&chAt(groups[gi-1].t)!==c)imp+=.3;}
+      if(k==='cm')imp-=.1;
+      if(imp<th)g.ev.forEach(e=>drop.add(e));else kept.push(g);
+      prevSig=sig;prevT=g.t;});
+    if(!drop.size)continue;
+    L[k]=L[k].filter(e=>!drop.has(e));
+    // le note rimaste si allungano dove sono state tolte quelle intermedie (piano, basso, melodia, chitarra)
+    if(k!=='arp')kept.forEach((g,i)=>{const nx=kept[i+1]?kept[i+1].t:to+.05,c=chAt(g.t),cEnd=k==='mel'?nx:Math.min(nx,c.start+c.beats);
+      g.ev.forEach(e=>{const want=Math.min(cEnd-e.t-.03,k==='mel'?2.5:8);if(want>e.d+.2)e.d=want*(k==='bass'?.95:1);});});
+  }
+}
+// figure di vuoto: [battuta nel ciclo di 4, da, a (battiti), strati]  — 'all' = tutta la batteria, [pad…] = solo quei pad
+const GAPFIG={
+  drumHalf:{n:'mezza battuta senza batteria',bar:3,from:2,to:4,L:{drums:'all'}},
+  drumHalfMid:{n:'batteria fuori a metà frase',bar:1,from:2,to:4,L:{drums:'all'}},
+  trapDrop:{n:'drop: batteria e 808 fuori a fine frase',bar:3,from:2,to:4,L:{drums:'all',bass:1}},
+  kickOut:{n:'battuta senza cassa',bar:3,from:0,to:4,L:{drums:[0],bass:1}},
+  hatOnly:{n:'solo hi-hat',bar:3,from:0,to:4,L:{drums:[0,1,2,6,7]}},
+  drop808:{n:'808 fuori',bar:1,from:2,to:4,L:{bass:1}},
+  skipSnare:{n:'rullante saltato',bar:1,from:2.9,to:4,L:{drums:[1,2]}},
+  skipSnare2:{n:'colpo di rullante saltato',bar:3,from:.9,to:2,L:{drums:[1,2]}},
+  stop4:{n:'stop sul 4',bar:3,from:3,to:4,L:{drums:'all',bass:1,piano:1,arp:1,gtr:1}},
+  stopTutti:{n:'stop di tutti',bar:3,from:2,to:4,L:{drums:'all',bass:1,piano:1,arp:1,pad:1,gtr:1}},
+  stopTime:{n:'stop-time (solo l\'1)',bar:3,from:.5,to:4,L:{drums:'all',bass:1,piano:1,arp:1,gtr:1}},
+  breakDrums:{n:'break: resta solo la batteria',bar:3,from:2,to:4,L:{piano:1,arp:1,bass:1,pad:1,gtr:1}},
+  bassDrop:{n:'basso fuori sull\'1',bar:3,from:0,to:2,L:{bass:1}},
+  drumOut1:{n:'batteria fuori sull\'1',bar:3,from:0,to:1,L:{drums:'all'}},
+  breath:{n:'respiro di piano e arpeggio',bar:1,from:3,to:4,L:{piano:1,arp:1,gtr:1}}};
+const GAP_FAM={urban:{trapDrop:3,drumHalf:2,kickOut:1.5,hatOnly:1.2,drop808:1,skipSnare:.8,drumHalfMid:.8},
+  hiphop:{stop4:2,kickOut:1.5,skipSnare:1.5,breakDrums:1,drumHalf:1,skipSnare2:.8},
+  pop:{stopTutti:2,stop4:1.5,skipSnare:1,drumHalf:1,breath:1},
+  island:{bassDrop:2,drumOut1:1.5,skipSnare:1.2,stop4:1,breakDrums:.8},
+  jazz:{stopTime:2,breakDrums:1.5,stop4:1},
+  calm:{breath:2,stopTutti:1.5,stop4:1}};
+const GENRE_FAM={trap:'urban',afrorage:'urban',drill:'urban',boombap:'hiphop',lofi:'hiphop',triphop:'hiphop',pop:'pop',rock:'pop',soul:'pop',gospel:'pop',
+  reggae:'island',dancehall:'island',afrobeat:'island',reggaeton:'island',jazz:'jazz',bossa:'jazz',blues:'jazz',cinematic:'calm',classical:'calm'};
+function planGaps(sec,G,gid,r,space,hasDrums){
+  if(space<.15||sec.type==='intro'||sec.type==='outro')return[];
+  const fam=GAP_FAM[GENRE_FAM[gid]||'pop'];let pool=Object.entries(fam);
+  if(!hasDrums)pool=pool.filter(([k])=>!GAPFIG[k].L.drums||Object.keys(GAPFIG[k].L).length>1);
+  if(!pool.length)pool=[['breath',1]];
+  const f1=pickW(r,pool),pool2=pool.filter(([k])=>k!==f1&&GAPFIG[k].bar!==GAPFIG[f1].bar),f2=pool2.length?pickW(r,pool2):null;
+  const out=[],cycles=Math.ceil(sec.bars/4);
+  for(let c=0;c<cycles;c++){
+    const last=c===cycles-1;
+    if(space>=.42||c%2===1||(last&&space>=.25))out.push({fig:f1,bar:c*4+Math.min(GAPFIG[f1].bar,sec.bars-1-c*4)});
+    if(f2&&space>=.7)out.push({fig:f2,bar:c*4+Math.min(GAPFIG[f2].bar,sec.bars-1-c*4)});
+  }
+  return out.filter(x=>x.bar<sec.bars);
+}
+function applyGaps(L,sec,gaps){
+  for(const g of gaps){const F=GAPFIG[g.fig],a=sec.startBeat+g.bar*4+F.from,b=sec.startBeat+g.bar*4+F.to;
+    for(const k in F.L){if(!L[k])continue;const pads=F.L[k];
+      L[k]=L[k].filter(e=>{if(e.t<a-.03||e.t>=b-.03)return true;if(k!=='drums')return false;if(e.pad===8||e.pad===9)return true;return!(pads==='all'||(Array.isArray(pads)&&pads.includes(e.pad)));});
+      if(k!=='drums')L[k].forEach(e=>{if(e.t<a-.03&&e.t+e.d>a)e.d=Math.max(.08,a-e.t-.02);});}
+    // il colpo dopo la pausa arriva più deciso
+    if(F.L.drums&&b<sec.startBeat+sec.bars*4+.01)L.drums.forEach(e=>{if(Math.abs(e.t-b)<.04&&(e.pad===0||e.pad===1))e.v=Math.min(127,e.v+10);});
+  }
+}
 function planSection(sec,ctx,r,o){
   // estrazioni a indice fisso: cambiare una traccia non sposta le scelte delle altre
   const G=ctx.G,M=ctx.M,t=sec.type,e=sec.energy,sp=ctx.sty.piano,R=Array.from({length:10},()=>r());
   const busyP={chorus:.8,pre:.6,loop:.55,bridge:.3,special:.25,verse:.25,intro:.15,outro:.15}[t];
   const dmT=sec.densMul||1,tex=dmT<.6?'sustain':dmT<.8?sp.calm:dmT>1.4?sp.busy:R[0]<(busyP==null?.4:busyP)?sp.busy:sp.calm;
   const C=(o.secCfg||{})[t]||{},dm=sec.densMul||1;
-  const sp0=o.space!=null?o.space:clamp((G.space||.3)*.6+M.space*.6,0,1),space=C.space!=null?C.space:sp0;
+  const space=spaceValue(o,C,clamp((G.space||.3)*.6+M.space*.6,0,1));
   const dens=clamp((.22+e*.55+(M.dens-.5)*.45+(G.dens||0)-space*.25)*dm,.05,1);
   // vuoto/pieno: più è alto, più le battute alternano pieno e quasi vuoto
   // vuoto/pieno: le battute non spariscono; respirano dentro (pause su alcuni battiti, ciclo di 2 battute)
@@ -734,6 +829,7 @@ function planSection(sec,ctx,r,o){
   if(LY.drums===false)p.drums=null;else if(LY.drums===true&&p.drums==null&&G.drums)p.drums=Math.max(0,tier-1);
   if(p.drums!=null&&G.drums){if(dm<.65)p.drums=Math.max(0,p.drums-1);else if(dm>1.3)p.drums=Math.min(2,p.drums+1);}
   p.dm=dm;
+  p.gaps=planGaps(sec,G,ctx.gid,r,space,p.drums!=null&&!!G.drums);
   return p;
 }
 
@@ -1184,7 +1280,7 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
   const F=(ctx.feel&&ctx.feel.drums)||{},hum=ctx.human?(F.hum!=null?F.hum:1):0,jit=()=>(r()+r()-1)*(S.jit!=null?S.jit:.005)*hum;
   const G2=grid||{},PD=pdens||{},t=sec.type,nx=sec.next,riseTo=nx&&nx.energy-sec.energy>=.15;
   // densità del groove: 0 = solo l'ossatura, 1 = tutto (ghost compresi)
-  const dl=clamp(.24+plan.dens*.9+(tier-1)*.1+(t==='outro'?-.15:0),0,1.05);
+  const dl=clamp(.24+plan.dens*.9+(tier-1)*.1+(t==='outro'?-.15:0)+((sec.densV??50)-50)/50*.3,0,1.05);
   // soglia per pad: cassa e rullante tengono l'ossatura, percussioni e shaker sono decorazioni
   const thr=(pad,bar)=>{let x=9-dl*6;if(pad===1||pad===2)x+=.5;if(pad===0)x-=.5;if(pad>=6&&pad<=7)x+=1;if(pad===5)x+=.5;
     const sh=plan.shape[bar%4];if(sh<1&&pad!==0&&pad!==1)x+=(1-sh)*1.5;return Math.min(x,pad===3?7.5:8.5);};
@@ -1206,6 +1302,12 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
     const bs=sec.startBeat+b*4,last=b===sec.bars-1,k4=sec.bars<4?(b%2?'B':'A'):['A','A2','A','B'][b%4];
     const kind=k4==='A2'&&!mutOn?'A':k4;
     const H=grooveBar(d,kind,{half:mode==='half',full:e>=.7||t==='chorus',r:jr?()=>jr():null});
+    // densità oltre 50: sedicesimi di hi-hat in più, ghost di rullante, percussioni
+    const xd=((sec.densV??50)-55)/45;
+    if(xd>0&&!d.jazz){const has=(p,s)=>H.some(h=>h.pad===p&&h.st===s);
+      if(d.hat&&d.hat.length===16)for(let s=1;s<16;s+=2)if(!has(3,s)&&!has(4,s)&&R()<xd*.7)H.push({pad:3,t:s/4,s:5,st:s,g:16});
+      if(d.snare&&d.snare.length===16)[3,7,11,15].forEach(s=>{if(!has(1,s)&&!has(1,s+1)&&R()<xd*.35)H.push({pad:1,t:s/4,s:4,st:s,g:16});});
+      if(xd>.5&&d.kick&&d.kick.length===16&&R()<xd*.5){const s=[6,10,14,3][Math.floor(R()*4)];if(!has(0,s)&&!has(1,s))H.push({pad:0,t:s/4,s:6,st:s,g:16});}}
     const fStart=last&&fillLen?4-fillLen:9,stopAt=last&&stop?3:9;
     for(const h of H){let pad=h.pad;const beat=h.t;
       if(pad===1&&vRim)pad=2;
@@ -1278,7 +1380,7 @@ function generateSong(o){
   const color=COLOR_LEVELS[o.color]!=null?COLOR_LEVELS[o.color]:clamp(G.color+M.color,0,1);
   let autoBpm=Math.round(clamp((G.tempo[0]+(G.tempo[1]-G.tempo[0])*hr())*M.tempo,52,180));
   if(G.groove)autoBpm=clamp(autoBpm,G.tempo[0],G.tempo[1]);
-  const ctx={lockMel:(o.style||{}).mel,G,M,mode,key,color,tense:!!M.tense,human:o.human!==false,feel:o.feel||{},scalePcs:MODES[mode].scale.map(x=>mod12(key+x)),
+  const ctx={gid:Object.keys(GENRES).find(k=>GENRES[k]===G),lockMel:(o.style||{}).mel,G,M,mode,key,color,tense:!!M.tense,human:o.human!==false,feel:o.feel||{},scalePcs:MODES[mode].scale.map(x=>mod12(key+x)),
     allowDim:!!(M.tense||G.n==='Jazz'||G.n==='Gospel'||G.n==='Classico')};
   const info=new Set();
   const spell=speller(key,mode);
@@ -1328,10 +1430,10 @@ function generateSong(o){
   const sections=[];let bar=0;const occ={};
   secs.forEach(([t,n])=>{
     occ[t]=(occ[t]||0)+1;
-    const C=(o.secCfg||{})[t]||{},DM={scarna:.45,leggera:.7,media:1,piena:1.3,moltopiena:1.6};
+    const C=(o.secCfg||{})[t]||{},dv=densValue(o,C);
     const sec={type:t,name:SEC_NAME[t]+(secs.filter(x=>x[0]===t).length>1?' '+occ[t]:''),bars:n,startBar:bar,startBeat:bar*4,
       energy:clamp(SPEC[t].energy+(t==='chorus'&&occ[t]>=3?.06:0)+(C.energy||0),.1,1),occ:occ[t],chords:segs[t].map(c=>({...c})),
-      densMul:(DM[o.dens]||1)*(C.dens||1)};
+      densV:dv,densMul:densMulOf(dv)};
     sections.push(sec);bar+=n;
   });
   sections.forEach(s=>{let b=s.startBeat;s.chords.forEach(c=>{c.start=b;b+=c.beats;});});
@@ -1411,6 +1513,24 @@ function generateSong(o){
           i=j;}
         L.piano=L.piano.filter(x=>!drop.has(x)).concat(add);}}
     if(plan.drums!=null&&G.drums)genDrums(sec,ctx,rA('drums-'+t,'drums',t),L,plan.drums,plan,(o.drumGrid||{})[t],o.padDens);
+    // densità: sotto 50 restano le note più importanti · vuoto/pieno: figure di pausa coordinate
+    thinSection(L,sec,sec.densV<50?(50-sec.densV)/50:0);
+    if(sec.densV>60&&plan.mel){const rp=rA('meldens-'+t,'mel',t),amt=(sec.densV-60)/40,sc=ctx.scalePcs,from=sec.startBeat,to=from+sec.bars*4;
+      const mel=L.mel.filter(x=>x.t>=from-.05&&x.t<to-.05).sort((a,b)=>a.t-b.t),add=[];
+      for(let i=0;i<mel.length-1;i++){const a=mel[i],b=mel[i+1],gap=b.t-a.t;if(gap<.74||rp()>amt*.8)continue;
+        const dir=Math.sign(b.n-a.n)||(rp()<.5?1:-1);let n=a.n+dir;while(!sc.includes(mod12(n)))n+=dir;
+        const tt=b.t-(gap>=1.5&&rp()<.5?.5:.25*(gap>=1?2:1));if(tt<=a.t+.2)continue;a.d=Math.min(a.d,tt-a.t-.02);add.push({t:tt,d:Math.max(.12,b.t-tt-.03),n,v:Math.max(30,a.v-10)});}
+      L.mel.push(...add);}
+    // piano oltre 65: riattacchi più fitti dell'accordo (in levare) dove resta fermo a lungo
+    if(sec.densV>65&&plan.piano!==false){const rp=rA('piandens-'+t,'piano',t),amt=(sec.densV-65)/35,from=sec.startBeat,to=from+sec.bars*4;
+      const ev=L.piano.filter(x=>x.t>=from-.05&&x.t<to-.05).sort((a,b)=>a.t-b.t),gs=[];for(const x of ev){const g=gs[gs.length-1];if(g&&x.t-g.t<.09)g.ev.push(x);else gs.push({t:x.t,ev:[x]});}
+      const add=[];gs.forEach((g,i)=>{const nx=gs[i+1]?gs[i+1].t:to,gap=nx-g.t;if(gap<1.4||rp()>amt)return;
+        const step=amt>.6&&gap>=2?1:gap>=3?2:1,top=g.ev.sort((a,b)=>b.n-a.n).slice(0,Math.min(3,g.ev.length));
+        for(let s=g.t+step+.5*(rp()<.5?1:0);s<nx-.4;s+=step*(amt>.7?.5:1))top.forEach(x=>{add.push({t:s,d:.4,n:x.n,v:Math.max(28,Math.round(x.v*.72))});});
+        g.ev.forEach(x=>{x.d=Math.min(x.d,step-.05);});});
+      L.piano.push(...add);}
+    applyGaps(L,sec,plan.gaps);
+    plan.gaps.forEach(g=>info.add('vuoto: '+GAPFIG[g.fig].n));
   });
   // pulizia: note uguali sovrapposte
   const total=bar*4;
@@ -1422,7 +1542,7 @@ function generateSong(o){
   }
   const bpm=o.bpm||autoBpm;
   return{opts:o,genre:o.genre,mood:o.mood,key,mode,bpm,autoBpm,color,spell,keyName:spell(key),bars:bar,beats:total,sections,chords,layers:L,
-    info:[...info],swing:G.swing,prog:G.prog,secs,typeOrder:order,
+    autoSpace:clamp((G.space||.3)*.6+M.space*.6,0,1),info:[...info],swing:G.swing,prog:G.prog,secs,typeOrder:order,
     bass808:ctx.sty.bass==='b808',styles:{mel:null,bass:ctx.sty.bass,drums:ctx.sty.drums&&ctx.sty.drums.id,piano:ctx.sty.piano.calm,arp:ctx.sty.arp},
     defaults:{mel:1,piano:1,arp:1,pad:1,bass:1,drums:G.groove?1:0}};
 }

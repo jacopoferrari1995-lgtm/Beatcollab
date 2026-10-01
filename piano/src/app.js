@@ -12,13 +12,16 @@ function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show'
 const DEF={genre:'pop',mood:'rilassato',mode:'auto',key:'auto',structure:'vc',color:'auto',human:true,pad:false,pianoStyle:'live',modLast:false,sound:'samp',dens:'auto',spaceLvl:'auto'};
 const St={opts:Object.assign({},DEF,LS.get('pg_opts',{})),seeds:{h:rndSeed(),a:rndSeed(),m:rndSeed()},bpm:null,song:null,ev:[],
   mute:{},solo:null,oct:{},vol:{},padMute:{},padVol:{},padDens:{},drumGrid:{},feel:{},style:{},secCfg:{},padSel:null,showPads:false,reseed:{L:{},S:{}},sel:0,selChord:-1,scope:'rep',loop:false,muteInit:false,layout:null,secs:null,typeOrder:null,edits:[]};
-const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1},sound:{samp:1,synth:1},dens:{auto:1,scarna:1,leggera:1,media:1,piena:1,moltopiena:1},spaceLvl:{auto:1,continuo:1,leggero:1,marcato:1,estremo:1}};
+const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1},sound:{samp:1,synth:1},};
+// densità e vuoto/pieno: 'auto' o 0–100 (i vecchi valori a parole vengono convertiti)
+const numOrAuto=(v,leg)=>v==null||v==='auto'?'auto':leg[v]!=null?leg[v]:isFinite(+v)?clamp(Math.round(+v),0,100):'auto';
 St.name='Senza titolo';St.projId=null;St.savedSnap=null;
 (()=>{const cur=LS.get('pg_current',null),meta=LS.get('pg_meta',{});
   if(cur&&cur.opts&&cur.seeds){Object.assign(St,{opts:Object.assign({},DEF,cur.opts),seeds:cur.seeds,secs:cur.secs||null,typeOrder:cur.typeOrder||null,edits:cur.edits||[],
     oct:cur.oct||{},mute:cur.mute||{},solo:cur.solo||null,bpm:cur.bpm||null,name:cur.name||'Senza titolo',muteInit:!!cur.mute,reseed:cur.reseed||{L:{},S:{}},vol:cur.vol||{},padMute:cur.padMute||{},padVol:cur.padVol||{},padDens:cur.padDens||{},drumGrid:cur.drumGrid||{},feel:cur.feel||{},style:cur.style||{},secCfg:cur.secCfg||{}});}
   St.projId=meta.projId||null;St.savedSnap=meta.savedSnap||null;})();
 for(const k in VALID)if(!(St.opts[k] in VALID[k]))St.opts[k]=DEF[k];
+St.opts.dens=numOrAuto(St.opts.dens,DENS_LEGACY);St.opts.spaceLvl=numOrAuto(St.opts.spaceLvl,SPACE_LEGACY);
 if(St.opts.key!=='auto'&&!(+St.opts.key>=0&&+St.opts.key<12))St.opts.key='auto';
 
 const curBpm=()=>St.bpm||St.song.bpm;
@@ -38,7 +41,7 @@ fillSel('#key',[['auto','Auto'],...KEY_NAMES.map((n,i)=>[i,n])]);
 fillSel('#structure',Object.entries(STRUCTS).map(([k,s])=>[k,s.n]));
 fillSel('#color',[['auto','Auto (dal genere)'],['triadi','Triadi'],['colorati','Colorati (add9, sus, 6)'],['settime','Settime'],['estesi','Estesi (9, 11, 13)']]);
 fillSel('#addType',['intro','verse','pre','chorus','bridge','special','outro'].map(t=>[t,SEC_NAME[t]]));
-function syncControls(){['genre','mood','mode','key','structure','color','sound','dens','spaceLvl'].forEach(k=>$('#'+k).value=St.opts[k]);$('#modLast').checked=!!St.opts.modLast;
+function syncControls(){['genre','mood','mode','key','structure','color','sound'].forEach(k=>$('#'+k).value=St.opts[k]);syncRanges();$('#modLast').checked=!!St.opts.modLast;
   $('#pstyle').value=St.opts.pianoStyle;$('#human').checked=St.opts.human;$('#pad').checked=St.opts.pad;}
 const saveOpts=()=>LS.set('pg_opts',St.opts);
 function clearReseed(k){const R=St.reseed;Object.keys(R.S).forEach(x=>{if(x.endsWith('.'+k))delete R.S[x];});
@@ -54,8 +57,14 @@ function dropEdits(){if(St.edits.length){St.edits=[];toast('Modifiche agli accor
   St.selChord=-1;regen({resetMute:k==='genre'});}));
 $('#pstyle').addEventListener('change',e=>{St.opts.pianoStyle=e.target.value;saveOpts();regen();toast(e.target.value==='classic'?'Pianoforte classico (v3)':'Pianoforte vivo');});
 $('#human').addEventListener('change',e=>{St.opts.human=e.target.checked;saveOpts();regen();});
-['dens','spaceLvl'].forEach(k=>$('#'+k).addEventListener('change',e=>{St.opts[k]=e.target.value;saveOpts();regen();
-  toast(k==='dens'?'Densità: '+e.target.selectedOptions[0].text:'Vuoto/pieno: '+e.target.selectedOptions[0].text);}));
+// barre 0–100: densità (50 = come decide il genere) e vuoto/pieno (auto = valore del genere e del mood)
+function syncRanges(){const d=St.opts.dens,s=St.opts.spaceLvl,as=St.song?Math.round(St.song.autoSpace*100):30;
+  $('#densR').value=d==='auto'?50:d;$('#densV').textContent=d==='auto'?'auto':d;$('#densR').classList.toggle('auto',d==='auto');
+  $('#spaceR').value=s==='auto'?as:s;$('#spaceV').textContent=s==='auto'?'auto ('+as+')':s;$('#spaceR').classList.toggle('auto',s==='auto');}
+[['dens','densR','densAuto','Densità'],['spaceLvl','spaceR','spaceAuto','Vuoto/pieno']].forEach(([k,r,au,lab])=>{
+  $('#'+r).addEventListener('input',e=>{$('#'+(k==='dens'?'densV':'spaceV')).textContent=e.target.value;e.target.classList.remove('auto');});
+  $('#'+r).addEventListener('change',e=>{St.opts[k]=+e.target.value;saveOpts();regen();toast(`${lab}: ${e.target.value}`);});
+  $('#'+au).onclick=()=>{St.opts[k]='auto';saveOpts();regen();toast(`${lab}: auto`);};});
 $('#modLast').addEventListener('change',e=>{St.opts.modLast=e.target.checked;saveOpts();regen();
   const n=St.song.sections.filter(x=>x.type==='chorus').length;toast(e.target.checked?(n>=2?'L\'ultimo ritornello sale di un tono':'Serve una struttura con almeno due ritornelli'):'Modulazione tolta');});
 $('#sound').addEventListener('change',e=>{St.opts.sound=e.target.value;saveOpts();ensureSound(true);renderHead();});
@@ -74,7 +83,7 @@ $$('[data-re]').forEach(b=>b.onclick=()=>{const k=b.dataset.re;if(k==='h')dropEd
   toast({h:'Nuova armonia',a:'Nuovo arrangiamento',m:'Nuova melodia'}[k]);});
 const DENS_K=['auto','scarna','leggera','media','piena','moltopiena'],SPACE_K=['auto','continuo','leggero','marcato','estremo'];
 const TL={intro:'i',verse:'v',pre:'p',chorus:'c',bridge:'b',special:'x',outro:'o',loop:'l'},LT=Object.fromEntries(Object.entries(TL).map(([k,v])=>[v,k]));
-const codeOf=()=>{const p=[St.opts.genre,St.opts.mood,St.opts.mode,St.opts.key,St.opts.structure,St.opts.color,`${St.seeds.h}-${St.seeds.a}-${St.seeds.m}`,(St.opts.pad?'p':'-')+(St.opts.pianoStyle==='classic'?'c':'v')+DENS_K.indexOf(St.opts.dens)+SPACE_K.indexOf(St.opts.spaceLvl)];
+const codeOf=()=>{const p=[St.opts.genre,St.opts.mood,St.opts.mode,St.opts.key,St.opts.structure,St.opts.color,`${St.seeds.h}-${St.seeds.a}-${St.seeds.m}`,(St.opts.pad?'p':'-')+(St.opts.pianoStyle==='classic'?'c':'v')+(St.opts.dens==='auto'?'a':St.opts.dens)+'.'+(St.opts.spaceLvl==='auto'?'a':St.opts.spaceLvl)];
   const rs=[...Object.entries(St.reseed.L).filter(x=>x[1]).map(([k,v])=>'L'+k+v),...Object.entries(St.reseed.S).filter(x=>x[1]).map(([k,v])=>'S'+k+v)].join(',');
   const sy=Object.entries(St.style||{}).map(([k,v])=>k+':'+v).join(',');
   if(St.secs||rs||sy)p.push(St.secs?St.secs.map(([t,b])=>TL[t]+b).join('.'):'',St.secs?(St.typeOrder||[]).map(t=>TL[t]).join(''):'');if(rs||sy)p.push(rs);if(sy)p.push(sy);return p.join('/');};
@@ -84,7 +93,8 @@ $('#code').addEventListener('change',e=>{
   if(parts.length>=7){const [g,m,mo,k,s,c]=parts;
     if(GENRES[g])St.opts.genre=g;if(MOODS[m])St.opts.mood=m;if(VALID.mode[mo])St.opts.mode=mo;
     if(k==='auto'||(+k>=0&&+k<12))St.opts.key=k;if(STRUCTS[s])St.opts.structure=s;if(VALID.color[c])St.opts.color=c;
-    if(parts[7]){St.opts.pad=parts[7][0]==='p';St.opts.pianoStyle=parts[7][1]==='c'?'classic':'live';St.opts.dens=DENS_K[+parts[7][2]]||'auto';St.opts.spaceLvl=SPACE_K[+parts[7][3]]||'auto';}syncControls();saveOpts();}
+    if(parts[7]){St.opts.pad=parts[7][0]==='p';St.opts.pianoStyle=parts[7][1]==='c'?'classic':'live';if(parts[7].includes('.')){const [dd,ss]=parts[7].slice(2).split('.');St.opts.dens=dd==='a'?'auto':numOrAuto(dd,{});St.opts.spaceLvl=ss==='a'?'auto':numOrAuto(ss,{});}
+      else{St.opts.dens=numOrAuto(DENS_K[+parts[7][2]]||'auto',DENS_LEGACY);St.opts.spaceLvl=numOrAuto(SPACE_K[+parts[7][3]]||'auto',SPACE_LEGACY);}}syncControls();saveOpts();}
   St.secs=null;St.typeOrder=null;
   if(parts[8]){const secs=parts[8].split('.').map(x=>[LT[x[0]],+x.slice(1)]).filter(([t,b])=>t&&b>0&&b<=64);if(secs.length){St.secs=secs;St.typeOrder=(parts[9]||'').split('').map(c=>LT[c]).filter(Boolean);}}
   St.reseed={L:{},S:{}};(parts[10]||'').split(',').forEach(x=>{const m=x.match(/^([LS])([a-z.]+?)(\d+)$/);if(m)St.reseed[m[1]][m[2]]=+m[3];});
@@ -101,8 +111,7 @@ function buildEv(){
 function regen({resetMute=false}={}){
   const was=Player.playing,pos=was?Player.pos():0;
   if(was)Player.stop(true);
-  const SPACE={continuo:0,leggero:.3,marcato:.6,estremo:.92};
-  const s=generateSong({...St.opts,space:SPACE[St.opts.spaceLvl],secCfg:St.secCfg,bpm:St.bpm,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,reseed:St.reseed,feel:St.feel,style:St.style,padDens:St.padDens,drumGrid:St.drumGrid});
+  const s=generateSong({...St.opts,dens:null,densV:St.opts.dens==='auto'?null:+St.opts.dens,spaceV:St.opts.spaceLvl==='auto'?null:+St.opts.spaceLvl,secCfg:St.secCfg,bpm:St.bpm,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,reseed:St.reseed,feel:St.feel,style:St.style,padDens:St.padDens,drumGrid:St.drumGrid});
   St.song=s;
   if(resetMute||!St.muteInit){St.mute={};LAYERS.forEach(l=>St.mute[l.id]=!s.defaults[l.id]);St.solo=null;St.muteInit=true;}
   buildEv();
@@ -112,7 +121,7 @@ function regen({resetMute=false}={}){
   if(was)Player.start(Math.min(pos,s.beats-.01));
   track();
 }
-function renderAll(){applyVols();renderHead();renderLanes();drawArr();renderPads();renderSection();renderHow();renderProg();updateTransport(Player.playing?Player.pos():0);}
+function renderAll(){applyVols();syncRanges();renderHead();renderLanes();drawArr();renderPads();renderSection();renderHow();renderProg();updateTransport(Player.playing?Player.pos():0);}
 
 function renderHead(){
   const s=St.song,G=GENRES[s.genre],M=MOODS[s.mood],dur=s.beats*60/curBpm();
@@ -345,11 +354,13 @@ function renderChar(sec){
   const active={piano:p.piano!==false,arp:!!p.arp,pad:!!p.pad,bass:!!p.bass,drums:p.drums!=null,mel:!!p.mel};
   const segBtns=(key,opts,cur)=>opts.map(([v,l])=>`<button data-ck="${key}" data-cv="${v}" class="${String(cur)===String(v)?'on':''}">${l}</button>`).join('');
   const has=Object.keys(C).length>0;
+  // valori effettivi della sezione (propri o ereditati dal brano)
+  const dv=sec.densV!=null?sec.densV:50,sv=Math.round((p.space||0)*100);
+  const rangeCtl=(k,lab,v,own)=>`<div class="grp"><span class="dim" style="font-size:11.5px">${lab}</span><div class="rng sm"><input type="range" min="0" max="100" value="${v}" data-cr="${k}" class="${own?'':'auto'}"><b class="rv">${v}</b>${own?`<button class="btn sm ghost" data-crx="${k}" title="Usa il valore del brano">↺</button>`:'<small class="dim">brano</small>'}</div></div>`;
   $('#secChar').innerHTML=`<span class="label">Carattere · ${SEC_NAME[t].toLowerCase()}</span>
     <div class="grp"><span class="dim" style="font-size:11.5px">Lunghezza</span><div class="seg">${[2,4,8,12,16].map(n=>`<button data-len="${n}" class="${sec.bars===n?'on':''}" title="${n} battute (vale per tutte le sezioni ${SEC_NAME[t].toLowerCase()})">${n}</button>`).join('')}</div></div>
     <div class="grp"><span class="dim" style="font-size:11.5px">Energia</span><div class="seg">${segBtns('energy',[[-.3,'Calma'],['','Auto'],[.25,'Carica']],C.energy==null?'':C.energy)}</div></div>
-    <div class="grp"><span class="dim" style="font-size:11.5px">Densità</span><div class="seg">${segBtns('dens',[[.45,'Scarna'],[.7,'Leggera'],['','Auto'],[1.3,'Piena'],[1.6,'Molto piena']],C.dens==null?'':C.dens)}</div></div>
-    <div class="grp"><span class="dim" style="font-size:11.5px">Vuoto/pieno</span><div class="seg">${segBtns('space',[['','Auto'],[0,'Continuo'],[.6,'Marcato'],[.92,'Estremo']],C.space==null?'':C.space)}</div></div>
+    ${rangeCtl('densV','Densità',dv,C.densV!=null||C.dens!=null)}${rangeCtl('spaceV','Vuoto/pieno',sv,C.spaceV!=null||C.space!=null)}
     <div class="grp"><span class="dim" style="font-size:11.5px">Cosa suona</span>${LAY_LAB.filter(([k])=>k!=='drums'||G.drums).filter(([k])=>k!=='pad'||St.opts.pad).map(([k,l])=>{const f=LY[k];
       return`<button class="lyc ${active[k]?'act':''} ${f===true?'force-on':f===false?'force-off':''}" data-ly="${k}" style="--lc:var(--c-${k})" title="Clic: auto → sempre → mai">
         <i></i>${l}<small>${f===true?'sempre':f===false?'mai':'auto'}</small></button>`;}).join('')}</div>
@@ -358,6 +369,10 @@ function renderChar(sec){
   $$('#secChar [data-len]').forEach(b=>b.onclick=()=>{const n=+b.dataset.len,s=St.song;if(n===sec.bars)return;
     St.secs=s.secs.map(([x,m])=>[x,x===t?n:m]);St.typeOrder=s.typeOrder.slice();const k=St.edits.length;St.edits=St.edits.filter(e=>e.type!==t);
     regen();toast(`${SEC_NAME[t]}: ${n} battute`+(St.edits.length<k?' · modifiche agli accordi azzerate':''));});
+  $$('#secChar [data-cr]').forEach(el=>{el.oninput=()=>{el.nextElementSibling.textContent=el.value;el.classList.remove('auto');};
+    el.onchange=()=>{const c=Object.assign({},St.secCfg[t]);delete c[el.dataset.cr==='densV'?'dens':'space'];c[el.dataset.cr]=+el.value;St.secCfg[t]=c;regen();};});
+  $$('#secChar [data-crx]').forEach(b=>b.onclick=()=>{const c=Object.assign({},St.secCfg[t]);delete c[b.dataset.crx];delete c[b.dataset.crx==='densV'?'dens':'space'];
+    if(Object.keys(c).length)St.secCfg[t]=c;else delete St.secCfg[t];regen();});
   $$('#secChar [data-ck]').forEach(b=>b.onclick=()=>set(b.dataset.ck,b.dataset.cv===''?null:+b.dataset.cv));
   $$('#secChar [data-ly]').forEach(b=>b.onclick=()=>{const k=b.dataset.ly,cur=LY[k],nx=cur==null?true:cur===true?false:null;
     const ly=Object.assign({},LY);if(nx==null)delete ly[k];else ly[k]=nx;set('layers',Object.keys(ly).length?ly:null);});
