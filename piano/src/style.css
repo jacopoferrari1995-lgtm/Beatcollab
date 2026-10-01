@@ -431,3 +431,11 @@ details.more summary::before{content:"▸ ";}details.more[open] summary::before{
 .lyc.force-on{border-color:var(--lc);box-shadow:inset 0 0 0 1px var(--lc)}
 .lyc.force-off{text-decoration:line-through;opacity:.6;border-style:dashed}
 .lyc small{font-size:10px;color:var(--tx3);font-weight:600}
+/* rigenera con direttive */
+.stylechips{display:flex;flex-wrap:wrap;gap:6px}
+.stylechips .chip{cursor:pointer;font-family:inherit;transition:border-color .15s,background .15s}
+.stylechips .chip:hover{border-color:var(--acc);color:var(--tx)}
+.stylechips .chip.cur{border-color:color-mix(in srgb,var(--acc) 45%,var(--line));color:var(--tx)}
+.stylechips .chip.lock{background:color-mix(in srgb,var(--acc) 16%,var(--panel2));border-color:var(--acc);color:var(--tx);font-weight:600}
+.stylechips .chip small{color:var(--tx3);font-weight:500}
+.ib.rg{position:relative}.ib.rg .lk{position:absolute;top:-2px;right:-1px;color:var(--acc);font-style:normal;font-size:14px;line-height:1}

@@ -592,7 +592,7 @@ function genMelody(sec,ctx,r,shared){
   const snapDir=(i,ch,dir)=>{for(let k=0;k<5;k++)for(const j of [i+dir*k,i-dir*k])if(j>=0&&j<L&&ch.pcs.has(pcOf(j)))return j;return clamp(i,0,L-1);};
   // ritmo: famiglia del genere, densità dal mood
   const fam=Object.entries(MEL_FAM[gid]||{straight:1}).map(([k,w])=>[k,w*(k==='ballad'?1+M.space*1.5:1)*(k==='flow16'||k==='sync'?1+M.drive*.5:1)]);
-  const famK=pickW(r,fam),pool=MEL_RH[famK];
+  const lk=ctx.lockMel,famK=lk&&MEL_RH[lk]?lk:pickW(r,fam),pool=MEL_RH[famK];
   const want=clamp((2+(G.mel.dens+(M.dens-.5)*.5+(type==='chorus'?.05:type==='verse'?-.05:0))*6)*Math.pow(sec.densMul||1,.7),1.5,8);
   const byCount=()=>pickW(r,pool.map(p=>[p,Math.exp(-Math.abs(p.length-want)/1.2)]));
   const dna=shared&&shared[0]&&shared[0].length>1?shared[0].map((st,k,a)=>[st,Math.max(1,Math.min(6,(a[k+1]!=null?a[k+1]:16)-st))]):null;
@@ -686,7 +686,8 @@ const BUSY={sustain:0,broken:1,ostinato:1.4,chops:1.5,octaves:2,block:2,skank:2,
 const OST_RH=[['9.......7.......','9.....7.....7...'],['9..7..7.9..7..7.','9.7.9...9.7.9...','9..7..9...7..7..'],['9.7.9.7.9.7.9.7.','97.797.797.797.7']];
 const STAB_RH=[['..9..9....9.....','...9..9....9..9.'],['..9..9..9.9..9..','9..9..9...9..9..'],['9.99.9.99.99.9.9','9.9.99.9.9.99.9.']];
 // scelte comuni a tutto il brano: le sezioni variano la stessa idea invece di inventarne una nuova
-function songStyle(G,M,rp,ra){
+function songStyle(G,M,rp,ra,lock){
+  lock=lock||{};
   const w=Object.assign({},G.tex||{block:1});const mul=(k,x)=>{if(w[k]!=null)w[k]*=x;};
   w.ostinato=(w.ostinato||0)*(1+3*M.ostinato)+M.ostinato*1.2;
   mul('stabs',1+1.5*M.drive);mul('block',1+.5*M.drive);
@@ -695,11 +696,12 @@ function songStyle(G,M,rp,ra){
   const P=pickW(rp,Object.entries(w));
   const w2=Object.entries(w).filter(([k])=>k!==P).map(([k,v])=>[k,v*(Math.abs(BUSY[k]-BUSY[P])>=.5?1.6:.6)]);
   const S=w2.length&&w2.some(x=>x[1]>0)?pickW(rp,w2):P;
-  const calm=BUSY[P]<=BUSY[S]?P:S,busy=calm===P?S:P;
+  let calm=BUSY[P]<=BUSY[S]?P:S,busy=calm===P?S:P;
+  if(lock.piano&&BUSY[lock.piano]!=null){calm=busy=lock.piano;}
   return{piano:{calm,busy,ost:OST_RH.map(a=>pick(rp,a)),contour:pick(rp,[[0,1,2,1],[0,2,1,3],[2,1,0,1],[0,1,0,2],[3,2,1,0],[0,0,2,1],[0,2,1]]),
       dyad:rp()<.5,stab:STAB_RH.map(a=>pick(rp,a)),chopsA:pick(rp,['9......7..9.....','9.....7...9..7..']),chopsB:pick(rp,['9.....7...7..9..','9......7..9...7.']),
       broken:pick(rp,[...G.arps.filter(a=>SHAPES[a]),'updown8','broken8']),push:rp()<G.push},
-    arp:pick(ra,G.arps.filter(a=>SHAPES[a]))};
+    arp:lock.arp&&SHAPES[lock.arp]?lock.arp:pick(ra,G.arps.filter(a=>SHAPES[a]))};
 }
 function planSection(sec,ctx,r,o){
   // estrazioni a indice fisso: cambiare una traccia non sposta le scelte delle altre
@@ -710,8 +712,11 @@ function planSection(sec,ctx,r,o){
   const sp0=o.space!=null?o.space:clamp((G.space||.3)*.6+M.space*.6,0,1),space=C.space!=null?C.space:sp0;
   const dens=clamp((.22+e*.55+(M.dens-.5)*.45+(G.dens||0)-space*.25)*dm,.05,1);
   // vuoto/pieno: più è alto, più le battute alternano pieno e quasi vuoto
-  const shape=t==='pre'?[.6,.75,.9,1]:R[1]<space+.15?[1,1-.85*space,1,1-.75*space]:R[2]<.3?[1,.85,1,.4]:[1,1,1,1];
-  const p={tex,dens,shape,space};
+  // vuoto/pieno: le battute non spariscono; respirano dentro (pause su alcuni battiti, ciclo di 2 battute)
+  const shape=t==='pre'?[.6,.75,.9,1]:R[2]<space+.15?[1,1-.35*space,1,1-.3*space]:[1,1,1,1];
+  const BR=[[1,1,1,.15,1,1,.6,0],[1,1,1,1,1,.5,0,0],[1,.25,1,.25,1,.25,1,0],[.5,.8,1,1,1,1,.4,.1],[1,1,.3,1,1,1,.3,0],[1,1,0,.6,1,1,1,0]];
+  const bp=t==='pre'||space<.12?null:BR[Math.floor(R[1]*BR.length)],bAmt=Math.min(1,space*1.3)*(t==='chorus'?.75:1);
+  const p={tex,dens,shape,space,breath:bp?BR.indexOf(bp):-1,br:bp?(b,beat)=>clamp(1-(1-bp[(b%2)*4+Math.min(3,Math.floor(beat+1e-6))])*bAmt,0,1):null};
   p.mel=t!=='intro'&&t!=='outro'&&!(t==='special'&&R[3]<.5);
   const ap=clamp(G.arpOn+M.arp+({intro:.1,verse:-.2,pre:.25,chorus:.3,bridge:.2,special:.2,outro:.05,loop:.15}[t]||0),0,.95);
   p.arp=R[4]<ap&&(o.pianoStyle==='classic'||!['broken','ostinato'].includes(tex));
@@ -947,13 +952,50 @@ function padAtmos(sec,ctx,r,L){
   });
   close(E.end);
 }
+/* ---- Basso: personalità ----
+   pattern a 16 sedicesimi: R fondamentale · 5 quinta · 8 ottava · 3 terza · 7 settima (o ottava) · 6 sesta · a avvicinamento al prossimo accordo
+   n anticipo del prossimo accordo · g nota stoppata (ghost). Tre livelli di densità per stile. */
+const BASS_STY={genere:'Del genere',tenuto:'Tenuto',pulse:'Ottavi',ottave:'Ottave',walking:'Walking',b808:'808 con glide',cassa:'Segue la cassa',riddim:'Riddim (riff)',funk:'Sincopato / funk',arpeggio:'Arpeggiato'};
+const BASS_PAT={tenuto:{p:['R...............','R.......5.......','R.......R...5...'],leg:1},
+  pulse:{p:['R...R...R...R...','R.R.R.R.R.R.R.R.','R.R.R.R.R.R.R.Ra'],leg:.8},
+  ottave:{p:['R...8...R...8...','R.8.R.8.R.8.R.8.','R.8.R.8.R.8.R8a.'],leg:.5},
+  funk:{p:['R.....R...R.....','R..g..R.8.g.R..a','R.gR..8.Rg.8R.5a'],leg:.45},
+  arpeggio:{p:['R.......5.......','R...5...8...5...','R.5.8.5.3.5.8.5.'],leg:.9}};
+const RIDDIM_RH=['R..x..x.x...x.x.','R.....x.x.x.x...','..x.x.x...x.x.x.','R..x..x...x..x..','R.x...x.x...x.x.','x..x..x.x.....x.','R...x.x.x..x....'];
+function bassStyleFor(G,M,gid,r,lock){
+  if(lock&&BASS_STY[lock])return lock;
+  const w={genere:1,tenuto:.3+M.space,pulse:.1+M.drive*.8,ottave:M.drive*.4,funk:.1,arpeggio:.15,cassa:.2,riddim:M.ostinato*.5,walking:0,b808:0};
+  const add=(k,x)=>w[k]=(w[k]||0)+x;
+  if(G.walk)add('walking',gid==='jazz'?4:1.5);
+  if(G.bass808){add('b808',4);w.genere=.3;}
+  ({reggae:()=>{add('riddim',4);},dancehall:()=>{add('riddim',2);add('cassa',2);},afrobeat:()=>{add('cassa',1.5);add('funk',1.2);add('riddim',.8);},
+    afrorage:()=>{add('cassa',1);},boombap:()=>{add('cassa',2);add('tenuto',.6);},lofi:()=>{add('cassa',1);add('tenuto',.8);},triphop:()=>{add('cassa',1);add('tenuto',1);},
+    pop:()=>{add('pulse',1);add('ottave',.3);},rock:()=>{add('pulse',2);},soul:()=>{add('funk',1.2);add('arpeggio',.5);},gospel:()=>{add('funk',.8);add('arpeggio',.8);},
+    cinematic:()=>{add('tenuto',2);add('arpeggio',.5);},classical:()=>{add('tenuto',2);add('arpeggio',.8);},bossa:()=>{add('genere',2);}}[gid]||(()=>{}))();
+  if(G.groove){w.pulse*=.35;w.ottave*=.35;}
+  w.riddim*=1+M.ostinato*2;w.tenuto*=1+M.space;w.pulse*=1+M.drive;w.ottave*=1+M.drive;
+  return pickW(r,Object.entries(w));
+}
+// riff ripetuto (riddim): ritmo di una battuta + intervalli sull'accordo, uguale per tutto il brano
+function riddimOf(r){
+  const rh=pick(r,RIDDIM_RH),pool=[['5',3],['8',2],['3',1.5],['7',1],['6',.6],['R',1.2]];
+  let s='',prev='R';for(const ch of rh){if(ch==='.'){s+='.';continue;}if(ch==='R'){s+='R';prev='R';continue;}
+    let x=pickW(r,pool.map(([k,v])=>[k,k===prev?v*.3:v]));s+=x;prev=x;}
+  if(s[0]==='.'&&r()<.5)s='R'+s.slice(1);
+  return s;
+}
 function genBass(sec,ctx,r,L,plan,prevRef){
-  const E=env(sec,ctx,L,'bass'),G=E.G,M=E.M,e=E.e,dmB=sec.densMul||1,tier=clamp((e<.4?0:e<.7?1:2)+(dmB<.65?-1:dmB>1.3?1:0),0,2),next=sec.next;
+  const E=env(sec,ctx,L,'bass'),G=E.G,M=E.M,e=E.e,dmB=sec.densMul||1,next=sec.next,st=ctx.sty.bass;
+  const tier=clamp((e<.4?0:e<.7?1:2)+(dmB<.65?-1:dmB>1.3?1:0)+(plan.dens<.3?-1:0),0,2);
   let prev=prevRef.n;
-  const lo=G.bass808?28:31,hi=G.bass808?43:52;
+  const is808=st==='b808',lo=is808?28:31,hi=is808?43:52;
   const near=pc=>{let m=nearestPc(pc,prev);while(m<lo)m+=12;while(m>hi)m-=12;return m;};
   const nextChord=c=>{const ci=sec.chords.indexOf(c);return sec.chords[ci+1]||(next&&next.chords[0])||sec.chords[0];};
-  if(G.walk&&tier>=1){
+  const startsOf=bs=>sec.chords.filter(c=>c.start>=bs-1e-6&&c.start<bs+4).map(c=>Math.round((c.start-bs)*4));
+  // cassa della batteria (16 passi) per gli stili che la seguono
+  const kick16=(minS)=>{const k=ctx.sty.drums&&ctx.sty.drums.kick;if(!k)return null;const a=Array(16).fill(0);
+    for(let i=0;i<k.length;i++){const v=+k[i];if(k[i]>='1'&&k[i]<='9'&&v>=minS)a[Math.min(15,Math.round(i*16/k.length))]=v;}return a;};
+  if(st==='walking'&&tier>=1){
     const scale=ctx.scalePcs;
     sec.chords.forEach(c=>{
       const nxc=nextChord(c),n=Math.max(1,Math.round(c.beats)),line=[];
@@ -964,14 +1006,14 @@ function genBass(sec,ctx,r,L,plan,prevRef){
       if(n>=2){let a=tgt+(r()<.65?(tgt>cur?-1:1):(r()<.5?7:-5));while(a<lo)a+=12;while(a>hi)a-=12;line.push(a);}
       line.forEach((m,k)=>{const t=c.start+k*c.beats/n;E.add(t+E.jit(r,.02),c.beats/n*.92,m,E.vel(c,70+e*22+(k===0?8:0)+E.jit(r,8))*1);prev=m;});
     });
-    prevRef.n=prev;return'walking bass';
+    prevRef.n=prev;return'basso walking';
   }
-  if(G.bass808){
-    const kick=plan.drums!=null&&DRUMS[G.drums]?(DRUMS[G.drums][Math.min(plan.drums,2)].k||G.bass[tier]):G.bass[tier];
+  if(is808){
+    const kk=kick16(tier>=2?6:tier>=1?7:9);
     let last=null;
     for(let b=0;b<sec.bars;b++){
-      const bs=sec.startBeat+b*4,starts=sec.chords.filter(c=>c.start>=bs-1e-6&&c.start<bs+4).map(c=>Math.round((c.start-bs)*4));
-      const hits=[];for(let s=0;s<16;s++)if((kick.length===16&&kick[s]!=='.')||starts.includes(s))hits.push(s);
+      const bs=sec.startBeat+b*4,starts=startsOf(bs);
+      const hits=[];for(let s=0;s<16;s++)if((kk&&kk[s])||starts.includes(s)||(!kk&&G.bass[tier][s]&&G.bass[tier][s]!=='.'))hits.push(s);
       if(!hits.includes(0))hits.unshift(0);
       hits.sort((a,b)=>a-b).forEach((s,i)=>{const t=bs+s/4,c=E.at(t);let m=near(c.bass);
         if(i>0&&!starts.includes(s)&&r()<.22&&m+12<=hi+7)m+=12;
@@ -979,131 +1021,237 @@ function genBass(sec,ctx,r,L,plan,prevRef){
         if(last!=null&&last!==m&&r()<.55)ev.gl=last;
         L.bass.push(ev);last=m;prev=m;});
     }
-    prevRef.n=prev;return'808 con glide';
+    prevRef.n=prev;return'808 con glide (segue la cassa)';
   }
+  // stili a pattern
+  let pats,leg=G.leg<.6?.7:.9;
+  if(st==='walking')pats=['R.......5.......','R.......5.......','R.......5.......'];
+  else if(st==='cassa'){const mk=minS=>{const k=kick16(minS);if(!k)return G.bass[tier];let s='';for(let i=0;i<16;i++)s+=k[i]?(i===0?'R':(r()<.15?'8':'R')):'.';return s;};
+    pats=[mk(9),mk(7),mk(6)];leg=.85;}
+  else if(st==='riddim'){const rd=ctx.sty.riddim,core=rd.replace(/[^R.]/g,(c,i)=>i<8?c:'.');pats=[core,rd,rd];leg=.6;}
+  else if(BASS_PAT[st]){pats=BASS_PAT[st].p;leg=BASS_PAT[st].leg;}
+  else pats=G.bass;
   for(let b=0;b<sec.bars;b++){
-    const pat=G.bass[tier],hits=[],bs=sec.startBeat+b*4,starts=sec.chords.filter(c=>c.start>=bs-1e-6&&c.start<bs+4).map(c=>Math.round((c.start-bs)*4));
-    for(let s=0;s<16;s++){if(pat[s]!=='.')hits.push({s,k:pat[s]});else if(starts.includes(s))hits.push({s,k:'R'});}
+    const pat=pats[tier],hits=[],bs=sec.startBeat+b*4,starts=startsOf(bs);
+    for(let s=0;s<16;s++){if(pat[s]!=='.')hits.push({s,k:pat[s]});else if(starts.includes(s)&&st!=='riddim')hits.push({s,k:'R'});}
     hits.forEach((h,i)=>{
-      const beat=bs+h.s/4,c=E.at(beat),nxc=nextChord(c),root=near(c.bass);let m=root;
-      switch(h.k){case'5':m=root+7>hi?root-5:root+7;break;case'8':m=root+12<=hi+3?root+12:root;break;case'3':m=root+QT[c.q].iv[1];break;
-        case'6':m=root+9;break;case'a':{const nb=nearestPc(nxc.bass,root);m=nb+(nb>root?-1:1);break;}
+      const beat=bs+h.s/4,c=E.at(beat),nxc=nextChord(c),root=near(c.bass),iv=QT[c.q].iv;let m=root;
+      switch(h.k){case'5':m=root+7>hi?root-5:root+7;break;case'8':m=root+12<=hi+3?root+12:root;break;case'3':m=root+iv[1];break;
+        case'7':{const s7=iv.find(x=>x===10||x===11);m=s7!=null?(root+s7>hi+3?root+s7-12:root+s7):(root+12<=hi+3?root+12:root);break;}
+        case'6':m=root+(ctx.scalePcs.includes(mod12(c.pc+9))?9:8);break;case'a':{const nb=nearestPc(nxc.bass,root);m=nb+(nb>root?-1:1);break;}
         case'n':m=(Math.abs(nxc.start-(bs+4))<1e-6&&h.s>=14)?near(nxc.bass):root;break;}
-      const nxB=i+1<hits.length?bs+hits[i+1].s/4:bs+4,d=Math.max(.15,(Math.min(nxB,c.start+c.beats+(h.k==='n'?1:0))-beat)*(G.leg<.6?.7:.9));
-      E.add(beat+swingDelay(G,h.s)+E.jit(r,.02),d,m,E.vel(c,68+e*24+(h.k==='R'?8:0)+E.jit(r,8)));
-      if(M.oct&&h.k==='R'&&m-12>=28)E.add(beat+swingDelay(G,h.s),d,m-12,60+e*20);
+      const nxB=i+1<hits.length?bs+hits[i+1].s/4:bs+4,ghost=h.k==='g';
+      const d=ghost?.12:Math.max(.15,(Math.min(nxB,c.start+c.beats+(h.k==='n'?1:0))-beat)*leg);
+      E.add(beat+swingDelay(G,h.s)+E.jit(r,.02),d,m,ghost?40+e*10:E.vel(c,68+e*24+(h.k==='R'?8:0)+(h.s%4===0?3:0)+E.jit(r,8)));
+      if(M.oct&&h.k==='R'&&m-12>=28&&st!=='ottave')E.add(beat+swingDelay(G,h.s),d,m-12,60+e*20);
       prev=m;
     });
   }
-  prevRef.n=prev;return null;
+  prevRef.n=prev;return st==='genere'?null:'basso: '+BASS_STY[st].toLowerCase();
 }
-/* ---------------- Batteria: librerie di groove per genere ----------------
-   ogni riga = 16 sedicesimi (12 = terzine). cifra = forza (3 ghost … 9 accento).
-   kick/snare = figura principale; kB/sB = aggiunte alla battuta B (fine frase); gh = ghost; hat/hat0 = hi-hat pieno/leggero;
-   op = hat aperto; rim; sh = shaker; p1/p2 = percussioni (conga o tom); rolls = rullate trap; fill = fill di fine sezione; tm = micro-tempo per pad */
-const DLIB={
-  pop:{kick:['9.......9.9.....','9.....9.9.......','9..7....9.7.....','9.......9.....7.'],kB:['..............7.','.......7........','...........7....'],
-    snare:['....9.......9...'],sB:['','...............5','..............55'],hat:['7.5.7.5.7.5.7.5.','7454745474547454','6.6.7.6.6.6.7.6.'],hat0:['6.4.6.4.6.4.6.4.'],
-    op:['','..............6.','......6.......6.'],sh:['4.6.4.6.4.6.4.6.'],fill:'snare'},
-  rock:{kick:['9.......9.......','9.9.....9.......','9.......9.9.....','9.....7.9.......'],kB:['..........7.....','.......7......7.'],
-    snare:['....9.......9...'],sB:['','...............6'],hat:['8.6.8.6.8.6.8.6.','8.7.8.7.8.7.8.7.'],hat0:['7...7...7...7...'],op:['','..............7.'],fill:'toms'},
-  soul:{kick:['9......7..9.....','9..7....9.......','9.....7...9..7..','9.......9.7.....'],kB:['.............7..','...............6'],
-    snare:['....9.......9...'],sB:['','..............5.'],gh:['.......3......3.','..3....3...3....','.......3.3......'],
-    hat:['7.5.7.5.7.5.7.5.','7454745474547454','7.5.7.57.5.7.5.7'],hat0:['6.4.6.4.6.4.6.4.'],op:['','......6.......6.','..............6.'],sh:['4.6.4.6.4.6.4.6.'],fill:'snare'},
-  lofi:{kick:['9......79.......','9.........9.....','9......7..9...7.','9.......9..7....'],kB:['..............7.',''],
-    snare:['....9.......9...'],gh:['.......3........','...........3...3'],hat:['6.4.6.4.6.4.6.4.','6.4.5.4.6.4.5.4.','6...6...6...6...'],hat0:['6...6...6...6...'],
-    op:['','..............5.'],fill:'drop',tm:{1:.03,3:.012}},
-  boombap:{kick:['9......7..9.....','9.....9...9..7..','9......9.9......','9.........9..7..','9.9.......9.....'],kB:['...............7','.............7..',''],
-    snare:['....9.......9...'],gh:['...........3....','.......3.......3','..3.............'],hat:['7.5.7.5.7.5.7.5.','7.4.7.4.7.4.7.47','6.5.7.5.6.5.7.5.'],hat0:['7.5.7.5.7.5.7.5.'],
-    op:['','..............6.','......6.........'],fill:'drop',tm:{1:.025,3:.008}},
-  trap:{kick:['9......9..9.....','9.........9..9..','9..9......9.....','9......9.9...9..','9.....9...9.....'],kB:['.............9..','..............9.','...........9....'],
-    snare:['........9.......'],sB:['','..............7.','...............6'],hat:['7.6.7.6.7.6.7.6.','7.5.6.5.7.5.6.5.','7656765676567656'],hat0:['7.6.7.6.7.6.7.6.'],
-    rolls:[[[12,'z'],[14,'r']],[[6,'r'],[14,'z']],[[10,'z']],[[15,'r'],[7,'r']],[[4,'r'],[12,'z'],[13,'r']]],op:['','..............6.'],fill:'trap',jit:.002},
-  triphop:{kick:['9.........9.....','9.......7.9.....','9.....7...9.....'],kB:['..............7.',''],snare:['....9.......9...'],
-    gh:['.......3.....3..','..........3.....'],hat:['6.4.6.4.6.4.6.4.','6.4.5.4.6.4.5.4.'],hat0:['6...6...6...6...'],op:['','..............5.'],fill:'drop',tm:{1:.02}},
-  afrobeat:{kick:['9...9...9...9...','9.....7.9.......','9..7....9..7....'],kB:['','..............7.'],snare:['....9.......9...','............9...'],
-    rim:['...7..7....7..7.','..7..7....7..7..','...7..7...7.....'],hat:['..6...6...6...6.','6.5.6.5.6.5.6.5.'],hat0:['..6...6...6...6.'],
-    sh:['6464646464646464','5363536353635363'],p1:['..7..6....7..6..','7..6..7.....7.6.'],p2:['6.....6.....6...','......7.......7.'],fill:'conga'},
-  afrorage:{kick:['9.....9...9.....','9.......9.9.....','9..9....9.....9.'],kB:['..............9.','.............9..'],snare:['....9.......9...'],sB:['','..............7.'],
-    hat:['7.6.7.6.7.6.7.6.','7656765676567656','765765765765'],hat0:['7.6.7.6.7.6.7.6.'],p1:['7..6.67..6.6','7.6..67.6..6'],p2:['..7..7..7..7','.7..7..7..7.'],
-    sh:['6.4.6.4.6.4.6.4.'],fill:'tomtrip'},
-  dancehall:{kick:['9.......9.......','9...9...9...9...','9.......9.....7.'],snare:['...8..8....8..8.','...8..8.....8...'],
-    hat:['6.4.6.4.6.4.6.4.','6464646464646464'],hat0:['6.4.6.4.6.4.6.4.'],rim:['','......7.......7.'],p1:['..7....7..7....7'],p2:['......6.......6.'],fill:'snare'},
-  reggae:{kick:['........9.......','9...9...9...9...','9.......9.......'],rim:['........8.......'],hat:['7.5.7.5.7.5.7.5.','6.6.6.6.6.6.6.6.'],hat0:['7.5.7.5.7.5.7.5.'],
-    op:['','..6...6...6...6.'],fill:'tomrim'},
-  bossa:{kick:['9.....7.9.....7.','9..7....9..7....'],rim:['9..9..9...9..9..','9..9...9..9..9..'],hat:['5353535353535353','5.5.5.5.5.5.5.5.'],hat0:['5.5.5.5.5.5.5.5.'],
-    sh:['4.4.4.4.4.4.4.4.'],fill:'drop'},
-  blues:{kick:['9.......9.......','9.....7.9.......'],snare:['....9.......9...'],gh:['..3.......3.....'],hat:['7.5.7.5.7.5.7.5.'],hat0:['7.5.7.5.7.5.7.5.'],fill:'snare'},
-  gospel:{kick:['9.....7.9.......','9..7....9.7.....','9.......9..7..7.'],snare:['....9.......9...'],sB:['','...............6'],
-    gh:['..3....3...3...3','.......3......3.'],hat:['7454745474547454','7.5.7.5.7.5.7.5.'],hat0:['7.5.7.5.7.5.7.5.'],op:['','......6.......6.'],sh:['..6...6...6...6.'],fill:'gospel'},
-  cinematic:{kick:['9...............','9.......9.......'],snare:[''],snare2:['........9.......'],p2:['9...7...9...7...','9..7..7.9.......'],p1:['........7.7.7.7.'],fill:'toms'},
-  jazz:{jazz:1,fill:'drop'}};
-const JAZZ_COMP=['......4.......4.','..........4..3..','...4......5.....','.......4....3...'];
-// battuta A (groove) o B (risposta/turnaround): frase A A A B
+/* ---------------- Batteria v3: stili per genere ----------------
+   ogni riga = 16 sedicesimi (12 = terzine di ottavo). cifra = importanza del colpo:
+   9 ossatura (sempre) · 8 principale · 7 normale · 6 media densità · 5 piena · 4 molto piena · 3 ghost.
+   La densità decide quali cifre suonano: poca densità = solo l'ossatura, tanta = tutto. La cifra dà anche la dinamica.
+   kick/snare/rim/hat/op/sh/p1/p2 = varianti per pad · kB/sB = aggiunte nella battuta di risposta (B)
+   vRim = nella strofa il rullante diventa rimshot (cross-stick) · half = groove in half-time · fill/build = chiusure
+   tm = micro-tempo per pad (in battiti; positivo = dietro il tempo) · rolls = rullate degli hi-hat (trap) */
+const H8='8.6.7.6.8.6.7.6.',H16='8464746484647464',HOFF='..8...8...8...8.',T8='857857857857';
+const DSTY={
+  pop:[
+    {id:'dritto',n:'Pop dritto',w:1,kick:['9.......8.......','9.....7.8.......','9.......8.7.....'],kB:['..........7...7.','.......7......7.'],snare:['....9.......9...'],sB:['...............5','..............65'],
+      hat:[H16,'8.6.8.6.8.6.8.6.'],op:['..............6.'],sh:['4.5.4.5.4.5.4.5.'],fill:'snare',build:'snare'},
+    {id:'four',n:'Cassa in quattro',w:.7,drive:1,kick:['9...9...9...9...'],snare:['....9.......9...'],hat:['5.8.5.8.5.8.5.8.','4.8.4.8.4.8.4.8.'],op:['..6...6...6...6.'],sh:['6464646464646464'],fill:'snare',build:'snare'},
+    {id:'half',n:'Half-time',w:.5,space:1,half:1,kick:['9.........7.....','9.....6...7.....'],snare:['........9.......'],hat:['8.6.8.6.8.6.8.6.','8...6...8...6...'],op:['..............6.'],fill:'toms',build:'toms'}],
+  rock:[
+    {id:'rock',n:'Rock',w:1,kick:['9.......9.......','9.8.....9.......','9.......9.8.....'],kB:['..........7...7.'],snare:['....9.......9...'],sB:['...............6'],hat:['8.7.8.7.8.7.8.7.'],op:['..............7.'],fill:'toms',build:'snare'},
+    {id:'drive',n:'Ottavi di cassa',w:.5,drive:1.5,kick:['9...8...9...8...','9.8.8...9.8.8...'],snare:['....9.......9...'],hat:['8.7.8.7.8.7.8.7.'],fill:'toms',build:'snare'},
+    {id:'half',n:'Half-time',w:.4,space:1,half:1,kick:['9.........8.....'],snare:['........9.......'],hat:['8.6.8.6.8.6.8.6.'],fill:'toms',build:'toms'}],
+  soul:[
+    {id:'soul',n:'Soul',w:1,kick:['9......7..9.....','9..7....9.......','9.....7...9..7..'],kB:['.............7..','...............6'],snare:['....9..3..3.9..4','....9..4....9.3.'],
+      hat:[H16,'8464746484647464'],op:['......6.........','..............6.'],sh:['4.5.4.5.4.5.4.5.'],fill:'snare',build:'snare',vRim:.4},
+    {id:'neo',n:'Neo soul (laid back)',w:.8,space:.6,kick:['9.....7...9..7..','9.......7.9.....'],snare:['....9.......9...'],rim:['.......5......5.'],hat:['7.5.6.57.5.6.5.6','7.5.6.5.7.5.6.5.'],
+      fill:'drop',build:'snare',tm:{1:.035,3:.012},vRim:.6}],
+  lofi:[
+    {id:'lofi',n:'Lo-fi',w:1,kick:['9......79.......','9.........9.....','9......7..9...7.'],kB:['..............7.'],snare:['....9.......9..3'],hat:['7.5.6.5.7.5.6.5.','7...6...7...6...'],
+      op:['..............5.'],fill:'drop',build:'drop',tm:{1:.03,3:.012}},
+    {id:'rim',n:'Lo-fi col rim',w:.6,space:1,kick:['9.........9.....','9......7..9.....'],rim:['....8.......8...'],hat:['7.5.6.5.7.5.6.5.'],sh:['4.4.4.4.4.4.4.4.'],fill:'drop',build:'drop',tm:{2:.03}}],
+  boombap:[
+    {id:'classico',n:'Boom bap classico',w:1,kick:['9......7..9.....','9.....8...9..7..','9.9.......9.....','9......9.9......'],kB:['...............7','.............7..'],
+      snare:['....9..3....9...','....9.......9..3'],hat:['8.7.8.7.8.7.8.7.','8.7.8.7.8.7.8.75'],op:['..............6.'],fill:'drop',build:'drop',tm:{1:.025,3:.008}},
+    {id:'dusty',n:'Dusty (sporco)',w:.8,space:.5,kick:['9.......7.9.....','9..7......9.....'],snare:['....9......39..3'],hat:['7.4.6.4.7.4.6.4.','7...6...7...6..5'],
+      fill:'drop',build:'drop',tm:{1:.035,3:.01}},
+    {id:'hard',n:'Duro (anni 90)',w:.7,drive:1,kick:['9......79.9.....','9.....9.9.....7.'],snare:['....9.......9...'],hat:['8.7.8.7.8.7.8.7.'],op:['......7.........','..............7.'],fill:'snare',build:'drop'}],
+  trap:[
+    {id:'classica',n:'Trap classica',w:1,half:1,kick:['9......9..9.....','9.........9..9..','9..9......9.....','9......9.9...9..'],kB:['.............9..','..............9.'],snare:['........9.......'],sB:['..............6.','...............6'],
+      hat:['8676767686767676','8.7.8.7.8.7.8.7.'],rolls:[[[12,'z'],[14,'r']],[[6,'r'],[14,'z']],[[10,'z']],[[15,'r'],[7,'r']],[[4,'r'],[12,'z'],[13,'r']]],op:['..............6.'],fill:'trap',build:'trap',jit:.002},
+    {id:'bouncy',n:'Bouncy (terzine)',w:.7,half:1,kick:['9.....9...9..9..','9..9..9...9.....'],snare:['........9.......'],hat:[T8,'867867867867'],fill:'trap',build:'trap',jit:.002},
+    {id:'drill',n:'Drill',w:.6,drive:.8,half:1,kick:['9.........9.....','9.....9.......9.','9..9......9..9..'],snare:['........9.......'],sB:['...........8....','.............8..'],
+      hat:['8.78..8.7.8.','8..78.8.7..8'],p1:['......5.......5.'],fill:'trap',build:'trap',jit:.002},
+    {id:'dark',n:'Dark minimale',w:.5,space:1.2,half:1,kick:['9...............','9.........9.....'],snare:['........9.......'],hat:['8...7...8...7...','8.5.7.5.8.5.7.5.'],fill:'drop',build:'trap',jit:.002}],
+  triphop:[
+    {id:'triphop',n:'Trip hop',w:1,kick:['9.........9.....','9.......7.9.....'],kB:['..............7.'],snare:['....9.......9...'],hat:['7.5.6.5.7.5.6.5.','7...6...7...6...'],op:['..............5.'],fill:'drop',build:'drop',tm:{1:.02}},
+    {id:'break',n:'Breakbeat lento',w:.7,kick:['9.9.......9.....','9.9.....7.9.....'],snare:['....9..3.3..9...'],hat:[H16],fill:'snare',build:'drop',tm:{1:.015}},
+    {id:'half',n:'Half-time',w:.6,space:1,half:1,kick:['9.........7.....'],snare:['........9.......'],hat:['7.5.6.5.7.5.6.5.'],fill:'drop',build:'toms'}],
+  afrobeat:[
+    {id:'afrobeats',n:'Afrobeats',w:1,kick:['9.....7.9.......','9..7....9..7....','9......7..9.....'],kB:['..............7.'],snare:['............9...','....6.......9...'],
+      rim:['8..7..8...7..7..','...8..8....8..8.','..7...7...7..7..'],hat:['..7...7...7...7.','6.7.6.7.6.7.6.7.'],sh:['7575757575757575','6464646464646464'],
+      p1:['..7..6....7..6..','7..6..7.....7.6.'],p2:['6.....6.....6...','......7.......7.'],fill:'conga',build:'conga'},
+    {id:'afropop',n:'Afro-pop',w:.8,drive:.6,kick:['9...9...9...9...'],snare:['....7.......9...'],rim:['...7..7....7..7.'],hat:['..8...8...8...8.'],sh:['6464646464646464'],
+      p1:['..6..6....6..6..'],fill:'conga',build:'snare'},
+    {id:'highlife',n:'Highlife',w:.5,space:.5,kick:['9.......9..7....','9..7....9.......'],rim:['9.8..8.8.8..8.8.'],hat:['7.5.7.5.7.5.7.5.'],sh:['5454545454545454'],p1:['....7..6....7..6'],p2:['7.......7.......'],fill:'conga',build:'conga'}],
+  afrorage:[
+    {id:'rage',n:'Afro rage',w:1,half:1,kick:['9.....9...9.....','9..9......9..9..','9.......9.9.....'],kB:['..............9.','.............9..'],snare:['........9.......'],sB:['..............7.'],
+      hat:[T8,'867867867867'],p1:['7..6.67..6.6','7.6..67.6..6'],p2:['..7..7..7..7','.7..7..7..7.'],fill:'tomtrip',build:'tomtrip'},
+    {id:'phonk',n:'Phonk',w:.8,drive:1,half:1,kick:['9..9......9.....','9.....9...9..9..'],snare:['........9.......'],hat:['8.6.7.6.8.6.7.6.',H16],rolls:[[[14,'r']],[[6,'r'],[14,'z']],[[12,'z']]],
+      p1:['......7.......7.'],fill:'trap',build:'trap'},
+    {id:'drill',n:'Afro drill',w:.6,half:1,kick:['9.........9..9..','9.....9.......9.'],snare:['........9.......'],sB:['...........8....'],hat:['8.78..8.7.8.'],p2:['7..7..7..7..'],fill:'tomtrip',build:'trap'}],
+  dancehall:[
+    {id:'dembow',n:'Dembow',w:1,drive:.6,kick:['9...9...9...9...'],snare:['...8..8....8..8.'],hat:['..7...7...7...7.','5.7.5.7.5.7.5.7.'],sh:['6464646464646464'],p1:['..7....7..7....7'],fill:'snare',build:'snare'},
+    {id:'bashment',n:'Bashment',w:.8,kick:['9.......9.......','9.......9.....7.'],snare:['...8..8.....8...'],rim:['......7.......7.'],hat:['6.4.6.4.6.4.6.4.','6464646464646464'],p2:['......6.......6.'],fill:'snare',build:'snare'},
+    {id:'onedrop',n:'One drop dancehall',w:.5,space:.6,kick:['........9.......'],snare:['........9.......'],rim:['...7..7....7..7.'],hat:['7.5.7.5.7.5.7.5.'],fill:'reggae',build:'reggae'}],
+  reggae:[
+    {id:'onedrop',n:'One drop',w:1.2,space:.5,kick:['........9.......'],snare:['........9.......'],hat:['7.5.7.5.7.5.7.5.','5.7.5.7.5.7.5.7.'],op:['..............6.'],fill:'reggae',build:'reggae',vRim:1},
+    {id:'rockers',n:'Rockers',w:.8,kick:['9.......9.......'],snare:['........9.......'],rim:['....6.......6...'],hat:[H16,'7.5.7.5.7.5.7.5.'],fill:'reggae',build:'reggae',vRim:1},
+    {id:'steppers',n:'Steppers',w:.7,drive:1.2,kick:['9...9...9...9...'],snare:['........9.......'],hat:['..8...8...8...8.','5.8.5.8.5.8.5.8.'],op:['..6...6...6...6.'],fill:'reggae',build:'reggae',vRim:1}],
+  bossa:[
+    {id:'bossa',n:'Bossa nova',w:1,kick:['9.....79.....79.'],rim:['9..9..9...9..9..','9..9...9..9..9..'],hat:['6464646464646464','6.5.6.5.6.5.6.5.'],sh:['4.4.4.4.4.4.4.4.'],fill:'drop',build:'drop'},
+    {id:'samba',n:'Samba lenta',w:.5,drive:.6,kick:['9..7....9..7....'],rim:['..8..8.8..8..8..'],hat:['6464646464646464'],p1:['....6.......6...'],fill:'conga',build:'drop'}],
+  blues:[
+    {id:'shuffle',n:'Shuffle',w:1,kick:['9.....9.....','9.....9..7..'],snare:['...9.....9..'],hat:['8.68.68.68.6'],fill:'snare',build:'snare'},
+    {id:'slow',n:'Slow blues',w:.8,space:1,kick:['9.....7.....'],snare:['...9.....9..'],hat:['867867867867'],fill:'drop',build:'snare'}],
+  gospel:[
+    {id:'gospel',n:'Gospel',w:1,kick:['9.....7.9.......','9..7....9.7.....','9.......9..7..7.'],snare:['....9..3...39..3'],sB:['...............6'],hat:[H16],op:['......6.......6.'],sh:['..6...6...6...6.'],fill:'gospel',build:'snare'},
+    {id:'shuffle',n:'Gospel shuffle',w:.6,kick:['9.....9..7..'],snare:['...9.....9..'],hat:[T8],fill:'gospel',build:'snare'}],
+  cinematic:[
+    {id:'epico',n:'Epico',w:1,kick:['9.......9.......'],p2:['9..7..7.9...7...','9...7...9...7...'],p1:['........7.7.7.7.'],snare:['........8.......'],fill:'toms',build:'toms'},
+    {id:'tensione',n:'Tensione',w:.7,space:.6,kick:['9...............'],p2:['7.6.7.6.7.6.7.6.'],p1:['............7...'],fill:'toms',build:'toms'}],
+  jazz:[
+    {id:'swing',n:'Swing',w:1,jazz:1,hat:['8..7.68..7.6'],op:['...8.....8..'],kick:['4..4..4..4..'],fill:'drop',build:'drop'},
+    {id:'ballad',n:'Ballad (rim)',w:.6,space:1,jazz:1,hat:['8.....8.....'],rim:['.........8..'],op:['...8.....8..'],kick:['4.....4.....'],fill:'drop',build:'drop'},
+    {id:'latin',n:'Latin jazz',w:.4,kick:['9.....79.....79.'],rim:['9..9..9...9..9..'],hat:['6464646464646464'],fill:'drop',build:'drop'}]};
+DSTY.classical=DSTY.cinematic;
+const VEL=[0,24,30,38,50,62,74,86,98,110];
+function drumStyles(G){return DSTY[G.drums]||DSTY.pop;}
+// battuta A (groove) o B (risposta/turnaround): frase A A' A B
 function drumKind(b,bars){return (b%4===3||(bars<4&&b%2===1))?'B':'A';}
-function grooveDNA(G,rp){
-  const L=DLIB[G.drums]||DLIB.pop,d={L,jazz:!!L.jazz};
-  const ch=(i,a)=>a&&a.length?a[Math.floor(rp(i)()*a.length)]:null;
-  if(d.jazz){const r=rp(3);d.ride=pick(r,['8...7.6.8...7.6.','8...7.6.8...7...','8...7...8...7.6.']);d.comp=[pick(rp(1),JAZZ_COMP),pick(rp(1),JAZZ_COMP)];return d;}
-  d.kick=ch(0,L.kick);d.kB=ch(0,L.kB);d.snare=ch(1,L.snare);d.sB=ch(1,L.sB);d.gh=ch(1,L.gh);
-  d.rim=ch(2,L.rim);d.hat=ch(3,L.hat);d.hat0=ch(3,L.hat0)||d.hat;d.rollsA=L.rolls&&rp(3)()<.4?ch(3,L.rolls).slice(0,1):[];d.rollsB=L.rolls?ch(3,L.rolls):[];
-  d.op=ch(4,L.op);d.sh=ch(5,L.sh);d.p1=ch(6,L.p1);d.p2=ch(7,L.p2);
+// scelte del brano: lo stile (dipende da genere e mood, bloccabile), una variante per pad, le variazioni
+function grooveDNA(G,M,rs,rp,lock,cnt){
+  cnt=cnt||(()=>0);
+  const list=drumStyles(G);
+  let S=lock&&list.find(s=>s.id===lock);
+  if(!S)S=pickW(rs,list.map(s=>[s,s.w*(1+(s.drive||0)*(M.drive-.4)*1.6)*(1+(s.space||0)*(M.space-.3)*1.5)]));
+  // il 🎲 di un pad passa sempre alla variante successiva
+  const ch=(i,a)=>a&&a.length?a[(Math.floor(rp(i)()*a.length)+cnt(i))%a.length]:null;
+  const d={S,id:S.id,jazz:!!S.jazz,kick:ch(0,S.kick),kB:ch(0,S.kB),snare:ch(1,S.snare),sB:ch(1,S.sB),rim:ch(2,S.rim),hat:ch(3,S.hat),op:ch(4,S.op),sh:ch(5,S.sh),p1:ch(6,S.p1),p2:ch(7,S.p2)};
+  const rr=rp(3);d.rollA=S.rolls?pick(rr,S.rolls).slice(0,1):null;d.rollB=S.rolls?pick(rr,S.rolls):null;
+  const rm=rp(8);d.mut=pick(rm,['kickAdd','kickAdd','kickDrop','open','ghost','hat2']);d.lick=pick(rm,['open','kick','snare','none','kick']);
+  d.intro=pick(rm,['perc','kick','thin','perc']);d.bridge=pick(rm,['half','perc','thin']);
   return d;
 }
-// una battuta: kind 'A' (groove) o 'B' (fine frase, con le aggiunte)
-function grooveBar(d,tier,kind,dm){
-  const H=[],L=d.L,line=(str,pad,minV)=>{if(!str)return;const n=str.length;for(let i=0;i<n;i++){const c=str[i];if(c==='.')continue;const v=+c;if(minV&&v<minV)continue;H.push({pad,t:i*4/n,v,grid:n,st:n===16?i:null});}};
-  if(d.jazz){line(d.ride,3);line('....7.......7...',3);if(tier>=1)line('3...3...3...3...',0);if(tier>=1)line(kind==='B'?d.comp[1]:d.comp[0],1);if(tier>=2&&kind==='B')line('..............6.',0);return H;}
-  line(d.kick,0);if(kind==='B'&&tier>=1)line(d.kB,0);
-  line(d.snare,1);if(kind==='B'&&tier>=1)line(d.sB,1);if(L.snare2&&tier>=2)line(L.snare2[0],1);
-  if(d.gh&&tier>=1&&dm>=.8)line(d.gh,1);
-  line(d.rim,2);
-  const hatStr=tier===0||dm<.75?d.hat0:d.hat;line(hatStr,3);
-  const rolls=kind==='B'?d.rollsB:d.rollsA;if(tier>=1&&rolls)rolls.forEach(([s,ty])=>{const i=H.findIndex(h=>h.pad===3&&h.st===s);if(i>=0)H.splice(i,1);H.push({pad:3,t:s/4,v:6,grid:16,st:s,roll:ty});});
-  if(tier>=1&&d.op&&(tier>=2||kind==='B')){line(d.op,4);const os=new Set(H.filter(h=>h.pad===4).map(h=>h.st));for(let i=H.length-1;i>=0;i--)if(H[i].pad===3&&os.has(H[i].st)&&!H[i].roll)H.splice(i,1);}
-  if(d.sh&&tier>=2&&dm>=.7)line(d.sh,5);
-  if(d.p1&&tier>=1&&dm>=.7)line(d.p1,6);
-  if(d.p2&&(tier>=2||L.p2&&!L.hat)&&dm>=.6)line(d.p2,7);
+// righe → colpi {pad,t (battiti nella battuta),s (forza),st (passo 16 o null)}
+function drumLine(H,str,pad){if(!str)return;const n=str.length;for(let i=0;i<n;i++){const c=str[i];if(c<'1'||c>'9')continue;H.push({pad,t:i*4/n,s:+c,st:n===16?i:null,g:n});}}
+// una battuta del groove. kind A/A2/B · mode: normale, intro/bridge/outro
+function grooveBar(d,kind,o){
+  const H=[],S=d.S,L=(s,p)=>drumLine(H,s,p);
+  const half=o&&o.half&&!S.half;
+  L(half?d.kick.replace(/[1-7]/g,'.'):d.kick,0);if(kind==='B')L(d.kB,0);
+  if(half)L('........9.......',1);else{L(d.snare,1);if(kind==='B')L(d.sB,1);}
+  L(d.rim,2);L(d.hat,3);if(d.jazz||kind==='B'||o.full)L(d.op,4);L(d.sh,5);L(d.p1,6);L(d.p2,7);
+  if(d.jazz){const r=o.r;if(r){const n=1+Math.floor(r()*2);for(let k=0;k<n;k++){const i=[2,5,8,11,3,9][Math.floor(r()*6)];H.push({pad:1,t:i/3,s:4+Math.floor(r()*2),st:null,g:12});}}}
+  // A': una piccola mutazione, sempre la stessa per la sezione
+  if(kind==='A2'||kind==='B'){
+    const has=(p,st)=>H.some(h=>h.pad===p&&h.st===st);
+    switch(kind==='B'?'none':d.mut){
+      case'kickAdd':{const c=[14,10,7,11,6,3].find(s=>!has(0,s)&&!has(0,s-1)&&!has(0,s+1)&&!(has(1,s)&&s%4===0));if(c!=null&&d.kick.length===16)H.push({pad:0,t:c/4,s:7,st:c,g:16});break;}
+      case'kickDrop':{const i=H.findIndex(h=>h.pad===0&&h.s<9&&h.t>2);if(i>=0)H.splice(i,1);break;}
+      case'open':if(!d.jazz)H.push({pad:4,t:3.5,s:7,st:14,g:16});break;
+      case'ghost':if(d.snare&&!d.jazz)H.push({pad:1,t:15/4,s:4,st:15,g:16});break;
+      case'hat2':if(d.hat&&d.hat.length===16)[13,15].forEach(s=>{if(!has(3,s))H.push({pad:3,t:s/4,s:5,st:s,g:16});});break;}
+    if(kind==='B'&&!d.jazz){const has14=H.some(h=>h.pad===0&&h.st===14);
+      if(d.lick==='open')H.push({pad:4,t:3.5,s:7,st:14,g:16});else if(d.lick==='kick'&&!has14&&d.kick.length===16)H.push({pad:0,t:3.5,s:7,st:14,g:16});
+      else if(d.lick==='snare'&&d.snare)H.push({pad:1,t:3.75,s:5,st:15,g:16});}
+  }
+  // rullate di hi-hat (trap/phonk)
+  const rolls=kind==='B'?d.rollB:kind==='A2'?d.rollA:null;
+  if(rolls)rolls.forEach(([s,ty])=>{const i=H.findIndex(h=>h.pad===3&&h.st===s);if(i>=0)H.splice(i,1);H.push({pad:3,t:s/4,s:6,st:s,g:16,roll:ty});});
+  // hat aperto: chiude l'hi-hat nello stesso punto
+  const os=H.filter(h=>h.pad===4).map(h=>h.t);for(let i=H.length-1;i>=0;i--)if(H[i].pad===3&&!H[i].roll&&os.some(t=>Math.abs(t-H[i].t)<.01))H.splice(i,1);
   return H;
 }
-
 function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
-  const E=env(sec,ctx,L,'drums'),G=E.G,e=E.e,kit=drumKit(G),dna=ctx.sty.drums,LB=dna.L,R=()=>r();
-  const F=(ctx.feel&&ctx.feel.drums)||{},hum=ctx.human?(F.hum!=null?F.hum:1):0,jit=()=>(r()+r()-1)*(LB.jit!=null?LB.jit:.006)*hum;
-  const dmD=sec.densMul||1,G2=grid||{},PD=pdens||{},TM=LB.tm||{};
-  const A=grooveBar(dna,tier,'A',dmD),B=grooveBar(dna,tier,'B',dmD);
-  const hit=(t,pad,v,d,man)=>{if(G2[pad]&&!man)return;const k=(PD[pad]!=null?PD[pad]:1);
+  const E=env(sec,ctx,L,'drums'),G=E.G,M=E.M,e=E.e,kit=drumKit(G),d=ctx.sty.drums,S=d.S,TM=S.tm||{},R=()=>r();
+  const F=(ctx.feel&&ctx.feel.drums)||{},hum=ctx.human?(F.hum!=null?F.hum:1):0,jit=()=>(r()+r()-1)*(S.jit!=null?S.jit:.005)*hum;
+  const G2=grid||{},PD=pdens||{},t=sec.type,nx=sec.next,riseTo=nx&&nx.energy-sec.energy>=.15;
+  // densità del groove: 0 = solo l'ossatura, 1 = tutto (ghost compresi)
+  const dl=clamp(.24+plan.dens*.9+(tier-1)*.1+(t==='outro'?-.15:0),0,1.05);
+  // soglia per pad: cassa e rullante tengono l'ossatura, percussioni e shaker sono decorazioni
+  const thr=(pad,bar)=>{let x=9-dl*6;if(pad===1||pad===2)x+=.5;if(pad===0)x-=.5;if(pad>=6&&pad<=7)x+=1;if(pad===5)x+=.5;
+    const sh=plan.shape[bar%4];if(sh<1&&pad!==0&&pad!==1)x+=(1-sh)*1.5;return Math.min(x,pad===3?7.5:8.5);};
+  // modo della sezione
+  const mode=t==='intro'?d.intro:t==='bridge'||t==='special'?d.bridge:t==='outro'?'thin':null;
+  const vRim=S.vRim&&t!=='chorus'&&e<.75&&R()<S.vRim;
+  const ost=M.ostinato||0,mutOn=R()>ost*.7;
+  // vuoto/pieno dentro la battuta: le battute "vuote" respirano (metà battuta senza hat, cassa ridotta), non spariscono
+  const stop=riseTo&&R()<(.15+plan.space*.35);
+  const fillLen=nx&&t!=='outro'&&e>=.3?(t==='pre'||(riseTo&&nx.type==='chorus')?(R()<.5?2:4):1):0;
+  const crash=e>=.55||(sec.prev&&sec.prev.type==='intro');
+  const hit=(tt,pad,v,dd,man)=>{if(G2[pad]&&!man)return;const k=(PD[pad]!=null?PD[pad]:1);
     if(k<.98&&pad!==9&&pad!==8&&pad!==0&&pad!==1&&r()>k)return;
-    L.drums.push({t,d:d||.12,n:kit.notes[pad],pad,v:clamp(Math.round(v*E.dyn(t)),12,127)});
-    if(k>1.02&&!man&&(pad===3||pad===5)&&r()<k-1)L.drums.push({t:t+.25,d:.1,n:kit.notes[pad],pad,v:clamp(Math.round(v*.55*E.dyn(t)),12,127)});};
-  const lvl=d=>clamp(30+d*10.5*(.82+e*.25),20,127),vh=()=>hum?(r()+r()-1)*4*hum:0;
-  const space=plan?plan.space:.3,shape=plan?plan.shape:[1,1,1,1],groove=!!G.groove,nx=sec.next,riseTo=nx&&nx.energy-sec.energy>=.2;
-  const stop=riseTo&&R()<(groove?.3:.12)*(1+space);
+    L.drums.push({t:tt,d:dd||.12,n:kit.notes[pad],pad,v:clamp(Math.round(v*E.dyn(tt)),12,127)});
+    if(k>1.02&&!man&&(pad===3||pad===5)&&r()<k-1)L.drums.push({t:tt+.25,d:.1,n:kit.notes[pad],pad,v:clamp(Math.round(v*.5*E.dyn(tt)),12,127)});};
+  const vel=(s,pad)=>VEL[s]*(.8+.22*e)+(pad===0?4:pad===3?-4:pad===5?-8:0)+(hum?(r()+r()-1)*5*hum:0);
+  const jr=d.jazz?subRng(hashStr('jz'+sec.startBeat),'c'):null;
   for(let b=0;b<sec.bars;b++){
-    const bs=sec.startBeat+b*4,lastBar=b===sec.bars-1,fill=lastBar&&nx&&e>=.35&&!stop;
-    const kind=drumKind(b,sec.bars),bar=kind==='B'?B:A;
-    const empty=space>.5&&shape[b%4]<.6;   // battuta vuota: solo l'ossatura
-    for(const h of bar){const pad=h.pad,beat=h.t,t=bs+beat;
-      if(fill&&beat>=3-1e-6&&(pad===0||pad===1||pad===2||pad>=6||(LB.fill==='trap'&&pad===3)))continue;
-      if(fill&&LB.fill==='drop'&&beat>=3-1e-6&&pad!==3)continue;
-      if(stop&&lastBar&&beat>=2-1e-6)continue;
-      if(empty&&((pad===0&&beat>.01)||pad>=5||(pad===3&&h.grid===16&&h.st%4===2&&h.v<6)||(pad===1&&h.v<5)))continue;
-      const sw=h.grid===16?swingDelay(G,h.st):0,off=(TM[pad]||0);
-      if(h.roll==='r'){hit(t+sw+off,pad,lvl(5)+vh());hit(t+.125+sw+off,pad,lvl(4)+vh());}
-      else if(h.roll==='z'){for(let k=0;k<3;k++)hit(t+sw+off+k*.5/3,pad,lvl(k?4:5)+vh());}
-      else hit(t+sw+off+jit(),pad,lvl(h.v)+vh());}
-    if(stop&&lastBar)continue;
-    if(fill){const f=LB.fill,F2=(arr,st0,len)=>{const n=arr.length,st=(len||1)/n;arr.forEach((p,k)=>{if(p!=null)hit(bs+(st0||3)+k*st,p,lvl(5+Math.round(k*3/n)));});};
-      if(f==='snare')F2([1,1,1,1]);else if(f==='toms')F2([6,6,7,7]);else if(f==='gospel')F2([1,1,1,1,1,6,7,7],2,2);
-      else if(f==='conga')F2([6,6,7,6]);else if(f==='tomtrip')F2([6,6,7]);else if(f==='tomrim')F2([2,null,7,7]);
-      else if(f==='trap'){for(let k=0;k<8;k++)hit(bs+3+k*.125,3,lvl(4+Math.floor(k/2)));hit(bs+3.5,1,lvl(6));hit(bs+3.75,1,lvl(7));}}
-    if(b===0&&(e>=.6||(sec.prev&&sec.prev.type==='intro'))&&!G2[8])hit(bs,8,lvl(8)+8,1);
+    const bs=sec.startBeat+b*4,last=b===sec.bars-1,k4=sec.bars<4?(b%2?'B':'A'):['A','A2','A','B'][b%4];
+    const kind=k4==='A2'&&!mutOn?'A':k4;
+    const H=grooveBar(d,kind,{half:mode==='half',full:e>=.7||t==='chorus',r:jr?()=>jr():null});
+    const fStart=last&&fillLen?4-fillLen:9,stopAt=last&&stop?3:9;
+    for(const h of H){let pad=h.pad;const beat=h.t;
+      if(pad===1&&vRim)pad=2;
+      // modi di sezione
+      if(mode==='perc'&&(pad===0&&beat>.01||pad===1))continue;
+      if(mode==='kick'&&(pad===1||pad===2&&!vRim))continue;
+      if(mode==='thin'&&pad>=5)continue;
+      if(t==='outro'&&last&&beat>.01)continue;
+      // densità: la cifra deve superare la soglia (l'ossatura 9 suona sempre)
+      if(h.s<9&&h.s<thr(pad,b))continue;
+      if(h.s<9&&mode==='thin'&&h.s<8)continue;
+      // respiro: dove la sezione fa pausa restano solo cassa e rullante dell'ossatura
+      const bf=plan.br?plan.br(b,beat):1;
+      if(bf<.35&&((pad>=3&&pad<=7)||(pad===0&&h.s<9)))continue;
+      if(bf<.7&&h.s<7&&pad!==1)continue;
+      if(beat>=fStart-1e-6&&pad!==3&&pad!==4&&pad!==5)continue;
+      if(beat>=fStart-1e-6&&S.fill==='trap'&&pad===3)continue;
+      if(beat>=stopAt-1e-6)continue;
+      const sw=h.g===16?swingDelay(G,h.st):0,off=(TM[pad]||TM[h.pad]||0),tt=bs+beat+sw+off,v=vel(h.s,pad);
+      if(h.roll==='r'){hit(tt,pad,v);hit(tt+.125,pad,v*.8);}
+      else if(h.roll==='z'){for(let q=0;q<3;q++)hit(tt+q*.5/3,pad,v*(q?.8:1));}
+      else hit(tt+jit(),pad,v);
+    }
+    if(b===0&&crash&&!G2[8]&&mode==null)hit(bs,8,vel(8,8)+6,1);
+    if(t==='outro'&&last){hit(bs,8,vel(8,8),1.5);}
+    if(last&&fillLen&&!(stop&&fillLen===1))drumFill(S.fill,fillLen>=2?S.build:S.fill,bs+4-fillLen,fillLen,hit,vel,e);
   }
   // colpi scritti a mano sulla griglia (sostituiscono quelli generati per quel pad)
   for(const pd in G2){const steps=G2[pd];if(!steps)continue;for(let b=0;b<sec.bars;b++){const bs=sec.startBeat+b*4,o=steps.length>16&&drumKind(b,sec.bars)==='B'?16:0;
     for(let i=0;i<16;i++){const v=steps[o+i];if(v>0)hit(bs+i/4+swingDelay(G,i)+(TM[pd]||0)+jit(),+pd,v,+pd===9?1:.12,true);}}}
-  if(riseTo)hit(sec.startBeat+(sec.bars-1)*4,9,64+e*20,4);
+  if(riseTo&&e>=.3)hit(sec.startBeat+(sec.bars-1)*4+(fillLen>=4?0:2),9,60+e*20,fillLen>=4?4:2);
   if(sec.type==='chorus'&&sec.prev&&['trap','afrorage','cinematic','triphop'].includes(G.drums))hit(sec.startBeat,9,88,.6);
+}
+// fill e build: from = battito di inizio, len = battiti
+function drumFill(kind,build,from,len,hit,vel,e){
+  const f=len>=2?build:kind,n16=len*4,cres=k=>Math.min(9,5+Math.round(k*4/Math.max(1,n16-1)));
+  switch(f){
+    case'snare':for(let k=0;k<n16;k++){if(len>=2&&k<n16-4&&k%2)continue;hit(from+k/4,1,vel(cres(k),1));}hit(from+len-.01,0,vel(7,0));break;
+    case'toms':for(let k=0;k<n16;k++){if(len>=2&&k<n16-4&&k%2)continue;const p=k<n16/3?1:k<2*n16/3?6:7;hit(from+k/4,p,vel(cres(k),p));}break;
+    case'gospel':for(let k=0;k<n16;k++){const p=k>=n16-3?7:k>=n16-6?6:1;hit(from+k/4,p,vel(cres(k),p));}break;
+    case'conga':for(let k=0;k<n16;k++){if(k%4===1&&len<2)continue;const p=k%3===2?7:6;hit(from+k/4,p,vel(cres(k),p));}hit(from+len-.25,1,vel(8,1));break;
+    case'tomtrip':for(let k=0;k<len*3;k++){const p=k%3===2?7:6;hit(from+k/3,p,vel(Math.min(9,6+Math.floor(k/3)),p));}hit(from+len-1/3,0,vel(8,0));break;
+    case'reggae':for(let k=0;k<len*3;k++){if(len>=2&&k<len*3-3&&k%3===1)continue;const p=k===len*3-1?7:1;hit(from+k/3,p,vel(Math.min(9,5+Math.floor(k*4/(len*3))),p));}break;
+    case'trap':{const n=len*8;for(let k=0;k<n;k++)hit(from+k/8,3,vel(Math.min(8,4+Math.floor(k*4/n)),3));hit(from+len-.5,1,vel(7,1));hit(from+len-.25,1,vel(8,1));if(len>=2)hit(from,0,vel(8,0));break;}
+    case'drop':default:hit(from+len-.25,0,vel(7,0));break;
+  }
 }
 
 function snapMelody(notes,sec,ctx){
@@ -1130,7 +1278,7 @@ function generateSong(o){
   const color=COLOR_LEVELS[o.color]!=null?COLOR_LEVELS[o.color]:clamp(G.color+M.color,0,1);
   let autoBpm=Math.round(clamp((G.tempo[0]+(G.tempo[1]-G.tempo[0])*hr())*M.tempo,52,180));
   if(G.groove)autoBpm=clamp(autoBpm,G.tempo[0],G.tempo[1]);
-  const ctx={G,M,mode,key,color,tense:!!M.tense,human:o.human!==false,feel:o.feel||{},scalePcs:MODES[mode].scale.map(x=>mod12(key+x)),
+  const ctx={lockMel:(o.style||{}).mel,G,M,mode,key,color,tense:!!M.tense,human:o.human!==false,feel:o.feel||{},scalePcs:MODES[mode].scale.map(x=>mod12(key+x)),
     allowDim:!!(M.tense||G.n==='Jazz'||G.n==='Gospel'||G.n==='Classico')};
   const info=new Set();
   const spell=speller(key,mode);
@@ -1219,8 +1367,10 @@ function generateSong(o){
   // strati, sezione per sezione, secondo il piano di arrangiamento
   const L={mel:[],piano:[],arp:[],pad:[],bass:[],drums:[]},melCache={},bassRef={n:38};
   const rA=(tag,layer,type)=>subRng(seeds.a,tagx(tag,layer,type,'a'));
-  ctx.sty=songStyle(G,M,rA('sty-piano','piano'),rA('sty-arp','arp'));
-  ctx.sty.drums=G.drums?grooveDNA(G,i=>subRng(seeds.a,tagx('sty-drums-p'+i,'drums')+((RS.L&&RS.L['drums.'+i])?'#P'+RS.L['drums.'+i]:''))):null;
+  ctx.sty=songStyle(G,M,rA('sty-piano','piano'),rA('sty-arp','arp'),o.style);
+  {const gid=Object.keys(GENRES).find(k=>GENRES[k]===G),rb=rA('sty-bass','bass');ctx.sty.bass=bassStyleFor(G,M,gid,rb,(o.style||{}).bass);ctx.sty.riddim=riddimOf(rb);}
+  ctx.sty.drums=G.drums?grooveDNA(G,M,rA('sty-drums-s','drums'),i=>subRng(seeds.a,tagx('sty-drums-p'+i,'drums')+(i>=8&&RS.L&&RS.L['drums.'+i]?'#P'+RS.L['drums.'+i]:'')),(o.style||{}).drums,i=>(RS.L&&RS.L['drums.'+i])||0):null;
+  if(ctx.sty.drums&&G.groove)info.add('batteria: '+ctx.sty.drums.S.n.toLowerCase());
   const mr=subRng(seeds.m,tagx('mel-dna','mel')),md=clamp(G.mel.dens+(M.dens-.5)*.4,.15,.9);
   const melDNA=[rhythmBar(mr,md*.9,G.mel.sync,G.mel.s16),rhythmBar(mr,md,G.mel.sync,G.mel.s16)];
   sections.forEach((sec,si)=>{
@@ -1244,11 +1394,22 @@ function generateSong(o){
     if(plan.arp){info.add('arpeggio: '+genArp(sec,ctx,rA('arp-'+t,'arp',t),L));}
     if(plan.pad){padAtmos(sec,ctx,rA('pad-'+t,'pad',t),L);info.add('pad atmosferico che entra ed esce');}
     if(plan.bass){const x=genBass(sec,ctx,rA('bass-'+t,'bass',t),L,plan,bassRef);if(x)info.add(x);}
-    // vuoto/pieno: nelle battute "vuote" restano solo gli attacchi forti di piano e arpeggio
-    if(plan.space>.35){const rb=rA('bounce-'+t,null,t);
-      for(const k of ['piano','arp']){const from=sec.startBeat,to=from+sec.bars*4;
-        L[k]=L[k].filter(e=>{if(e.t<from-.05||e.t>=to-.05)return true;const rel=e.t-from,b=Math.floor(rel/4+1e-6),sh=plan.shape[b%4],inBar=rel-b*4;
-          if(sh>=.6||inBar<.12||sec.chords.some(c=>Math.abs(c.start-e.t)<.06))return true;return rb()>(1-sh)*.9;});}}
+    // vuoto/pieno: pause dentro le battute (il respiro), le note lunghe vengono tagliate dove c'è pausa
+    if(plan.br){const rb=rA('bounce-'+t,null,t),from=sec.startBeat,to=from+sec.bars*4;
+      const fAt=x=>{const rel=x-from,b=Math.floor(rel/4+1e-6);return plan.br(b,clamp(rel-b*4,0,3.999));};
+      const att=x=>sec.chords.some(c=>Math.abs(c.start-x)<.06);
+      for(const k of ['piano','arp','bass']){
+        L[k]=L[k].filter(ev=>{if(ev.t<from-.05||ev.t>=to-.05)return true;const f=fAt(ev.t+.03);
+          if(att(ev.t))return k!=='arp'||f>.3;if(k==='bass')return f>=.25;return rb()<f*1.05;});
+        L[k].forEach(ev=>{if(ev.t<from-.05||ev.t>=to)return;for(let x=Math.floor(ev.t*2+1)/2;x<ev.t+ev.d-.05;x+=.5)if(fAt(x+.01)<.3){ev.d=Math.max(.1,x-ev.t-.02);break;}});}}
+    // densità anche nello spessore degli accordi: poca densità = voicing asciutti, tanta = raddoppi
+    {const from=sec.startBeat,to=from+sec.bars*4,dn=plan.dens,maxN=dn<.25?3:dn<.42?4:99;
+      if(maxN<99||(dn>.85&&sec.energy>=.7)){const ev=L.piano.filter(x=>x.t>=from-.05&&x.t<to-.05).sort((a,b)=>a.t-b.t),drop=new Set(),add=[];
+        for(let i=0;i<ev.length;){let j=i;while(j<ev.length&&ev[j].t-ev[i].t<.09)j++;const g=ev.slice(i,j).sort((a,b)=>a.n-b.n);
+          if(g.length>maxN){const keep=new Set([g[0],...g.slice(-(maxN-1))]);g.forEach(x=>{if(!keep.has(x))drop.add(x);});}
+          else if(maxN===99&&g.length>=3&&g[0].n-12>=33&&g[0].d>=.5)add.push({...g[0],n:g[0].n-12,v:Math.round(g[0].v*.8)});
+          i=j;}
+        L.piano=L.piano.filter(x=>!drop.has(x)).concat(add);}}
     if(plan.drums!=null&&G.drums)genDrums(sec,ctx,rA('drums-'+t,'drums',t),L,plan.drums,plan,(o.drumGrid||{})[t],o.padDens);
   });
   // pulizia: note uguali sovrapposte
@@ -1262,6 +1423,7 @@ function generateSong(o){
   const bpm=o.bpm||autoBpm;
   return{opts:o,genre:o.genre,mood:o.mood,key,mode,bpm,autoBpm,color,spell,keyName:spell(key),bars:bar,beats:total,sections,chords,layers:L,
     info:[...info],swing:G.swing,prog:G.prog,secs,typeOrder:order,
+    bass808:ctx.sty.bass==='b808',styles:{mel:null,bass:ctx.sty.bass,drums:ctx.sty.drums&&ctx.sty.drums.id,piano:ctx.sty.piano.calm,arp:ctx.sty.arp},
     defaults:{mel:1,piano:1,arp:1,pad:1,bass:1,drums:G.groove?1:0}};
 }
 const rootSpell=(rn,spell)=>/^b/.test(rn)?(pc=>FLAT[mod12(pc)]):/^#/.test(rn)?(pc=>SHARP[mod12(pc)]):spell;
@@ -1382,5 +1544,5 @@ function makeZip(files){
   const all=[...parts,...central,end],out=new Uint8Array(all.reduce((a,p)=>a+p.length,0));let p=0;all.forEach(x=>{out.set(x,p);p+=x.length;});
   return out;
 }
-if(typeof module!=='undefined'&&module.exports)module.exports={grooveDNA,grooveBar,DLIB,drumKind,chordAdvice,fitQ,PADS,drumKit,SEC_NAME,SEC_BARS,TYPE_ORDER,TEX_NAME,suggestChords,qTri,GENRES,MOODS,MODES,MODE_ORDER,STRUCTS,QT,KEY_NAMES,LAYERS,generateSong,toMidi,chordChart,makeZip,crc32,
+if(typeof module!=='undefined'&&module.exports)module.exports={grooveDNA,grooveBar,DSTY,BASS_STY,drumStyles,drumKind,chordAdvice,fitQ,PADS,drumKit,SEC_NAME,SEC_BARS,TYPE_ORDER,TEX_NAME,suggestChords,qTri,GENRES,MOODS,MODES,MODE_ORDER,STRUCTS,QT,KEY_NAMES,LAYERS,generateSong,toMidi,chordChart,makeZip,crc32,
   degChord,numeral,parseRN,speller,rngFrom,mod12,stackVoicings,SHAPES,DRUMS};

@@ -121,8 +121,8 @@ const Synth=(()=>{
           g.gain.exponentialRampToValueAtTime(k*.3,t+d*.97);g.gain.linearRampToValueAtTime(0,t+d);s.connect(f);f.connect(g);g.connect(out);s.start(t);s.stop(t+d+.05);}
         else{tone(t,90,38,1.1,k*.9,out);noiseHit(t,.7,'lowpass',900,.7,k*.35,out);}break;
       case 36:tone(t,140,44,.42,k*1.1,out);noiseHit(t,.02,'highpass',2500,.7,k*.15,out);break;
-      case 38:noiseHit(t,.2,'highpass',1400,.7,k*.55,out);tone(t,220,170,.12,k*.4,out,'triangle');break;
-      case 37:noiseHit(t,.05,'bandpass',1800,3,k*.5,out);tone(t,900,800,.04,k*.25,out,'square');break;
+      case 38:tone(t,190,160,.13,k*.5,out);noiseHit(t,.22,'bandpass',2800,.6,k*.6,out);noiseHit(t,.09,'highpass',6000,.7,k*.22,out);break;
+      case 37:tone(t,1750,1600,.035,k*.45,out,'triangle');tone(t,430,400,.06,k*.3,out);noiseHit(t,.045,'bandpass',2600,3,k*.6,out);break;
       case 39:[0,.012,.024].forEach(x=>noiseHit(t+x,.11,'bandpass',1300,1.2,k*.4,out));break;
       case 42:noiseHit(t,.05,'highpass',7500,.7,k*.25,out);break;
       case 44:noiseHit(t,.04,'highpass',6500,.7,k*.18,out);break;
