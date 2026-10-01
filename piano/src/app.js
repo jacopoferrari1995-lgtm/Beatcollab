@@ -641,11 +641,12 @@ function saveProject(then){
   if(!cur){ask('Salva progetto',`<div class="mrow"><input type="text" id="askName" value="${esc(St.name==='Senza titolo'?'':St.name)}" placeholder="Nome del brano"></div>`,
     [{label:'Annulla',cls:'ghost'},{label:'Salva',cls:'primary',fn:()=>{writeProject(true,($('#askName')?$('#askName').value:'').trim()||St.name);then&&then();},close:true}]);
     const inp=$('#askName');if(inp){const v=inp.value;inp.onkeydown=e=>{if(e.key==='Enter')$$('#mBody [data-ab]')[1].click();};}return;}
-  if(!isDirty()){toast(`“${cur.name}” è già salvato`);then&&then();return;}
-  ask('Dove salvo?',`<p class="muted" style="font-size:13.5px">Hai modifiche rispetto a <b>“${esc(cur.name)}”</b> (salvato ${fmtDate(cur.date)}).</p>
+  // con un progetto aperto chiede sempre: sovrascrivere o salvare come nuovo progetto (anche senza modifiche)
+  const dirty=isDirty();
+  ask('Dove salvo?',`<p class="muted" style="font-size:13.5px">${dirty?`Hai modifiche rispetto a <b>“${esc(cur.name)}”</b> (salvato ${fmtDate(cur.date)}).`:`<b>“${esc(cur.name)}”</b> è già salvato così. Puoi salvarne una copia come nuovo progetto.`}</p>
     <div class="mrow"><input type="text" id="askName" value="${esc(St.name===cur.name?St.name+' (2)':St.name)}" placeholder="Nome del nuovo progetto"></div>`,
     [{label:'Annulla',cls:'ghost'},{label:'Salva come nuovo',fn:()=>{writeProject(true,($('#askName').value||'').trim()||St.name+' (2)');then&&then();}},
-     {label:`Sovrascrivi “${esc(cur.name)}”`,cls:'primary',fn:()=>{writeProject(false,cur.name===St.name?null:St.name);then&&then();}}]);
+     ...(dirty?[{label:`Sovrascrivi “${esc(cur.name)}”`,cls:'primary',fn:()=>{writeProject(false,cur.name===St.name?null:St.name);then&&then();}}]:[])]);
 }
 // prima di lasciare il brano attuale, se ci sono modifiche non salvate
 function guard(next){
@@ -664,7 +665,7 @@ function renderProjects(){
   const list=projects();
   $('#mTitle').textContent='Progetti';
   $('#mBody').innerHTML=`
-    <div class="mrow"><button class="btn primary" id="mSave">Salva il brano attuale…</button><span class="dim" style="font-size:12px">${St.projId?'progetto: “'+esc(St.name)+'”'+(isDirty()?' · modifiche non salvate':' · salvato'):'non ancora salvato'}</span></div>
+    <div class="mrow"><button class="btn primary" id="mSave">Salva il brano attuale…</button>${St.projId?'<button class="btn" id="mSaveNew">Salva come nuovo…</button>':''}<span class="dim" style="font-size:12px">${St.projId?'progetto: “'+esc(St.name)+'”'+(isDirty()?' · modifiche non salvate':' · salvato'):'non ancora salvato'}</span></div>
     <div class="plist">${list.length?list.map(p=>`<div class="pitem ${p.id===St.projId?'cur':''}"><div class="pi"><b>${p.name.replace(/</g,'&lt;')}</b>
       <small>${(GENRES[p.state.opts.genre]||{}).n||''} · ${(MOODS[p.state.opts.mood]||{}).n||''} · ${fmtDate(p.date)}${p.state.edits&&p.state.edits.length?` · ${p.state.edits.length} modifiche`:''}</small></div>
       <button class="btn sm" data-open="${p.id}">Apri</button><button class="btn sm ghost danger" data-del="${p.id}">Elimina</button></div>`).join(''):'<div class="empty">Nessun progetto salvato. Dai un nome al brano e premi Salva.</div>'}</div>
@@ -672,6 +673,8 @@ function renderProjects(){
       <button class="btn ghost" id="mExp" title="Solo il brano aperto">⬇ Brano .json</button><button class="btn" id="mBak" ${list.length?'':'disabled'} title="Tutti i progetti in un file">⬇ Backup di tutti</button><button class="btn ghost" id="mImp" title="Un brano o un backup completo">⬆ Importa</button><input type="file" id="mFile" accept=".json,application/json" hidden></div>
     <p class="dim" style="font-size:12px">I progetti vivono nella memoria del browser <b>legata all'indirizzo da cui apri il file</b>: se apri una nuova versione da un altro percorso (o in un'altra app/browser) la lista riparte vuota. Prima di passare a una versione nuova fai <b>Backup di tutti</b>, poi nella nuova versione usa <b>Importa</b>.</p>`;
   $('#mSave').onclick=()=>saveProject();
+  const sn=$('#mSaveNew');if(sn)sn.onclick=()=>ask('Salva come nuovo progetto',`<div class="mrow"><input type="text" id="askName" value="${esc(St.name+' (2)')}" placeholder="Nome del nuovo progetto"></div>`,
+    [{label:'Annulla',cls:'ghost'},{label:'Salva come nuovo',cls:'primary',fn:()=>writeProject(true,($('#askName').value||'').trim()||St.name+' (2)')}]);
   $$('#mBody [data-open]').forEach(b=>b.onclick=()=>openProject(b.dataset.open));
   $$('#mBody [data-del]').forEach(b=>b.onclick=()=>{if(b.dataset.sure){LS.set('pg_projects',projects().filter(p=>p.id!==b.dataset.del));
       if(St.projId===b.dataset.del){St.projId=null;St.savedSnap=null;saveMeta();updHist();}renderProjects();}else{b.dataset.sure=1;b.textContent='Sicuro?';}});
