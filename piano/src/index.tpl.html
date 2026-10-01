@@ -22,7 +22,14 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
 <header class="top"><div class="wrap">
   <div class="brand">
     <div class="logo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="1" y="2" width="18" height="16" rx="2.5" fill="#1b1405" opacity=".18"/><path d="M5 2v9M10 2v9M15 2v9" stroke="#1b1405" stroke-width="2.4" stroke-linecap="round"/><path d="M2.5 11.5h15" stroke="#1b1405" stroke-width="1.2" opacity=".5"/></svg></div>
-    <div><b>Piano Generativo</b><span>armonie · arrangiamenti · MIDI · esercizi</span></div>
+    <div class="brandtx"><b>Piano Generativo</b><span>armonie · arrangiamenti · MIDI</span></div>
+  </div>
+  <div class="proj" id="projBar">
+    <input id="projName" spellcheck="false" aria-label="Nome del progetto">
+    <span class="sstate" id="saveState"></span>
+    <div class="hist"><button class="hb" id="undo" title="Indietro (Ctrl+Z)" aria-label="Indietro"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M6 3 2 7l4 4M2.5 7H10a4 4 0 0 1 0 8H8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button class="hb" id="redo" title="Avanti (Ctrl+Shift+Z)" aria-label="Avanti"><svg width="16" height="16" viewBox="0 0 16 16"><path d="m10 3 4 4-4 4M13.5 7H6a4 4 0 0 0 0 8h2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+    <button class="btn sm primary-soft" id="btnSave">Salva</button>
+    <button class="btn sm ghost" id="btnProjects">Progetti</button>
   </div>
   <nav class="tabs"><button class="on" data-tab="gen">Generatore</button><button data-tab="ex">Esercizi</button></nav>
 </div></header>
@@ -30,21 +37,25 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
 <!-- ============ GENERATORE ============ -->
 <main id="tab-gen" class="wrap">
   <section class="panel controls" aria-label="Parametri">
-    <label class="field"><span class="label">Genere</span><select id="genre"></select></label>
-    <label class="field"><span class="label">Mood</span><select id="mood"></select></label>
-    <label class="field"><span class="label">Modo</span><select id="mode"></select></label>
-    <label class="field"><span class="label">Tonalità</span><select id="key"></select></label>
-    <label class="field"><span class="label">Struttura</span><select id="structure"></select></label>
-    <label class="field"><span class="label">Accordi</span><select id="color"></select></label>
-    <label class="field"><span class="label">Pianoforte</span><select id="pstyle"><option value="live">Vivo (texture per sezione)</option><option value="classic">Classico (v3)</option></select></label>
-    <label class="field"><span class="label">Codice brano</span><input type="text" id="code" spellcheck="false" title="Incolla un codice per rigenerare lo stesso brano"></label>
-    <div class="field" style="align-content:end;gap:8px"><label class="toggle"><input type="checkbox" id="human" checked>Esecuzione umana</label>
-      <label class="toggle"><input type="checkbox" id="pad">Pad atmosferico</label></div>
+    <div class="cgroup"><div class="ghead"><span class="gnum">1</span>Stile</div><div class="cgrid">
+      <label class="field"><span class="label">Genere</span><select id="genre"></select></label>
+      <label class="field"><span class="label">Mood</span><select id="mood"></select></label>
+      <label class="field"><span class="label">Modo</span><select id="mode"></select></label>
+      <label class="field"><span class="label">Tonalità</span><select id="key"></select></label></div></div>
+    <div class="cgroup"><div class="ghead"><span class="gnum">2</span>Forma e suono</div><div class="cgrid">
+      <label class="field"><span class="label">Struttura</span><select id="structure"></select></label>
+      <label class="field"><span class="label">Accordi</span><select id="color"></select></label>
+      <label class="field"><span class="label">Pianoforte</span><select id="pstyle"><option value="live">Vivo (texture per sezione)</option><option value="classic">Classico (v3)</option></select></label>
+      <div class="field"><span class="label">Opzioni</span><div class="toggles"><label class="toggle"><input type="checkbox" id="human" checked>Esecuzione umana</label>
+        <label class="toggle"><input type="checkbox" id="pad">Pad atmosferico</label></div></div></div></div>
     <div class="actions">
       <button class="btn primary" id="btnGen"><svg width="15" height="15" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0l1.8 5.2L15 7l-5.2 1.8L8 14l-1.8-5.2L1 7l5.2-1.8z"/></svg>Genera nuovo brano</button>
+      <span class="dim regenlab">Rigenera solo:</span>
       <button class="btn" data-re="h" title="Nuova armonia, stesso arrangiamento e melodia">🎲 Armonia</button>
       <button class="btn" data-re="a" title="Nuovi ritmi, arpeggi, basso e batteria">🎲 Arrangiamento</button>
       <button class="btn" data-re="m" title="Nuova melodia sugli stessi accordi">🎲 Melodia</button>
+      <span class="spacer"></span>
+      <label class="code"><span class="label">Codice</span><input type="text" id="code" spellcheck="false" title="Incolla un codice per rigenerare lo stesso brano"></label>
     </div>
   </section>
 
@@ -62,8 +73,8 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
       <div class="secact"><select id="addType" aria-label="Tipo di sezione"></select><button class="btn sm" id="addSec">+ Inserisci dopo</button>
       <button class="btn sm ghost" id="delSec" title="Rimuovi questa sezione">Rimuovi</button></div></div>
     <div class="tlwrap"><div class="tlbars" id="tlBars"></div><div class="tl" id="tl"></div></div>
-    <p class="dim tlhint">Clicca un accordo per modificarlo · trascina il bordo tra due accordi per allungarli o accorciarli (griglia a 1/16)</p>
-    <div class="tb" id="tb" hidden></div>
+    <div class="tllegend"><span><i class="fT"></i>tonica</span><span><i class="fS"></i>sottodominante</span><span><i class="fD"></i>dominante</span><span><i class="fB"></i>prestito / cromatico</span>
+      <span class="spacer"></span><span class="dim">Clicca un accordo per modificarlo · trascina il bordo per cambiarne la durata (griglia 1/16)</span></div>
   </section>
 
   <div class="grid2">
@@ -94,7 +105,7 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
   </div>
 </main>
 
-<footer class="transport" id="transport"><div class="wrap">
+<footer class="transport" id="transport"><div class="tprog" id="tprog"></div><div class="wrap">
   <button class="play" id="play" aria-label="Play"><svg id="playIc" width="18" height="18" viewBox="0 0 18 18"><path fill="currentColor" d="M4 2.5v13l11-6.5z"/></svg></button>
   <div class="pos"><b id="posSec">—</b><span id="posTime">0:00 / 0:00</span></div>
   <button class="btn sm ghost" id="loopBtn" title="Ripeti solo la sezione selezionata (L)">⟲<span class="lt"> Loop sezione</span></button>
@@ -103,6 +114,8 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
   <div class="tctl vol"><span>Vol</span><input type="range" id="vol" min="0" max="100" value="80"></div>
 </div></footer>
 <div class="toast" id="toast"></div>
+<div class="pop" id="pop" hidden role="dialog" aria-label="Modifica accordo"><div class="parrow" id="parrow"></div><div id="popBody"></div></div>
+<div class="modal" id="modal" hidden><div class="mbox" role="dialog" aria-modal="true"><div class="mhead"><h3 id="mTitle"></h3><button class="ib" id="mClose" aria-label="Chiudi">✕</button></div><div class="mbody" id="mBody"></div></div></div>
 
 <script>
 /*@@ENGINE@@*/

@@ -13,6 +13,11 @@ const DEF={genre:'pop',mood:'rilassato',mode:'auto',key:'auto',structure:'vc',co
 const St={opts:Object.assign({},DEF,LS.get('pg_opts',{})),seeds:{h:rndSeed(),a:rndSeed(),m:rndSeed()},bpm:null,song:null,ev:[],
   mute:{},solo:null,oct:{},sel:0,selChord:-1,scope:'rep',loop:false,muteInit:false,layout:null,secs:null,typeOrder:null,edits:[]};
 const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1}};
+St.name='Senza titolo';St.projId=null;St.savedSnap=null;
+(()=>{const cur=LS.get('pg_current',null),meta=LS.get('pg_meta',{});
+  if(cur&&cur.opts&&cur.seeds){Object.assign(St,{opts:Object.assign({},DEF,cur.opts),seeds:cur.seeds,secs:cur.secs||null,typeOrder:cur.typeOrder||null,edits:cur.edits||[],
+    oct:cur.oct||{},mute:cur.mute||{},solo:cur.solo||null,bpm:cur.bpm||null,name:cur.name||'Senza titolo',muteInit:!!cur.mute});}
+  St.projId=meta.projId||null;St.savedSnap=meta.savedSnap||null;})();
 for(const k in VALID)if(!(St.opts[k] in VALID[k]))St.opts[k]=DEF[k];
 if(St.opts.key!=='auto'&&!(+St.opts.key>=0&&+St.opts.key<12))St.opts.key='auto';
 
@@ -80,8 +85,9 @@ function regen({resetMute=false}={}){
   if(St.selChord>=s.sections[St.sel].chords.length)St.selChord=s.sections[St.sel].chords.length-1;
   renderAll();
   if(was)Player.start(Math.min(pos,s.beats-.01));
+  track();
 }
-function renderAll(){renderHead();renderLanes();drawArr();renderSection();renderHow();updateTransport(Player.playing?Player.pos():0);}
+function renderAll(){renderHead();renderLanes();drawArr();renderSection();renderHow();renderProg();updateTransport(Player.playing?Player.pos():0);}
 
 function renderHead(){
   const s=St.song,G=GENRES[s.genre],M=MOODS[s.mood],dur=s.beats*60/curBpm();
@@ -89,12 +95,12 @@ function renderHead(){
   const chips=[`<b>${s.keyName}</b> ${MODES[s.mode].n.toLowerCase()}`,`<b>${curBpm()}</b> BPM`,`<b>${s.bars}</b> battute · ${fmtTime(dur)}`,
     `<b>${s.sections.length}</b> ${s.sections.length===1?'sezione':'sezioni'}`,`accordi ${St.opts.color}`,`pianoforte ${St.opts.pianoStyle==='classic'?'classico v3':'vivo'}`];
   if(s.swing)chips.push(`swing ${Math.round(s.swing*100)}%`);
-  if(St.edits.length)chips.push(`<b>${St.edits.length}</b> modifiche manuali`);
-  $('#chips').innerHTML=chips.map(c=>`<span class="chip">${c}</span>`).join('');
+  $('#chips').innerHTML=chips.map(c=>`<span class="chip">${c}</span>`).join('')+(St.edits.length?`<span class="chip hot"><b>${St.edits.length}</b> modifiche agli accordi</span>`:'');
   $('#code').value=codeOf();
 }
 
 /* ---------------- Vista arrangiamento ---------------- */
+const LANE_NAME={mel:'Melodia',piano:'Piano',arp:'Arpeggio',pad:'Pad',bass:'Basso',drums:'Batteria'};
 const LANE_H={mel:62,piano:84,arp:62,pad:44,bass:54,drums:50},RULER=28,CHROW=22;
 const lanes=()=>LAYERS.filter(l=>St.song.layers[l.id].length);
 function renderLanes(){
@@ -102,14 +108,14 @@ function renderLanes(){
   h.innerHTML=`<div class="label" style="height:${RULER+CHROW}px;display:flex;align-items:center;padding:0 10px">Tracce</div>`+lanes().map(l=>{
     const o=St.oct[l.id]||0;
     return`<div class="lane-h ${audible(l.id)?'':'off'}" style="height:${LANE_H[l.id]}px">
-      <span class="dot" style="background:var(--c-${l.id})"></span><span class="nm">${l.n}</span>
+      <span class="dot" style="background:var(--c-${l.id})"></span><span class="nm" title="${l.n}">${LANE_NAME[l.id]}</span>
       ${l.id==='drums'?'':`<span class="oct ${o?'on':''}" title="Ottava"><button data-oct="${l.id}" data-d="-1">−</button><span>${o>0?'+'+o:o}</span><button data-oct="${l.id}" data-d="1">+</button></span>`}
       <button class="ib ${St.mute[l.id]?'on':''}" data-mute="${l.id}" title="Silenzia">M</button>
       <button class="ib ${St.solo===l.id?'on':''}" data-solo="${l.id}" title="Ascolta solo questa traccia">S</button>
       <button class="ib dl" data-dl="${l.id}" title="Scarica solo questa traccia (.mid)">⬇</button></div>`;}).join('');
-  h.querySelectorAll('[data-mute]').forEach(b=>b.onclick=()=>{const id=b.dataset.mute;St.mute[id]=!St.mute[id];renderLanes();drawArr();});
-  h.querySelectorAll('[data-solo]').forEach(b=>b.onclick=()=>{const id=b.dataset.solo;St.solo=St.solo===id?null:id;renderLanes();drawArr();});
-  h.querySelectorAll('[data-oct]').forEach(b=>b.onclick=()=>{const id=b.dataset.oct;St.oct[id]=clamp((St.oct[id]||0)+(+b.dataset.d),-2,2);buildEv();renderLanes();
+  h.querySelectorAll('[data-mute]').forEach(b=>b.onclick=()=>{const id=b.dataset.mute;St.mute[id]=!St.mute[id];renderLanes();drawArr();track();});
+  h.querySelectorAll('[data-solo]').forEach(b=>b.onclick=()=>{const id=b.dataset.solo;St.solo=St.solo===id?null:id;renderLanes();drawArr();track();});
+  h.querySelectorAll('[data-oct]').forEach(b=>b.onclick=()=>{const id=b.dataset.oct;St.oct[id]=clamp((St.oct[id]||0)+(+b.dataset.d),-2,2);buildEv();renderLanes();track();
     toast(`${LAYERS.find(l=>l.id===id).n}: ottava ${St.oct[id]>0?'+':''}${St.oct[id]}`);});
   h.querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>{const l=LAYERS.find(x=>x.id===b.dataset.dl);
     download(`${baseName()}-${slug(l.n)}.mid`,toMidi(St.song,{layers:[l.id],bpm:curBpm(),title:l.n,oct:St.oct}),'audio/midi');});
@@ -174,12 +180,13 @@ function renderSection(){
   $('#tlBars').innerHTML=Array.from({length:sec.bars},(_,b)=>`<span style="left:${b*4/B*100}%">${sec.startBar+b+1}</span>`).join('');
   const tl=$('#tl');tl.style.setProperty('--b',B);const mw=sec.bars*64+'px';tl.style.minWidth=mw;$('#tlBars').style.minWidth=mw;
   tl.innerHTML=sec.chords.map((c,i)=>{const ci=s.chords.indexOf(c),l=(c.start-sec.startBeat)/B*100,w=c.beats/B*100;
-    return`<div class="blk ${i===St.selChord?'sel':''} ${hasEdit(sec,i)?'ed':''}" data-i="${i}" data-ci="${ci}" style="left:calc(${l}% + 2px);width:calc(${w}% - 4px)">
+    return`<div class="blk ${fnClass(c)} ${i===St.selChord?'sel':''} ${hasEdit(sec,i)?'ed':''}" data-i="${i}" data-ci="${ci}" style="left:calc(${l}% + 2px);width:calc(${w}% - 4px)">
       <div class="nm">${c.name}</div><div class="rn">${c.rn}</div><div class="ln">${lenLab(c.beats)}</div></div>`;}).join('')+
     sec.chords.slice(0,-1).map((c,i)=>`<div class="hd" data-h="${i}" style="left:${(c.start+c.beats-sec.startBeat)/B*100}%"></div>`).join('');
-  tl.querySelectorAll('.blk').forEach(el=>el.onclick=()=>{St.selChord=+el.dataset.i;renderSection();audition(sec.chords[St.selChord]);});
+  tl.querySelectorAll('.blk').forEach(el=>el.onclick=()=>{const i=+el.dataset.i;if(i===St.selChord&&!$('#pop').hidden){closePop();return;}
+    St.selChord=i;tl.querySelectorAll('.blk').forEach(b=>b.classList.toggle('sel',b===el));renderPop();audition(sec.chords[i]);});
   tl.querySelectorAll('.hd').forEach(el=>el.addEventListener('pointerdown',e=>startDrag(e,+el.dataset.h)));
-  renderToolbar();lastCi=-1;
+  renderPop();lastCi=-1;
 }
 const hasEdit=(sec,i)=>St.edits.some(e=>e.type===sec.type&&e.ci===i&&(e.sel==='rep'||e.occ===sec.occ));
 function audition(c){if(!c)return;Synth.init();const t=Synth.now()+.03,inst=instOf('piano'),notes=[...c.lh,...c.rh];
@@ -205,50 +212,72 @@ function pushEdit(e,sel){
   if(e.op==='split'&&St.selChord>=0){}else if(e.op==='merge')St.selChord=Math.max(0,St.selChord-1);
   regen();
 }
-function renderToolbar(){
-  const tb=$('#tb'),s=St.song,sec=s.sections[St.sel],c=sec.chords[St.selChord];
-  if(!c){tb.hidden=true;return;}tb.hidden=false;
+function fnClass(c){
+  const md=MODES[St.song.mode];if(c.sec||c.tt||c.pass||!TRI_IV[c.tri])return'fB';
+  if(!inScale(md.scale,c.r,c.tri))return'fB';const r=role(c,md.minor);return r==='T'||r==='Tm'?'fT':r==='S'?'fS':'fD';}
+const QGROUPS=[['Triadi',['maj','min','dim','aug','sus2','sus4']],['Settime',['7','maj7','m7','m7b5','dim7','7sus4']],['Estese',['add9','6','69','9','maj9','m9','m11','13','7b9','maj7#11']]];
+function closePop(){St.selChord=-1;$('#pop').hidden=true;$$('#tl .blk.sel').forEach(e=>e.classList.remove('sel'));}
+function placePop(){
+  const pop=$('#pop');if(pop.hidden)return;const el=$(`#tl .blk[data-i="${St.selChord}"]`);if(!el){pop.hidden=true;return;}
+  if(innerWidth<=560){pop.style.left='';pop.style.top='';return;}
+  const r=el.getBoundingClientRect(),w=pop.offsetWidth,h=pop.offsetHeight;
+  const left=clamp(r.left+r.width/2-w/2,12,innerWidth-w-12);
+  const below=r.bottom+14+h<innerHeight-78||r.top-14-h<70;
+  pop.classList.toggle('up',!below);
+  pop.style.left=left+scrollX+'px';pop.style.top=(below?r.bottom+12:r.top-12-h)+scrollY+'px';
+  $('#parrow').style.left=clamp(r.left+r.width/2-left-7,18,w-32)+'px';
+}
+function renderPop(){
+  const pop=$('#pop'),s=St.song,sec=s.sections[St.sel],c=sec.chords[St.selChord];
+  if(!c){pop.hidden=true;return;}
   const sp=s.spell,nextC=sec.chords[St.selChord+1]||(s.sections[St.sel+1]&&s.sections[St.sel+1].chords[0]);
   const sug=suggestChords(s),iv=QT[c.q].iv,bassIv=c.bassIv!=null?c.bassIv:(c.inv?iv.findIndex(x=>mod12(c.pc+x)===c.bass):0);
-  const sd=c.strum&&c.strum.dir?c.strum.dir:'',spd=c.strum?c.strum.spd:.04;
-  tb.innerHTML=`
-    <div class="tbtitle"><b>${c.name}</b><span class="muted">${c.rn} · ${lenLab(c.beats)} · batt. ${Math.floor(c.start/4)+1}</span><span class="spacer"></span>
-      <button class="btn sm" data-a="play">🔊 Ascolta</button><button class="btn sm ghost" data-a="close">Chiudi</button></div>
-    <div class="tbrow"><span class="label">Applica a</span><div class="seg">
-      <button data-sc="one" class="${St.scope==='one'?'on':''}">Solo qui</button>
-      <button data-sc="rep" class="${St.scope==='rep'?'on':''}">Tutte le ripetizioni di ${SEC_NAME[sec.type]}</button>
-      <button data-sc="same" class="${St.scope==='same'?'on':''}">Ovunque ci sia ${c.name.split('/')[0]}</button></div></div>
-    <div class="tbrow"><span class="label">Accordo</span>
-      <select id="tbRoot">${Array.from({length:12},(_,i)=>`<option value="${i}" ${mod12(c.pc)===i?'selected':''}>${sp(i)}</option>`).join('')}</select>
-      ${QUAL.map(q=>`<button class="qc ${c.q===q?'on':''}" data-q="${q}">${qLab(q)}</button>`).join('')}</div>
-    <div class="tbrow"><span class="label">Nel modo</span>${sug.filter(x=>x.g==='modo').map(x=>`<button class="qc" data-sr="${x.r}" data-sq="${x.q}" title="${sp(s.key+x.r)+QT[x.q].n}">${x.lab}</button>`).join('')}</div>
-    <div class="tbrow"><span class="label">Prestiti</span>${sug.filter(x=>x.g==='prestito').map(x=>`<button class="qc bor" data-sr="${x.r}" data-sq="${x.q}" title="${sp(s.key+x.r)+QT[x.q].n}">${x.lab}</button>`).join('')}
-      ${nextC?`<button class="qc bor" data-sr="${mod12(nextC.r+7)}" data-sq="7" title="Dominante dell'accordo successivo">V7 → ${nextC.name.split('/')[0]}</button>`:''}</div>
-    <div class="tbrow"><span class="label">Basso</span><div class="seg">${['Fondamentale','3ª','5ª','7ª'].map((t,i)=>i<iv.length?`<button data-bass="${i}" class="${bassIv===i?'on':''}">${t}</button>`:'').join('')}</div>
-      <span class="label" style="min-width:0;margin-left:10px">Strum</span><div class="seg">
-      <button data-st="" class="${!sd?'on':''}">No</button><button data-st="up" class="${sd==='up'?'on':''}">↑ dal basso</button><button data-st="down" class="${sd==='down'?'on':''}">↓ dall'alto</button></div>
-      <input type="range" id="tbSpd" min="1" max="12" value="${Math.round(spd*100)}" title="Velocità dello strum" ${sd?'':'disabled'}></div>
-    <div class="tbrow"><span class="label">Velocity</span><input type="range" id="tbVel" min="-40" max="40" value="${c.vel||0}"><span class="dim" id="tbVelV">${(c.vel||0)>0?'+':''}${c.vel||0}</span>
-      <span class="spacer"></span>
-      <button class="btn sm" data-a="split" ${c.beats<.5?'disabled':''}>✂ Dividi</button>
-      <button class="btn sm" data-a="merge" ${St.selChord<1?'disabled':''}>⇤ Unisci al precedente</button>
-      <button class="btn sm" data-a="undo" ${St.edits.length?'':'disabled'}>↶ Annulla</button>
-      <button class="btn sm ghost" data-a="reset" ${St.edits.length?'':'disabled'}>Ripristina tutto</button></div>`;
+  const sd=c.strum&&c.strum.dir?c.strum.dir:'',spd=c.strum?c.strum.spd:.04,base=c.name.split('/')[0];
+  const chip=(x,bor)=>{const nm=rootSpell(x.lab,sp)(s.key+x.r)+QT[x.q].n,on=mod12(c.r)===x.r&&c.q===x.q;
+    return`<button class="qc ${bor?'bor':''} ${on?'on':''}" data-sr="${x.r}" data-sq="${x.q}">${x.lab}<small>${nm}</small></button>`;};
+  $('#popBody').innerHTML=`
+    <div class="phead"><div><div class="big">${c.name}</div><div class="sub">${c.rn} · ${lenLab(c.beats)} · ${sec.name}, batt. ${Math.floor(c.start/4)+1}</div></div>
+      <span class="spacer"></span><button class="btn sm" data-a="play" title="Ascolta">🔊</button><button class="ib" data-a="close" title="Chiudi (Esc)">✕</button></div>
+    <div class="pbody">
+      <div class="psec"><span class="label">Applica la modifica a</span><div class="seg full">
+        <button data-sc="one" class="${St.scope==='one'?'on':''}">Solo questo</button>
+        <button data-sc="rep" class="${St.scope==='rep'?'on':''}">Ogni ${SEC_NAME[sec.type]}</button>
+        <button data-sc="same" class="${St.scope==='same'?'on':''}">Ogni ${base}</button></div></div>
+      <div class="psec"><div class="prow"><span class="label">Radice</span><select id="tbRoot">${Array.from({length:12},(_,i)=>`<option value="${i}" ${mod12(c.pc)===i?'selected':''}>${sp(i)}</option>`).join('')}</select><span class="dim" style="font-size:11.5px">tipo di accordo:</span></div>
+        ${QGROUPS.map(([g,qs])=>`<div class="prow"><span class="dim" style="font-size:11px;width:52px">${g}</span>${qs.map(q=>`<button class="qc ${c.q===q?'on':''}" data-q="${q}">${qLab(q)}</button>`).join('')}</div>`).join('')}</div>
+      <div class="psec"><span class="label">Accordi del modo · ${MODES[s.mode].n.toLowerCase()}</span><div class="prow">${sug.filter(x=>x.g==='modo').map(x=>chip(x)).join('')}</div></div>
+      <div class="psec"><span class="label">Prestiti e dominanti</span><div class="prow">${sug.filter(x=>x.g==='prestito').map(x=>chip(x,1)).join('')}
+        ${nextC?`<button class="qc bor" data-sr="${mod12(nextC.r+7)}" data-sq="7">V7→<small>${sp(nextC.pc+7)}7</small></button>`:''}</div></div>
+      <div class="psec"><span class="label">Nota al basso</span><div class="seg">${['Fondamentale','3ª','5ª','7ª'].map((t,i)=>i<iv.length?`<button data-bass="${i}" class="${bassIv===i?'on':''}">${t}</button>`:'').join('')}</div></div>
+      <div class="psec"><span class="label">Strum</span><div class="prow"><div class="seg">
+        <button data-st="" class="${!sd?'on':''}">No</button><button data-st="up" class="${sd==='up'?'on':''}">↑ dal basso</button><button data-st="down" class="${sd==='down'?'on':''}">↓ dall'alto</button></div>
+        <input type="range" id="tbSpd" min="1" max="12" value="${Math.round(spd*100)}" title="Velocità dello strum" ${sd?'':'disabled'}></div></div>
+      <div class="psec"><span class="label">Velocity <b id="tbVelV" style="color:var(--tx)">${(c.vel||0)>0?'+':''}${c.vel||0}</b></span><input type="range" id="tbVel" min="-40" max="40" value="${c.vel||0}" style="width:100%"></div>
+    </div>
+    <div class="pfoot"><button class="btn sm" data-a="split" ${c.beats<.5?'disabled':''}>✂ Dividi</button>
+      <button class="btn sm" data-a="merge" ${St.selChord<1?'disabled':''}>⇤ Unisci al precedente</button><span class="spacer"></span>
+      <button class="btn sm ghost" data-a="reset" ${St.edits.length?'':'disabled'}>Ripristina accordi</button></div>`;
+  pop.hidden=false;
   const scopeFor=op=>St.scope==='same'&&['split','merge','len'].includes(op)?'rep':St.scope;
-  tb.querySelectorAll('[data-sc]').forEach(b=>b.onclick=()=>{St.scope=b.dataset.sc;renderToolbar();});
+  pop.querySelectorAll('[data-sc]').forEach(b=>b.onclick=()=>{St.scope=b.dataset.sc;renderPop();});
   $('#tbRoot').onchange=e=>pushEdit({op:'chord',r:mod12(+e.target.value-s.key),q:c.q});
-  tb.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>pushEdit({op:'chord',r:c.r,q:b.dataset.q}));
-  tb.querySelectorAll('[data-sr]').forEach(b=>b.onclick=()=>pushEdit({op:'chord',r:+b.dataset.sr,q:b.dataset.sq}));
-  tb.querySelectorAll('[data-bass]').forEach(b=>b.onclick=()=>pushEdit({op:'bass',iv:+b.dataset.bass}));
-  tb.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>pushEdit({op:'strum',dir:b.dataset.st,spd:+$('#tbSpd').value/100}));
+  pop.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>pushEdit({op:'chord',r:c.r,q:b.dataset.q}));
+  pop.querySelectorAll('[data-sr]').forEach(b=>b.onclick=()=>pushEdit({op:'chord',r:+b.dataset.sr,q:b.dataset.sq}));
+  pop.querySelectorAll('[data-bass]').forEach(b=>b.onclick=()=>pushEdit({op:'bass',iv:+b.dataset.bass}));
+  pop.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>pushEdit({op:'strum',dir:b.dataset.st,spd:+$('#tbSpd').value/100}));
   $('#tbSpd').onchange=e=>{if(sd)pushEdit({op:'strum',dir:sd,spd:+e.target.value/100});};
   $('#tbVel').oninput=e=>{$('#tbVelV').textContent=(+e.target.value>0?'+':'')+e.target.value;};
   $('#tbVel').onchange=e=>pushEdit({op:'vel',v:+e.target.value});
-  tb.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{const a=b.dataset.a;
-    if(a==='play')audition(c);else if(a==='close'){St.selChord=-1;renderSection();}
+  pop.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{const a=b.dataset.a;
+    if(a==='play')audition(c);else if(a==='close')closePop();
     else if(a==='split')pushEdit({op:'split'},scopeFor('split'));else if(a==='merge')pushEdit({op:'merge'},scopeFor('merge'));
-    else if(a==='undo'){St.edits.pop();regen();}else if(a==='reset'){St.edits=[];regen();toast('Accordi originali ripristinati');}});
+    else if(a==='reset'){St.edits=[];regen();toast('Accordi originali ripristinati');}});
+  requestAnimationFrame(placePop);
 }
+document.addEventListener('pointerdown',e=>{const pop=$('#pop');if(pop.hidden)return;
+  if(pop.contains(e.target)||e.target.closest('#tl .blk')||e.target.closest('.hd'))return;closePop();});
+addEventListener('scroll',()=>placePop(),{passive:true});
+$('.tlwrap').addEventListener('scroll',()=>placePop(),{passive:true});
 $('#addSec').onclick=()=>{
   const t=$('#addType').value,s=St.song,secs=s.secs.map(x=>x.slice()),order=s.typeOrder.slice();
   const bars=secs.find(x=>x[0]===t)?secs.find(x=>x[0]===t)[1]:(GENRES[s.genre].blues&&(t==='verse'||t==='chorus')?12:SEC_BARS[t]);
@@ -301,6 +330,11 @@ const Player={playing:false,base:0,p:0,timer:null,raf:0,
   loop(){if(!this.playing)return;const p=this.pos();paintArr(p);updateTransport(p);
     const sc=$('#arrScroll'),X=p/4*St.layout.barW;if(X<sc.scrollLeft+20||X>sc.scrollLeft+sc.clientWidth-40)sc.scrollLeft=Math.max(0,X-60);
     this.raf=requestAnimationFrame(()=>this.loop());}};
+function renderProg(){
+  const s=St.song;$('#tprog').innerHTML=s.sections.map((z,i)=>`<div class="seg2" data-s="${i}" title="${z.name}" style="width:${z.bars*4/s.beats*100}%;background:var(--s-${z.type})"></div>`).join('')+'<div class="ph" id="tph"></div>';}
+$('#tprog').addEventListener('click',e=>{const r=e.currentTarget.getBoundingClientRect(),b=clamp((e.clientX-r.left)/r.width,0,.999)*St.song.beats;
+  const i=St.song.sections.findIndex(z=>b>=z.startBeat&&b<z.startBeat+z.bars*4);if(i>=0&&i!==St.sel)selectSection(i,false);
+  if(St.loop&&!Player.playing){Player.start(St.song.sections[St.sel].startBeat);return;}Player.start(St.loop?St.song.sections[St.sel].startBeat:b);});
 let lastCi=-1;
 function updateTransport(p){
   const s=St.song,spb=60/curBpm();
@@ -308,21 +342,25 @@ function updateTransport(p){
   $('#posSec').textContent=`${sec.name} · batt. ${Math.floor(p/4)+1}`;
   $('#posTime').textContent=`${fmtTime(p*spb)} / ${fmtTime(s.beats*spb)}`;
   $('#bpm').value=curBpm();$('#bpmv').textContent=curBpm()+' BPM';
+  const ph=$('#tph');if(ph)ph.style.left=p/s.beats*100+'%';
+  $$('#tprog .seg2').forEach((el,i)=>el.classList.toggle('cur',s.sections[i]===sec));
   let ci=-1;if(Player.playing)s.chords.forEach((c,i)=>{if(c.start<=p)ci=i;});
   if(ci!==lastCi){$$('.blk.on').forEach(e=>e.classList.remove('on'));const el=$(`.blk[data-ci="${ci}"]`);if(el)el.classList.add('on');lastCi=ci;}
 }
 $('#play').onclick=()=>Player.playing?Player.stop():Player.start(St.loop?null:0);
-$('#loopBtn').onclick=()=>{St.loop=!St.loop;$('#loopBtn').style.color=St.loop?'var(--acc)':'';$('#loopBtn').style.borderColor=St.loop?'var(--acc)':'';
+$('#loopBtn').onclick=()=>{St.loop=!St.loop;$('#loopBtn').classList.toggle('on',St.loop);
   if(Player.playing)Player.start(St.song.sections[St.sel].startBeat);toast(St.loop?'Loop sulla sezione selezionata':'Riproduzione di tutto il brano');};
+$('#bpm').onchange=()=>track();
 $('#bpm').oninput=e=>{const p=Player.playing?Player.pos():0;St.bpm=+e.target.value;
   if(Player.playing)Player.base=Synth.now()-p*60/curBpm();$('#bpmv').textContent=curBpm()+' BPM';renderHead();};
-$('#bpmAuto').onclick=()=>{const p=Player.playing?Player.pos():0;St.bpm=null;if(Player.playing)Player.base=Synth.now()-p*60/curBpm();renderHead();updateTransport(p);};
+$('#bpmAuto').onclick=()=>{const p=Player.playing?Player.pos():0;St.bpm=null;if(Player.playing)Player.base=Synth.now()-p*60/curBpm();renderHead();updateTransport(p);track();};
 $('#vol').oninput=e=>Synth.setVolume(+e.target.value/100);
 document.addEventListener('keydown',e=>{
-  if($('#tab-gen').hidden||/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)||e.metaKey||e.ctrlKey)return;
+  if($('#tab-gen').hidden||/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;
+  if(e.key==='Escape'){if(!$('#modal').hidden)closeModal();else closePop();return;}
+  if(e.metaKey||e.ctrlKey){const k=e.key.toLowerCase();if(k==='z'){e.preventDefault();e.shiftKey?redo():undo();}else if(k==='y'){e.preventDefault();redo();}else if(k==='s'){e.preventDefault();saveProject();}return;}
   if(e.code==='Space'){e.preventDefault();$('#play').click();}
-  else if(e.key==='l'||e.key==='L')$('#loopBtn').click();
-  else if((e.key==='z'||e.key==='Z')&&St.edits.length){St.edits.pop();regen();toast('Modifica annullata');}});
+  else if(e.key==='l'||e.key==='L')$('#loopBtn').click();});
 
 /* ---------------- Esportazione ---------------- */
 const slug=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/#/g,'s').replace(/[^A-Za-z0-9]+/g,'-').replace(/^-|-$/g,'');
@@ -362,8 +400,81 @@ $$('.tabs button').forEach(b=>b.onclick=()=>{
   const gen=b.dataset.tab==='gen';$('#tab-gen').hidden=!gen;$('#tab-ex').hidden=gen;$('#transport').hidden=!gen;
   document.body.style.paddingBottom=gen?'':'24px';
   if(!gen&&Player.playing)Player.stop();
-  if(gen){drawArr();renderSection();}else if(typeof Ex!=='undefined')Ex.show();});
+  if(gen){drawArr();renderSection();}else{closePop();if(typeof Ex!=='undefined')Ex.show();}});
+
+/* ---------------- Storia: indietro / avanti ---------------- */
+const H={undo:[],redo:[],last:null,restoring:false};
+const snapState=()=>JSON.stringify({opts:St.opts,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,oct:St.oct,mute:St.mute,solo:St.solo,bpm:St.bpm,name:St.name});
+function track(){
+  const cur=snapState();
+  if(H.last&&cur!==H.last&&!H.restoring){H.undo.push(H.last);if(H.undo.length>200)H.undo.shift();H.redo=[];}
+  H.last=cur;LS.set('pg_current',JSON.parse(cur));updHist();
+}
+function updHist(){
+  $('#undo').disabled=!H.undo.length;$('#redo').disabled=!H.redo.length;
+  const st=$('#saveState');
+  if(!St.projId){st.className='sstate';st.textContent='non salvato';}
+  else if(St.savedSnap===H.last){st.className='sstate saved';st.textContent='salvato';}
+  else{st.className='sstate dirty';st.textContent='modifiche non salvate';}
+}
+function restore(json){
+  const o=JSON.parse(json);H.restoring=true;
+  Object.assign(St,{opts:Object.assign({},DEF,o.opts),seeds:o.seeds,secs:o.secs||null,typeOrder:o.typeOrder||null,edits:o.edits||[],oct:o.oct||{},
+    mute:o.mute||{},solo:o.solo||null,bpm:o.bpm||null,name:o.name||St.name,muteInit:true});
+  syncControls();$('#projName').value=St.name;closePop();
+  if(St.sel>=0)St.sel=Math.min(St.sel,99);regen();H.restoring=false;H.last=json;LS.set('pg_current',o);updHist();
+}
+function undo(){if(!H.undo.length)return;H.redo.push(H.last);restore(H.undo.pop());toast('Indietro');}
+function redo(){if(!H.redo.length)return;H.undo.push(H.last);restore(H.redo.pop());toast('Avanti');}
+$('#undo').onclick=undo;$('#redo').onclick=redo;
+
+/* ---------------- Progetti ---------------- */
+const projects=()=>LS.get('pg_projects',[]);
+const saveMeta=()=>LS.set('pg_meta',{projId:St.projId,savedSnap:St.savedSnap});
+function saveProject(asNew){
+  const list=projects(),now=Date.now(),state=JSON.parse(H.last);
+  if(!St.projId||asNew||!list.some(p=>p.id===St.projId)){St.projId='p'+now.toString(36);list.unshift({id:St.projId,name:St.name,date:now,state});}
+  else{const p=list.find(p=>p.id===St.projId);Object.assign(p,{name:St.name,date:now,state});}
+  LS.set('pg_projects',list);St.savedSnap=H.last;saveMeta();updHist();toast(`Progetto “${St.name}” salvato`);
+}
+function openProject(id){const p=projects().find(x=>x.id===id);if(!p)return;
+  St.projId=id;St.sel=0;St.selChord=-1;const json=JSON.stringify({...p.state,name:p.name});H.undo.push(H.last);H.redo=[];restore(json);St.savedSnap=H.last;saveMeta();updHist();closeModal();toast(`Aperto “${p.name}”`);}
+function newProject(){H.undo.push(H.last);H.redo=[];St.projId=null;St.savedSnap=null;saveMeta();
+  restore(JSON.stringify({opts:{...St.opts},seeds:{h:rndSeed(),a:rndSeed(),m:rndSeed()},secs:null,typeOrder:null,edits:[],oct:{},mute:null,name:'Senza titolo'}));
+  St.muteInit=false;regen({resetMute:true});closeModal();toast('Nuovo progetto');}
+const fmtDate=t=>new Date(t).toLocaleString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+function closeModal(){$('#modal').hidden=true;}
+function renderProjects(){
+  const list=projects();
+  $('#mTitle').textContent='Progetti';
+  $('#mBody').innerHTML=`
+    <div class="mrow"><input type="text" id="mName" value="${St.name.replace(/"/g,'&quot;')}" aria-label="Nome"><button class="btn primary" id="mSave">${St.projId?'Salva':'Salva progetto'}</button>${St.projId?'<button class="btn" id="mSaveNew">Salva come nuovo</button>':''}</div>
+    <div class="plist">${list.length?list.map(p=>`<div class="pitem ${p.id===St.projId?'cur':''}"><div class="pi"><b>${p.name.replace(/</g,'&lt;')}</b>
+      <small>${(GENRES[p.state.opts.genre]||{}).n||''} · ${(MOODS[p.state.opts.mood]||{}).n||''} · ${fmtDate(p.date)}${p.state.edits&&p.state.edits.length?` · ${p.state.edits.length} modifiche`:''}</small></div>
+      <button class="btn sm" data-open="${p.id}">Apri</button><button class="btn sm ghost danger" data-del="${p.id}">Elimina</button></div>`).join(''):'<div class="empty">Nessun progetto salvato. Dai un nome al brano e premi Salva.</div>'}</div>
+    <div class="mrow"><button class="btn" id="mNew">+ Nuovo progetto</button><span class="spacer"></span>
+      <button class="btn ghost" id="mExp">⬇ Esporta .json</button><button class="btn ghost" id="mImp">⬆ Importa .json</button><input type="file" id="mFile" accept=".json,application/json" hidden></div>
+    <p class="dim" style="font-size:12px">I progetti sono salvati in questo browser. Il lavoro in corso viene comunque ricordato automaticamente. Con l'esportazione .json puoi spostarli su un altro dispositivo.</p>`;
+  const nm=()=>{const v=$('#mName').value.trim();if(v){St.name=v;$('#projName').value=v;}};
+  $('#mSave').onclick=()=>{nm();track();saveProject(false);renderProjects();};
+  if($('#mSaveNew'))$('#mSaveNew').onclick=()=>{nm();track();saveProject(true);renderProjects();};
+  $$('#mBody [data-open]').forEach(b=>b.onclick=()=>openProject(b.dataset.open));
+  $$('#mBody [data-del]').forEach(b=>b.onclick=()=>{if(b.dataset.sure){LS.set('pg_projects',projects().filter(p=>p.id!==b.dataset.del));
+      if(St.projId===b.dataset.del){St.projId=null;St.savedSnap=null;saveMeta();updHist();}renderProjects();}else{b.dataset.sure=1;b.textContent='Sicuro?';}});
+  $('#mNew').onclick=newProject;
+  $('#mExp').onclick=()=>download(slug(St.name||'progetto')+'.pianogen.json',JSON.stringify({app:'piano-generativo',v:1,name:St.name,state:JSON.parse(H.last)},null,1),'application/json');
+  $('#mImp').onclick=()=>$('#mFile').click();
+  $('#mFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result),st=d.state||d;
+      if(!st.opts||!st.seeds)throw 0;H.undo.push(H.last);H.redo=[];St.projId=null;St.savedSnap=null;restore(JSON.stringify({...st,name:d.name||st.name||'Importato'}));closeModal();toast('Progetto importato');}
+    catch(err){toast('File non valido');}};rd.readAsText(f);};
+}
+$('#btnProjects').onclick=()=>{renderProjects();$('#modal').hidden=false;};
+$('#btnSave').onclick=()=>saveProject(false);
+$('#mClose').onclick=closeModal;
+$('#modal').addEventListener('pointerdown',e=>{if(e.target.id==='modal')closeModal();});
+$('#projName').addEventListener('change',e=>{St.name=e.target.value.trim()||'Senza titolo';e.target.value=St.name;track();});
 
 /* ---------------- Avvio ---------------- */
-syncControls();regen({resetMute:true});
+$('#projName').value=St.name;
+syncControls();regen({resetMute:!St.muteInit});
 window.__pg={St,regen,Player};

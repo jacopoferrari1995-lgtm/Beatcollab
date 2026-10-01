@@ -1069,10 +1069,10 @@ function generateSong(o){
   sections.forEach(sec=>chooseInversions(sec.chords,ctx,subRng(seeds.h,'inv-'+sec.type)));
   chords.forEach(c=>{
     if(c.bassIv!=null){const iv=QT[c.q].iv;c.bass=mod12(c.pc+(iv[c.bassIv]!=null?iv[c.bassIv]:0));}
-    c.name=spell(c.pc)+QT[c.q].n+(c.bass!==c.pc?'/'+spell(c.bass):'');
     const tn=x=>numeral(x.r,x.tri==='min'?'min':x.tri==='dim'?'dim':'maj');
     c.rn=c.tt&&c.ttTarget?'subV'+(QT[c.q].r||'')+'/'+tn(c.ttTarget):c.sec&&c.target&&c.target.r!==0?'V'+(QT[c.q].r||'')+'/'+tn(c.target):c.sec&&c.target?'V'+(QT[c.q].r||''):numeral(c.r,c.q);
     c.inv=c.bass!==c.pc?1:0;
+    const rs=rootSpell(c.rn,spell);c.name=rs(c.pc)+QT[c.q].n+(c.bass!==c.pc?'/'+spell(c.bass):'');
   });
   // voicing
   let pr=null,pl=null,pa=null;
@@ -1113,6 +1113,7 @@ function generateSong(o){
     info:[...info],swing:G.swing,prog:G.prog,secs,typeOrder:order,
     defaults:{mel:1,piano:1,arp:1,pad:1,bass:1,drums:G.groove?1:0}};
 }
+const rootSpell=(rn,spell)=>/^b/.test(rn)?(pc=>FLAT[mod12(pc)]):/^#/.test(rn)?(pc=>SHARP[mod12(pc)]):spell;
 function suggestChords(song){
   const md=MODES[song.mode],rich=song.color>=.5,out=[];
   const q7=(tri,r,dom)=>!rich?tri:tri==='maj'?(dom?'7':'maj7'):tri==='min'?'m7':tri==='dim'?'m7b5':'aug';
