@@ -187,7 +187,10 @@ const NOTE_NM=n=>KEY_NAMES[n%12]+(Math.floor(n/12)-1);
 function seqData(){
   const s=St.song,sec=s.sections[St.sel],t=sec.type,man=St.drumGrid[t]||{};
   const gen=Array.from({length:10},()=>Array(32).fill(0));
-  s.layers.drums.forEach(e=>{const rel=e.t-sec.startBeat;if(rel<-.05||rel>=7.95)return;const st=clamp(Math.round(rel*4),0,31);gen[e.pad][st]=Math.max(gen[e.pad][st],e.v);});
+  // prima metà = battuta A (groove), seconda = prima battuta B (risposta), come le suona il motore
+  let bB=0;for(let b=0;b<sec.bars;b++)if(drumKind(b,sec.bars)==='B'){bB=b;break;}
+  const half=(bar,off)=>s.layers.drums.forEach(e=>{const rel=e.t-sec.startBeat-bar*4;if(rel<-.05||rel>=3.95)return;const st=clamp(Math.round(rel*4),0,15)+off;gen[e.pad][st]=Math.max(gen[e.pad][st],e.v);});
+  half(0,0);half(bB,16);
   return{sec,t,rows:gen.map((g,p)=>{const m=man[p];return m?{v:m.length>16?m:m.concat(m),man:true}:{v:g,man:false};})};
 }
 function renderPads(){
