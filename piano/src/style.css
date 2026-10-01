@@ -420,3 +420,14 @@ details.more summary::before{content:"▸ ";}details.more[open] summary::before{
 .sq-c.ph{outline:2px solid var(--acc);outline-offset:0}
 .sq-c:active{transform:scale(.92)}
 @media (max-width:560px){.seq{grid-template-columns:150px repeat(32,22px)}.sq-h input[type=range]{display:none}}
+
+/* ===================== Carattere della sezione ===================== */
+.secchar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin:12px 18px 0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.secchar .grp{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.secchar .seg button{padding:4px 9px;font-size:12px}
+.lyc{border:1px solid var(--line);background:var(--panel);border-radius:20px;padding:3px 10px 3px 8px;font-size:12px;font-weight:650;display:inline-flex;align-items:center;gap:6px;color:var(--tx2)}
+.lyc i{width:8px;height:8px;border-radius:50%;background:var(--lc);opacity:.35}
+.lyc.act i{opacity:1}.lyc.act{color:var(--tx)}
+.lyc.force-on{border-color:var(--lc);box-shadow:inset 0 0 0 1px var(--lc)}
+.lyc.force-off{text-decoration:line-through;opacity:.6;border-style:dashed}
+.lyc small{font-size:10px;color:var(--tx3);font-weight:600}

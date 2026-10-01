@@ -9,14 +9,14 @@ const rndSeed=()=>1+Math.floor(Math.random()*99998);
 const fmtTime=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2000);}
 
-const DEF={genre:'pop',mood:'rilassato',mode:'auto',key:'auto',structure:'vc',color:'auto',human:true,pad:false,pianoStyle:'live',modLast:false,sound:'samp'};
+const DEF={genre:'pop',mood:'rilassato',mode:'auto',key:'auto',structure:'vc',color:'auto',human:true,pad:false,pianoStyle:'live',modLast:false,sound:'samp',dens:'auto',spaceLvl:'auto'};
 const St={opts:Object.assign({},DEF,LS.get('pg_opts',{})),seeds:{h:rndSeed(),a:rndSeed(),m:rndSeed()},bpm:null,song:null,ev:[],
-  mute:{},solo:null,oct:{},vol:{},padMute:{},padVol:{},padDens:{},drumGrid:{},feel:{},padSel:null,showPads:false,reseed:{L:{},S:{}},sel:0,selChord:-1,scope:'rep',loop:false,muteInit:false,layout:null,secs:null,typeOrder:null,edits:[]};
-const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1},sound:{samp:1,synth:1}};
+  mute:{},solo:null,oct:{},vol:{},padMute:{},padVol:{},padDens:{},drumGrid:{},feel:{},secCfg:{},padSel:null,showPads:false,reseed:{L:{},S:{}},sel:0,selChord:-1,scope:'rep',loop:false,muteInit:false,layout:null,secs:null,typeOrder:null,edits:[]};
+const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1},sound:{samp:1,synth:1},dens:{auto:1,scarna:1,leggera:1,media:1,piena:1,moltopiena:1},spaceLvl:{auto:1,continuo:1,leggero:1,marcato:1,estremo:1}};
 St.name='Senza titolo';St.projId=null;St.savedSnap=null;
 (()=>{const cur=LS.get('pg_current',null),meta=LS.get('pg_meta',{});
   if(cur&&cur.opts&&cur.seeds){Object.assign(St,{opts:Object.assign({},DEF,cur.opts),seeds:cur.seeds,secs:cur.secs||null,typeOrder:cur.typeOrder||null,edits:cur.edits||[],
-    oct:cur.oct||{},mute:cur.mute||{},solo:cur.solo||null,bpm:cur.bpm||null,name:cur.name||'Senza titolo',muteInit:!!cur.mute,reseed:cur.reseed||{L:{},S:{}},vol:cur.vol||{},padMute:cur.padMute||{},padVol:cur.padVol||{},padDens:cur.padDens||{},drumGrid:cur.drumGrid||{},feel:cur.feel||{}});}
+    oct:cur.oct||{},mute:cur.mute||{},solo:cur.solo||null,bpm:cur.bpm||null,name:cur.name||'Senza titolo',muteInit:!!cur.mute,reseed:cur.reseed||{L:{},S:{}},vol:cur.vol||{},padMute:cur.padMute||{},padVol:cur.padVol||{},padDens:cur.padDens||{},drumGrid:cur.drumGrid||{},feel:cur.feel||{},secCfg:cur.secCfg||{}});}
   St.projId=meta.projId||null;St.savedSnap=meta.savedSnap||null;})();
 for(const k in VALID)if(!(St.opts[k] in VALID[k]))St.opts[k]=DEF[k];
 if(St.opts.key!=='auto'&&!(+St.opts.key>=0&&+St.opts.key<12))St.opts.key='auto';
@@ -38,7 +38,7 @@ fillSel('#key',[['auto','Auto'],...KEY_NAMES.map((n,i)=>[i,n])]);
 fillSel('#structure',Object.entries(STRUCTS).map(([k,s])=>[k,s.n]));
 fillSel('#color',[['auto','Auto (dal genere)'],['triadi','Triadi'],['colorati','Colorati (add9, sus, 6)'],['settime','Settime'],['estesi','Estesi (9, 11, 13)']]);
 fillSel('#addType',['intro','verse','pre','chorus','bridge','special','outro'].map(t=>[t,SEC_NAME[t]]));
-function syncControls(){['genre','mood','mode','key','structure','color','sound'].forEach(k=>$('#'+k).value=St.opts[k]);$('#modLast').checked=!!St.opts.modLast;
+function syncControls(){['genre','mood','mode','key','structure','color','sound','dens','spaceLvl'].forEach(k=>$('#'+k).value=St.opts[k]);$('#modLast').checked=!!St.opts.modLast;
   $('#pstyle').value=St.opts.pianoStyle;$('#human').checked=St.opts.human;$('#pad').checked=St.opts.pad;}
 const saveOpts=()=>LS.set('pg_opts',St.opts);
 function clearReseed(k){const R=St.reseed;Object.keys(R.S).forEach(x=>{if(x.endsWith('.'+k))delete R.S[x];});
@@ -53,6 +53,8 @@ function dropEdits(){if(St.edits.length){St.edits=[];toast('Modifiche agli accor
   St.selChord=-1;regen({resetMute:k==='genre'});}));
 $('#pstyle').addEventListener('change',e=>{St.opts.pianoStyle=e.target.value;saveOpts();regen();toast(e.target.value==='classic'?'Pianoforte classico (v3)':'Pianoforte vivo');});
 $('#human').addEventListener('change',e=>{St.opts.human=e.target.checked;saveOpts();regen();});
+['dens','spaceLvl'].forEach(k=>$('#'+k).addEventListener('change',e=>{St.opts[k]=e.target.value;saveOpts();regen();
+  toast(k==='dens'?'Densità: '+e.target.selectedOptions[0].text:'Vuoto/pieno: '+e.target.selectedOptions[0].text);}));
 $('#modLast').addEventListener('change',e=>{St.opts.modLast=e.target.checked;saveOpts();regen();
   const n=St.song.sections.filter(x=>x.type==='chorus').length;toast(e.target.checked?(n>=2?'L\'ultimo ritornello sale di un tono':'Serve una struttura con almeno due ritornelli'):'Modulazione tolta');});
 $('#sound').addEventListener('change',e=>{St.opts.sound=e.target.value;saveOpts();ensureSound(true);renderHead();});
@@ -66,11 +68,12 @@ function ensureSound(verbose){
     .then(st=>{soundMsg='';renderHead();toast(st==='ready'?'Pianoforte campionato pronto':'Campioni non raggiungibili: uso il piano sintetico');});
 }
 $('#pad').addEventListener('change',e=>{St.opts.pad=e.target.checked;saveOpts();St.mute.pad=false;regen();});
-$('#btnGen').onclick=()=>{St.seeds={h:rndSeed(),a:rndSeed(),m:rndSeed()};St.reseed={L:{},S:{}};St.bpm=null;St.edits=[];St.selChord=-1;regen({resetMute:true});};
+$('#btnGen').onclick=()=>{St.seeds={h:rndSeed(),a:rndSeed(),m:rndSeed()};St.reseed={L:{},S:{}};St.secCfg={};St.bpm=null;St.edits=[];St.selChord=-1;regen({resetMute:true});};
 $$('[data-re]').forEach(b=>b.onclick=()=>{const k=b.dataset.re;if(k==='h')dropEdits();St.seeds[k]=rndSeed();clearReseed(k);regen();
   toast({h:'Nuova armonia',a:'Nuovo arrangiamento',m:'Nuova melodia'}[k]);});
+const DENS_K=['auto','scarna','leggera','media','piena','moltopiena'],SPACE_K=['auto','continuo','leggero','marcato','estremo'];
 const TL={intro:'i',verse:'v',pre:'p',chorus:'c',bridge:'b',special:'x',outro:'o',loop:'l'},LT=Object.fromEntries(Object.entries(TL).map(([k,v])=>[v,k]));
-const codeOf=()=>{const p=[St.opts.genre,St.opts.mood,St.opts.mode,St.opts.key,St.opts.structure,St.opts.color,`${St.seeds.h}-${St.seeds.a}-${St.seeds.m}`,(St.opts.pad?'p':'-')+(St.opts.pianoStyle==='classic'?'c':'v')];
+const codeOf=()=>{const p=[St.opts.genre,St.opts.mood,St.opts.mode,St.opts.key,St.opts.structure,St.opts.color,`${St.seeds.h}-${St.seeds.a}-${St.seeds.m}`,(St.opts.pad?'p':'-')+(St.opts.pianoStyle==='classic'?'c':'v')+DENS_K.indexOf(St.opts.dens)+SPACE_K.indexOf(St.opts.spaceLvl)];
   const rs=[...Object.entries(St.reseed.L).filter(x=>x[1]).map(([k,v])=>'L'+k+v),...Object.entries(St.reseed.S).filter(x=>x[1]).map(([k,v])=>'S'+k+v)].join(',');
   if(St.secs||rs)p.push(St.secs?St.secs.map(([t,b])=>TL[t]+b).join('.'):'',St.secs?(St.typeOrder||[]).map(t=>TL[t]).join(''):'');if(rs)p.push(rs);return p.join('/');};
 $('#code').addEventListener('change',e=>{
@@ -79,7 +82,7 @@ $('#code').addEventListener('change',e=>{
   if(parts.length>=7){const [g,m,mo,k,s,c]=parts;
     if(GENRES[g])St.opts.genre=g;if(MOODS[m])St.opts.mood=m;if(VALID.mode[mo])St.opts.mode=mo;
     if(k==='auto'||(+k>=0&&+k<12))St.opts.key=k;if(STRUCTS[s])St.opts.structure=s;if(VALID.color[c])St.opts.color=c;
-    if(parts[7]){St.opts.pad=parts[7][0]==='p';St.opts.pianoStyle=parts[7][1]==='c'?'classic':'live';}syncControls();saveOpts();}
+    if(parts[7]){St.opts.pad=parts[7][0]==='p';St.opts.pianoStyle=parts[7][1]==='c'?'classic':'live';St.opts.dens=DENS_K[+parts[7][2]]||'auto';St.opts.spaceLvl=SPACE_K[+parts[7][3]]||'auto';}syncControls();saveOpts();}
   St.secs=null;St.typeOrder=null;
   if(parts[8]){const secs=parts[8].split('.').map(x=>[LT[x[0]],+x.slice(1)]).filter(([t,b])=>t&&b>0&&b<=64);if(secs.length){St.secs=secs;St.typeOrder=(parts[9]||'').split('').map(c=>LT[c]).filter(Boolean);}}
   St.reseed={L:{},S:{}};(parts[10]||'').split(',').forEach(x=>{const m=x.match(/^([LS])([a-z.]+?)(\d+)$/);if(m)St.reseed[m[1]][m[2]]=+m[3];});
@@ -95,7 +98,8 @@ function buildEv(){
 function regen({resetMute=false}={}){
   const was=Player.playing,pos=was?Player.pos():0;
   if(was)Player.stop(true);
-  const s=generateSong({...St.opts,bpm:St.bpm,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,reseed:St.reseed,feel:St.feel,padDens:St.padDens,drumGrid:St.drumGrid});
+  const SPACE={continuo:0,leggero:.3,marcato:.6,estremo:.92};
+  const s=generateSong({...St.opts,space:SPACE[St.opts.spaceLvl],secCfg:St.secCfg,bpm:St.bpm,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,reseed:St.reseed,feel:St.feel,padDens:St.padDens,drumGrid:St.drumGrid});
   St.song=s;
   if(resetMute||!St.muteInit){St.mute={};LAYERS.forEach(l=>St.mute[l.id]=!s.defaults[l.id]);St.solo=null;St.muteInit=true;}
   buildEv();
@@ -279,7 +283,8 @@ function renderSection(){
   $('#secTitle').textContent=sec.name;
   $('#secInfo').textContent=`battute ${sec.startBar+1}–${sec.startBar+sec.bars} · ${sec.chords.length} accordi`+(sec.texture?` · pianoforte: ${TEX_NAME[sec.texture]}`:'');
   $('#delSec').disabled=s.sections.length<2;
-  $('#regenSec').innerHTML=`<span class="label">🎲 Rigenera ${SEC_NAME[sec.type].toLowerCase()}</span><div class="seg">
+  renderChar(sec);
+  $('#regenSec').innerHTML=`<span class="label">🎲 Rigenera ${SEC_NAME[sec.type].toLowerCase()} <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:500">· con il carattere impostato sopra</span></span><div class="seg">
     <button data-rs="h" title="Nuovi accordi per questa sezione e le sue ripetizioni">Accordi</button><button data-rs="a" title="Nuovo arrangiamento (piano, arpeggio, basso, batteria)">Arrangiamento</button>
     <button data-rs="m" title="Nuova melodia">Melodia</button><button data-rs="all">Tutto</button></div>`;
   $$('#regenSec [data-rs]').forEach(b=>b.onclick=()=>{const k=b.dataset.rs,t=sec.type,R=St.reseed.S,ks=k==='all'?['h','a','m']:[k];
@@ -296,6 +301,27 @@ function renderSection(){
     St.selChord=i;tl.querySelectorAll('.blk').forEach(b=>b.classList.toggle('sel',b===el));renderPop();audition(sec.chords[i]);});
   tl.querySelectorAll('.hd').forEach(el=>el.addEventListener('pointerdown',e=>startDrag(e,+el.dataset.h)));
   renderPop();lastCi=-1;
+}
+// carattere della sezione: energia, densità, vuoto/pieno, strati (vale per tutte le ripetizioni di quel tipo)
+const LAY_LAB=[['piano','Piano'],['arp','Arpeggio'],['pad','Pad'],['bass','Basso'],['drums','Batteria'],['mel','Melodia']];
+function renderChar(sec){
+  const t=sec.type,C=St.secCfg[t]||{},LY=C.layers||{},p=sec.plan||{},G=GENRES[St.song.genre];
+  const active={piano:p.piano!==false,arp:!!p.arp,pad:!!p.pad,bass:!!p.bass,drums:p.drums!=null,mel:!!p.mel};
+  const segBtns=(key,opts,cur)=>opts.map(([v,l])=>`<button data-ck="${key}" data-cv="${v}" class="${String(cur)===String(v)?'on':''}">${l}</button>`).join('');
+  const has=Object.keys(C).length>0;
+  $('#secChar').innerHTML=`<span class="label">Carattere · ${SEC_NAME[t].toLowerCase()}</span>
+    <div class="grp"><span class="dim" style="font-size:11.5px">Energia</span><div class="seg">${segBtns('energy',[[-.3,'Calma'],['','Auto'],[.25,'Carica']],C.energy==null?'':C.energy)}</div></div>
+    <div class="grp"><span class="dim" style="font-size:11.5px">Densità</span><div class="seg">${segBtns('dens',[[.45,'Scarna'],[.7,'Leggera'],['','Auto'],[1.3,'Piena'],[1.6,'Molto piena']],C.dens==null?'':C.dens)}</div></div>
+    <div class="grp"><span class="dim" style="font-size:11.5px">Vuoto/pieno</span><div class="seg">${segBtns('space',[['','Auto'],[0,'Continuo'],[.6,'Marcato'],[.92,'Estremo']],C.space==null?'':C.space)}</div></div>
+    <div class="grp">${LAY_LAB.filter(([k])=>k!=='drums'||G.drums).filter(([k])=>k!=='pad'||St.opts.pad).map(([k,l])=>{const f=LY[k];
+      return`<button class="lyc ${active[k]?'act':''} ${f===true?'force-on':f===false?'force-off':''}" data-ly="${k}" style="--lc:var(--c-${k})" title="Clic: auto → sempre → mai">
+        <i></i>${l}<small>${f===true?'sempre':f===false?'mai':'auto'}</small></button>`;}).join('')}</div>
+    ${has?'<button class="btn sm ghost" id="charReset">Ripristina</button>':''}`;
+  const set=(k,v)=>{const c=Object.assign({},St.secCfg[t]);if(v===''||v==null)delete c[k];else c[k]=v;if(Object.keys(c).length)St.secCfg[t]=c;else delete St.secCfg[t];regen();};
+  $$('#secChar [data-ck]').forEach(b=>b.onclick=()=>set(b.dataset.ck,b.dataset.cv===''?null:+b.dataset.cv));
+  $$('#secChar [data-ly]').forEach(b=>b.onclick=()=>{const k=b.dataset.ly,cur=LY[k],nx=cur==null?true:cur===true?false:null;
+    const ly=Object.assign({},LY);if(nx==null)delete ly[k];else ly[k]=nx;set('layers',Object.keys(ly).length?ly:null);});
+  const rr=$('#charReset');if(rr)rr.onclick=()=>{delete St.secCfg[t];regen();};
 }
 const hasEdit=(sec,i)=>St.edits.some(e=>e.type===sec.type&&e.ci===i&&(e.sel==='rep'||e.occ===sec.occ));
 function audition(c){if(!c)return;Synth.init();ensureSound();const t=Synth.now()+.03,inst=instOf('piano'),notes=[...c.lh,...c.rh];
@@ -525,7 +551,7 @@ $$('.tabs button').forEach(b=>b.onclick=()=>{
 
 /* ---------------- Storia: indietro / avanti ---------------- */
 const H={undo:[],redo:[],last:null,restoring:false};
-const snapState=()=>JSON.stringify({opts:St.opts,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,oct:St.oct,mute:St.mute,solo:St.solo,bpm:St.bpm,name:St.name,reseed:St.reseed,vol:St.vol,padMute:St.padMute,padVol:St.padVol,padDens:St.padDens,drumGrid:St.drumGrid,feel:St.feel});
+const snapState=()=>JSON.stringify({opts:St.opts,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,oct:St.oct,mute:St.mute,solo:St.solo,bpm:St.bpm,name:St.name,reseed:St.reseed,vol:St.vol,padMute:St.padMute,padVol:St.padVol,padDens:St.padDens,drumGrid:St.drumGrid,feel:St.feel,secCfg:St.secCfg});
 function track(){
   const cur=snapState();
   if(H.last&&cur!==H.last&&!H.restoring){H.undo.push(H.last);if(H.undo.length>200)H.undo.shift();H.redo=[];}
@@ -541,7 +567,7 @@ function updHist(){
 function restore(json){
   const o=JSON.parse(json);H.restoring=true;
   Object.assign(St,{opts:Object.assign({},DEF,o.opts),seeds:o.seeds,secs:o.secs||null,typeOrder:o.typeOrder||null,edits:o.edits||[],oct:o.oct||{},
-    mute:o.mute||{},solo:o.solo||null,bpm:o.bpm||null,name:o.name||St.name,muteInit:true,reseed:JSON.parse(JSON.stringify(o.reseed||{L:{},S:{}})),vol:{...(o.vol||{})},padMute:{...(o.padMute||{})},padVol:{...(o.padVol||{})},padDens:{...(o.padDens||{})},drumGrid:JSON.parse(JSON.stringify(o.drumGrid||{})),feel:JSON.parse(JSON.stringify(o.feel||{}))});
+    mute:o.mute||{},solo:o.solo||null,bpm:o.bpm||null,name:o.name||St.name,muteInit:true,reseed:JSON.parse(JSON.stringify(o.reseed||{L:{},S:{}})),vol:{...(o.vol||{})},padMute:{...(o.padMute||{})},padVol:{...(o.padVol||{})},padDens:{...(o.padDens||{})},drumGrid:JSON.parse(JSON.stringify(o.drumGrid||{})),feel:JSON.parse(JSON.stringify(o.feel||{})),secCfg:JSON.parse(JSON.stringify(o.secCfg||{}))});
   syncControls();$('#projName').value=St.name;closePop();
   if(St.sel>=0)St.sel=Math.min(St.sel,99);regen();H.restoring=false;H.last=json;LS.set('pg_current',o);updHist();
 }

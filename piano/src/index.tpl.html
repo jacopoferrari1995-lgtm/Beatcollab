@@ -51,6 +51,8 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
       <div class="field"><span class="label">Opzioni</span><div class="toggles"><label class="toggle"><input type="checkbox" id="human" checked>Esecuzione umana</label>
         <label class="toggle"><input type="checkbox" id="pad">Pad atmosferico</label>
         <label class="toggle" title="Dall'ultimo ritornello in poi il brano sale di un tono"><input type="checkbox" id="modLast">Modula l'ultimo ritornello</label></div></div>
+      <label class="field"><span class="label">Densità</span><select id="dens"><option value="auto">Auto (genere e mood)</option><option value="scarna">Scarna</option><option value="leggera">Leggera</option><option value="media">Media</option><option value="piena">Piena</option><option value="moltopiena">Molto piena</option></select></label>
+      <label class="field"><span class="label">Vuoto / pieno (bounce)</span><select id="spaceLvl"><option value="auto">Auto (genere e mood)</option><option value="continuo">Continuo</option><option value="leggero">Leggero</option><option value="marcato">Marcato</option><option value="estremo">Estremo</option></select></label>
       <label class="field"><span class="label">Suono del piano</span><select id="sound"><option value="samp">Campionato (Salamander Grand)</option><option value="synth">Sintetico (leggero)</option></select></label></div></div>
     <div class="actions">
       <button class="btn primary" id="btnGen"><svg width="15" height="15" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0l1.8 5.2L15 7l-5.2 1.8L8 14l-1.8-5.2L1 7l5.2-1.8z"/></svg>Genera nuovo brano</button>
@@ -83,6 +85,7 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
     <div class="sechead"><h3 id="secTitle">—</h3><span class="muted" id="secInfo"></span><span class="spacer"></span>
       <div class="secact"><select id="addType" aria-label="Tipo di sezione"></select><button class="btn sm" id="addSec">+ Inserisci dopo</button>
       <button class="btn sm ghost" id="delSec" title="Rimuovi questa sezione">Rimuovi</button></div></div>
+    <div class="secchar" id="secChar"></div>
     <div class="regen" id="regenSec"></div>
     <div class="tlwrap"><div class="tlbars" id="tlBars"></div><div class="tl" id="tl"></div></div>
     <div class="tllegend"><span><i class="fT"></i>tonica</span><span><i class="fS"></i>sottodominante</span><span><i class="fD"></i>dominante</span><span><i class="fB"></i>prestito / cromatico</span>
