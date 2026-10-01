@@ -22,7 +22,7 @@ const Ex=(()=>{
   const R=Math.random,ri=n=>Math.floor(R()*n),pk=a=>a[ri(a.length)];
   const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=ri(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;};
   let stats=LS.get('pg_ex',{});
-  const cur={id:'quality',lvl:1,n:0,ok:0,streak:0,q:null,answered:false,done:false,sel:new Set()};
+  const cur={lesson:null,openT:LS.get('pg_theoryOpen',true),id:'quality',lvl:1,n:0,ok:0,streak:0,q:null,answered:false,done:false,sel:new Set()};
 
   /* ---------- audio ---------- */
   function P(notes,{t0=0,gap=0,dur=1.4,v=82}={}){Synth.init();const t=Synth.now()+.06+t0;notes.forEach((n,i)=>Synth.note('piano',n,t+i*gap,dur,v,'ex'));}
@@ -112,20 +112,32 @@ const Ex=(()=>{
   /* ---------- interfaccia ---------- */
   const acc=id=>{const s=stats[id];return s&&s.tot?Math.round(s.ok/s.tot*100)+'%':'—';};
   function renderList(){
-    $('#exList').innerHTML=LIST.map(e=>`<button class="exi ${e.id===cur.id?'on':''}" data-ex="${e.id}"><span class="ic">${e.ic}</span>
+    const T=Theory.LESSONS;
+    $('#exList').innerHTML=`<div class="exgrp"><button class="exgh" data-grp="t">${cur.openT?'▾':'▸'} Teoria <small>${T.length} lezioni</small></button></div>`+
+      (cur.openT?T.map((e,i)=>`<button class="exi th ${e.id===cur.lesson?'on':''}" data-th="${e.id}"><span class="ic">${e.ic}</span>
+      <span><b>${i+1}. ${e.t}</b><small>${e.d}</small></span></button>`).join(''):'')+
+      `<div class="exgrp"><span class="exgh">Esercizi</span></div>`+
+      LIST.map(e=>`<button class="exi ${e.id===cur.id&&!cur.lesson?'on':''}" data-ex="${e.id}"><span class="ic">${e.ic}</span>
       <span><b>${e.t}</b><small>${e.d}</small></span><span class="acc" title="Precisione complessiva">${acc(e.id)}</span></button>`).join('');
-    $$('#exList .exi').forEach(b=>b.onclick=()=>{cur.id=b.dataset.ex;reset();});
+    $$('#exList [data-ex]').forEach(b=>b.onclick=()=>{cur.id=b.dataset.ex;cur.lesson=null;reset();});
+    $$('#exList [data-th]').forEach(b=>b.onclick=()=>openLesson(b.dataset.th));
+    $('#exList [data-grp]').onclick=()=>{cur.openT=!cur.openT;LS.set('pg_theoryOpen',cur.openT);renderList();};
   }
+  // lezione di teoria; "mettiti alla prova" apre l'esercizio collegato
+  function openLesson(id){cur.lesson=id;cur.openT=true;renderList();Theory.render(id,(x,isLesson)=>{if(isLesson)openLesson(x);else{cur.id=x;cur.lesson=null;reset();}});
+    const m=$('#exMain'),tp=m.getBoundingClientRect().top;if(tp<0||tp>innerHeight*.6)m.scrollIntoView({behavior:'smooth'});}
   function reset(){Object.assign(cur,{n:0,ok:0,streak:0,q:null,answered:false,done:false});renderList();render();}
   function newQ(){const q=GEN[cur.id](cur.lvl);if(q.opts&&q.mix!==false&&['prog','fill','degree'].includes(cur.id))q.opts=shuffle(q.opts);cur.q=q;cur.answered=false;cur.sel=new Set();}
   function head(){
     const e=LIST.find(x=>x.id===cur.id);
-    return`<div class="exbar"><div><h2>${e.t}</h2><div class="muted" style="font-size:13px">${e.d}</div></div><span class="spacer"></span>
+    const th=Theory.LESSONS.find(x=>x.ex===cur.id);
+    return`<div class="exbar"><div><h2>${e.t}</h2><div class="muted" style="font-size:13px">${e.d}${th?` · <a href="#" class="thlink" data-thl="${th.id}">📖 ripassa la teoria</a>`:''}</div></div><span class="spacer"></span>
       <div class="levels">${LVL.map((l,i)=>`<button data-l="${i+1}" class="${cur.lvl===i+1?'on':''}">${l}</button>`).join('')}</div></div>
       <div class="progress"><i style="width:${(cur.n+(cur.answered?1:0))/ROUND*100}%"></i></div>
       <div class="dim" style="font-size:12px;margin-top:6px">Domanda ${Math.min(cur.n+1,ROUND)} di ${ROUND} · corrette ${cur.ok} · serie ${cur.streak}</div>`;
   }
   function render(){
+    if(cur.lesson){openLesson(cur.lesson);return;}
     const m=$('#exMain');
     if(cur.done){
       const pct=Math.round(cur.ok/ROUND*100),s=stats[cur.id]||{},msg=pct>=90?'Eccellente!':pct>=70?'Molto bene':pct>=50?'Ci sei quasi':'Continua ad allenarti';
@@ -151,7 +163,8 @@ const Ex=(()=>{
     else m.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>answer(q.opts[+b.dataset.o].ok,b));
     if(q.auto&&!q.played){q.played=1;setTimeout(q.auto,150);}
   }
-  function bindLevels(){$$('#exMain .levels button').forEach(b=>b.onclick=()=>{cur.lvl=+b.dataset.l;reset();});}
+  function bindLevels(){$$('#exMain [data-thl]').forEach(x=>x.onclick=ev=>{ev.preventDefault();openLesson(x.dataset.thl);});
+    $$('#exMain .levels button').forEach(b=>b.onclick=()=>{cur.lvl=+b.dataset.l;reset();});}
   function answer(ok,btn){
     if(cur.answered)return;cur.answered=true;const q=cur.q;
     if(ok){cur.ok++;cur.streak++;}else cur.streak=0;
