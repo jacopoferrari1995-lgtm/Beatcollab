@@ -669,16 +669,21 @@ function renderProjects(){
       <small>${(GENRES[p.state.opts.genre]||{}).n||''} · ${(MOODS[p.state.opts.mood]||{}).n||''} · ${fmtDate(p.date)}${p.state.edits&&p.state.edits.length?` · ${p.state.edits.length} modifiche`:''}</small></div>
       <button class="btn sm" data-open="${p.id}">Apri</button><button class="btn sm ghost danger" data-del="${p.id}">Elimina</button></div>`).join(''):'<div class="empty">Nessun progetto salvato. Dai un nome al brano e premi Salva.</div>'}</div>
     <div class="mrow"><button class="btn" id="mNew">+ Nuovo progetto</button><span class="spacer"></span>
-      <button class="btn ghost" id="mExp">⬇ Esporta .json</button><button class="btn ghost" id="mImp">⬆ Importa .json</button><input type="file" id="mFile" accept=".json,application/json" hidden></div>
-    <p class="dim" style="font-size:12px">I progetti sono salvati in questo browser. Il lavoro in corso viene comunque ricordato automaticamente. Con l'esportazione .json puoi spostarli su un altro dispositivo.</p>`;
+      <button class="btn ghost" id="mExp" title="Solo il brano aperto">⬇ Brano .json</button><button class="btn" id="mBak" ${list.length?'':'disabled'} title="Tutti i progetti in un file">⬇ Backup di tutti</button><button class="btn ghost" id="mImp" title="Un brano o un backup completo">⬆ Importa</button><input type="file" id="mFile" accept=".json,application/json" hidden></div>
+    <p class="dim" style="font-size:12px">I progetti vivono nella memoria del browser <b>legata all'indirizzo da cui apri il file</b>: se apri una nuova versione da un altro percorso (o in un'altra app/browser) la lista riparte vuota. Prima di passare a una versione nuova fai <b>Backup di tutti</b>, poi nella nuova versione usa <b>Importa</b>.</p>`;
   $('#mSave').onclick=()=>saveProject();
   $$('#mBody [data-open]').forEach(b=>b.onclick=()=>openProject(b.dataset.open));
   $$('#mBody [data-del]').forEach(b=>b.onclick=()=>{if(b.dataset.sure){LS.set('pg_projects',projects().filter(p=>p.id!==b.dataset.del));
       if(St.projId===b.dataset.del){St.projId=null;St.savedSnap=null;saveMeta();updHist();}renderProjects();}else{b.dataset.sure=1;b.textContent='Sicuro?';}});
   $('#mNew').onclick=()=>newProject();
   $('#mExp').onclick=()=>download(slug(St.name||'progetto')+'.pianogen.json',JSON.stringify({app:'piano-generativo',v:1,name:St.name,state:JSON.parse(H.last)},null,1),'application/json');
+  $('#mBak').onclick=()=>{const d=new Date(),ts=d.toISOString().slice(0,10);download(`piano-generativo-backup-${ts}.json`,JSON.stringify({app:'piano-generativo',v:1,backup:true,date:Date.now(),projects:projects()},null,1),'application/json');LS.set('pg_lastBackup',Date.now());toast(`Backup di ${list.length} progetti scaricato`);};
   $('#mImp').onclick=()=>$('#mFile').click();
-  $('#mFile').onchange=e=>{const f=e.target.files[0];if(!f)return;if(isDirty()&&!e.target._ok){guard(()=>{e.target._ok=1;e.target.onchange(e);});return;}e.target._ok=0;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result),st=d.state||d;
+  $('#mFile').onchange=e=>{const f=e.target.files[0];if(!f)return;if(isDirty()&&!e.target._ok){guard(()=>{e.target._ok=1;e.target.onchange(e);});return;}e.target._ok=0;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);
+      // backup completo: unisce i progetti (quelli già presenti con lo stesso id restano, quelli nuovi si aggiungono)
+      if(d.backup&&Array.isArray(d.projects)){const cur=projects(),ids=new Set(cur.map(x=>x.id)),add=d.projects.filter(x=>x&&x.id&&x.state&&x.state.opts&&!ids.has(x.id));
+        LS.set('pg_projects',cur.concat(add).sort((x,y)=>(y.date||0)-(x.date||0)));renderProjects();toast(add.length?`${add.length} progetti ripristinati`:'Nessun progetto nuovo nel backup');return;}
+      const st=d.state||d;
       if(!st.opts||!st.seeds)throw 0;H.undo.push(H.last);H.redo=[];St.projId=null;St.savedSnap=null;restore(JSON.stringify({...st,name:d.name||st.name||'Importato'}));closeModal();toast('Progetto importato');}
     catch(err){toast('File non valido');}};rd.readAsText(f);};
 }
