@@ -44,7 +44,7 @@ button:hover{filter:brightness(1.1)}
 <main>
   <div>
     <h1>Progressioni di <span>Piano</span></h1>
-    <p class="sub">Scegli una tonalità e una progressione, poi premi Play per ascoltarla in loop.</p>
+    <p class="sub">Quattro accordi, una battuta ciascuno, in loop. Scegli tonalità e progressione, poi premi Play.</p>
   </div>
 
   <div class="card row">
@@ -56,9 +56,6 @@ button:hover{filter:brightness(1.1)}
     </label>
     <label>Tempo: <span id="bpmv">90</span> BPM
       <input type="range" id="bpm" min="50" max="160" value="90">
-    </label>
-    <label>Stile
-      <select id="style"><option value="block">Accordi</option><option value="arp">Arpeggio</option></select>
     </label>
   </div>
 
@@ -73,7 +70,6 @@ button:hover{filter:brightness(1.1)}
 
   <div class="btns">
     <button class="p" id="play">▶ Play</button>
-    <button id="rand">🎲 Casuale</button>
   </div>
 </main>
 
@@ -88,9 +84,9 @@ const P={
  maj:[
   {n:'Pop (I–V–vi–IV)',d:'La progressione più usata della musica pop: «Let It Be», «No Woman No Cry».',c:[['I',0,'maj'],['V',7,'maj'],['vi',9,'min'],['IV',5,'maj']]},
   {n:'50s (I–vi–IV–V)',d:'Il classico doo‑wop anni ’50: «Stand By Me».',c:[['I',0,'maj'],['vi',9,'min'],['IV',5,'maj'],['V',7,'maj']]},
-  {n:'Jazz (ii–V–I)',d:'Il cuore dell’armonia jazz, con settime.',c:[['iim7',2,'m7'],['V7',7,'dom7'],['Imaj7',0,'maj7'],['Imaj7',0,'maj7']]},
+  {n:'Jazz (ii–V–I)',d:'Il cuore dell’armonia jazz, con settime.',c:[['iim7',2,'m7'],['V7',7,'dom7'],['Imaj7',0,'maj7'],['vim7',9,'m7']]},
   {n:'Turnaround (I–vi–ii–V)',d:'Il giro di Rhythm Changes, molto usato nel jazz e nello swing.',c:[['Imaj7',0,'maj7'],['vim7',9,'m7'],['iim7',2,'m7'],['V7',7,'dom7']]},
-  {n:'Canone (I–V–vi–iii–IV–I–IV–V)',d:'La sequenza del Canone di Pachelbel.',c:[['I',0,'maj'],['V',7,'maj'],['vi',9,'min'],['iii',4,'min'],['IV',5,'maj'],['I',0,'maj'],['IV',5,'maj'],['V',7,'maj']]},
+  {n:'Canone (I–V–vi–iii)',d:'L’inizio del Canone di Pachelbel: discesa dolce e solenne.',c:[['I',0,'maj'],['V',7,'maj'],['vi',9,'min'],['iii',4,'min']]},
   {n:'Emozionale (vi–IV–I–V)',d:'Stessi accordi del pop ma partendo dal vi: più malinconica.',c:[['vi',9,'min'],['IV',5,'maj'],['I',0,'maj'],['V',7,'maj']]},
   {n:'Soul (Imaj7–iii7–IV–V)',d:'Calda e romantica, tipica di R&B e neo‑soul.',c:[['Imaj7',0,'maj7'],['iiim7',4,'m7'],['IVmaj7',5,'maj7'],['V7',7,'dom7']]},
   {n:'Cinematografica (I–iii–IV–iv)',d:'Il «prestito modale» iv crea un colore dolce‑amaro.',c:[['I',0,'maj'],['iii',4,'min'],['IV',5,'maj'],['iv',5,'min']]},
@@ -99,7 +95,7 @@ const P={
  min:[
   {n:'Epica (i–VI–III–VII)',d:'Drammatica e cinematografica, molto usata in colonne sonore.',c:[['i',0,'min'],['VI',8,'maj'],['III',3,'maj'],['VII',10,'maj']]},
   {n:'Andalusa (i–VII–VI–V)',d:'Cadenza flamenca discendente.',c:[['i',0,'min'],['VII',10,'maj'],['VI',8,'maj'],['V',7,'maj']]},
-  {n:'Jazz minore (iiø–V–i)',d:'Il ii‑V‑i in minore, tesissimo e risolutivo.',c:[['iiø7',2,'m7b5'],['V7',7,'dom7'],['im7',0,'m7'],['im7',0,'m7']]},
+  {n:'Jazz minore (iiø–V–i)',d:'Il ii‑V‑i in minore, tesissimo e risolutivo.',c:[['iiø7',2,'m7b5'],['V7',7,'dom7'],['im7',0,'m7'],['VImaj7',8,'maj7']]},
   {n:'Pop minore (i–iv–VII–III)',d:'Malinconica e moderna.',c:[['i',0,'min'],['iv',5,'min'],['VII',10,'maj'],['III',3,'maj']]},
   {n:'Lo‑fi (im9–ivm7–VII7–IIImaj7)',d:'Accordi estesi tipici del lo‑fi hip hop.',c:[['im9',0,'m9'],['ivm7',5,'m7'],['VII7',10,'dom7'],['IIImaj7',3,'maj7']]},
   {n:'Discendente (i–v–VI–iv)',d:'Linea di basso che scende, tragica e intensa.',c:[['i',0,'min'],['v',7,'min'],['VI',8,'maj'],['iv',5,'min']]}
@@ -137,7 +133,7 @@ function voice(root,q,last){
         arr.push(n);p=n;
       }
       if(arr[arr.length-1]>78)continue;
-      const score=last?arr.reduce((s,n,i)=>s+Math.abs(n-last[Math.min(i,last.length-1)]),0):Math.abs(arr[0]-58);
+      const score=last?arr.reduce((s,n,i)=>s+Math.abs(n-last[Math.min(i,last.length-1)]),0)+3*Math.abs(arr[arr.length-1]-last[last.length-1]):Math.abs(arr[0]-58);
       if(score<bs){bs=score;best=arr;}
     }
   }
@@ -150,7 +146,7 @@ function build(){
   voiced=list.c.map(([rn,off,q])=>{
     const root=key0()+off,rp=root%12;
     const rh=voice(root,q,last);last=rh;
-    return{rn,name:NOTES[rp]+Q[q].s,notes:rh,bass:36+rp,root:rp,q};
+    return{rn,name:NOTES[rp]+Q[q].s,notes:rh,root:rp,q};
   });
   render();
 }
@@ -160,7 +156,7 @@ function render(){
   voiced.forEach((v,i)=>{
     const d=document.createElement('div');d.className='ch';d.id='ch'+i;
     d.innerHTML=`<div class="rn">${v.rn}</div><b>${v.name}</b><small>${v.notes.map(n=>NOTES[n%12]).join(' ')}</small>`;
-    d.onclick=()=>{ensure();hit(i,60/ $('bpm').value*2);};
+    d.onclick=()=>{ensure();hit(i);};
     $('chords').append(d);
   });
 }
@@ -196,26 +192,32 @@ function tone(m,t,dur,vel=.2){
     o.connect(ga);ga.connect(g);o.start(t);o.stop(t+dur+.6);
   });
 }
-function hit(i,dur){
-  const v=voiced[i],t=ctx.currentTime+.02,beat=60/$('bpm').value;
-  const ns=v.notes;
-  tone(v.bass,t,dur,.28);tone(v.bass+12,t,dur,.12);
-  if($('style').value==='arp'){
-    const seq=[...ns,...ns.slice(1,-1).reverse()];
-    const n=Math.round(dur/(beat/2));
-    for(let k=0;k<n;k++)tone(seq[k%seq.length],t+k*beat/2,beat/2*1.8,.17);
-  }else ns.forEach((n,k)=>tone(n,t+k*.012,dur,.17));
-  document.querySelectorAll('.ch').forEach(c=>c.classList.remove('on'));
-  $('ch'+i)&&$('ch'+i).classList.add('on');
-  light([v.bass,...ns]);
+/* Una battuta (4 tempi) per accordo, solo mano destra, ritmo sincopato e "umano" */
+const GROOVE=[[0,1,3.5],[1.5,.55,.5],[2,.8,1.4],[2.75,.5,.6],[3.5,.7,.5]]; // [tempo, forza, durata]
+const FILL=[[0,1,3.5],[1.5,.55,.5],[2,.8,1],[3,.7,.5],[3.5,.85,.5]];       // ultima battuta: spinta verso il giro
+function bar(i,t0,hl=true){
+  const v=voiced[i],beat=60/$('bpm').value,pat=i===voiced.length-1?FILL:GROOVE;
+  pat.forEach(([b,f,d],k)=>{
+    const hum=(Math.random()-.5)*.022,t=t0+b*beat+(k?hum:0)+.005;
+    // colpi forti: accordo pieno (appena sfalsati, dal basso); colpi deboli: solo le note alte
+    const ns=f>=.7?v.notes:v.notes.slice(-2);
+    ns.forEach((n,j)=>{
+      const top=j===ns.length-1;
+      tone(n,t+j*.011,Math.min(d,4-b)*beat,.15*f*(top?1.3:.85)*(.92+Math.random()*.16));
+    });
+  });
+  if(hl){
+    setTimeout(()=>{
+      document.querySelectorAll('.ch').forEach(c=>c.classList.remove('on'));
+      $('ch'+i)&&$('ch'+i).classList.add('on');light(v.notes);
+    },Math.max(0,(t0-ctx.currentTime)*1000));
+  }
 }
-function tick(){
-  hit(step%voiced.length,60/$('bpm').value*2);
-  step++;
-}
+function hit(i){bar(i,ctx.currentTime+.03);}
+function tick(){bar(step%voiced.length,ctx.currentTime+.05);step++;}
 function start(){
   ensure();step=0;tick();
-  timer=setInterval(tick,60/$('bpm').value*2000);
+  timer=setInterval(tick,240000/$('bpm').value);
   $('play').textContent='■ Stop';
 }
 function stop(){
@@ -227,14 +229,7 @@ function restart(){if(timer){stop();start();}}
 $('play').onclick=()=>timer?stop():start();
 $('bpm').oninput=()=>{$('bpmv').textContent=$('bpm').value;restart();};
 $('key').onchange=()=>{build();restart();};
-$('style').onchange=restart;
 $('mode').onchange=()=>{cur=0;pills();build();restart();};
-$('rand').onclick=()=>{
-  $('mode').value=Math.random()<.7?'maj':'min';
-  $('key').value=Math.floor(Math.random()*12);
-  cur=Math.floor(Math.random()*P[$('mode').value].length);
-  pills();build();restart();
-};
 document.addEventListener('keydown',e=>{if(e.code==='Space'&&e.target.tagName!=='SELECT'){e.preventDefault();$('play').click();}});
 pills();build();
 </script>
