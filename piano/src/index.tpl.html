@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Piano Generativo</title>
+<meta name="description" content="Generatore di progressioni e arrangiamenti per pianoforte per genere e mood, con esportazione MIDI a tracce separate ed esercizi di armonia.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/*@@CSS@@*/
+</style>
+</head>
+<body>
+<div id="errbox" hidden></div>
+<script>
+window.addEventListener('error',function(e){var b=document.getElementById('errbox');if(!b)return;b.hidden=false;
+  b.textContent='Errore: '+(e.message||'sconosciuto')+(e.lineno?' (riga '+e.lineno+':'+e.colno+')':'')+(e.error&&e.error.stack?'\n'+e.error.stack.split('\n').slice(0,3).join('\n'):'');});
+</script>
+
+<header class="top"><div class="wrap">
+  <div class="brand">
+    <div class="logo"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="1" y="2" width="18" height="16" rx="2.5" fill="#1b1405" opacity=".18"/><path d="M5 2v9M10 2v9M15 2v9" stroke="#1b1405" stroke-width="2.4" stroke-linecap="round"/><path d="M2.5 11.5h15" stroke="#1b1405" stroke-width="1.2" opacity=".5"/></svg></div>
+    <div><b>Piano Generativo</b><span>armonie · arrangiamenti · MIDI · esercizi</span></div>
+  </div>
+  <nav class="tabs"><button class="on" data-tab="gen">Generatore</button><button data-tab="ex">Esercizi</button></nav>
+</div></header>
+
+<!-- ============ GENERATORE ============ -->
+<main id="tab-gen" class="wrap">
+  <section class="panel controls" aria-label="Parametri">
+    <label class="field"><span class="label">Genere</span><select id="genre"></select></label>
+    <label class="field"><span class="label">Mood</span><select id="mood"></select></label>
+    <label class="field"><span class="label">Modo</span><select id="mode"></select></label>
+    <label class="field"><span class="label">Tonalità</span><select id="key"></select></label>
+    <label class="field"><span class="label">Struttura</span><select id="structure"></select></label>
+    <label class="field"><span class="label">Accordi</span><select id="color"></select></label>
+    <label class="field"><span class="label">Codice brano</span><input type="text" id="code" spellcheck="false" title="Incolla un codice per rigenerare lo stesso brano"></label>
+    <div class="field" style="align-content:end"><label class="toggle"><input type="checkbox" id="human" checked>Esecuzione umana</label></div>
+    <div class="actions">
+      <button class="btn primary" id="btnGen"><svg width="15" height="15" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0l1.8 5.2L15 7l-5.2 1.8L8 14l-1.8-5.2L1 7l5.2-1.8z"/></svg>Genera nuovo brano</button>
+      <button class="btn" data-re="h" title="Nuova armonia, stesso arrangiamento e melodia">🎲 Armonia</button>
+      <button class="btn" data-re="a" title="Nuovi ritmi, arpeggi, basso e batteria">🎲 Arrangiamento</button>
+      <button class="btn" data-re="m" title="Nuova melodia sugli stessi accordi">🎲 Melodia</button>
+    </div>
+  </section>
+
+  <section class="panel songhead">
+    <div><h2 id="songTitle">—</h2><div class="chips" id="chips"></div></div>
+  </section>
+
+  <section class="panel arr" aria-label="Arrangiamento">
+    <div class="lanes-head" id="laneHead"></div>
+    <div class="arr-scroll" id="arrScroll"><canvas id="arr"></canvas></div>
+  </section>
+
+  <section class="panel secpanel">
+    <div class="sechead"><h3 id="secTitle">—</h3><span class="muted" id="secInfo"></span></div>
+    <div class="chords" id="chords"></div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel pad export">
+      <h3>Esporta</h3>
+      <p class="muted">I file MIDI hanno tracce separate (melodia, pianoforte, arpeggio, pad, basso, batteria), tempo, tonalità, marcatori di sezione e nomi degli accordi: aprili in qualsiasi DAW e assegna i tuoi strumenti.</p>
+      <div class="row">
+        <button class="btn primary" id="expZip">⬇ Pacchetto completo (.zip)</button>
+        <button class="btn" id="expMidi">⬇ MIDI tracce attive</button>
+        <button class="btn" id="expSec">⬇ Sezione selezionata</button>
+        <button class="btn" id="expCopy">📋 Copia accordi</button>
+      </div>
+      <p class="dim" style="font-size:12px">Lo .zip contiene: brano completo, ogni traccia da sola, ogni sezione da sola, schema accordi (.txt).</p>
+    </section>
+    <section class="panel pad how">
+      <h3>Come è stato costruito</h3>
+      <p class="muted" id="genreDesc" style="font-size:13px;margin-top:6px"></p>
+      <ul id="howList"></ul>
+    </section>
+  </div>
+</main>
+
+<!-- ============ ESERCIZI ============ -->
+<main id="tab-ex" class="wrap" hidden>
+  <div class="exlay">
+    <section class="panel"><div class="exlist" id="exList"></div></section>
+    <section class="panel exmain" id="exMain"></section>
+  </div>
+</main>
+
+<footer class="transport" id="transport"><div class="wrap">
+  <button class="play" id="play" aria-label="Play"><svg id="playIc" width="18" height="18" viewBox="0 0 18 18"><path fill="currentColor" d="M4 2.5v13l11-6.5z"/></svg></button>
+  <div class="pos"><b id="posSec">—</b><span id="posTime">0:00 / 0:00</span></div>
+  <button class="btn sm ghost" id="loopBtn" title="Ripeti solo la sezione selezionata (L)">⟲<span class="lt"> Loop sezione</span></button>
+  <div class="tctl"><span class="lt">Tempo</span><input type="range" id="bpm" min="50" max="190"><span class="bpm" id="bpmv">—</span>
+    <button class="btn sm ghost lt" id="bpmAuto" title="Torna al tempo suggerito">auto</button></div>
+  <div class="tctl vol"><span>Vol</span><input type="range" id="vol" min="0" max="100" value="80"></div>
+</div></footer>
+<div class="toast" id="toast"></div>
+
+<script>
+/*@@ENGINE@@*/
+</script>
+<script>
+/*@@SYNTH@@*/
+</script>
+<script>
+/*@@APP@@*/
+</script>
+<script>
+/*@@EX@@*/
+</script>
+</body>
+</html>
