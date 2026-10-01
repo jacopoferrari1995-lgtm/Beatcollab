@@ -11,12 +11,12 @@ function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show'
 
 const DEF={genre:'pop',mood:'rilassato',mode:'auto',key:'auto',structure:'vc',color:'auto',human:true,pad:false,pianoStyle:'live'};
 const St={opts:Object.assign({},DEF,LS.get('pg_opts',{})),seeds:{h:rndSeed(),a:rndSeed(),m:rndSeed()},bpm:null,song:null,ev:[],
-  mute:{},solo:null,oct:{},sel:0,selChord:-1,scope:'rep',loop:false,muteInit:false,layout:null,secs:null,typeOrder:null,edits:[]};
+  mute:{},solo:null,oct:{},reseed:{L:{},S:{}},sel:0,selChord:-1,scope:'rep',loop:false,muteInit:false,layout:null,secs:null,typeOrder:null,edits:[]};
 const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1}};
 St.name='Senza titolo';St.projId=null;St.savedSnap=null;
 (()=>{const cur=LS.get('pg_current',null),meta=LS.get('pg_meta',{});
   if(cur&&cur.opts&&cur.seeds){Object.assign(St,{opts:Object.assign({},DEF,cur.opts),seeds:cur.seeds,secs:cur.secs||null,typeOrder:cur.typeOrder||null,edits:cur.edits||[],
-    oct:cur.oct||{},mute:cur.mute||{},solo:cur.solo||null,bpm:cur.bpm||null,name:cur.name||'Senza titolo',muteInit:!!cur.mute});}
+    oct:cur.oct||{},mute:cur.mute||{},solo:cur.solo||null,bpm:cur.bpm||null,name:cur.name||'Senza titolo',muteInit:!!cur.mute,reseed:cur.reseed||{L:{},S:{}}});}
   St.projId=meta.projId||null;St.savedSnap=meta.savedSnap||null;})();
 for(const k in VALID)if(!(St.opts[k] in VALID[k]))St.opts[k]=DEF[k];
 if(St.opts.key!=='auto'&&!(+St.opts.key>=0&&+St.opts.key<12))St.opts.key='auto';
@@ -41,22 +41,26 @@ fillSel('#addType',['intro','verse','pre','chorus','bridge','special','outro'].m
 function syncControls(){['genre','mood','mode','key','structure','color'].forEach(k=>$('#'+k).value=St.opts[k]);
   $('#pstyle').value=St.opts.pianoStyle;$('#human').checked=St.opts.human;$('#pad').checked=St.opts.pad;}
 const saveOpts=()=>LS.set('pg_opts',St.opts);
+function clearReseed(k){const R=St.reseed;Object.keys(R.S).forEach(x=>{if(x.endsWith('.'+k))delete R.S[x];});
+  if(k==='a')['piano','arp','pad','bass','drums'].forEach(l=>delete R.L[l]);if(k==='m')delete R.L.mel;}
 function dropEdits(){if(St.edits.length){St.edits=[];toast('Modifiche agli accordi azzerate (armonia nuova)');}}
 ['genre','mood','mode','key','structure','color'].forEach(k=>$('#'+k).addEventListener('change',e=>{
   St.opts[k]=e.target.value;saveOpts();
   if(k==='genre'||k==='mood')St.bpm=null;
   if(k==='structure'){St.sel=0;St.secs=null;St.typeOrder=null;}
+  if(k!=='key')St.reseed={L:{},S:{}};
   if(k!=='key')dropEdits();
   St.selChord=-1;regen({resetMute:k==='genre'});}));
 $('#pstyle').addEventListener('change',e=>{St.opts.pianoStyle=e.target.value;saveOpts();regen();toast(e.target.value==='classic'?'Pianoforte classico (v3)':'Pianoforte vivo');});
 $('#human').addEventListener('change',e=>{St.opts.human=e.target.checked;saveOpts();regen();});
 $('#pad').addEventListener('change',e=>{St.opts.pad=e.target.checked;saveOpts();St.mute.pad=false;regen();});
-$('#btnGen').onclick=()=>{St.seeds={h:rndSeed(),a:rndSeed(),m:rndSeed()};St.bpm=null;St.edits=[];St.selChord=-1;regen({resetMute:true});};
-$$('[data-re]').forEach(b=>b.onclick=()=>{const k=b.dataset.re;if(k==='h')dropEdits();St.seeds[k]=rndSeed();regen();
+$('#btnGen').onclick=()=>{St.seeds={h:rndSeed(),a:rndSeed(),m:rndSeed()};St.reseed={L:{},S:{}};St.bpm=null;St.edits=[];St.selChord=-1;regen({resetMute:true});};
+$$('[data-re]').forEach(b=>b.onclick=()=>{const k=b.dataset.re;if(k==='h')dropEdits();St.seeds[k]=rndSeed();clearReseed(k);regen();
   toast({h:'Nuova armonia',a:'Nuovo arrangiamento',m:'Nuova melodia'}[k]);});
 const TL={intro:'i',verse:'v',pre:'p',chorus:'c',bridge:'b',special:'x',outro:'o',loop:'l'},LT=Object.fromEntries(Object.entries(TL).map(([k,v])=>[v,k]));
 const codeOf=()=>{const p=[St.opts.genre,St.opts.mood,St.opts.mode,St.opts.key,St.opts.structure,St.opts.color,`${St.seeds.h}-${St.seeds.a}-${St.seeds.m}`,(St.opts.pad?'p':'-')+(St.opts.pianoStyle==='classic'?'c':'v')];
-  if(St.secs)p.push(St.secs.map(([t,b])=>TL[t]+b).join('.'),(St.typeOrder||[]).map(t=>TL[t]).join(''));return p.join('/');};
+  const rs=[...Object.entries(St.reseed.L).filter(x=>x[1]).map(([k,v])=>'L'+k+v),...Object.entries(St.reseed.S).filter(x=>x[1]).map(([k,v])=>'S'+k+v)].join(',');
+  if(St.secs||rs)p.push(St.secs?St.secs.map(([t,b])=>TL[t]+b).join('.'):'',St.secs?(St.typeOrder||[]).map(t=>TL[t]).join(''):'');if(rs)p.push(rs);return p.join('/');};
 $('#code').addEventListener('change',e=>{
   const parts=e.target.value.trim().split('/'),sd=(parts[6]||parts[parts.length-1]||'').match(/^(\d+)-(\d+)-(\d+)$/);
   if(!sd){toast('Codice non valido');e.target.value=codeOf();return;}
@@ -66,6 +70,7 @@ $('#code').addEventListener('change',e=>{
     if(parts[7]){St.opts.pad=parts[7][0]==='p';St.opts.pianoStyle=parts[7][1]==='c'?'classic':'live';}syncControls();saveOpts();}
   St.secs=null;St.typeOrder=null;
   if(parts[8]){const secs=parts[8].split('.').map(x=>[LT[x[0]],+x.slice(1)]).filter(([t,b])=>t&&b>0&&b<=64);if(secs.length){St.secs=secs;St.typeOrder=(parts[9]||'').split('').map(c=>LT[c]).filter(Boolean);}}
+  St.reseed={L:{},S:{}};(parts[10]||'').split(',').forEach(x=>{const m=x.match(/^([LS])([a-z.]+?)(\d+)$/);if(m)St.reseed[m[1]][m[2]]=+m[3];});
   St.seeds={h:+sd[1],a:+sd[2],m:+sd[3]};St.bpm=null;St.edits=[];St.sel=0;St.selChord=-1;regen({resetMute:true});});
 
 /* ---------------- Generazione ---------------- */
@@ -77,7 +82,7 @@ function buildEv(){
 function regen({resetMute=false}={}){
   const was=Player.playing,pos=was?Player.pos():0;
   if(was)Player.stop(true);
-  const s=generateSong({...St.opts,bpm:St.bpm,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits});
+  const s=generateSong({...St.opts,bpm:St.bpm,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,reseed:St.reseed});
   St.song=s;
   if(resetMute||!St.muteInit){St.mute={};LAYERS.forEach(l=>St.mute[l.id]=!s.defaults[l.id]);St.solo=null;St.muteInit=true;}
   buildEv();
@@ -110,9 +115,12 @@ function renderLanes(){
     return`<div class="lane-h ${audible(l.id)?'':'off'}" style="height:${LANE_H[l.id]}px">
       <span class="dot" style="background:var(--c-${l.id})"></span><span class="nm" title="${l.n}">${LANE_NAME[l.id]}</span>
       ${l.id==='drums'?'':`<span class="oct ${o?'on':''}" title="Ottava"><button data-oct="${l.id}" data-d="-1">−</button><span>${o>0?'+'+o:o}</span><button data-oct="${l.id}" data-d="1">+</button></span>`}
+      <button class="ib rg" data-rl="${l.id}" title="Rigenera solo ${l.n.toLowerCase()}">🎲</button>
       <button class="ib ${St.mute[l.id]?'on':''}" data-mute="${l.id}" title="Silenzia">M</button>
       <button class="ib ${St.solo===l.id?'on':''}" data-solo="${l.id}" title="Ascolta solo questa traccia">S</button>
       <button class="ib dl" data-dl="${l.id}" title="Scarica solo questa traccia (.mid)">⬇</button></div>`;}).join('');
+  h.querySelectorAll('[data-rl]').forEach(b=>b.onclick=()=>{const id=b.dataset.rl;St.reseed.L[id]=(St.reseed.L[id]||0)+1;
+    if(St.mute[id])St.mute[id]=false;regen();toast(`${LAYERS.find(l=>l.id===id).n}: nuova versione`);});
   h.querySelectorAll('[data-mute]').forEach(b=>b.onclick=()=>{const id=b.dataset.mute;St.mute[id]=!St.mute[id];renderLanes();drawArr();track();});
   h.querySelectorAll('[data-solo]').forEach(b=>b.onclick=()=>{const id=b.dataset.solo;St.solo=St.solo===id?null:id;renderLanes();drawArr();track();});
   h.querySelectorAll('[data-oct]').forEach(b=>b.onclick=()=>{const id=b.dataset.oct;St.oct[id]=clamp((St.oct[id]||0)+(+b.dataset.d),-2,2);buildEv();renderLanes();track();
@@ -177,6 +185,13 @@ function renderSection(){
   $('#secTitle').textContent=sec.name;
   $('#secInfo').textContent=`battute ${sec.startBar+1}–${sec.startBar+sec.bars} · ${sec.chords.length} accordi`+(sec.texture?` · pianoforte: ${TEX_NAME[sec.texture]}`:'');
   $('#delSec').disabled=s.sections.length<2;
+  $('#regenSec').innerHTML=`<span class="label">🎲 Rigenera ${SEC_NAME[sec.type].toLowerCase()}</span><div class="seg">
+    <button data-rs="h" title="Nuovi accordi per questa sezione e le sue ripetizioni">Accordi</button><button data-rs="a" title="Nuovo arrangiamento (piano, arpeggio, basso, batteria)">Arrangiamento</button>
+    <button data-rs="m" title="Nuova melodia">Melodia</button><button data-rs="all">Tutto</button></div>`;
+  $$('#regenSec [data-rs]').forEach(b=>b.onclick=()=>{const k=b.dataset.rs,t=sec.type,R=St.reseed.S,ks=k==='all'?['h','a','m']:[k];
+    ks.forEach(x=>R[t+'.'+x]=(R[t+'.'+x]||0)+1);
+    if(ks.includes('h')){const n=St.edits.length;St.edits=St.edits.filter(e=>e.type!==t);if(St.edits.length<n)toast('Modifiche agli accordi di questa sezione azzerate');}
+    closePop();regen();toast(`${SEC_NAME[t]}: ${{h:'nuovi accordi',a:'nuovo arrangiamento',m:'nuova melodia',all:'tutto nuovo'}[k]}`);});
   $('#tlBars').innerHTML=Array.from({length:sec.bars},(_,b)=>`<span style="left:${b*4/B*100}%">${sec.startBar+b+1}</span>`).join('');
   const tl=$('#tl');tl.style.setProperty('--b',B);const mw=sec.bars*64+'px';tl.style.minWidth=mw;$('#tlBars').style.minWidth=mw;
   tl.innerHTML=sec.chords.map((c,i)=>{const ci=s.chords.indexOf(c),l=(c.start-sec.startBeat)/B*100,w=c.beats/B*100;
@@ -404,7 +419,7 @@ $$('.tabs button').forEach(b=>b.onclick=()=>{
 
 /* ---------------- Storia: indietro / avanti ---------------- */
 const H={undo:[],redo:[],last:null,restoring:false};
-const snapState=()=>JSON.stringify({opts:St.opts,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,oct:St.oct,mute:St.mute,solo:St.solo,bpm:St.bpm,name:St.name});
+const snapState=()=>JSON.stringify({opts:St.opts,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,oct:St.oct,mute:St.mute,solo:St.solo,bpm:St.bpm,name:St.name,reseed:St.reseed});
 function track(){
   const cur=snapState();
   if(H.last&&cur!==H.last&&!H.restoring){H.undo.push(H.last);if(H.undo.length>200)H.undo.shift();H.redo=[];}
@@ -420,7 +435,7 @@ function updHist(){
 function restore(json){
   const o=JSON.parse(json);H.restoring=true;
   Object.assign(St,{opts:Object.assign({},DEF,o.opts),seeds:o.seeds,secs:o.secs||null,typeOrder:o.typeOrder||null,edits:o.edits||[],oct:o.oct||{},
-    mute:o.mute||{},solo:o.solo||null,bpm:o.bpm||null,name:o.name||St.name,muteInit:true});
+    mute:o.mute||{},solo:o.solo||null,bpm:o.bpm||null,name:o.name||St.name,muteInit:true,reseed:JSON.parse(JSON.stringify(o.reseed||{L:{},S:{}}))});
   syncControls();$('#projName').value=St.name;closePop();
   if(St.sel>=0)St.sel=Math.min(St.sel,99);regen();H.restoring=false;H.last=json;LS.set('pg_current',o);updHist();
 }
@@ -440,7 +455,7 @@ function saveProject(asNew){
 function openProject(id){const p=projects().find(x=>x.id===id);if(!p)return;
   St.projId=id;St.sel=0;St.selChord=-1;const json=JSON.stringify({...p.state,name:p.name});H.undo.push(H.last);H.redo=[];restore(json);St.savedSnap=H.last;saveMeta();updHist();closeModal();toast(`Aperto “${p.name}”`);}
 function newProject(){H.undo.push(H.last);H.redo=[];St.projId=null;St.savedSnap=null;saveMeta();
-  restore(JSON.stringify({opts:{...St.opts},seeds:{h:rndSeed(),a:rndSeed(),m:rndSeed()},secs:null,typeOrder:null,edits:[],oct:{},mute:null,name:'Senza titolo'}));
+  restore(JSON.stringify({opts:{...St.opts},seeds:{h:rndSeed(),a:rndSeed(),m:rndSeed()},secs:null,typeOrder:null,edits:[],oct:{},mute:null,name:'Senza titolo',reseed:{L:{},S:{}}}));
   St.muteInit=false;regen({resetMute:true});closeModal();toast('Nuovo progetto');}
 const fmtDate=t=>new Date(t).toLocaleString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
 function closeModal(){$('#modal').hidden=true;}

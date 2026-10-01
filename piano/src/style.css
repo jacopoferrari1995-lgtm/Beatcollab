@@ -103,7 +103,7 @@ main>*,.panel{min-width:0}
 .chip b{color:var(--tx);font-weight:650}
 .chip.hot{border-color:color-mix(in srgb,var(--c-mel) 50%,transparent);color:var(--c-mel)}
 /* ===================== Arrangiamento ===================== */
-.arr{display:grid;grid-template-columns:252px 1fr;overflow:hidden}
+.arr{display:grid;grid-template-columns:282px 1fr;overflow:hidden}
 .lanes-head{border-right:1px solid var(--line);background:var(--panel2)}
 .lane-h{display:flex;align-items:center;gap:6px;padding:0 9px 0 12px;border-top:1px solid var(--line)}
 .lane-h .dot{width:9px;height:9px;border-radius:3px;flex:none}
@@ -287,3 +287,10 @@ main>*,.panel{min-width:0}
   .tllegend .dim{flex-basis:100%}
   .proj .btn.ghost{padding:6px 8px}
 }
+
+.regen{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px 0}
+.regen .seg button:hover{color:var(--tx)}
+.ib.rg{font-size:12px;filter:grayscale(.3)}.ib.rg:hover{filter:none;border-color:var(--acc)}
+.ib.rg.spin{animation:spin .5s var(--ease)}@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:900px){.arr{grid-template-columns:230px 1fr}}
+@media (max-width:560px){.arr{grid-template-columns:118px 1fr}.lane-h .ib.rg{width:22px;height:20px}}

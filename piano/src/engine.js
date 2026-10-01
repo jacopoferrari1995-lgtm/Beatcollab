@@ -551,7 +551,7 @@ function rhythmBar(r,dens,sync,s16){
   while(set.size<n&&g++<200)set.add(pickW(r,w.map((v,i)=>[i,set.has(i)?0:v])));
   return[...set].sort((a,b)=>a-b);
 }
-function genMelody(sec,ctx,r){
+function genMelody(sec,ctx,r,shared){
   const G=ctx.G,M=ctx.M,prof=G.mel,type=sec.type,notes=[];
   const center=({verse:69,pre:71,chorus:74,bridge:72,special:71,loop:72}[type]||72)+M.reg,lo=center-10,hi=center+10;
   const sc=MODES[ctx.mode].scale,list=[];
@@ -561,6 +561,8 @@ function genMelody(sec,ctx,r){
   const dens=clamp(prof.dens+(M.dens-.5)*.4+(type==='chorus'?.05:type==='verse'?-.05:0)+(r()-.5)*.15,.12,.95);
   const form=pickW(r,FORMS[type]||FORMS.loop).split('');
   const RH={A:rhythmBar(r,dens,prof.sync,prof.s16),B:rhythmBar(r,dens*.85,prof.sync,prof.s16),E:pick(r,ENDINGS),C:pick(r,CADENCES)};
+  // DNA ritmico comune a tutte le sezioni del brano
+  if(shared){const x=r();if(x<.45)RH.B=shared[0].slice();else if(x<.65)RH.A=shared[1].slice();}
   const pickup=form[1]==='E'&&!RH.E.some(x=>x>=10)&&r()<.5?(r()<.5?[14]:[12,14]):null;
   const nPh=Math.max(1,Math.round(sec.bars/4));
   const chordAt=s=>{const t=sec.startBeat+s/4;let c=sec.chords[0];for(const x of sec.chords)if(x.start<=t+1e-6)c=x;return c;};
@@ -682,49 +684,73 @@ function applyEdits(sections,edits){
   sections.forEach(s=>{let b=s.startBeat;s.chords.forEach(c=>{c.start=b;b+=c.beats;});});
 }
 
-function planSection(sec,ctx,r,o){
-  const G=ctx.G,M=ctx.M,t=sec.type,e=sec.energy;
-  const w=Object.assign({},G.tex||{block:1});
-  const mul=(k,x)=>{if(w[k]!=null)w[k]*=x;};
+const BUSY={sustain:0,broken:1,ostinato:1.4,chops:1.5,octaves:2,block:2,skank:2,stabs:2.4};
+const OST_RH=[['9.......7.......','9.....7.....7...'],['9..7..7.9..7..7.','9.7.9...9.7.9...','9..7..9...7..7..'],['9.7.9.7.9.7.9.7.','97.797.797.797.7']];
+const STAB_RH=[['..9..9....9.....','...9..9....9..9.'],['..9..9..9.9..9..','9..9..9...9..9..'],['9.99.9.99.99.9.9','9.9.99.9.9.99.9.']];
+// scelte comuni a tutto il brano: le sezioni variano la stessa idea invece di inventarne una nuova
+function songStyle(G,M,rp,ra){
+  const w=Object.assign({},G.tex||{block:1});const mul=(k,x)=>{if(w[k]!=null)w[k]*=x;};
   w.ostinato=(w.ostinato||0)*(1+3*M.ostinato)+M.ostinato*1.2;
   mul('stabs',1+1.5*M.drive);mul('block',1+.5*M.drive);
-  w.sustain=(w.sustain||0)*(1+2*M.space)+(e<.4?.8:0);
-  w.sustain*=1-M.drive*.8;
-  mul('broken',1+2*M.arp);
-  if(w.octaves)w.octaves*=(e>.7?2:.5)*(M.oct?2:1);
-  if(t==='intro'||t==='outro'){mul('sustain',2);mul('broken',2);mul('stabs',.5);mul('block',.6);}
-  if(t==='chorus'){mul('block',1.4);mul('stabs',1.4);mul('octaves',1.5);mul('sustain',.6);}
-  if(t==='bridge'||t==='special'){mul('sustain',1.6);mul('ostinato',1.6);}
-  if(t==='verse'){mul('sustain',1.2);mul('octaves',.5);}
-  const tex=pickW(r,Object.entries(w));
+  w.sustain=((w.sustain||0)*(1+2*M.space)+.5*M.space)*(1-M.drive*.8);
+  mul('broken',1+2*M.arp);if(w.octaves)w.octaves*=M.oct?2:.8;
+  const P=pickW(rp,Object.entries(w));
+  const w2=Object.entries(w).filter(([k])=>k!==P).map(([k,v])=>[k,v*(Math.abs(BUSY[k]-BUSY[P])>=.5?1.6:.6)]);
+  const S=w2.length&&w2.some(x=>x[1]>0)?pickW(rp,w2):P;
+  const calm=BUSY[P]<=BUSY[S]?P:S,busy=calm===P?S:P;
+  return{piano:{calm,busy,ost:OST_RH.map(a=>pick(rp,a)),contour:pick(rp,[[0,1,2,1],[0,2,1,3],[2,1,0,1],[0,1,0,2],[3,2,1,0],[0,0,2,1],[0,2,1]]),
+      dyad:rp()<.5,stab:STAB_RH.map(a=>pick(rp,a)),chopsA:pick(rp,['9......7..9.....','9.....7...9..7..']),chopsB:pick(rp,['9.....7...7..9..','9......7..9...7.']),
+      broken:pick(rp,[...G.arps.filter(a=>SHAPES[a]),'updown8','broken8']),push:rp()<G.push},
+    arp:pick(ra,G.arps.filter(a=>SHAPES[a]))};
+}
+function planSection(sec,ctx,r,o){
+  // estrazioni a indice fisso: cambiare una traccia non sposta le scelte delle altre
+  const G=ctx.G,M=ctx.M,t=sec.type,e=sec.energy,sp=ctx.sty.piano,R=Array.from({length:10},()=>r());
+  const busyP={chorus:.8,pre:.6,loop:.55,bridge:.3,special:.25,verse:.25,intro:.15,outro:.15}[t];
+  const tex=R[0]<(busyP==null?.4:busyP)?sp.busy:sp.calm;
   const space=clamp((G.space||.3)*.6+M.space*.6,0,1);
   const dens=clamp(.22+e*.55+(M.dens-.5)*.45+(G.dens||0)-space*.25,.08,1);
-  const shape=t==='pre'?[.6,.75,.9,1]:r()<space?[1,.45,1,.55]:r()<.3?[1,.85,1,.4]:[1,1,1,1];
+  const shape=t==='pre'?[.6,.75,.9,1]:R[1]<space?[1,.45,1,.55]:R[2]<.3?[1,.85,1,.4]:[1,1,1,1];
   const p={tex,dens,shape,space};
-  p.mel=t!=='intro'&&t!=='outro'&&!(t==='special'&&r()<.5);
+  p.mel=t!=='intro'&&t!=='outro'&&!(t==='special'&&R[3]<.5);
   const ap=clamp(G.arpOn+M.arp+({intro:.1,verse:-.2,pre:.25,chorus:.3,bridge:.2,special:.2,outro:.05,loop:.15}[t]||0),0,.95);
-  p.arp=(o.pianoStyle==='classic'||!['broken','ostinato'].includes(tex))&&r()<ap;
-  p.bass=t==='intro'?r()<(G.groove?.35:.2):t==='special'?r()<.5:true;
+  p.arp=R[4]<ap&&(o.pianoStyle==='classic'||!['broken','ostinato'].includes(tex));
+  if(p.arp&&o.pianoStyle!=='classic')p.dens*=.85;
+  p.bass=t==='intro'?R[5]<(G.groove?.35:.2):t==='special'?R[5]<.5:true;
   const tier=e<.4?0:e<.7?1:2;
-  p.drums=!G.drums?null:t==='intro'?(G.groove&&r()<.35?0:null):t==='outro'?(r()<.4?0:null):t==='bridge'?(r()<.35?null:1):
-    t==='special'?(r()<.55?null:0):t==='verse'?Math.min(tier,1):tier;
-  p.pad=!!o.pad&&r()<({intro:.8,verse:.15,pre:.9,chorus:.85,bridge:.9,special:.95,outro:.9,loop:.6}[t]||.5);
+  p.drums=!G.drums?null:t==='intro'?(G.groove&&R[6]<.35?0:null):t==='outro'?(R[6]<.4?0:null):t==='bridge'?(R[6]<.35?null:1):
+    t==='special'?(R[6]<.55?null:0):t==='verse'?Math.min(tier,1):tier;
+  p.pad=!!o.pad&&R[7]<({intro:.8,verse:.15,pre:.9,chorus:.85,bridge:.9,special:.95,outro:.9,loop:.6}[t]||.5);
   return p;
 }
 
 /* ---- strumenti di base per gli strati ---- */
+function secDyn(sec){
+  const nx=sec.next?sec.next.energy:sec.energy,ramp=clamp(nx-sec.energy,-.4,.4);
+  return t=>{const rel=(t-sec.startBeat)/4,b=Math.floor(rel),inBar=rel-b;
+    let m=[.95,.98,1.04,1][((b%4)+4)%4]*(.96+.07*clamp(rel/sec.bars,0,1));
+    if(b>=sec.bars-1&&Math.abs(ramp)>.12)m*=1+ramp*.45*inBar;
+    return m;};
+}
 function env(sec,ctx,L,layer){
   const G=ctx.G,human=ctx.human,end=sec.startBeat+sec.bars*4;
-  return{G,M:ctx.M,e:sec.energy,human,end,
+  const dyn=secDyn(sec);
+  return{G,M:ctx.M,e:sec.energy,human,end,dyn,
     at:b=>{let c=sec.chords[0];for(const x of sec.chords)if(x.start<=b+1e-6)c=x;return c;},
-    add:(t,d,n,v)=>{if(t>=end-1e-6)return;L[layer].push({t,d:Math.max(.06,Math.min(d,end+.5-t)),n,v:clamp(Math.round(v),16,124)});},
-    jit:(r,a)=>human?(r()-.5)*a:0,
+    add:(t,d,n,v)=>{if(t>=end-1e-6)return;L[layer].push({t,d:Math.max(.06,Math.min(d,end+.5-t)),n,v:clamp(Math.round(v*dyn(t)),16,124)});},
+    jit:(r,a)=>human?(r()+r()-1)*a*.7:0,
+    vv:(v,j,n)=>v*(n>1?.86+.14*j/(n-1):1),
     strum:(c,j,n,def)=>c.strum&&c.strum.dir?(c.strum.dir==='down'?n-1-j:j)*c.strum.spd:(human?j*(def==null?.008:def):0),
     vel:(c,v)=>v+(c.vel||0)};
 }
 const barOf=(sec,b)=>Math.floor((b-sec.startBeat)/4+1e-6);
-function dBar(sec,plan,b){const bars=sec.mel||[],bs=sec.startBeat+b*4,busy=bars.filter(n=>n.t>=bs&&n.t<bs+4).length>=5;
-  return clamp(plan.dens*plan.shape[b%4]*(busy?.8:1),.05,1);}
+// densità di battuta: la forma della frase (vuoto/pieno) e la melodia (il piano si dirada dove la melodia è fitta e riempie dove tace)
+function dBar(sec,plan,b){
+  const bs=sec.startBeat+b*4,n=(sec.mel||[]).filter(x=>x.t>=bs&&x.t<bs+4).length,act=clamp(n/6,0,1);
+  let d=plan.dens*plan.shape[b%4]*(1-.35*act);
+  if(sec.mel&&sec.mel.length&&act<.15)d+=.12*(1-plan.space);
+  return clamp(d,.04,1);}
+const thinP=dB=>Math.pow(1-dB,1.4)*.8;
 
 // accordi ritmici (anche il pianoforte "classico" v3)
 function texBlock(sec,ctx,r,L,{tierFor,thin,push}){
@@ -747,7 +773,7 @@ function texBlock(sec,ctx,r,L,{tierFor,thin,push}){
     const beat=sec.startBeat+h.s/4,c=h.chord||E.at(beat),cEnd=c.start+c.beats,nx=i+1<R.length?sec.startBeat+R[i+1].s/4:E.end;
     const d=Math.max(.2,(Math.min(nx,cEnd,E.end)-beat)*G.leg),full=h.v>=7||h.s%16===0||h.chord,notes=full?c.rh:c.rh.slice(-Math.max(2,c.rh.length-2));
     const tt=beat+swingDelay(G,h.s%16)+E.jit(r,.03);
-    notes.forEach((n,j)=>E.add(tt+E.strum(c,j,notes.length),d,n,E.vel(c,(50+e*36)*(.55+h.v*.06)+(j===notes.length-1?6:0)+E.jit(r,10))));
+    notes.forEach((n,j)=>E.add(tt+E.strum(c,j,notes.length),d,n,E.vv(E.vel(c,(50+e*36)*(.55+h.v*.06)+(j===notes.length-1?6:0)+E.jit(r,10)),j,notes.length)));
   });
   hitsL.forEach((h,i)=>{
     const beat=sec.startBeat+h.s/4,c=E.at(beat),cEnd=c.start+c.beats,nx=i+1<hitsL.length?sec.startBeat+hitsL[i+1].s/4:E.end;
@@ -762,7 +788,7 @@ function pianoClassic(sec,ctx,r,L){
 }
 // il pianoforte arpeggia: basso alla sinistra, accordo spezzato alla destra
 function texBroken(sec,plan,ctx,r,L){
-  const E=env(sec,ctx,L,'piano'),G=E.G,shp=pick(r,[...G.arps.filter(a=>SHAPES[a]),'updown8','broken8']);
+  const E=env(sec,ctx,L,'piano'),G=E.G,shp=ctx.sty.piano.broken;
   sec.chords.forEach(c=>{
     const s0=c.start,s1=c.start+c.beats,b=barOf(sec,s0),dB=dBar(sec,plan,b);
     E.add(s0+E.jit(r,.02),c.beats*.98,c.lh[0],E.vel(c,56+E.e*26));
@@ -772,7 +798,7 @@ function texBroken(sec,plan,ctx,r,L){
     for(let t=Math.ceil((s0-sec.startBeat)*4-1e-6)/4+sec.startBeat;t<s1-1e-6;t+=.25){
       const st=Math.round((t-sec.startBeat)*4)%16;if(!rate16&&st%2)continue;
       const pat=SHAPES[shp](pool.length);let ix=pat[st];if(ix==null)continue;
-      if(st%4!==0&&r()<(1-dB)*.45)continue;
+      if(st%4!==0&&r()<thinP(dB)*.7)continue;
       ix=clamp(ix,0,pool.length-1);
       E.add(t+swingDelay(G,st)+E.jit(r,.02),Math.min(s1-t+.05,rate16?.75:1.5),pool[ix],E.vel(c,46+E.e*28+(st%4===0?7:0)+E.jit(r,8)));
     }
@@ -781,10 +807,8 @@ function texBroken(sec,plan,ctx,r,L){
 // ostinato: una figura che resta, ancorata alle note comuni tra un accordo e l'altro
 function texOstinato(sec,plan,ctx,r,L){
   const E=env(sec,ctx,L,'piano'),G=E.G,M=E.M;
-  const RH=[['9.......7.......','9.....7.....7...'],['9..7..7.9..7..7.','9.7.9...9.7.9...','9..7..9...7..7..'],['9.7.9.7.9.7.9.7.','97.797.797.797.7']];
-  const tier=plan.dens<.38?0:plan.dens<.72?1:2,rh=pick(r,RH[tier]);
-  const contour=pick(r,[[0,1,2,1],[0,2,1,3],[2,1,0,1],[0,1,0,2],[3,2,1,0],[0,0,2,1],[0,2,1]]);
-  const dyad=plan.dens>.55&&r()<.5,stacc=M.drive>.5;
+  const sp=ctx.sty.piano,tier=plan.dens<.38?0:plan.dens<.72?1:2,rh=sp.ost[tier],contour=sp.contour;
+  const dyad=plan.dens>.55&&sp.dyad,stacc=M.drive>.5;
   let anchor=Math.round((G.top[0]+G.top[1])/2)-3,k=0,lastStart=null;
   const hits=[];
   for(let b=0;b<sec.bars;b++)for(let s=0;s<16;s++)if(rh[s]!=='.')hits.push({t:sec.startBeat+b*4+s/4,s,v:+rh[s],b});
@@ -798,7 +822,7 @@ function texOstinato(sec,plan,ctx,r,L){
     if(!ladder.length)return;
     let bi=0;ladder.forEach((m,j)=>{if(Math.abs(m-anchor)<Math.abs(ladder[bi]-anchor))bi=j;});
     if(h.s===0&&h.b%2===0)anchor=ladder[bi];
-    if(h.v<8&&r()<(1-dBar(sec,plan,h.b))*.4){k++;return;}
+    if(h.v<8&&r()<thinP(dBar(sec,plan,h.b))*.6){k++;return;}
     const ix=clamp(bi+contour[k%contour.length],0,ladder.length-1);k++;
     const nx=i+1<hits.length?hits[i+1].t:E.end,d=Math.max(.12,(nx-h.t)*(stacc?.5:.95));
     const tt=h.t+swingDelay(G,h.s)+E.jit(r,.02);
@@ -809,14 +833,13 @@ function texOstinato(sec,plan,ctx,r,L){
 // stacchi sincopati brevi
 function texStabs(sec,plan,ctx,r,L){
   const E=env(sec,ctx,L,'piano'),G=E.G;
-  const ST=[['..9..9....9.....','...9..9....9..9.'],['..9..9..9.9..9..','9..9..9...9..9..'],['9.99.9.99.99.9.9','9.9.99.9.9.99.9.']];
-  const choice=ST.map(a=>pick(r,a)),dur=G.leg<.6?.16:.28;
+  const choice=ctx.sty.piano.stab,dur=G.leg<.6?.16:.28;
   for(let b=0;b<sec.bars;b++){
     const dB=dBar(sec,plan,b),p=choice[dB<.38?0:dB<.72?1:2],bs=sec.startBeat+b*4;
     for(let s=0;s<16;s++){if(p[s]==='.')continue;const t=bs+s/4,c=E.at(t),v=+p[s];
-      if(v<9&&r()<(1-dB)*.4)continue;
+      if(v<9&&r()<thinP(dB)*.6)continue;
       const notes=v>=9?c.rh:c.rh.slice(-3),tt=t+swingDelay(G,s)+E.jit(r,.02);
-      notes.forEach((n,j)=>E.add(tt+E.strum(c,j,notes.length,.004),dur,n,E.vel(c,54+E.e*32+(s%4===0?6:0)+E.jit(r,8))));}
+      notes.forEach((n,j)=>E.add(tt+E.strum(c,j,notes.length,.004),dur,n,E.vv(E.vel(c,54+E.e*32+(s%4===0?6:0)+E.jit(r,8)),j,notes.length)));}
   }
   sec.chords.forEach(c=>{E.add(c.start,Math.min(c.beats,1)*.9,c.lh[0],E.vel(c,56+E.e*24));if(E.e>.6)E.add(c.start,Math.min(c.beats,1)*.9,c.lh[0]+12,E.vel(c,48+E.e*20));});
 }
@@ -858,12 +881,12 @@ function texSkank(sec,plan,ctx,r,L){
 }
 // boom bap: accordi "campionati", tagliati su una figura di due battute
 function texChops(sec,plan,ctx,r,L){
-  const E=env(sec,ctx,L,'piano'),G=E.G,A=pick(r,['9......7..9.....','9.....7...9..7..']),B=pick(r,['9.....7...7..9..','9......7..9...7.']);
+  const E=env(sec,ctx,L,'piano'),G=E.G,A=ctx.sty.piano.chopsA,B=ctx.sty.piano.chopsB;
   const hits=[];for(let b=0;b<sec.bars;b++){const p=b%2?B:A,bs=sec.startBeat+b*4,starts=sec.chords.filter(c=>c.start>=bs-1e-6&&c.start<bs+4).map(c=>Math.round((c.start-bs)*4));
-    for(let s=0;s<16;s++){if(p[s]!=='.'||starts.includes(s)){if(p[s]!=='.'&&s&&!starts.includes(s)&&r()<(1-dBar(sec,plan,b))*.5)continue;hits.push({t:bs+s/4,s,v:p[s]==='.'?8:+p[s]});}}}
+    for(let s=0;s<16;s++){if(p[s]!=='.'||starts.includes(s)){if(p[s]!=='.'&&s&&!starts.includes(s)&&r()<thinP(dBar(sec,plan,b))*.6)continue;hits.push({t:bs+s/4,s,v:p[s]==='.'?8:+p[s]});}}}
   hits.forEach((h,i)=>{const c=E.at(h.t),nx=i+1<hits.length?hits[i+1].t:E.end,d=(Math.min(nx,c.start+c.beats,E.end)-h.t)*.95,notes=[...c.lh,...c.rh];
     const tt=h.t+swingDelay(G,h.s)+E.jit(r,.02);
-    notes.forEach((n,j)=>E.add(tt+(c.strum&&c.strum.dir?E.strum(c,j,notes.length):(notes.length-1-j)*.012),d,n,E.vel(c,(48+E.e*30)*(.6+h.v*.05)+E.jit(r,8))));});
+    notes.forEach((n,j)=>E.add(tt+(c.strum&&c.strum.dir?E.strum(c,j,notes.length):(notes.length-1-j)*.012),d,n,E.vv(E.vel(c,(48+E.e*30)*(.6+h.v*.05)+E.jit(r,8)),j,notes.length)));});
 }
 // il pianoforte risponde alla melodia nelle sue pause
 function answers(sec,plan,ctx,r,L){
@@ -884,7 +907,7 @@ function answers(sec,plan,ctx,r,L){
   return n;
 }
 function pianoLive(sec,plan,ctx,r,L){
-  const f={block:(s,p,c,rr,l)=>texBlock(s,c,rr,l,{tierFor:b=>{const d=dBar(s,p,b);return d<.35?0:d<.7?1:2;},thin:b=>(1-dBar(s,p,b))*.65,push:rr()<c.G.push}),
+  const f={block:(s,p,c,rr,l)=>texBlock(s,c,rr,l,{tierFor:b=>{const d=dBar(s,p,b);return d<.35?0:d<.7?1:2;},thin:b=>thinP(dBar(s,p,b)),push:c.sty.piano.push}),
     broken:texBroken,ostinato:texOstinato,stabs:texStabs,sustain:texSustain,octaves:texOctaves,skank:texSkank,chops:texChops}[plan.tex]||texBroken;
   const pushed=f(sec,plan,ctx,r,L);
   return{pushed,answers:answers(sec,plan,ctx,r,L)};
@@ -892,7 +915,7 @@ function pianoLive(sec,plan,ctx,r,L){
 
 /* ---- arpeggio, pad, basso, batteria ---- */
 function genArp(sec,ctx,r,L){
-  const E=env(sec,ctx,L,'arp'),G=E.G,shape=pick(r,G.arps.filter(a=>SHAPES[a])),rate16=E.e>=.5;
+  const E=env(sec,ctx,L,'arp'),G=E.G,shape=ctx.sty.arp,rate16=E.e>=.5;
   for(let b=0;b<sec.bars;b++)for(let s=0;s<16;s++){
     const beat=sec.startBeat+b*4+s/4,c=E.at(beat),pat=SHAPES[shape](c.pool.length);
     if(!rate16&&s%2===1)continue;let ix=pat[s];if(ix==null)continue;ix=clamp(ix,0,c.pool.length-1);
@@ -967,7 +990,7 @@ function genBass(sec,ctx,r,L,plan,prevRef){
 }
 function genDrums(sec,ctx,r,L,tier){
   const E=env(sec,ctx,L,'drums'),G=E.G,set=DRUMS[G.drums],p=set[Math.min(tier,set.length-1)],e=E.e;
-  const hit=(t,n,v)=>L.drums.push({t,d:.12,n,v:clamp(Math.round(v),12,127)});
+  const hit=(t,n,v)=>L.drums.push({t,d:.12,n,v:clamp(Math.round(v*E.dyn(t)),12,127)});
   const lvl=d=>34+d*9*(.8+e*.3);
   for(let b=0;b<sec.bars;b++){
     const bs=sec.startBeat+b*4,fill=b===sec.bars-1&&sec.next&&e>=.4&&r()<.85;
@@ -994,7 +1017,8 @@ function snapMelody(notes,sec,ctx){
 }
 
 function generateSong(o){
-  const G=GENRES[o.genre],M=MOODS[o.mood],seeds=o.seeds;
+  const G=GENRES[o.genre],M=MOODS[o.mood],seeds=o.seeds,RS=o.reseed||{};
+  const tagx=(tag,layer,type,kind)=>{const l=layer&&RS.L?RS.L[layer]||0:0,x=type&&RS.S?RS.S[type+'.'+kind]||0:0;return tag+(l?'#L'+l:'')+(x?'#S'+x:'');};
   const hr=subRng(seeds.h,'harm');
   const key=o.key==='auto'||o.key==null?Math.floor(hr()*12):+o.key;
   let mode=o.mode&&o.mode!=='auto'?o.mode:null;
@@ -1019,10 +1043,13 @@ function generateSong(o){
   const barsOf=t=>secs.find(s=>s[0]===t)[1];
   const fillTo=(cell,n)=>{const a=[];while(a.length<n)a.push(...cell.map(x=>({...x})));return a.slice(0,n);};
   const mat={},cells={},others=[],still={};
+  // se una sezione viene rigenerata, le altre continuano a confrontarsi con le scelte originali: restano identiche
+  let baseOthers=null;
+  if(!G.blues&&order.some(t=>RS.S&&RS.S[t+'.h'])){baseOthers={};const oth=[];for(const t of order){baseOthers[t]=oth.slice();oth.push(chooseCell(t,ctx,subRng(seeds.h,'sec-'+t),oth));}}
   for(const t of order){
-    const r=subRng(seeds.h,'sec-'+t),n=barsOf(t);
+    const r=subRng(seeds.h,tagx('sec-'+t,null,t,'h')),n=barsOf(t);
     if(G.blues){mat[t]=fillTo(bluesBars(ctx,n,t==='special'?'bridge':t,r),n);continue;}
-    let cell=chooseCell(t,ctx,r,others);others.push(cell);
+    let cell=chooseCell(t,ctx,r,baseOthers?baseOthers[t]:others);others.push(cell);
     const stz=clamp(M.stasis*.8+(G.stasis||0)*.6,0,.9)*(t==='bridge'||t==='special'?.5:1);
     if(r()<stz){const c0=cell[0],c1=cell.find(x=>x.r!==c0.r||x.tri!==c0.tri)||cell[1];
       cell=pick(r,[[c0,c0,c1,c1],[c0,c1,c0,c1],[c0,c0,c0,c1],[c0,c1,c1,c1]]).map(x=>({...x}));still[t]=1;info.add('armonia ferma: pochi accordi ripetuti');}
@@ -1034,7 +1061,7 @@ function generateSong(o){
   }
   const src=order.find(t=>cells[t]);
   for(const t of ['intro','outro'])if(types.includes(t)){
-    const r=subRng(seeds.h,'sec-'+t),n=barsOf(t);
+    const r=subRng(seeds.h,tagx('sec-'+t,null,t,'h')),n=barsOf(t);
     if(G.blues){mat[t]=fillTo(bluesBars(ctx,4,t,r),n);continue;}
     const base=src?cells[src]:chooseCell('loop',ctx,r,others);
     const c=fillTo(base,n);
@@ -1044,7 +1071,7 @@ function generateSong(o){
   // trasformazioni e colori per tipo di sezione
   const segs={};
   for(const t of types){
-    const r=subRng(seeds.h,'tr-'+t);
+    const r=subRng(seeds.h,tagx('tr-'+t,null,t,'h'));
     const s=still[t]?mat[t].map(x=>({...x,beats:4})):transformBars(mat[t].map(x=>({...x})),t,ctx,r,info);
     s.forEach((c,i)=>{c.q=colorize(c,s[i+1]||s[0],ctx,r);});
     if(t==='outro'){const l=s[s.length-1];if(l.r===0)l.q=l.tri==='min'?(color>.5?'m9':'min'):(color>.5?'maj9':(color>.2?'add9':'maj'));}
@@ -1066,7 +1093,7 @@ function generateSong(o){
     c.pc=mod12(key+c.r);
     const iv=QT[c.q].iv;c.pcs=new Set(iv.map(x=>mod12(c.pc+x)));c.core=new Set(iv.filter(x=>x<12).map(x=>mod12(c.pc+x)));
   });
-  sections.forEach(sec=>chooseInversions(sec.chords,ctx,subRng(seeds.h,'inv-'+sec.type)));
+  sections.forEach(sec=>chooseInversions(sec.chords,ctx,subRng(seeds.h,tagx('inv-'+sec.type,null,sec.type,'h'))));
   chords.forEach(c=>{
     if(c.bassIv!=null){const iv=QT[c.q].iv;c.bass=mod12(c.pc+(iv[c.bassIv]!=null?iv[c.bassIv]:0));}
     const tn=x=>numeral(x.r,x.tri==='min'?'min':x.tri==='dim'?'dim':'maj');
@@ -1080,25 +1107,29 @@ function generateSong(o){
     c.rh=voiceRH(c,pr,ctx,top);pr=c.rh;c.lh=voiceLH(c,pl,ctx,e);pl=c.lh[0];c.pool=arpPool(c,pa);pa=c.pool[0];});
   // strati, sezione per sezione, secondo il piano di arrangiamento
   const L={mel:[],piano:[],arp:[],pad:[],bass:[],drums:[]},melCache={},bassRef={n:38};
+  const rA=(tag,layer,type)=>subRng(seeds.a,tagx(tag,layer,type,'a'));
+  ctx.sty=songStyle(G,M,rA('sty-piano','piano'),rA('sty-arp','arp'));
+  const mr=subRng(seeds.m,tagx('mel-dna','mel')),md=clamp(G.mel.dens+(M.dens-.5)*.4,.15,.9);
+  const melDNA=[rhythmBar(mr,md*.9,G.mel.sync,G.mel.s16),rhythmBar(mr,md,G.mel.sync,G.mel.s16)];
   sections.forEach((sec,si)=>{
     sec.next=sections[si+1]||null;sec.prev=sections[si-1]||null;
-    const t=sec.type,plan=sec.plan=planSection(sec,ctx,subRng(seeds.a,'plan-'+t),o);
+    const t=sec.type,plan=sec.plan=planSection(sec,ctx,rA('plan-'+t,null,t),o);
     sec.mel=[];
     if(plan.mel){
-      if(!melCache[t])melCache[t]=genMelody(sec,ctx,subRng(seeds.m,'mel-'+t));
-      const r=subRng(seeds.a,'melh-'+t);
+      if(!melCache[t])melCache[t]=genMelody(sec,ctx,subRng(seeds.m,tagx('mel-'+t,'mel',t,'m')),melDNA);
+      const r=rA('melh-'+t,'mel',t),dyn=secDyn(sec);
       const raw=melCache[t].map(x=>({t:sec.startBeat+x.s/4+swingDelay(G,x.s%16)+(ctx.human?(r()-.5)*.02+.01:0),d:Math.max(.2,x.len/4*G.mel.leg),n:x.n,strong:x.strong,
-        v:clamp(Math.round(68+sec.energy*22+(x.strong?8:0)+(x.peak?6:0)+(ctx.human?(r()-.5)*8:0)),30,122)}));
+        v:clamp(Math.round((68+sec.energy*22+(x.strong?8:0)+(x.peak?6:0)+(ctx.human?(r()+r()-1)*6:0))*dyn(sec.startBeat+x.s/4)),30,122)}));
       sec.mel=snapMelody(raw,sec,ctx);
       sec.mel.forEach(x=>L.mel.push({t:Math.max(0,x.t),d:x.d,n:x.n,v:x.v}));
     }
-    const pr2=subRng(seeds.a,'piano-'+t);
+    const pr2=rA('piano-'+t,'piano',t);
     if(o.pianoStyle==='classic'){if(pianoClassic(sec,ctx,pr2,L))info.add('anticipi in levare');}
     else{const res=pianoLive(sec,plan,ctx,pr2,L);sec.texture=plan.tex;if(res.pushed)info.add('anticipi in levare');if(res.answers)info.add('il pianoforte risponde alla melodia nelle pause');}
-    if(plan.arp){info.add('arpeggio: '+genArp(sec,ctx,subRng(seeds.a,'arp-'+t),L));}
-    if(plan.pad){padAtmos(sec,ctx,subRng(seeds.a,'pad-'+t),L);info.add('pad atmosferico che entra ed esce');}
-    if(plan.bass){const x=genBass(sec,ctx,subRng(seeds.a,'bass-'+t),L,plan,bassRef);if(x)info.add(x);}
-    if(plan.drums!=null&&G.drums)genDrums(sec,ctx,subRng(seeds.a,'drums-'+t),L,plan.drums);
+    if(plan.arp){info.add('arpeggio: '+genArp(sec,ctx,rA('arp-'+t,'arp',t),L));}
+    if(plan.pad){padAtmos(sec,ctx,rA('pad-'+t,'pad',t),L);info.add('pad atmosferico che entra ed esce');}
+    if(plan.bass){const x=genBass(sec,ctx,rA('bass-'+t,'bass',t),L,plan,bassRef);if(x)info.add(x);}
+    if(plan.drums!=null&&G.drums)genDrums(sec,ctx,rA('drums-'+t,'drums',t),L,plan.drums);
   });
   // pulizia: note uguali sovrapposte
   const total=bar*4;
