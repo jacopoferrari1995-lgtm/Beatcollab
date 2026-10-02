@@ -81,6 +81,12 @@ function ensureSound(verbose){
     .then(st=>{soundMsg='';renderHead();toast(st==='ready'?'Pianoforte campionato pronto':'Campioni non raggiungibili: uso il piano sintetico');});
 }
 $('#pad').addEventListener('change',e=>{St.opts.pad=e.target.checked;saveOpts();St.mute.pad=false;regen();});
+// tutto casuale: genere, mood, struttura e un brano nuovo (modo, tonalità e carattere tornano su auto)
+$('#btnRandom').onclick=()=>{const pk=a=>a[Math.floor(Math.random()*a.length)];
+  Object.assign(St.opts,{genre:pk(Object.keys(GENRES)),mood:pk(Object.keys(MOODS)),structure:pk(['vc','song','song','vb','bc','loop8']),mode:'auto',key:'auto',color:'auto',dens:'auto',spaceLvl:'auto',gtr:'auto'});
+  St.seeds={h:rndSeed(),a:rndSeed(),m:rndSeed()};St.reseed={L:{},S:{}};St.style={};St.secCfg={};St.secs=null;St.typeOrder=null;St.edits=[];St.bpm=null;St.sel=0;St.selChord=-1;
+  syncControls();saveOpts();if($('#tab-gen').hidden)document.querySelector('.tabs [data-tab="gen"]').click();regen({resetMute:true});
+  toast(`${GENRES[St.opts.genre].n} · ${MOODS[St.opts.mood].n} · ${St.song.keyName} ${MODES[St.song.mode].n.toLowerCase()} · ${St.song.bpm} BPM`);};
 $('#btnGen').onclick=()=>{St.seeds={h:rndSeed(),a:rndSeed(),m:rndSeed()};St.reseed={L:{},S:{}};St.style={};St.secCfg={};St.bpm=null;St.edits=[];St.selChord=-1;regen({resetMute:true});};
 $$('[data-re]').forEach(b=>b.onclick=()=>{const k=b.dataset.re;if(k==='h')dropEdits();St.seeds[k]=rndSeed();clearReseed(k);regen();
   toast({h:'Nuova armonia',a:'Nuovo arrangiamento',m:'Nuova melodia'}[k]);});

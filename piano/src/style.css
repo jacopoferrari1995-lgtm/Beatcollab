@@ -494,3 +494,6 @@ button.exgh{cursor:pointer}button.exgh:hover{color:var(--tx)}.exgh small{font-we
 .cmin{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;color:var(--tx3);font-weight:600}
 .cmid{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:10.5px;color:var(--tx3);text-align:center}
 .explore{max-width:420px;margin-top:6px}
+@media (max-width:700px){#btnRandom .lbl{display:none}#btnRandom{padding:5px 9px}}
+.proj .hist,#btnRandom{flex:none}
+@media (max-width:700px){.proj{flex-wrap:wrap;row-gap:6px}}

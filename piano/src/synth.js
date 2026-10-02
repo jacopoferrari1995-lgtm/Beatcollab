@@ -5,7 +5,7 @@
 const Synth=(()=>{
   let A=null,master,comp,revIn,noise,waves={};
   const bus={};
-  const LAYER_GAIN={smp:.9,mel:.95,cm:.62,gtr:.8,piano:.78,arp:.5,pad:.32,bass:.9,drums:.62,ex:.9};
+  const LAYER_GAIN={smp:.9,mel:.95,cm:.62,gtr:.66,piano:.78,arp:.5,pad:.32,bass:.9,drums:.62,ex:.9};
   function impulse(sec,decay){const len=Math.floor(A.sampleRate*sec),b=A.createBuffer(2,len,A.sampleRate);
     for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay);}return b;}
   function wave(parts){const re=new Float32Array(parts.length+1),im=new Float32Array(parts.length+1);parts.forEach((a,i)=>im[i+1]=a);return A.createPeriodicWave(re,im);}
@@ -149,6 +149,7 @@ const Synth=(()=>{
   function gtrChain(){if(gIn)return gIn;const T=TONES[gTone];gIn=A.createGain();gIn.gain.value=T.drive?.55:1;let node=gIn;
     if(T.drive){const sh=A.createWaveShaper(),c=new Float32Array(1024);for(let i=0;i<1024;i++){const x=i/511.5-1;c[i]=Math.tanh(x*T.drive)/Math.tanh(T.drive);}sh.curve=c;sh.oversample='2x';node.connect(sh);node=sh;}
     T.body.forEach(([f,g,q])=>{const b=A.createBiquadFilter();b.type='peaking';b.frequency.value=f;b.gain.value=g;b.Q.value=q;node.connect(b);node=b;});
+    const hp=A.createBiquadFilter();hp.type='highpass';hp.frequency.value=75;hp.Q.value=.7;node.connect(hp);node=hp;
     const lp=A.createBiquadFilter();lp.type='lowpass';lp.frequency.value=T.lp;node.connect(lp);lp.connect(bus.gtr);return gIn;}
   function setGuitarTone(t){if(!TONES[t]||t===gTone)return;gTone=t;GBUF.clear();if(gIn){try{gIn.disconnect();}catch(e){}gIn=null;}}
   function ksBuf(n,art){const key=n+'|'+art+'|'+gTone;if(GBUF.has(key))return GBUF.get(key);
@@ -167,8 +168,12 @@ const Synth=(()=>{
     const inp=gtrChain(),src=A.createBufferSource();src.buffer=ksBuf(n,art==='mute'?'mute':art==='pm'?'pm':art==='hammer'?'hammer':'');
     const g=A.createGain(),vel=Math.pow(v/127,1.3)*.9,end=t+Math.max(.04,d);src.connect(g);g.connect(inp);
     if(art==='swell'){g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vel,t+Math.min(.6,d*.4));}else g.gain.setValueAtTime(vel,t);
-    g.gain.setTargetAtTime(0,end,art==='mute'?.01:.045);
-    if(art==='slide'){src.playbackRate.setValueAtTime(Math.pow(2,-1/12),t);src.playbackRate.linearRampToValueAtTime(1,t+.07);}
+    g.gain.setTargetAtTime(0,end,art==='mute'?.01:art==='pm'?.03:.07);
+    // leggera stonatura casuale (corde vere) e attacco del plettro
+    const det=Math.pow(2,((Math.random()-.5)*6)/1200);
+    if(art==='slide'){src.playbackRate.setValueAtTime(Math.pow(2,-1/12)*det,t);src.playbackRate.linearRampToValueAtTime(det,t+.07);}else src.playbackRate.value=det;
+    if(art!=='swell'&&art!=='hammer'&&noise){const pk=A.createBufferSource(),pf=A.createBiquadFilter(),pg=A.createGain();pk.buffer=noise;pf.type='bandpass';pf.frequency.value=art==='mute'?1800:3200;pf.Q.value=1.2;
+      pk.connect(pf);pf.connect(pg);pg.connect(inp);pg.gain.setValueAtTime(vel*(art==='mute'?.5:.16),t);pg.gain.exponentialRampToValueAtTime(.001,t+(art==='mute'?.04:.012));pk.start(t,Math.random()*.4);pk.stop(t+.05);}
     src.start(t);src.stop(Math.min(t+src.buffer.duration,end+.4));
   }
   /* ---- campioni caricati dall'utente ---- */
