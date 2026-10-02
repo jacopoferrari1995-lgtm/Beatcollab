@@ -479,3 +479,18 @@ button.exgh{cursor:pointer}button.exgh:hover{color:var(--tx)}.exgh small{font-we
 .smprow.miss .sn{opacity:.6}.smprow select{padding:4px 22px 4px 8px;border-radius:8px;border:1px solid var(--line);background-color:var(--bg2);font-size:12px}
 .smprow input[type=range]{width:80px;accent-color:var(--c-smp)}.toggle.sm{font-size:12px}
 .smppanel input[type=range]{accent-color:var(--c-smp)}.lane-h input[data-vol=smp]{accent-color:var(--c-smp)}
+/* teoria: corso */
+.exmod{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);padding:10px 12px 2px}
+.keysel{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:12px}.keysel .label{margin-right:6px}
+.kk{font-family:inherit;font-size:12px;font-weight:600;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--tx2);cursor:pointer;min-width:36px}
+.kk:hover{border-color:var(--acc)}.kk.on{background:var(--acc);border-color:var(--acc);color:var(--ink)}
+.th4{font-size:14.5px;color:var(--tx);margin:20px 0 4px;font-weight:700}
+.tbody ol{margin:8px 0 8px 20px;padding:0}.tbody ol li{margin:5px 0}
+.tex.ghost{background:none;border-style:dashed}
+.kb .qt.w{background:linear-gradient(180deg,#fff,#c4b5fd)}.kb .qt.k{background:linear-gradient(180deg,#8b5cf6,#4c1d95)}
+.circle{position:relative;width:min(320px,90%);aspect-ratio:1;margin:14px auto;border-radius:50%;border:1px dashed var(--line2)}
+.cnode{position:absolute;transform:translate(-50%,-50%);width:40px;height:40px;border-radius:50%;border:1px solid var(--line2);background:var(--panel2);font-family:inherit;font-weight:700;font-size:13px;color:var(--tx);cursor:pointer}
+.cnode:hover{border-color:var(--acc)}.cnode.on{background:var(--acc);color:var(--ink);border-color:var(--acc)}
+.cmin{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;color:var(--tx3);font-weight:600}
+.cmid{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:10.5px;color:var(--tx3);text-align:center}
+.explore{max-width:420px;margin-top:6px}

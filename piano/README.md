@@ -20,3 +20,12 @@ python3 build.py
 - **Basso**: personalità (tenuto, ottavi, ottave, walking, 808 con glide, segue la cassa, riddim, funk, arpeggiato, del genere) scelte da genere e mood.
 - **Rigenera** (🎲 nella traccia): casuale, oppure "rigenera come…" uno stile scelto, che resta bloccato per quella traccia.
 - **Vuoto/pieno**: pause dentro le battute (respiro su 2 battute), non battute intere tolte. La densità agisce anche sullo spessore degli accordi.
+
+## Novità
+
+- **Densità e vuoto/pieno 0–100** (brano e sezione): la densità toglie prima ripetizioni e note di passaggio; il vuoto crea figure ritmiche (stop, mezza battuta senza batteria, rullante saltato, drop dell'808…).
+- **Batteria**: roll e terzine (anche nel sequencer: forte → ghost → ×2 → ×3 → ×4), kit jazz con hi-hat a pedale e spazzole.
+- **Controcanto**: seconda voce che risponde nelle pause della melodia; piano e arpeggio non coprono più la melodia.
+- **Chitarra**: diteggiature calcolate sul manico, 15 stili (pennata, fingerpicking, palm mute, funk, skank, highlife, jazz, bossa, boogie…), suono Karplus-Strong.
+- **Campioni e sequenze**: file audio come clip a tempo, campioni sui pad, import di file MIDI nelle tracce.
+- **Teoria**: corso in 5 moduli (28 lezioni) nella tonalità scelta, esploratore di scale con scale del mondo (anche a quarti di tono).

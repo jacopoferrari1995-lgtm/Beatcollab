@@ -114,7 +114,7 @@ const Ex=(()=>{
   function renderList(){
     const T=Theory.LESSONS;
     $('#exList').innerHTML=`<div class="exgrp"><button class="exgh" data-grp="t">${cur.openT?'▾':'▸'} Teoria <small>${T.length} lezioni</small></button></div>`+
-      (cur.openT?T.map((e,i)=>`<button class="exi th ${e.id===cur.lesson?'on':''}" data-th="${e.id}"><span class="ic">${e.ic}</span>
+      (cur.openT?T.map((e,i)=>`${i===0||T[i-1].mod!==e.mod?`<div class="exmod">${Theory.MODS[e.mod]}</div>`:''}<button class="exi th ${e.id===cur.lesson?'on':''}" data-th="${e.id}"><span class="ic">${e.ic}</span>
       <span><b>${i+1}. ${e.t}</b><small>${e.d}</small></span></button>`).join(''):'')+
       `<div class="exgrp"><span class="exgh">Esercizi</span></div>`+
       LIST.map(e=>`<button class="exi ${e.id===cur.id&&!cur.lesson?'on':''}" data-ex="${e.id}"><span class="ic">${e.ic}</span>
