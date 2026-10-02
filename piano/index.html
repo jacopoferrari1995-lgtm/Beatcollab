@@ -554,6 +554,7 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
         <label class="toggle" title="Dall'ultimo ritornello in poi il brano sale di un tono"><input type="checkbox" id="modLast">Modula l'ultimo ritornello</label></div></div>
       <div class="field"><span class="label">Densità <span class="rv" id="densV">auto</span></span><div class="rng"><input type="range" id="densR" min="0" max="100" value="50" aria-label="Densità"><button class="btn sm ghost" id="densAuto" title="Torna al valore del genere e del mood">Auto</button></div><div class="rngl"><span>scheletro</span><span>pieno</span></div></div>
       <div class="field"><span class="label">Vuoto / pieno <span class="rv" id="spaceV">auto</span></span><div class="rng"><input type="range" id="spaceR" min="0" max="100" value="30" aria-label="Vuoto/pieno"><button class="btn sm ghost" id="spaceAuto" title="Torna al valore del genere e del mood">Auto</button></div><div class="rngl"><span>continuo</span><span>pause e stop</span></div></div>
+      <label class="field"><span class="label">Suono della batteria</span><select id="drumKit"><option value="auto">Auto (acustica nei generi suonati, elettronica negli altri)</option><option value="acoustic">Acustica campionata</option><option value="synth">Elettronica (808)</option></select></label>
       <label class="field"><span class="label">Suono del piano</span><select id="sound"><option value="samp">Campionato (Salamander Grand)</option><option value="synth">Sintetico (leggero)</option></select></label></div></div>
     <div class="actions">
       <button class="btn primary" id="btnGen"><svg width="15" height="15" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0l1.8 5.2L15 7l-5.2 1.8L8 14l-1.8-5.2L1 7l5.2-1.8z"/></svg>Genera nuovo brano</button>
@@ -1852,259 +1853,188 @@ function genBass(sec,ctx,r,L,plan,prevRef){
   }
   prevRef.n=prev;return st==='genere'?null:'basso: '+BASS_STY[st].toLowerCase();
 }
-/* ---------------- Batteria v3: stili per genere ----------------
-   ogni riga = 16 sedicesimi (12 = terzine di ottavo). cifra = importanza del colpo:
-   9 ossatura (sempre) · 8 principale · 7 normale · 6 media densità · 5 piena · 4 molto piena · 3 ghost.
-   La densità decide quali cifre suonano: poca densità = solo l'ossatura, tanta = tutto. La cifra dà anche la dinamica.
-   kick/snare/rim/hat/op/sh/p1/p2 = varianti per pad · kB/sB = aggiunte nella battuta di risposta (B)
-   vRim = nella strofa il rullante diventa rimshot (cross-stick) · half = groove in half-time · fill/build = chiusure
-   tm = micro-tempo per pad (in battiti; positivo = dietro il tempo) · rolls = rullate degli hi-hat (trap) */
-const H8='8.6.7.6.8.6.7.6.',H16='8464746484647464',HOFF='..8...8...8...8.',T8='857857857857';
-const DSTY={
+/* ---------------- Batteria v4: libro di groove scritti a mano ----------------
+   Ogni groove è un pattern completo e coerente di 2 battute, tutti i pad sulla stessa griglia (g=16 sedicesimi, g=12 terzine di ottavo).
+   Righe: k cassa · s rullante/clap · r rim · h hi-hat (ride nel jazz) · o hat aperto (pedale nel jazz) · p shaker/tamburello · c conga alta/tom 1 · d conga bassa/tom 2
+   Caratteri: X ossatura (sempre) · x normale (densità media) · o ghost/decorazione (densità piena) · r roll di 2 · t terzina (3 colpi) · f raffica di 4 · - pausa
+   La densità sceglie quanti livelli suonano (X / X+x / tutto); le variazioni sono licks a fine frase (ogni 4 battute) e fill a fine sezione o ogni 8 battute. */
+const GB={
   pop:[
-    {id:'dritto',n:'Pop dritto',w:1,kick:['9.......8.......','9.....7.8.......','9.......8.7.....'],kB:['..........7...7.','.......7......7.'],snare:['....9.......9...'],sB:['...............5','..............65'],
-      hat:[H16,'8.6.8.6.8.6.8.6.'],op:['..............6.'],sh:['4.5.4.5.4.5.4.5.'],fill:'snare',build:'snare'},
-    {id:'four',n:'Cassa in quattro',w:.7,drive:1,kick:['9...9...9...9...'],snare:['....9.......9...'],hat:['5.8.5.8.5.8.5.8.','4.8.4.8.4.8.4.8.'],op:['..6...6...6...6.'],sh:['6464646464646464'],fill:'snare',build:'snare'},
-    {id:'half',n:'Half-time',w:.5,space:1,half:1,kick:['9.........7.....','9.....6...7.....'],snare:['........9.......'],hat:['8.6.8.6.8.6.8.6.','8...6...8...6...'],op:['..............6.'],fill:'toms',build:'toms'}],
+    {id:'dritto',n:'Pop dritto',w:1,k:'X-------X-x-----|X-------X-------',s:'----X-------X---|----X-------X--o',h:'X-x-X-x-X-x-X-x-',o:'----------------|--------------o-',p:'o-o-o-o-o-o-o-o-'},
+    {id:'four',n:'Cassa in quattro',w:.7,drive:1,k:'X---X---X---X---',s:'----X-------X---',h:'--X---X---X---X-',p:'xoxoxoxoxoxoxoxo',o:'----------------|--------------x-'},
+    {id:'half',n:'Half-time (ballad)',w:.6,space:1,k:'X---------x-----|X-------x-----x-',s:'--------X-------',h:'X---x---X---x---|X---x---X---x-x-'}],
   rock:[
-    {id:'rock',n:'Rock',w:1,kick:['9.......9.......','9.8.....9.......','9.......9.8.....'],kB:['..........7...7.'],snare:['....9.......9...'],sB:['...............6'],hat:['8.7.8.7.8.7.8.7.'],op:['..............7.'],fill:'toms',build:'snare'},
-    {id:'drive',n:'Ottavi di cassa',w:.5,drive:1.5,kick:['9...8...9...8...','9.8.8...9.8.8...'],snare:['....9.......9...'],hat:['8.7.8.7.8.7.8.7.'],fill:'toms',build:'snare'},
-    {id:'half',n:'Half-time',w:.4,space:1,half:1,kick:['9.........8.....'],snare:['........9.......'],hat:['8.6.8.6.8.6.8.6.'],fill:'toms',build:'toms'}],
+    {id:'rock',n:'Rock',w:1,k:'X-------X-x-----|X-x-----X-------',s:'----X-------X---',h:'X-x-X-x-X-x-X-x-',o:'----------------|--------------o-'},
+    {id:'drive',n:'Rock spinto',w:.6,drive:1.5,k:'X-x-----X-x-----|X-x-----X-x-x---',s:'----X-------X---',h:'X-X-X-X-X-X-X-X-'},
+    {id:'half',n:'Half-time',w:.5,space:1,k:'X---------X-----|X-----x---X-----',s:'--------X-------',h:'X-x-X-x-X-x-X-x-'}],
   soul:[
-    {id:'soul',n:'Soul',w:1,kick:['9......7..9.....','9..7....9.......','9.....7...9..7..'],kB:['.............7..','...............6'],snare:['....9..3..3.9..4','....9..4....9.3.'],
-      hat:[H16,'8464746484647464'],op:['......6.........','..............6.'],sh:['4.5.4.5.4.5.4.5.'],fill:'snare',build:'snare',vRim:.4},
-    {id:'neo',n:'Neo soul (laid back)',w:.8,space:.6,kick:['9.....7...9..7..','9.......7.9.....'],snare:['....9.......9...'],rim:['.......5......5.'],hat:['7.5.6.57.5.6.5.6','7.5.6.5.7.5.6.5.'],
-      fill:'drop',build:'snare',tm:{1:.035,3:.012},vRim:.6}],
-  lofi:[
-    {id:'lofi',n:'Lo-fi',w:1,kick:['9......79.......','9.........9.....','9......7..9...7.'],kB:['..............7.'],snare:['....9.......9..3'],hat:['7.5.6.5.7.5.6.5.','7...6...7...6...'],
-      op:['..............5.'],fill:'drop',build:'drop',tm:{1:.03,3:.012}},
-    {id:'rim',n:'Lo-fi col rim',w:.6,space:1,kick:['9.........9.....','9......7..9.....'],rim:['....8.......8...'],hat:['7.5.6.5.7.5.6.5.'],sh:['4.4.4.4.4.4.4.4.'],fill:'drop',build:'drop',tm:{2:.03}}],
-  boombap:[
-    {id:'classico',n:'Boom bap classico',w:1,kick:['9......7..9.....','9.....8...9..7..','9.9.......9.....','9......9.9......'],kB:['...............7','.............7..'],
-      snare:['....9..3....9...','....9.......9..3'],hat:['8.7.8.7.8.7.8.7.','8.7.8.7.8.7.8.75'],op:['..............6.'],fill:'drop',build:'drop',tm:{1:.025,3:.008}},
-    {id:'dusty',n:'Dusty (sporco)',w:.8,space:.5,kick:['9.......7.9.....','9..7......9.....'],snare:['....9......39..3'],hat:['7.4.6.4.7.4.6.4.','7...6...7...6..5'],
-      fill:'drop',build:'drop',tm:{1:.035,3:.01}},
-    {id:'hard',n:'Duro (anni 90)',w:.7,drive:1,kick:['9......79.9.....','9.....9.9.....7.'],snare:['....9.......9...'],hat:['8.7.8.7.8.7.8.7.'],op:['......7.........','..............7.'],fill:'snare',build:'drop'}],
-  trap:[
-    {id:'classica',n:'Trap classica',w:1,half:1,kick:['9......9..9.....','9.........9..9..','9..9......9.....','9......9.9...9..'],kB:['.............9..','..............9.'],snare:['........9.......'],sB:['..............6.','...............6'],
-      hat:['8676767686767676','8.7.8.7.8.7.8.7.'],rolls:[[[12,'z'],[14,'r']],[[6,'r'],[14,'z']],[[10,'z']],[[15,'r'],[7,'r']],[[4,'r'],[12,'z'],[13,'r']]],op:['..............6.'],fill:'trap',build:'trap',jit:.002},
-    {id:'bouncy',n:'Bouncy (terzine)',w:.7,half:1,kick:['9.....9...9..9..','9..9..9...9.....'],snare:['........9.......'],hat:[T8,'867867867867'],fill:'trap',build:'trap',jit:.002},
-    {id:'drill',n:'Drill',w:.6,drive:.8,half:1,kick:['9.........9.....','9.....9.......9.','9..9......9..9..'],snare:['........9.......'],sB:['...........8....','.............8..'],
-      hat:['8.78..8.7.8.','8..78.8.7..8'],p1:['......5.......5.'],fill:'trap',build:'trap',jit:.002},
-    {id:'dark',n:'Dark minimale',w:.5,space:1.2,half:1,kick:['9...............','9.........9.....'],snare:['........9.......'],hat:['8...7...8...7...','8.5.7.5.8.5.7.5.'],fill:'drop',build:'trap',jit:.002}],
-  triphop:[
-    {id:'bristol',n:'Bristol (pesante)',w:1.2,space:.5,kick:['9......7..9.....','9.........9..7..','9.....7...9.....'],kB:['...............7'],snare:['....9..3....9.3.','....9.......9..3'],
-      hat:['8.7.8.7.8.7.8.7.','8.6.7.6.8.6.7.67'],op:['..............6.'],fill:'drop',build:'roll',tm:{1:.035,0:.012,3:.015}},
-    {id:'triphop',n:'Trip hop',w:1,kick:['9.........9.....','9.......7.9.....'],kB:['..............7.'],snare:['....9.......9...'],hat:['7.5.6.5.7.5.6.5.','7...6...7...6...'],op:['..............5.'],fill:'drop',build:'drop',tm:{1:.02}},
-    {id:'break',n:'Breakbeat lento',w:.8,kick:['9.9.......99....','9.9.....7.9.....','9.9.......9..7..'],snare:['....9..3.3..9..3','....9..3.3..9...'],hat:['8.6.8.6.8.6.8.6.',H16],op:['......7.........'],fill:'roll',build:'drop',tm:{1:.02}},
-    {id:'half',n:'Half-time',w:.6,space:1,half:1,kick:['9.........7.....'],snare:['........9.......'],hat:['7.5.6.5.7.5.6.5.'],fill:'drop',build:'toms'}],
-  afrobeat:[
-    {id:'afrobeats',n:'Afrobeats',w:1,kick:['9.....7.9.......','9..7....9..7....','9......7..9.....'],kB:['..............7.'],snare:['............9...','....6.......9...'],
-      rim:['8..7..8...7..7..','...8..8....8..8.','..7...7...7..7..'],hat:['..7...7...7...7.','6.7.6.7.6.7.6.7.'],sh:['7575757575757575','6464646464646464'],
-      p1:['..7..6....7..6..','7..6..7.....7.6.'],p2:['6.....6.....6...','......7.......7.'],fill:'conga',build:'conga'},
-    {id:'afropop',n:'Afro-pop',w:.8,drive:.6,kick:['9...9...9...9...'],snare:['....7.......9...'],rim:['...7..7....7..7.'],hat:['..8...8...8...8.'],sh:['6464646464646464'],
-      p1:['..6..6....6..6..'],fill:'conga',build:'snare'},
-    {id:'highlife',n:'Highlife',w:.5,space:.5,kick:['9.......9..7....','9..7....9.......'],rim:['9.8..8.8.8..8.8.'],hat:['7.5.7.5.7.5.7.5.'],sh:['5454545454545454'],p1:['....7..6....7..6'],p2:['7.......7.......'],fill:'conga',build:'conga'}],
-  afrorage:[
-    {id:'ragefull',n:'Rage pieno (clap 2 e 4)',w:.9,drive:1,kick:['9.....9.9.....9.','9..9....9.9.....','9.....9...9..9..'],kB:['.............9..'],snare:['....9.......9...'],
-      hat:[T8,'867867867867'],op:['.....6.....6'],p1:['7.67.67.67.6','7..67..67.6.'],p2:['..7..7..7..7'],rolls:[[[12,'s'],[14,'s']],[[12,'six']],[[6,'z'],[14,'s']]],fill:'tomtrip',build:'trap'},
-    {id:'afrotrap',n:'Afro trap',w:.8,half:1,kick:['9......9..9.....','9.........9..9..'],snare:['........9.......'],rim:['...7..7....7..7.','..7..7....7..7..'],
-      hat:['8676767686767676'],sh:['6464646464646464'],p1:['..6..6....6..6..'],rolls:[[[12,'z'],[14,'r']],[[14,'six']],[[10,'s'],[14,'z']]],fill:'trap',build:'trap'},
-    {id:'rage',n:'Afro rage',w:1,half:1,kick:['9.....9...9.....','9..9......9..9..','9.......9.9.....'],kB:['..............9.','.............9..'],snare:['........9.......'],sB:['..............7.'],
-      hat:[T8,'867867867867'],p1:['7..6.67..6.6','7.6..67.6..6'],p2:['..7..7..7..7','.7..7..7..7.'],fill:'tomtrip',build:'tomtrip'},
-    {id:'phonk',n:'Phonk',w:.8,drive:1,half:1,kick:['9..9......9.....','9.....9...9..9..'],snare:['........9.......'],hat:['8.6.7.6.8.6.7.6.',H16],rolls:[[[14,'r']],[[6,'r'],[14,'z']],[[12,'z']]],
-      p1:['......7.......7.'],fill:'trap',build:'trap'},
-    {id:'drill',n:'Afro drill',w:.6,half:1,kick:['9.........9..9..','9.....9.......9.'],snare:['........9.......'],sB:['...........8....'],hat:['8.78..8.7.8.'],p2:['7..7..7..7..'],fill:'tomtrip',build:'trap'}],
-  dancehall:[
-    {id:'dembow',n:'Dembow',w:1,drive:.6,kick:['9...9...9...9...'],snare:['...8..8....8..8.'],hat:['..7...7...7...7.','5.7.5.7.5.7.5.7.'],sh:['6464646464646464'],p1:['..7....7..7....7'],fill:'snare',build:'snare'},
-    {id:'bashment',n:'Bashment',w:.8,kick:['9.......9.......','9.......9.....7.'],snare:['...8..8.....8...'],rim:['......7.......7.'],hat:['6.4.6.4.6.4.6.4.','6464646464646464'],p2:['......6.......6.'],fill:'snare',build:'snare'},
-    {id:'onedrop',n:'One drop dancehall',w:.5,space:.6,kick:['........9.......'],snare:['........9.......'],rim:['...7..7....7..7.'],hat:['7.5.7.5.7.5.7.5.'],fill:'reggae',build:'reggae'}],
-  reggae:[
-    {id:'onedrop',n:'One drop',w:1.2,space:.5,kick:['........9.......'],snare:['........9.......'],hat:['7.5.7.5.7.5.7.5.','5.7.5.7.5.7.5.7.'],op:['..............6.'],fill:'reggae',build:'reggae',vRim:1},
-    {id:'rockers',n:'Rockers',w:.8,kick:['9.......9.......'],snare:['........9.......'],rim:['....6.......6...'],hat:[H16,'7.5.7.5.7.5.7.5.'],fill:'reggae',build:'reggae',vRim:1},
-    {id:'steppers',n:'Steppers',w:.7,drive:1.2,kick:['9...9...9...9...'],snare:['........9.......'],hat:['..8...8...8...8.','5.8.5.8.5.8.5.8.'],op:['..6...6...6...6.'],fill:'reggae',build:'reggae',vRim:1}],
-  bossa:[
-    {id:'bossa',n:'Bossa nova',w:1,kick:['9.....79.....79.'],rim:['9..9..9...9..9..','9..9...9..9..9..'],hat:['6464646464646464','6.5.6.5.6.5.6.5.'],sh:['4.4.4.4.4.4.4.4.'],fill:'drop',build:'drop'},
-    {id:'samba',n:'Samba lenta',w:.5,drive:.6,kick:['9..7....9..7....'],rim:['..8..8.8..8..8..'],hat:['6464646464646464'],p1:['....6.......6...'],fill:'conga',build:'drop'}],
-  blues:[
-    {id:'shuffle',n:'Shuffle',w:1,kick:['9.....9.....','9.....9..7..'],snare:['...9.....9..'],hat:['8.68.68.68.6'],fill:'snare',build:'snare'},
-    {id:'slow',n:'Slow blues',w:.8,space:1,kick:['9.....7.....'],snare:['...9.....9..'],hat:['867867867867'],fill:'drop',build:'snare'}],
+    {id:'soul',n:'Soul',w:1,k:'X------x--X-----|X--x------X--x--',s:'----X--o-o--X---|----X--o----X-o-',h:'X-xoX-xoX-xoX-xo',o:'----------------|--------------x-'},
+    {id:'motown',n:'Motown',w:.7,k:'X-------X-------|X-------X-x-----',s:'----X-------X---',p:'----x-------x---',h:'X-x-X-x-X-x-X-x-'}],
   gospel:[
-    {id:'gospel',n:'Gospel',w:1,kick:['9.....7.9.......','9..7....9.7.....','9.......9..7..7.'],snare:['....9..3...39..3'],sB:['...............6'],hat:[H16],op:['......6.......6.'],sh:['..6...6...6...6.'],fill:'gospel',build:'snare'},
-    {id:'shuffle',n:'Gospel shuffle',w:.6,kick:['9.....9..7..'],snare:['...9.....9..'],hat:[T8],fill:'gospel',build:'snare'}],
-  cinematic:[
-    {id:'epico',n:'Epico',w:1,kick:['9.......9.......'],p2:['9..7..7.9...7...','9...7...9...7...'],p1:['........7.7.7.7.'],snare:['........8.......'],fill:'toms',build:'toms'},
-    {id:'tensione',n:'Tensione',w:.7,space:.6,kick:['9...............'],p2:['7.6.7.6.7.6.7.6.'],p1:['............7...'],fill:'toms',build:'toms'}],
+    {id:'gospel',n:'Gospel',w:1,k:'X-----x-X-------|X--x----X-x-----',s:'----X--o---oX--o|----X--o----X---',h:'X-xoX-xoX-xoX-xo',o:'------o-------o-'},
+    {id:'shuffle',n:'Gospel shuffle',w:.6,g:12,k:'X-----X--x--',s:'---X-----X--',h:'XoxXoxXoxXox'}],
+  lofi:[
+    {id:'lofi',n:'Lo-fi',w:1,sw:.55,tm:{s:.03,h:.012},k:'X------x--X-----|X-------x-X---x-',s:'----X-------X---|----X-------X--o',h:'X-x-X-x-X-x-X-x-'},
+    {id:'rim',n:'Lo-fi col rim',w:.7,space:1,sw:.55,tm:{r:.03},k:'X---------X-----|X------x--X-----',r:'----X-------X---',h:'X---x---X---x---|X---x---X-x-x---',p:'o-o-o-o-o-o-o-o-'}],
+  boombap:[
+    {id:'classico',n:'Boom bap classico',w:1,sw:.5,tm:{s:.025},k:'X------x--X-----|X-x-------X--x--',s:'----X--o----X---|----X-------X-o-',h:'X-x-X-x-X-x-X-x-',o:'----------------|--------------x-'},
+    {id:'dusty',n:'Dusty (sporco)',w:.8,sw:.6,tm:{s:.035},k:'X-------x-X-----|X--x------X-----',s:'----X------oX--o|----X--o----X---',h:'X-o-X-o-X-o-X-o-'},
+    {id:'hard',n:'Duro (anni 90)',w:.7,drive:1,sw:.4,k:'X------xX-X-----|X-----X-X-----x-',s:'----X-------X---',h:'X-x-X-x-X-x-X-x-',o:'------x---------|--------------x-'}],
+  trap:[
+    {id:'classica',n:'Trap classica',w:1,k:'X------x--x-----|X-----x---x--x--',s:'--------X-------',h:'XoxoXoxoXoxoXoxo|XoxoXoxoXoxoXtxr'},
+    {id:'bouncy',n:'Bouncy (terzine)',w:.7,g:12,k:'X-----X--X--|X--X-----X--',s:'------X-----',h:'X-xX-xX-xX-x|X-xX-xX-tX-x'},
+    {id:'dark',n:'Dark minimale',w:.5,space:1,k:'X---------------|X---------X-----',s:'--------X-------',h:'X---x---X---x---|X---x---X---x-t-'}],
   drill:[
-    {id:'uk',n:'UK drill',w:1,half:1,kick:['9.........9.....','9.....9.......9.','9..9......9.....'],kB:['.............9..'],snare:['........9.......'],sB:['...........8....','..............8.'],
-      hat:['8.78..8.7.8.','8..78.8.7..8'],p1:['......5.......5.'],rolls:[[[14,'s']],[[6,'r'],[14,'z']]],fill:'trap',build:'trap',jit:.002},
-    {id:'ny',n:'NY / Brooklyn drill',w:.9,half:1,drive:.6,kick:['9.....9...9..9..','9..9..9...9.....'],snare:['........9.....7.','........9.......'],hat:['8.78.78.78.7','867867867867'],rolls:[[[12,'six']],[[14,'z']]],fill:'trap',build:'trap',jit:.002},
-    {id:'dark',n:'Drill scura (minimale)',w:.6,space:1,half:1,kick:['9.........9.....'],snare:['........9.......'],hat:['8.....8..7..','8..7..8..7..'],fill:'drop',build:'trap'}],
+    {id:'uk',n:'UK drill',w:1,g:12,k:'X------X----|X---X-----X-',s:'------X-----|------X--x--',h:'X-xX--X-xX-x|X-xX-xX--X-t'},
+    {id:'ny',n:'NY / Brooklyn drill',w:.9,drive:.6,k:'X-----x---x--x--|X--x--x---x-----',s:'--------X-----x-|--------X-------',h:'X-xxX-x-X-xxX-x-|X-x-X-xxX-x-XtX-'},
+    {id:'dark',n:'Drill scura',w:.6,space:1,g:12,k:'X-----------|X-------X---',s:'------X-----',h:'X-----X--x--|X--x--X-----'}],
+  afrorage:[
+    {id:'rage',n:'Afro rage (terzine)',w:1,g:12,k:'X----X--X---|X----X---X-x',s:'---X-----X--',h:'XoxXoxXoxXox|XoxXoxXoxXot',c:'x-o--x-x--o-|x-o--x-x-xo-',d:'--x---x---x-|--x---x--x--'},
+    {id:'dritto',n:'Afro rage dritto (tresillo)',w:.8,drive:.8,k:'X--x--X---X-----|X--x--X---X--x--',s:'----X-------X---',h:'X-x-X-x-X-x-X-x-|X-x-X-x-X-x-X-r-',c:'x--x--x---x--x--',d:'------x-------x-',p:'o-o-o-o-o-o-o-o-'},
+    {id:'phonk',n:'Phonk afro (half-time)',w:.7,k:'X-----X-X-------|X-----X-X-----x-',s:'--------X-------',h:'X-x-X-x-X-x-X-x-|X-x-X-x-X-x-XtXr',c:'--x---x---x---x-'}],
+  afrobeat:[
+    {id:'afrobeats',n:'Afrobeats',w:1,sw:.15,k:'X-----x-X-------|X--x----X-----x-',s:'------------X---|----o-------X---',r:'x--x--x---x--x--',h:'--x---x---x---x-',p:'XoxoXoxoXoxoXoxo',c:'------x-------x-|------x---x---x-'},
+    {id:'afropop',n:'Afro-pop',w:.8,drive:.6,k:'X---X---X---X---',s:'----x-------X---',r:'---x--x----x--x-',h:'--X---X---X---X-',p:'xoxoxoxoxoxoxoxo'},
+    {id:'highlife',n:'Highlife',w:.5,k:'X-------X--x----|X--x----X-------',r:'X-x--x-x-x--x-x-',h:'X-x-X-x-X-x-X-x-',c:'----x--o----x--o',d:'x-------x-------'}],
+  dancehall:[
+    {id:'dembow',n:'Dembow',w:1,drive:.6,k:'X---X---X---X---',s:'---X--X----X--X-',h:'--x---x---x---x-',p:'xoxoxoxoxoxoxoxo'},
+    {id:'bashment',n:'Bashment',w:.8,k:'X-------X-------|X-------X-----x-',s:'---X--X-----X---',r:'------x-------x-',h:'X-x-X-x-X-x-X-x-'},
+    {id:'onedrop',n:'One drop dancehall',w:.5,space:.6,k:'--------X-------',r:'--------X-------',h:'X-x-X-x-X-x-X-x-',c:'---x--x----x--x-'}],
+  reggae:[
+    {id:'onedrop',n:'One drop',w:1.2,space:.5,sw:.35,rim2s:1,k:'--------X-------',r:'--------X-------',h:'X-x-X-x-X-x-X-x-|X-x-X-x-X-x-X-r-',o:'----------------|--------------o-'},
+    {id:'rockers',n:'Rockers',w:.8,sw:.3,rim2s:1,k:'X-------X-------',r:'--------X-------',s:'-------o-------o',h:'XoxoXoxoXoxoXoxo'},
+    {id:'steppers',n:'Steppers',w:.7,drive:1.2,sw:.3,rim2s:1,k:'X---X---X---X---',r:'--------X-------',h:'--X---X---X---X-',o:'--o---o---o---o-'}],
   reggaeton:[
-    {id:'dembow',n:'Dembow',w:1,kick:['9...9...9...9...'],snare:['...8..8....8..8.'],hat:['..7...7...7...7.','8.7.8.7.8.7.8.7.'],op:['..6...6...6...6.'],p1:['......6.......6.'],fill:'snare',build:'snare'},
-    {id:'perreo',n:'Perreo (pieno)',w:.8,drive:1,kick:['9...9...9...9...'],snare:['...8..8....8..8.'],rim:['..7...7...7...7.'],hat:[H16],sh:['6464646464646464'],p2:['9.......9.......'],fill:'snare',build:'snare'},
-    {id:'moombah',n:'Moombahton lento',w:.5,kick:['9..7..7.9..7....'],snare:['....8.......8...'],hat:['..7...7...7...7.'],p1:['...6..6....6..6.'],fill:'conga',build:'snare'}],
+    {id:'dembow',n:'Dembow',w:1,k:'X---X---X---X---',s:'---X--X----X--X-',h:'X-x-X-x-X-x-X-x-',c:'------x-------x-'},
+    {id:'perreo',n:'Perreo (pieno)',w:.8,drive:1,k:'X---X---X---X---',s:'---X--X----X--X-',r:'--x---x---x---x-',h:'XoxoXoxoXoxoXoxo',d:'X-------X-------'},
+    {id:'moombah',n:'Moombahton',w:.5,k:'X--x--x-X--x----',s:'----X-------X---',h:'--x---x---x---x-',c:'---o--o----o--o-'}],
   amapiano:[
-    {id:'amapiano',n:'Amapiano',w:1,kick:['9.......9.......','9...9...9...9...'],snare:['............8...','....7.......8...'],rim:['..7..7....7..7..','...7..7...7..7..'],hat:['..6...6...6...6.'],
-      sh:['7575757575757575'],p1:['...7...7...7.7..','.7...7...7...7..'],p2:['......6.......6.'],fill:'conga',build:'conga',tm:{1:.02,2:.01}},
-    {id:'private',n:'Private school (morbido)',w:.7,space:1,kick:['9.......9.......'],rim:['..6..6....6..6..'],sh:['6464646464646464'],p1:['...6.......6....'],fill:'drop',build:'conga'}],
+    {id:'amapiano',n:'Amapiano',w:1,sw:.2,k:'X-------X-------',s:'------------X---|----o-------X---',r:'--x--x----x--x--|---x--x---x--x--',h:'--x---x---x---x-',p:'XoxoXoxoXoxoXoxo',c:'---x---x---x-x--|-x---x---x---x--',d:'------o-------o-'},
+    {id:'private',n:'Private school',w:.7,space:1,sw:.2,k:'X-------X-------',r:'--x--x----x--x--',p:'XoxoXoxoXoxoXoxo',c:'---x-------x----'}],
   rnb:[
-    {id:'modern',n:'R&B moderno',w:1,kick:['9......9..9.....','9.........9..7..'],snare:['....9.......9...'],rim:['.......5......5.'],hat:['8676767686767676','8.6.7.6.8.6.7.6.'],rolls:[[[14,'z']],[[6,'r']],[[12,'s']]],fill:'trap',build:'roll',tm:{1:.02}},
-    {id:'slow',n:'Slow jam',w:.8,space:1,kick:['9.........9.....'],snare:['....9.......9...'],hat:['8.6.7.6.8.6.7.6.'],op:['..............6.'],fill:'drop',build:'roll',tm:{1:.03}},
-    {id:'neo',n:'Neo soul (swing)',w:.6,kick:['9.....7...9..7..'],snare:['....9..3....9.3.'],hat:['7.5.6.57.5.6.5.6'],fill:'drop',build:'snare',tm:{1:.035,3:.012}}],
+    {id:'modern',n:'R&B moderno',w:1,sw:.2,k:'X------x--x-----|X---------x--x--',s:'----X-------X---',r:'-------o------o-',h:'X-x-X-x-X-x-X-x-|X-x-X-x-X-x-XtX-'},
+    {id:'slow',n:'Slow jam',w:.8,space:1,tm:{s:.03},k:'X---------X-----',s:'----X-------X---',h:'X-x-X-x-X-x-X-x-',o:'--------------x-'},
+    {id:'neo',n:'Neo soul',w:.6,sw:.55,tm:{s:.035},k:'X-----x---X--x--',s:'----X--o----X-o-',h:'X-xoX-x-X-xoX-x-'}],
   house:[
-    {id:'classic',n:'House classica',w:1,kick:['9...9...9...9...'],snare:['....8.......8...'],hat:['..8...8...8...8.','5.8.5.8.5.8.5.8.'],op:['..7...7...7...7.'],sh:['5454545454545454'],fill:'snare',build:'roll'},
-    {id:'deep',n:'Deep house',w:.8,space:.6,kick:['9...9...9...9...'],snare:['....7.......7...'],rim:['...6......6.....'],hat:['..7...7...7...7.'],sh:['4.4.4.4.4.4.4.4.'],fill:'drop',build:'roll'},
-    {id:'afrohouse',n:'Afro house',w:.8,kick:['9...9...9...9...'],snare:['............8...'],rim:['9..9..9...9..9..'],hat:['..7...7...7...7.'],sh:['6464646464646464'],p1:['..7..6....7..6..'],p2:['6.....6.....6...'],fill:'conga',build:'conga'}],
+    {id:'classic',n:'House classica',w:1,k:'X---X---X---X---',s:'----X-------X---',h:'--X---X---X---X-',p:'xoxoxoxoxoxoxoxo'},
+    {id:'deep',n:'Deep house',w:.8,space:.6,k:'X---X---X---X---',s:'----x-------x---',r:'---x------x-----',h:'--X---X---X---X-',p:'o-o-o-o-o-o-o-o-'},
+    {id:'afrohouse',n:'Afro house',w:.8,k:'X---X---X---X---',s:'------------X---',r:'x--x--x---x--x--',h:'--X---X---X---X-',p:'xoxoxoxoxoxoxoxo',c:'--x--o----x--o--',d:'x-----x-----x---'}],
+  triphop:[
+    {id:'bristol',n:'Bristol (pesante)',w:1.2,space:.5,sw:.3,tm:{s:.035,k:.01},k:'X------x--X-----|X---------X--x--',s:'----X--o----X-o-|----X-------X---',h:'X-x-X-x-X-x-X-x-',o:'----------------|--------------x-'},
+    {id:'break',n:'Breakbeat lento',w:.8,sw:.25,tm:{s:.02},k:'X-X-------XX----|X-X-----x-X-----',s:'----X--o-o--X--o|----X--o-o--X---',h:'X-x-X-x-X-x-X-x-'},
+    {id:'half',n:'Half-time',w:.6,space:1,k:'X---------x-----',s:'--------X-------',h:'X-x-X-x-X-x-X-x-'}],
   jazz:[
-    {id:'swing',n:'Swing',w:1,jazz:1,hat:['8..8.68..8.6','8..8.68..8..'],op:['...8.....8..'],kick:['4..4..4..4..'],fill:'jazz',build:'jazz'},
-    {id:'uptempo',n:'Swing veloce (two-feel)',w:.6,drive:1,jazz:1,hat:['8..8.68..8.6'],op:['...8.....8..'],kick:['5.....5.....'],fill:'jazz',build:'jazz'},
-    {id:'ballad',n:'Ballad (rim e spazzole)',w:.6,space:1,jazz:1,brush:1,hat:['8.....8..6..'],rim:['.........8..'],op:['...8.....8..'],kick:['4.....4.....'],fill:'jazz',build:'jazz'},
-    {id:'latin',n:'Latin jazz',w:.4,kick:['9.....79.....79.'],rim:['9..9..9...9..9..'],hat:['6464646464646464'],fill:'drop',build:'drop'}]};
-DSTY.classical=DSTY.cinematic;
-const VEL=[0,24,30,38,50,62,74,86,98,110];
-function drumStyles(G){return DSTY[G.drums]||DSTY.pop;}
-// battuta A (groove) o B (risposta/turnaround): frase A A' A B
+    {id:'swing',n:'Swing',w:1,g:12,jazz:1,h:'X--X-xX--X-x',o:'---X-----X--',s:'-----o-----o|--o-----o---',k:'o--o--o--o--'},
+    {id:'uptempo',n:'Swing veloce (two-feel)',w:.6,drive:1,g:12,jazz:1,h:'X--X-xX--X-x',o:'---X-----X--',s:'--o-----o--o|-----o--o---',k:'o-----o-----'},
+    {id:'ballad',n:'Ballad (rim e spazzole)',w:.6,space:1,g:12,jazz:1,brush:1,h:'X-----X-----|X-----X--x--',r:'---------X--',o:'---X-----X--',s:'X-----x-----'},
+    {id:'latin',n:'Latin jazz (bossa)',w:.4,k:'X--x----X--x----',r:'X--X--X---X--X--|--X--X---X--X---',h:'XoxoXoxoXoxoXoxo'}],
+  bossa:[
+    {id:'bossa',n:'Bossa nova',w:1,k:'X--x----X--x----',r:'X--X--X---X--X--|--X--X---X--X---',h:'XoxoXoxoXoxoXoxo'},
+    {id:'samba',n:'Samba lenta',w:.5,drive:.6,k:'X--x----X--x----',r:'--X--X-X--X--X--',h:'XoxoXoxoXoxoXoxo',c:'----x-------x---'}],
+  blues:[
+    {id:'shuffle',n:'Shuffle',w:1,g:12,k:'X-----X-----',s:'---X-----X--',h:'X-xX-xX-xX-x'},
+    {id:'slow',n:'Slow blues',w:.8,space:1,g:12,k:'X-----x-----',s:'---X-----X--',h:'XoxXoxXoxXox'}],
+  cinematic:[
+    {id:'epico',n:'Epico',w:1,k:'X-------X-------',c:'X--x--x-X---x---',d:'--------x-x-x-x-',s:'--------x-------'},
+    {id:'tensione',n:'Tensione',w:.7,space:.6,k:'X---------------',d:'x-x-x-x-x-x-x-x-',c:'------------x---'}]};
+GB.classical=GB.cinematic;
+const GPAD={k:0,s:1,r:2,h:3,o:4,p:5,c:6,d:7};
+// licks (ultimo battito di fine frase) e fill (fine sezione / ogni 8 battute) per famiglia di genere
+const GLICK={
+  pop:[{s:'--xX'},{o:'--x-'},{k:'--x-'},{s:'-o-x'},{s:'xxxX'}],
+  urban:[{h:'rrrr'},{h:'ffr-'},{h:'t-t-'},{s:'---x'},{k:'-x-x'},{h:'tttt'}],
+  hiphop:[{s:'---o'},{k:'--x-'},{o:'--x-'},{s:'-o-x'}],
+  island:[{s:'--xX'},{c:'x-xx'},{o:'--x-'},{r:'x-xx'}],
+  jazz:[{s:'-ox'},{k:'--x',s:'--x'},{s:'xox'}],
+  calm:[{c:'--xx'},{d:'x-x-'}]};
+const GFILL={
+  pop:{1:[{s:'xxxX'},{s:'xx--',c:'--xX'},{s:'xxXX',k:'X---'}],2:[{s:'x-x-xxxX'},{s:'XX--x---',c:'--XX-x--',d:'-----xXX'},{s:'x-xxx-xX',k:'X-------'}]},
+  urban:{1:[{h:'ffff',s:'--xX'},{k:'---x'},{h:'tttt'}],2:[{h:'rrrrffff',s:'------xX'},{h:'tttttttt',k:'X-------'},{k:'-------x'}]},
+  hiphop:{1:[{k:'---x'},{s:'-o-x'},{s:'--xX'}],2:[{s:'x---x-xX'},{k:'X------x'},{s:'----xxxX'}]},
+  island:{1:[{s:'x-xX'},{r:'x---',d:'--xX'},{c:'xxx-',d:'---X'}],2:[{s:'x-x-x-xX'},{c:'x-x-xxx-',d:'-------X'},{r:'x--x--xX'}]},
+  jazz:{1:[{s:'xxX'},{s:'x-X',k:'--x'}],2:[{s:'x-xxxX',d:'-----x'},{s:'xxxxxX'}]},
+  calm:{1:[{c:'xxXX'},{d:'xxXX'}],2:[{c:'x-x-xxXX',d:'------xX'},{d:'xxxxxxXX'}]}};
+const GFAM=g=>({urban:'urban',hiphop:'hiphop',island:'island',jazz:'jazz',calm:'calm'}[GENRE_FAM[g]]||'pop');
+const gLine=(str,g)=>{if(!str)return null;const s=str.replace(/[|\s]/g,'');return s.length>=2*g?s.slice(0,2*g):(s+s).slice(0,2*g);};
+// compatibilità con il resto del programma (sequencer, menu stili, export)
+const DSTY=GB;
+function drumStyles(G){return GB[G.drums]||GB.pop;}
 function drumKind(b,bars){return (b%8===7||(bars<8&&b===bars-1&&bars>=4)||(bars<4&&b%2===1))?'B':'A';}
-// scelte del brano: lo stile (dipende da genere e mood, bloccabile), una variante per pad, le variazioni
+// scelte del brano: il groove (genere, mood, blocco) e, per i 🎲 dei singoli pad, la riga presa da un altro groove compatibile
 function grooveDNA(G,M,rs,rp,lock,cnt){
-  cnt=cnt||(()=>0);
-  const list=drumStyles(G);
+  cnt=cnt||(()=>0);const list=drumStyles(G);
   let S=lock&&list.find(s=>s.id===lock);
   if(!S)S=pickW(rs,list.map(s=>[s,s.w*(1+(s.drive||0)*(M.drive-.4)*1.6)*(1+(s.space||0)*(M.space-.3)*1.5)]));
-  // il 🎲 di un pad passa sempre alla variante successiva
-  const ch=(i,a)=>a&&a.length?a[(Math.floor(rp(i)()*a.length)+cnt(i))%a.length]:null;
-  const d={S,id:S.id,jazz:!!S.jazz,kick:ch(0,S.kick),kB:ch(0,S.kB),snare:ch(1,S.snare),sB:ch(1,S.sB),rim:ch(2,S.rim),hat:ch(3,S.hat),op:ch(4,S.op),sh:ch(5,S.sh),p1:ch(6,S.p1),p2:ch(7,S.p2)};
-  const rr=rp(3);d.rollA=S.rolls?pick(rr,S.rolls).slice(0,1):null;d.rollB=S.rolls?pick(rr,S.rolls):null;
-  const rm=rp(8);d.mut=pick(rm,['kickAdd','kickAdd','kickDrop','open','ghost','hat2']);d.lick=pick(rm,S.rolls||S.half?['hatRoll','tripHat','snareRoll','open','kick','kickTrip']:d.jazz?['bomb','bomb','none']:['open','kick','snare','snareRoll','none','kickTrip']);
-  d.intro=pick(rm,['perc','kick','thin','perc']);d.bridge=pick(rm,['half','perc','thin']);
-  return d;
+  const g=S.g||16,lines={};
+  for(const [k,pi] of Object.entries(GPAD)){
+    const n=cnt(pi);let src=S;
+    if(n){const donors=list.filter(x=>(x.g||16)===g&&x[k]);if(donors.length){const i=donors.indexOf(S);src=donors[((i<0?0:i)+n)%donors.length];}}
+    lines[k]=gLine(src[k],g);}
+  const rl=rp(8);
+  return{S,id:S.id,g,lines,jazz:!!S.jazz,fam:GFAM(G.drums),lickSeed:Math.floor(rl()*1e6),kick:lines.k?lines.k.slice(0,g).replace(/[Xx]/g,'9').replace(/o/g,'6').replace(/[-rtf]/g,'.'):null};
 }
-// righe → colpi {pad,t (battiti nella battuta),s (forza),st (passo 16 o null)}
-function drumLine(H,str,pad){if(!str)return;const n=str.length;for(let i=0;i<n;i++){const c=str[i];if(c<'1'||c>'9')continue;H.push({pad,t:i*4/n,s:+c,st:n===16?i:null,g:n});}}
-// una battuta del groove. kind A/A2/B · mode: normale, intro/bridge/outro
-function grooveBar(d,kind,o){
-  const H=[],S=d.S,L=(s,p)=>drumLine(H,s,p);
-  const half=o&&o.half&&!S.half;
-  L(half?d.kick.replace(/[1-7]/g,'.'):d.kick,0);if(kind==='B')L(d.kB,0);
-  if(half)L('........9.......',1);else{L(d.snare,1);if(kind==='B')L(d.sB,1);}
-  L(d.rim,2);L(d.hat,3);if(d.jazz||kind==='B'||o.full)L(d.op,4);L(d.sh,5);L(d.p1,6);L(d.p2,7);
-  if(d.jazz){const r=o.r;if(r){
-    // comping: frasi di 1-3 colpi sulle terzine "e" (la terza terzina di un battito), ogni tanto la cassa risponde
-    const spots=[2,5,8,11],n=r()<.25?0:1+Math.floor(r()*2.2);
-    for(let k=0;k<n;k++){const i=spots[Math.floor(r()*4)];if(H.some(h=>h.pad===1&&Math.abs(h.t-i/3)<.01))continue;H.push({pad:r()<.18?0:1,t:i/3,s:4+(r()<.3?1:0),st:null,g:12});}
-    if(r()<.2)H.push({pad:1,t:11/3,s:3,st:null,g:12},{pad:1,t:12/3-.0001,s:5,st:null,g:12});}}
-  // A': una piccola mutazione, sempre la stessa per la sezione
-  if(kind==='A2'||kind==='B'){
-    const has=(p,st)=>H.some(h=>h.pad===p&&h.st===st);
-    switch(kind==='B'?'none':d.mut){
-      case'kickAdd':{const c=[14,10,7,11,6,3].find(s=>!has(0,s)&&!has(0,s-1)&&!has(0,s+1)&&!(has(1,s)&&s%4===0));if(c!=null&&d.kick.length===16)H.push({pad:0,t:c/4,s:7,st:c,g:16});break;}
-      case'kickDrop':{const i=H.findIndex(h=>h.pad===0&&h.s<9&&h.t>2);if(i>=0)H.splice(i,1);break;}
-      case'open':if(!d.jazz)H.push({pad:4,t:3.5,s:7,st:14,g:16});break;
-      case'ghost':if(d.snare&&!d.jazz)H.push({pad:1,t:15/4,s:4,st:15,g:16});break;
-      case'hat2':if(d.hat&&d.hat.length===16)[13,15].forEach(s=>{if(!has(3,s))H.push({pad:3,t:s/4,s:5,st:s,g:16});});break;}
-    if(kind==='B'&&!d.jazz){const has14=H.some(h=>h.pad===0&&h.st===14);
-      if(d.lick==='open')H.push({pad:4,t:3.5,s:7,st:14,g:16});else if(d.lick==='kick'&&!has14&&d.kick.length===16)H.push({pad:0,t:3.5,s:7,st:14,g:16});
-      else if(d.lick==='snare'&&d.snare)H.push({pad:1,t:3.75,s:5,st:15,g:16});
-      // roll e terzine nella battuta di risposta
-      else if(d.lick==='snareRoll'&&(d.snare||d.rim))H.push({pad:d.snare?1:2,t:3.5,s:5,st:14,g:16,roll:'q'});
-      else if(d.lick==='hatRoll'&&d.hat){const i=H.findIndex(h=>h.pad===3&&h.t>=3.49&&h.t<3.51);if(i>=0)H.splice(i,1);H.push({pad:3,t:3.5,s:6,st:14,g:16,roll:'z'});}
-      else if(d.lick==='tripHat'&&d.hat){for(let i=H.length-1;i>=0;i--)if(H[i].pad===3&&H[i].t>=3-1e-6)H.splice(i,1);H.push({pad:3,t:3,s:6,st:12,g:16,roll:'six'});}
-      else if(d.lick==='kickTrip'&&d.kick){for(let i=H.length-1;i>=0;i--)if(H[i].pad===0&&H[i].t>=3-1e-6)H.splice(i,1);[0,1,2].forEach(k=>H.push({pad:0,t:3+k/3,s:k?6:7,st:null,g:12}));}
-      else if(d.lick==='bomb')H.push({pad:0,t:3+2/3,s:6,st:null,g:12},{pad:1,t:3+2/3,s:5,st:null,g:12});}
-  }
-  // rullate di hi-hat (trap/phonk)
-  const rolls=kind==='B'?d.rollB:kind==='A2'?d.rollA:null;
-  if(rolls)rolls.forEach(([s,ty])=>{const i=H.findIndex(h=>h.pad===3&&h.st===s);if(i>=0)H.splice(i,1);H.push({pad:3,t:s/4,s:6,st:s,g:16,roll:ty});});
-  // hat aperto: chiude l'hi-hat nello stesso punto
-  const os=H.filter(h=>h.pad===4).map(h=>h.t);for(let i=H.length-1;i>=0;i--)if(H[i].pad===3&&!H[i].roll&&os.some(t=>Math.abs(t-H[i].t)<.01))H.splice(i,1);
-  return H;
-}
+function grooveBar(){return[];}
 function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
-  const E=env(sec,ctx,L,'drums'),G=E.G,M=E.M,e=E.e,d=ctx.sty.drums,S=d.S,kit=drumKit(G,S),TM=S.tm||{},R=()=>r();
-  const F=(ctx.feel&&ctx.feel.drums)||{},hum=ctx.human?(F.hum!=null?F.hum:1):0,jit=()=>(r()+r()-1)*(S.jit!=null?S.jit:.005)*hum;
+  const E=env(sec,ctx,L,'drums'),G=E.G,M=E.M,e=E.e,d=ctx.sty.drums,S=d.S,g=d.g,kit=drumKit(G,S),TM=S.tm||{};
+  const F=(ctx.feel&&ctx.feel.drums)||{},hum=ctx.human?(F.hum!=null?F.hum:1):0,jit=()=>(r()+r()-1)*.004*hum;
   const G2=grid||{},PD=pdens||{},t=sec.type,nx=sec.next,riseTo=nx&&nx.energy-sec.energy>=.15;
-  // densità del groove: 0 = solo l'ossatura, 1 = tutto (ghost compresi)
-  const dl=clamp(.24+plan.dens*.9+(tier-1)*.1+(t==='outro'?-.15:0)+((sec.densV??50)-50)/50*.3,0,1.05);
-  // soglia per pad: cassa e rullante tengono l'ossatura, percussioni e shaker sono decorazioni
-  const thr=(pad,bar)=>{let x=9-dl*6;if(pad===1||pad===2)x+=.5;if(pad===0)x-=.5;if(pad>=6&&pad<=7)x+=1;if(pad===5)x+=.5;
-    const sh=plan.shape[bar%4];if(sh<1&&pad!==0&&pad!==1)x+=(1-sh)*1.5;return Math.min(x,pad===3?7.5:8.5);};
-  // modo della sezione
-  const mode=t==='intro'?d.intro:t==='bridge'||t==='special'?d.bridge:t==='outro'?'thin':null;
-  const vRim=S.vRim&&t!=='chorus'&&e<.75&&R()<S.vRim;
-  const ost=M.ostinato||0,mutOn=R()>ost*.7;
-  // vuoto/pieno dentro la battuta: le battute "vuote" respirano (metà battuta senza hat, cassa ridotta), non spariscono
-  const stop=riseTo&&R()<(.15+plan.space*.35);
-  const fillLen=nx&&t!=='outro'&&e>=.3?(t==='pre'||(riseTo&&nx.type==='chorus')?(R()<.5?2:4):1):0;
-  const crash=e>=.55||(sec.prev&&sec.prev.type==='intro');
+  // livello: 0 ossatura · 1 normale · 2 pieno (energia della sezione + densità)
+  const dl=clamp(.24+plan.dens*.9+(tier-1)*.1+(t==='outro'?-.15:0)+((sec.densV??50)-50)/50*.35,0,1.1);
+  const lev=dl<.45?0:dl<.76?1:2;
   const hit=(tt,pad,v,dd,man)=>{if(G2[pad]&&!man)return;const k=(PD[pad]!=null?PD[pad]:1);
     if(k<.98&&pad!==9&&pad!==8&&pad!==0&&pad!==1&&r()>k)return;
-    L.drums.push({t:tt,d:dd||.12,n:kit.notes[pad],pad,v:clamp(Math.round(v*E.dyn(tt)),12,127)});
-    if(k>1.02&&!man&&(pad===3||pad===5)&&r()<k-1)L.drums.push({t:tt+.25,d:.1,n:kit.notes[pad],pad,v:clamp(Math.round(v*.5*E.dyn(tt)),12,127)});};
-  const vel=(s,pad)=>VEL[s]*(.8+.22*e)+(pad===0?4:pad===3?-4:pad===5?-8:0)+(hum?(r()+r()-1)*5*hum:0);
-  const jr=d.jazz?subRng(hashStr('jz'+sec.startBeat),'c'):null;
+    L.drums.push({t:tt,d:dd||.12,n:kit.notes[pad],pad,v:clamp(Math.round(v*E.dyn(tt)),12,127)});};
+  const VX={X:112,x:90,o:52};
+  const vel=(ch,pad)=>(VX[ch]||84)*(.86+.16*e)+(pad===3||pad===5?-6:0)+(hum?(r()+r()-1)*5*hum:0);
+  const sw=S.sw!=null?S.sw:Math.min(.6,(G.swing||0)*1.2),swD=i=>g===16&&i%2===1?sw*.0833:0;
+  const lr=rngFrom(d.lickSeed+hashStr(t)),fam=d.fam,lick=pick(lr,GLICK[fam]);
+  const intro=t==='intro',bridgeHalf=(t==='bridge'||t==='special')&&lr()<.5;
+  const rim2s=S.rim2s&&(t==='chorus'||e>=.8);
+  const crash=e>=.55||(sec.prev&&sec.prev.type==='intro');
+  const fillLen=nx&&t!=='outro'&&e>=.3?((riseTo&&(nx.type==='chorus'||t==='pre'))?2:1):0;
+  const fillPick=fillLen?pick(lr,GFILL[fam][fillLen]):null,midFill=pick(lr,GFILL[fam][1]);
+  const stepB=4/g,perBeat=g/4;
   for(let b=0;b<sec.bars;b++){
-    const bs=sec.startBeat+b*4,last=b===sec.bars-1,k4=drumKind(b,sec.bars)==='B'?'B':(b%8===5||(sec.bars<8&&b%4===1&&sec.bars>=4))?'A2':'A';
-    const kind=k4==='A2'&&!mutOn?'A':k4;
-    const H=grooveBar(d,kind,{half:mode==='half',full:e>=.7||t==='chorus',r:jr?()=>jr():null});
-    // densità oltre 50: sedicesimi di hi-hat in più, ghost di rullante, percussioni
-    const xd=((sec.densV??50)-55)/45;
-    if(xd>0&&!d.jazz){const has=(p,s)=>H.some(h=>h.pad===p&&h.st===s);
-      if(d.hat&&d.hat.length===16)for(let s=1;s<16;s+=2)if(!has(3,s)&&!has(4,s)&&R()<xd*.7)H.push({pad:3,t:s/4,s:5,st:s,g:16});
-      if(d.snare&&d.snare.length===16)[3,7,11,15].forEach(s=>{if(!has(1,s)&&!has(1,s+1)&&R()<xd*.35)H.push({pad:1,t:s/4,s:4,st:s,g:16});});
-      if(xd>.5&&d.kick&&d.kick.length===16&&R()<xd*.5){const s=[6,10,14,3][Math.floor(R()*4)];if(!has(0,s)&&!has(1,s))H.push({pad:0,t:s/4,s:6,st:s,g:16});}}
-    const fStart=last&&fillLen?4-fillLen:9,stopAt=last&&stop?3:9;
-    for(const h of H){let pad=h.pad;const beat=h.t;
-      if(pad===1&&vRim)pad=2;
-      // modi di sezione
-      if(mode==='perc'&&(pad===0&&beat>.01||pad===1))continue;
-      if(mode==='kick'&&(pad===1||pad===2&&!vRim))continue;
-      if(mode==='thin'&&pad>=5)continue;
-      if(t==='outro'&&last&&beat>.01)continue;
-      // densità: la cifra deve superare la soglia (l'ossatura 9 suona sempre)
-      if(h.s<9&&h.s<thr(pad,b))continue;
-      if(h.s<9&&mode==='thin'&&h.s<8)continue;
-      // respiro: dove la sezione fa pausa restano solo cassa e rullante dell'ossatura
-      const bf=plan.br?plan.br(b,beat):1;
-      if(bf<.35&&((pad>=3&&pad<=7)||(pad===0&&h.s<9)))continue;
-      if(bf<.7&&h.s<7&&pad!==1)continue;
-      if(beat>=fStart-1e-6&&pad!==3&&pad!==4&&pad!==5)continue;
-      if(beat>=fStart-1e-6&&S.fill==='trap'&&pad===3)continue;
-      if(beat>=stopAt-1e-6)continue;
-      const sw=h.g===16?swingDelay(G,h.st):0,off=(TM[pad]||TM[h.pad]||0),tt=bs+beat+sw+off,v=vel(h.s,pad);
-      if(h.roll==='r'){hit(tt,pad,v);hit(tt+.125,pad,v*.8);}
-      else if(h.roll==='z'){for(let q=0;q<3;q++)hit(tt+q*.5/3,pad,v*(q?.8:1));}
-      else if(h.roll==='s'){for(let q=0;q<3;q++)hit(tt+q*.25/3,pad,v*(.7+q*.12));}
-      else if(h.roll==='q'){for(let q=0;q<4;q++)hit(tt+q*.125,pad,v*(.55+q*.15));}
-      else if(h.roll==='six'){for(let q=0;q<6;q++)hit(tt+q/6,pad,v*(q%3?.75:1));}
-      else hit(tt+jit(),pad,v);
-    }
-    if(b===0&&crash&&!G2[8]&&mode==null)hit(bs,8,vel(8,8)+6,1);
-    if(t==='outro'&&last){hit(bs,8,vel(8,8),1.5);}
-    if(last&&fillLen&&!(stop&&fillLen===1))drumFill(S.fill,fillLen>=2?S.build:S.fill,bs+4-fillLen,fillLen,hit,vel,e);
+    const bs=sec.startBeat+b*4,last=b===sec.bars-1,half=b%2;
+    // quale variazione in questa battuta
+    let fill=null;if(last&&fillLen)fill={p:fillPick,len:fillLen};else if(b%8===7&&!last)fill={p:midFill,len:1};
+    const useLick=!fill&&b%4===3&&lev>=1;
+    const lines={};for(const k in d.lines){let ln=d.lines[k];if(!ln)continue;lines[k]=ln.slice(half*g,half*g+g);}
+    if(rim2s&&lines.r){lines.s=lines.r;delete lines.r;}
+    if(bridgeHalf&&lines.s){lines.s=lines.s.replace(/X/g,'-');lines.s=lines.s.slice(0,g/2)+'X'+lines.s.slice(g/2+1);}
+    if(intro){delete lines.s;delete lines.r;if(lines.k)lines.k=lines.k.replace(/[xo]/g,'-');}
+    if(t==='outro'&&last){for(const k in lines)lines[k]=k==='k'?'X'+'-'.repeat(g-1):'-'.repeat(g);}
+    // lick: sostituisce l'ultimo battito di uno o due pad
+    if(useLick)for(const k in lick){const L2=lick[k].slice(0,perBeat).padEnd(perBeat,'-');lines[k]=(lines[k]||'-'.repeat(g)).slice(0,g-perBeat)+L2;}
+    // fill: negli ultimi battiti tacciono cassa/rullante/percussioni (gli hat restano se il fill non li usa)
+    if(fill){const n=fill.len*perBeat,from=g-n;
+      for(const k of ['k','s','r','c','d','p'])if(lines[k])lines[k]=lines[k].slice(0,from)+'-'.repeat(n);
+      for(const k in fill.p){const pt=fill.p[k];const seg=(pt.length>=n?pt.slice(-n):pt.padStart(n,'-'));lines[k]=(lines[k]||'-'.repeat(g)).slice(0,from)+seg;}}
+    // hat aperto: chiude l'hi-hat nello stesso punto
+    if(lines.o&&lines.h&&!S.jazz){let h='';for(let i=0;i<g;i++)h+=(lines.o[i]!=='-'&&(lines.o[i]==='X'||(lines.o[i]==='x'&&lev>=1)||(lines.o[i]==='o'&&lev>=2)))?'-':lines.h[i];lines.h=h;}
+    for(const k in lines){const pad=GPAD[k],ln=lines[k];
+      for(let i=0;i<g;i++){const ch=ln[i];if(ch==='-')continue;
+        const need=ch==='X'?0:ch==='o'?2:1;let lv=lev;if((pad===5||pad===6||pad===7)&&ch!=='X')lv=lev-(intro?0:0);
+        if(lv<need)continue;
+        const bf=plan.br?plan.br(b,i*stepB):1;if(bf<.35&&((pad>=3&&pad<=7)||(pad===0&&ch!=='X')))continue;
+        const tt=bs+i*stepB+swD(i)+(TM[k]||0),v=vel(ch==='r'||ch==='t'||ch==='f'?'x':ch,pad);
+        // posizione nel fill: crescendo
+        const inFill=fill&&i>=g-fill.len*perBeat,vv=inFill?v*(.8+.3*(i-(g-fill.len*perBeat))/(fill.len*perBeat)):v;
+        if(ch==='r'){hit(tt,pad,vv*.85);hit(tt+stepB/2,pad,vv*.7);}
+        else if(ch==='t'){for(let q=0;q<3;q++)hit(tt+q*stepB/3,pad,vv*(.65+q*.12));}
+        else if(ch==='f'){for(let q=0;q<4;q++)hit(tt+q*stepB/4,pad,vv*(.55+q*.13));}
+        else hit(tt+jit(),pad,vv);
+      }}
+    if(b===0&&crash&&!intro&&!G2[8])hit(bs,8,vel('X',8)-4,1);
+    if(fill&&last&&nx&&nx.energy>=.55&&!G2[8]){}  // il crash arriva con la sezione seguente
+    if(t==='outro'&&last)hit(bs,8,vel('x',8),1.5);
   }
   // colpi scritti a mano sulla griglia (sostituiscono quelli generati per quel pad)
   for(const pd in G2){const steps=G2[pd];if(!steps)continue;for(let b=0;b<sec.bars;b++){const bs=sec.startBeat+b*4,o=steps.length>16&&drumKind(b,sec.bars)==='B'?16:0;
-    for(let i=0;i<16;i++){const v=steps[o+i];if(!(v>0))continue;const n=Math.floor(v/1000)+1,vv=v%1000,t0=bs+i/4+swingDelay(G,i)+(TM[pd]||0)+jit();
+    for(let i=0;i<16;i++){const v=steps[o+i];if(!(v>0))continue;const n=Math.floor(v/1000)+1,vv=v%1000,t0=bs+i/4+(i%2?sw*.0833:0)+jit();
       for(let q=0;q<n;q++)hit(t0+q*.25/n,+pd,n>1?vv*(.6+.4*q/(n-1)):vv,+pd===9?1:.12,true);}}}
-  if(riseTo&&e>=.3)hit(sec.startBeat+(sec.bars-1)*4+(fillLen>=4?0:2),9,60+e*20,fillLen>=4?4:2);
-  if(sec.type==='chorus'&&sec.prev&&['trap','afrorage','cinematic','triphop'].includes(G.drums))hit(sec.startBeat,9,88,.6);
-}
-// fill e build: from = battito di inizio, len = battiti
-function drumFill(kind,build,from,len,hit,vel,e){
-  const f=len>=2?build:kind,n16=len*4,cres=k=>Math.min(9,5+Math.round(k*4/Math.max(1,n16-1)));
-  switch(f){
-    case'snare':for(let k=0;k<n16;k++){if(len>=2&&k<n16-4&&k%2)continue;if(k===n16-1){hit(from+k/4,1,vel(8,1));hit(from+k/4+.125,1,vel(9,1));continue;}hit(from+k/4,1,vel(cres(k),1));}hit(from+len-.01,0,vel(7,0));break;
-    case'toms':for(let k=0;k<n16;k++){if(len>=2&&k<n16-4&&k%2)continue;const p=k<n16/3?1:k<2*n16/3?6:7;hit(from+k/4,p,vel(cres(k),p));}break;
-    case'gospel':for(let k=0;k<n16;k++){const p=k>=n16-3?7:k>=n16-6?6:1;hit(from+k/4,p,vel(cres(k),p));}break;
-    case'conga':for(let k=0;k<n16;k++){if(k%4===1&&len<2)continue;const p=k%3===2?7:6;hit(from+k/4,p,vel(cres(k),p));}hit(from+len-.25,1,vel(8,1));break;
-    case'tomtrip':for(let k=0;k<len*3;k++){const p=k%3===2?7:6;hit(from+k/3,p,vel(Math.min(9,6+Math.floor(k/3)),p));}hit(from+len-1/3,0,vel(8,0));break;
-    case'reggae':for(let k=0;k<len*3;k++){if(len>=2&&k<len*3-3&&k%3===1)continue;const p=k===len*3-1?7:1;hit(from+k/3,p,vel(Math.min(9,5+Math.floor(k*4/(len*3))),p));}break;
-    case'trap':{const n=len*8;for(let k=0;k<n;k++)hit(from+k/8,3,vel(Math.min(8,4+Math.floor(k*4/n)),3));hit(from+len-.5,1,vel(7,1));hit(from+len-.25,1,vel(8,1));if(len>=2)hit(from,0,vel(8,0));break;}
-    case'roll':{const n=len*8;for(let k=0;k<n;k++)hit(from+k/8,1,vel(Math.min(9,3+Math.round(k*6/(n-1))),1));hit(from+len-.01,8,vel(6,8));break;}
-    case'jazz':{const n=len*3;for(let k=0;k<n;k++){if(k%3===1&&k<n-3)continue;const p=k>=n-2?(k===n-1?0:7):k>=n-4?6:1;hit(from+k/3,p,vel(Math.min(8,4+Math.floor(k*4/n)),p));}break;}
-    case'drop':default:hit(from+len-.25,0,vel(7,0));break;
-  }
+  if(riseTo&&e>=.3)hit(sec.startBeat+(sec.bars-1)*4+(fillLen>=2?2:3),9,60+e*20,fillLen>=2?2:1);
+  if(sec.type==='chorus'&&sec.prev&&['trap','afrorage','cinematic','triphop','drill'].includes(G.drums))hit(sec.startBeat,9,88,.6);
 }
 
 /* =====================================================================
@@ -2782,32 +2712,51 @@ const Synth=(()=>{
     const o=A.createOscillator(),g=A.createGain();o.type=type||'sine';o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(f1,t+dur*.6);
     o.connect(g);g.connect(out);g.gain.setValueAtTime(gain,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);o.start(t);o.stop(t+dur+.05);
   }
+  // metallo alla 808: sei onde quadre inarmoniche filtrate (hi-hat, piatti, campanaccio)
+  const MET=[263,400,421,531,588,822];
+  function metal(t,dur,gain,out,hpf,bpf){const g=A.createGain(),hp=A.createBiquadFilter(),bp=A.createBiquadFilter();hp.type='highpass';hp.frequency.value=hpf;bp.type='bandpass';bp.frequency.value=bpf;bp.Q.value=.8;
+    MET.forEach(f=>{const o=A.createOscillator();o.type='square';o.frequency.value=f*1.47;o.connect(bp);o.start(t);o.stop(t+dur+.05);});bp.connect(hp);hp.connect(g);g.connect(out);
+    g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(gain,t+.002);g.gain.exponentialRampToValueAtTime(.001,t+dur);}
   function drum(n,t,v,out,d){
     const k=Math.pow(v/127,1.2);
+    if(DK.ready&&DK.map[n]&&DK.buf[DK.map[n]]){const src=A.createBufferSource(),g=A.createGain();src.buffer=DK.buf[DK.map[n]];src.connect(g);g.connect(out);
+      g.gain.value=k*(n===42||n===44?.55:.9);src.start(t);if(n===42||n===44)src.stop(t+.12);return;}
     switch(n){
       case 55:if((d||0)>1){const s=A.createBufferSource();s.buffer=noise;s.loop=true;const f=A.createBiquadFilter();f.type='bandpass';f.Q.value=1.5;
           f.frequency.setValueAtTime(300,t);f.frequency.exponentialRampToValueAtTime(7000,t+d);const g=A.createGain();g.gain.setValueAtTime(.0001,t);
           g.gain.exponentialRampToValueAtTime(k*.3,t+d*.97);g.gain.linearRampToValueAtTime(0,t+d);s.connect(f);f.connect(g);g.connect(out);s.start(t);s.stop(t+d+.05);}
         else{tone(t,90,38,1.1,k*.9,out);noiseHit(t,.7,'lowpass',900,.7,k*.35,out);}break;
-      case 36:tone(t,140,44,.42,k*1.1,out);noiseHit(t,.02,'highpass',2500,.7,k*.15,out);break;
-      case 38:tone(t,190,160,.13,k*.5,out);noiseHit(t,.22,'bandpass',2800,.6,k*.6,out);noiseHit(t,.09,'highpass',6000,.7,k*.22,out);break;
+      case 36:{// cassa: corpo con caduta di intonazione, sub, clic del battente
+        const o=A.createOscillator(),g=A.createGain();o.type='sine';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(52,t+.07);o.frequency.exponentialRampToValueAtTime(44,t+.4);
+        o.connect(g);g.connect(out);g.gain.setValueAtTime(k*1.25,t);g.gain.setTargetAtTime(0,t+.06,.12);o.start(t);o.stop(t+.6);
+        noiseHit(t,.012,'highpass',3000,.7,k*.22,out);tone(t,900,200,.015,k*.25,out,'triangle');break;}
+      case 38:tone(t,200,170,.11,k*.55,out,'triangle');tone(t,330,280,.06,k*.2,out);noiseHit(t,.2,'bandpass',2600,.7,k*.62,out);noiseHit(t,.11,'highpass',7000,.7,k*.25,out);break;
       case 37:tone(t,1750,1600,.035,k*.45,out,'triangle');tone(t,430,400,.06,k*.3,out);noiseHit(t,.045,'bandpass',2600,3,k*.6,out);break;
-      case 39:[0,.012,.024].forEach(x=>noiseHit(t+x,.11,'bandpass',1300,1.2,k*.4,out));break;
-      case 42:noiseHit(t,.05,'highpass',7500,.7,k*.25,out);break;
-      case 44:noiseHit(t,.04,'highpass',6500,.7,k*.18,out);break;
-      case 46:noiseHit(t,.32,'highpass',7000,.7,k*.22,out);break;
-      case 51:noiseHit(t,.9,'bandpass',7200,1.8,k*.2,out);[3150,4230,5170].forEach((f,i)=>tone(t,f,f*.995,.7-i*.15,k*(.035-i*.008),out,'square'));noiseHit(t,.03,'highpass',9000,.7,k*.12,out);break;
+      case 39:// clap: tre schiocchi ravvicinati e una coda
+        [0,.011,.022].forEach(x=>noiseHit(t+x,.03,'bandpass',1250,1.6,k*.55,out));noiseHit(t+.03,.18,'bandpass',1150,1.1,k*.38,out);break;
       case 40:{const s2=A.createBufferSource();s2.buffer=noise;const f=A.createBiquadFilter();f.type='bandpass';f.frequency.value=2600;f.Q.value=.5;const g=A.createGain();
         s2.connect(f);f.connect(g);g.connect(out);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(k*.32,t+.025);g.gain.exponentialRampToValueAtTime(.001,t+.32);s2.start(t,Math.random()*.5);s2.stop(t+.36);break;}
-      case 49:noiseHit(t,1.6,'highpass',4200,.6,k*.32,out);break;
-      case 63:tone(t,420,330,.18,k*.5,out);noiseHit(t,.02,'bandpass',3000,2,k*.12,out);break;
-      case 64:tone(t,260,210,.26,k*.55,out);noiseHit(t,.02,'bandpass',2000,2,k*.1,out);break;
+      case 42:metal(t,.045+k*.02,k*.42,out,7000,10000);break;
+      case 44:metal(t,.035,k*.3,out,6000,9000);break;
+      case 46:metal(t,.32,k*.36,out,6500,9500);break;
+      case 51:metal(t,1.1,k*.16,out,4000,7500);noiseHit(t,.9,'bandpass',7200,1.8,k*.1,out);tone(t,3150,3140,.5,k*.02,out,'triangle');break;
+      case 49:metal(t,1.8,k*.28,out,3500,8000);noiseHit(t,1.6,'highpass',5000,.6,k*.22,out);break;
+      case 63:tone(t,380,330,.16,k*.55,out);noiseHit(t,.015,'bandpass',3500,2,k*.18,out);break;
+      case 64:tone(t,250,215,.24,k*.6,out);noiseHit(t,.015,'bandpass',2200,2,k*.14,out);break;
       case 60:case 61:tone(t,n===60?520:400,n===60?470:360,.12,k*.4,out);break;
-      case 70:case 82:noiseHit(t,.06,'highpass',6000,.7,k*.18,out);break;
-      case 56:tone(t,800,800,.18,k*.18,out,'square');tone(t,540,540,.18,k*.18,out,'square');break;
-      default:{const f={41:90,43:100,45:110,47:140,48:165,50:200}[n]||130;tone(t,f*1.6,f,.32,k*.7,out);}
+      case 70:case 82:{const s2=A.createBufferSource();s2.buffer=noise;const f=A.createBiquadFilter();f.type='bandpass';f.frequency.value=6500;f.Q.value=1;const g=A.createGain();
+        s2.connect(f);f.connect(g);g.connect(out);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(k*.22,t+.012);g.gain.exponentialRampToValueAtTime(.001,t+.07);s2.start(t,Math.random());s2.stop(t+.09);break;}
+      case 56:metal(t,.2,k*.25,out,600,1800);break;
+      default:{const f={41:90,43:100,45:115,47:140,48:165,50:200}[n]||130;tone(t,f*1.7,f,.34,k*.75,out);noiseHit(t,.02,'bandpass',1500,1,k*.12,out);}
     }
   }
+  // kit acustico campionato (Tone.js), facoltativo: se la rete non risponde si resta sul sintetico
+  const DK={on:false,ready:false,state:'off',buf:{},map:{},base:'https://tonejs.github.io/audio/drum-samples/acoustic-kit/'};
+  function useDrumSamples(on){DK.on=on;if(!on){DK.ready=false;return Promise.resolve('off');}init();if(DK.state==='ready'){DK.ready=true;return Promise.resolve('ready');}
+    DK.state='loading';const files={kick:[36],snare:[38],hihat:[42,44],tom1:[48,63],tom2:[45,64],tom3:[41]};
+    return Promise.all(Object.keys(files).map(f=>fetch(DK.base+f+'.mp3').then(r=>{if(!r.ok)throw 0;return r.arrayBuffer();}).then(b=>A.decodeAudioData(b)).then(buf=>{DK.buf[f]=buf;files[f].forEach(n=>DK.map[n]=f);}).catch(()=>null)))
+      .then(()=>{const ok=DK.buf.kick&&DK.buf.snare;DK.state=ok?'ready':'error';DK.ready=ok&&DK.on;return DK.state;});}
+
   /* ---- chitarra: Karplus-Strong (corda pizzicata calcolata), corpo e amplificatore per timbro ---- */
   const TONES={acoustic:{br:.72,rho:.9965,pos:.18,len:3.4,body:[[110,4,1.2],[230,3,1.5],[2600,3,1]],lp:9000},
     nylon:{br:.42,rho:.9945,pos:.22,len:3,body:[[100,4,1.1],[210,3,1.4],[1800,1,1]],lp:5200},
@@ -2861,7 +2810,7 @@ const Synth=(()=>{
   function setLayerGain(k,x){fac[k]=x;if(bus[k])bus[k].gain.value=LAYER_GAIN[k]*x;}
   function setVolume(x){init();master.gain.value=x;}
   function useSamples(on,onprog){SAMP.on=on;return on?loadSamples(onprog):Promise.resolve('off');}
-  return{loadSample,sampleDur,playSample,hasSample:id=>SMPB.has(id),setGuitarTone,init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
+  return{useDrumSamples,get drumSampleState(){return DK.state;},loadSample,sampleDur,playSample,hasSample:id=>SMPB.has(id),setGuitarTone,init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
 })();
 
 </script>
@@ -2877,10 +2826,10 @@ const rndSeed=()=>1+Math.floor(Math.random()*99998);
 const fmtTime=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2000);}
 
-const DEF={genre:'pop',mood:'rilassato',mode:'auto',key:'auto',structure:'vc',color:'auto',human:true,pad:false,pianoStyle:'live',modLast:false,sound:'samp',dens:'auto',spaceLvl:'auto',gtr:'auto'};
+const DEF={genre:'pop',mood:'rilassato',mode:'auto',key:'auto',structure:'vc',color:'auto',human:true,pad:false,pianoStyle:'live',modLast:false,sound:'samp',dens:'auto',spaceLvl:'auto',gtr:'auto',drumKit:'auto'};
 const St={opts:Object.assign({},DEF,LS.get('pg_opts',{})),seeds:{h:rndSeed(),a:rndSeed(),m:rndSeed()},bpm:null,song:null,ev:[],
   mute:{},solo:null,oct:{},vol:{},padMute:{},padVol:{},padDens:{},drumGrid:{},feel:{},style:{},clips:[],padSmp:{},padSmpName:{},imports:[],secCfg:{},padSel:null,showPads:false,reseed:{L:{},S:{}},sel:0,selChord:-1,scope:'rep',loop:false,muteInit:false,layout:null,secs:null,typeOrder:null,edits:[]};
-const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1},sound:{samp:1,synth:1},gtr:{auto:1,on:1,off:1},};
+const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1},sound:{samp:1,synth:1},gtr:{auto:1,on:1,off:1},drumKit:{auto:1,acoustic:1,synth:1},};
 // densità e vuoto/pieno: 'auto' o 0–100 (i vecchi valori a parole vengono convertiti)
 const numOrAuto=(v,leg)=>v==null||v==='auto'?'auto':leg[v]!=null?leg[v]:isFinite(+v)?clamp(Math.round(+v),0,100):'auto';
 St.name='Senza titolo';St.projId=null;St.savedSnap=null;
@@ -2911,7 +2860,7 @@ fillSel('#key',[['auto','Auto'],...KEY_NAMES.map((n,i)=>[i,n])]);
 fillSel('#structure',Object.entries(STRUCTS).map(([k,s])=>[k,s.n]));
 fillSel('#color',[['auto','Auto (dal genere)'],['triadi','Triadi'],['colorati','Colorati (add9, sus, 6)'],['settime','Settime'],['estesi','Estesi (9, 11, 13)']]);
 fillSel('#addType',['intro','verse','pre','chorus','bridge','special','outro'].map(t=>[t,SEC_NAME[t]]));
-function syncControls(){['genre','mood','mode','key','structure','color','sound','gtr'].forEach(k=>$('#'+k).value=St.opts[k]);syncRanges();$('#modLast').checked=!!St.opts.modLast;
+function syncControls(){['genre','mood','mode','key','structure','color','sound','gtr','drumKit'].forEach(k=>$('#'+k).value=St.opts[k]);syncRanges();$('#modLast').checked=!!St.opts.modLast;
   $('#pstyle').value=St.opts.pianoStyle;$('#human').checked=St.opts.human;$('#pad').checked=St.opts.pad;}
 const saveOpts=()=>LS.set('pg_opts',St.opts);
 function clearReseed(k){const R=St.reseed;Object.keys(R.S).forEach(x=>{if(x.endsWith('.'+k))delete R.S[x];});
@@ -2921,10 +2870,11 @@ function dropEdits(){if(St.edits.length){St.edits=[];toast('Modifiche agli accor
   St.opts[k]=e.target.value;saveOpts();
   if(k==='genre'||k==='mood')St.bpm=null;
   if(k==='structure'){St.sel=0;St.secs=null;St.typeOrder=null;}
-  if(k==='genre')St.style={};
+  if(k==='genre'){St.style={};setTimeout(ensureDrums,0);}
   if(k!=='key')St.reseed={L:{},S:{}};
   if(k!=='key')dropEdits();
   St.selChord=-1;regen({resetMute:k==='genre'});}));
+$('#drumKit').addEventListener('change',e=>{St.opts.drumKit=e.target.value;saveOpts();ensureDrums();toast('Batteria: '+e.target.selectedOptions[0].text.split(' (')[0].toLowerCase());});
 $('#gtr').addEventListener('change',e=>{St.opts.gtr=e.target.value;saveOpts();St.mute.gtr=false;regen();toast('Chitarra: '+e.target.selectedOptions[0].text.toLowerCase());});
 $('#pstyle').addEventListener('change',e=>{St.opts.pianoStyle=e.target.value;saveOpts();regen();toast(e.target.value==='classic'?'Pianoforte classico (v3)':'Pianoforte vivo');});
 $('#human').addEventListener('change',e=>{St.opts.human=e.target.checked;saveOpts();regen();});
@@ -2940,7 +2890,12 @@ $('#modLast').addEventListener('change',e=>{St.opts.modLast=e.target.checked;sav
   const n=St.song.sections.filter(x=>x.type==='chorus').length;toast(e.target.checked?(n>=2?'L\'ultimo ritornello sale di un tono':'Serve una struttura con almeno due ritornelli'):'Modulazione tolta');});
 $('#sound').addEventListener('change',e=>{St.opts.sound=e.target.value;saveOpts();ensureSound(true);renderHead();});
 let soundMsg='';
+// batteria acustica campionata nei generi "suonati", elettronica negli altri
+const ACOUSTIC_DR=new Set(['pop','rock','soul','gospel','jazz','blues','bossa','reggae','lofi','boombap','triphop','cinematic','classical']);
+function ensureDrums(){const o=St.opts.drumKit,on=o==='acoustic'||(o==='auto'&&ACOUSTIC_DR.has(St.opts.genre));
+  Synth.useDrumSamples(on).then(st=>{if(on&&st==='error'&&o==='acoustic')toast('Kit acustico non raggiungibile: uso la batteria elettronica');});}
 function ensureSound(verbose){
+  ensureDrums();
   if(St.opts.sound!=='samp'){Synth.useSamples(false);soundMsg='';return;}
   if(Synth.sampleState==='ready'){Synth.useSamples(true);return;}
   if(Synth.sampleState==='loading')return;
@@ -2953,7 +2908,7 @@ $('#pad').addEventListener('change',e=>{St.opts.pad=e.target.checked;saveOpts();
 $('#btnRandom').onclick=()=>{const pk=a=>a[Math.floor(Math.random()*a.length)];
   Object.assign(St.opts,{genre:pk(Object.keys(GENRES)),mood:pk(Object.keys(MOODS)),structure:pk(['vc','song','song','vb','bc','loop8']),mode:'auto',key:'auto',color:'auto',dens:'auto',spaceLvl:'auto',gtr:'auto'});
   St.seeds={h:rndSeed(),a:rndSeed(),m:rndSeed()};St.reseed={L:{},S:{}};St.style={};St.secCfg={};St.secs=null;St.typeOrder=null;St.edits=[];St.bpm=null;St.sel=0;St.selChord=-1;
-  syncControls();saveOpts();if($('#tab-gen').hidden)document.querySelector('.tabs [data-tab="gen"]').click();regen({resetMute:true});
+  syncControls();saveOpts();ensureDrums();if($('#tab-gen').hidden)document.querySelector('.tabs [data-tab="gen"]').click();regen({resetMute:true});
   toast(`${GENRES[St.opts.genre].n} · ${MOODS[St.opts.mood].n} · ${St.song.keyName} ${MODES[St.song.mode].n.toLowerCase()} · ${St.song.bpm} BPM`);};
 $('#btnGen').onclick=()=>{St.seeds={h:rndSeed(),a:rndSeed(),m:rndSeed()};St.reseed={L:{},S:{}};St.style={};St.secCfg={};St.bpm=null;St.edits=[];St.selChord=-1;regen({resetMute:true});};
 $$('[data-re]').forEach(b=>b.onclick=()=>{const k=b.dataset.re;if(k==='h')dropEdits();St.seeds[k]=rndSeed();clearReseed(k);regen();

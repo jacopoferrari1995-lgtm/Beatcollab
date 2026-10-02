@@ -113,32 +113,51 @@ const Synth=(()=>{
     const o=A.createOscillator(),g=A.createGain();o.type=type||'sine';o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(f1,t+dur*.6);
     o.connect(g);g.connect(out);g.gain.setValueAtTime(gain,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);o.start(t);o.stop(t+dur+.05);
   }
+  // metallo alla 808: sei onde quadre inarmoniche filtrate (hi-hat, piatti, campanaccio)
+  const MET=[263,400,421,531,588,822];
+  function metal(t,dur,gain,out,hpf,bpf){const g=A.createGain(),hp=A.createBiquadFilter(),bp=A.createBiquadFilter();hp.type='highpass';hp.frequency.value=hpf;bp.type='bandpass';bp.frequency.value=bpf;bp.Q.value=.8;
+    MET.forEach(f=>{const o=A.createOscillator();o.type='square';o.frequency.value=f*1.47;o.connect(bp);o.start(t);o.stop(t+dur+.05);});bp.connect(hp);hp.connect(g);g.connect(out);
+    g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(gain,t+.002);g.gain.exponentialRampToValueAtTime(.001,t+dur);}
   function drum(n,t,v,out,d){
     const k=Math.pow(v/127,1.2);
+    if(DK.ready&&DK.map[n]&&DK.buf[DK.map[n]]){const src=A.createBufferSource(),g=A.createGain();src.buffer=DK.buf[DK.map[n]];src.connect(g);g.connect(out);
+      g.gain.value=k*(n===42||n===44?.55:.9);src.start(t);if(n===42||n===44)src.stop(t+.12);return;}
     switch(n){
       case 55:if((d||0)>1){const s=A.createBufferSource();s.buffer=noise;s.loop=true;const f=A.createBiquadFilter();f.type='bandpass';f.Q.value=1.5;
           f.frequency.setValueAtTime(300,t);f.frequency.exponentialRampToValueAtTime(7000,t+d);const g=A.createGain();g.gain.setValueAtTime(.0001,t);
           g.gain.exponentialRampToValueAtTime(k*.3,t+d*.97);g.gain.linearRampToValueAtTime(0,t+d);s.connect(f);f.connect(g);g.connect(out);s.start(t);s.stop(t+d+.05);}
         else{tone(t,90,38,1.1,k*.9,out);noiseHit(t,.7,'lowpass',900,.7,k*.35,out);}break;
-      case 36:tone(t,140,44,.42,k*1.1,out);noiseHit(t,.02,'highpass',2500,.7,k*.15,out);break;
-      case 38:tone(t,190,160,.13,k*.5,out);noiseHit(t,.22,'bandpass',2800,.6,k*.6,out);noiseHit(t,.09,'highpass',6000,.7,k*.22,out);break;
+      case 36:{// cassa: corpo con caduta di intonazione, sub, clic del battente
+        const o=A.createOscillator(),g=A.createGain();o.type='sine';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(52,t+.07);o.frequency.exponentialRampToValueAtTime(44,t+.4);
+        o.connect(g);g.connect(out);g.gain.setValueAtTime(k*1.25,t);g.gain.setTargetAtTime(0,t+.06,.12);o.start(t);o.stop(t+.6);
+        noiseHit(t,.012,'highpass',3000,.7,k*.22,out);tone(t,900,200,.015,k*.25,out,'triangle');break;}
+      case 38:tone(t,200,170,.11,k*.55,out,'triangle');tone(t,330,280,.06,k*.2,out);noiseHit(t,.2,'bandpass',2600,.7,k*.62,out);noiseHit(t,.11,'highpass',7000,.7,k*.25,out);break;
       case 37:tone(t,1750,1600,.035,k*.45,out,'triangle');tone(t,430,400,.06,k*.3,out);noiseHit(t,.045,'bandpass',2600,3,k*.6,out);break;
-      case 39:[0,.012,.024].forEach(x=>noiseHit(t+x,.11,'bandpass',1300,1.2,k*.4,out));break;
-      case 42:noiseHit(t,.05,'highpass',7500,.7,k*.25,out);break;
-      case 44:noiseHit(t,.04,'highpass',6500,.7,k*.18,out);break;
-      case 46:noiseHit(t,.32,'highpass',7000,.7,k*.22,out);break;
-      case 51:noiseHit(t,.9,'bandpass',7200,1.8,k*.2,out);[3150,4230,5170].forEach((f,i)=>tone(t,f,f*.995,.7-i*.15,k*(.035-i*.008),out,'square'));noiseHit(t,.03,'highpass',9000,.7,k*.12,out);break;
+      case 39:// clap: tre schiocchi ravvicinati e una coda
+        [0,.011,.022].forEach(x=>noiseHit(t+x,.03,'bandpass',1250,1.6,k*.55,out));noiseHit(t+.03,.18,'bandpass',1150,1.1,k*.38,out);break;
       case 40:{const s2=A.createBufferSource();s2.buffer=noise;const f=A.createBiquadFilter();f.type='bandpass';f.frequency.value=2600;f.Q.value=.5;const g=A.createGain();
         s2.connect(f);f.connect(g);g.connect(out);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(k*.32,t+.025);g.gain.exponentialRampToValueAtTime(.001,t+.32);s2.start(t,Math.random()*.5);s2.stop(t+.36);break;}
-      case 49:noiseHit(t,1.6,'highpass',4200,.6,k*.32,out);break;
-      case 63:tone(t,420,330,.18,k*.5,out);noiseHit(t,.02,'bandpass',3000,2,k*.12,out);break;
-      case 64:tone(t,260,210,.26,k*.55,out);noiseHit(t,.02,'bandpass',2000,2,k*.1,out);break;
+      case 42:metal(t,.045+k*.02,k*.42,out,7000,10000);break;
+      case 44:metal(t,.035,k*.3,out,6000,9000);break;
+      case 46:metal(t,.32,k*.36,out,6500,9500);break;
+      case 51:metal(t,1.1,k*.16,out,4000,7500);noiseHit(t,.9,'bandpass',7200,1.8,k*.1,out);tone(t,3150,3140,.5,k*.02,out,'triangle');break;
+      case 49:metal(t,1.8,k*.28,out,3500,8000);noiseHit(t,1.6,'highpass',5000,.6,k*.22,out);break;
+      case 63:tone(t,380,330,.16,k*.55,out);noiseHit(t,.015,'bandpass',3500,2,k*.18,out);break;
+      case 64:tone(t,250,215,.24,k*.6,out);noiseHit(t,.015,'bandpass',2200,2,k*.14,out);break;
       case 60:case 61:tone(t,n===60?520:400,n===60?470:360,.12,k*.4,out);break;
-      case 70:case 82:noiseHit(t,.06,'highpass',6000,.7,k*.18,out);break;
-      case 56:tone(t,800,800,.18,k*.18,out,'square');tone(t,540,540,.18,k*.18,out,'square');break;
-      default:{const f={41:90,43:100,45:110,47:140,48:165,50:200}[n]||130;tone(t,f*1.6,f,.32,k*.7,out);}
+      case 70:case 82:{const s2=A.createBufferSource();s2.buffer=noise;const f=A.createBiquadFilter();f.type='bandpass';f.frequency.value=6500;f.Q.value=1;const g=A.createGain();
+        s2.connect(f);f.connect(g);g.connect(out);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(k*.22,t+.012);g.gain.exponentialRampToValueAtTime(.001,t+.07);s2.start(t,Math.random());s2.stop(t+.09);break;}
+      case 56:metal(t,.2,k*.25,out,600,1800);break;
+      default:{const f={41:90,43:100,45:115,47:140,48:165,50:200}[n]||130;tone(t,f*1.7,f,.34,k*.75,out);noiseHit(t,.02,'bandpass',1500,1,k*.12,out);}
     }
   }
+  // kit acustico campionato (Tone.js), facoltativo: se la rete non risponde si resta sul sintetico
+  const DK={on:false,ready:false,state:'off',buf:{},map:{},base:'https://tonejs.github.io/audio/drum-samples/acoustic-kit/'};
+  function useDrumSamples(on){DK.on=on;if(!on){DK.ready=false;return Promise.resolve('off');}init();if(DK.state==='ready'){DK.ready=true;return Promise.resolve('ready');}
+    DK.state='loading';const files={kick:[36],snare:[38],hihat:[42,44],tom1:[48,63],tom2:[45,64],tom3:[41]};
+    return Promise.all(Object.keys(files).map(f=>fetch(DK.base+f+'.mp3').then(r=>{if(!r.ok)throw 0;return r.arrayBuffer();}).then(b=>A.decodeAudioData(b)).then(buf=>{DK.buf[f]=buf;files[f].forEach(n=>DK.map[n]=f);}).catch(()=>null)))
+      .then(()=>{const ok=DK.buf.kick&&DK.buf.snare;DK.state=ok?'ready':'error';DK.ready=ok&&DK.on;return DK.state;});}
+
   /* ---- chitarra: Karplus-Strong (corda pizzicata calcolata), corpo e amplificatore per timbro ---- */
   const TONES={acoustic:{br:.72,rho:.9965,pos:.18,len:3.4,body:[[110,4,1.2],[230,3,1.5],[2600,3,1]],lp:9000},
     nylon:{br:.42,rho:.9945,pos:.22,len:3,body:[[100,4,1.1],[210,3,1.4],[1800,1,1]],lp:5200},
@@ -192,5 +211,5 @@ const Synth=(()=>{
   function setLayerGain(k,x){fac[k]=x;if(bus[k])bus[k].gain.value=LAYER_GAIN[k]*x;}
   function setVolume(x){init();master.gain.value=x;}
   function useSamples(on,onprog){SAMP.on=on;return on?loadSamples(onprog):Promise.resolve('off');}
-  return{loadSample,sampleDur,playSample,hasSample:id=>SMPB.has(id),setGuitarTone,init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
+  return{useDrumSamples,get drumSampleState(){return DK.state;},loadSample,sampleDur,playSample,hasSample:id=>SMPB.has(id),setGuitarTone,init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
 })();
