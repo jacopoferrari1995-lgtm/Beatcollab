@@ -890,6 +890,55 @@ Object.assign(GENRES,{
   modeW:{major:1.3,minor:1.2,dorian:1,mixolydian:.8,lydian:.2,phrygian:.2,harmonic:.2},
   tm:{maj:['I IV I V','I V vi IV','IV V I I','I ii IV V'],min:['i iv i iv','i bVII bVI bVII','i bVII i bVII','i iv bVII bIII']}}});
 // texture del pianoforte "vivo" per i generi esistenti
+
+// generi aggiunti: drill, reggaeton, amapiano, R&B moderno, house
+Object.assign(GENRES,{
+ drill:{n:'Drill',desc:'UK/NY drill: half-time a 140, 808 che scivolano, rullante sul 3 e “in ritardo”, hi-hat saltellanti in terzina, piano e archi cupi.',
+  tempo:[138,146],swing:.05,unit:16,color:.3,harmV:.45,secdom:0,tritone:0,split:0,pass:0,push:.15,inv:0,susRes:0,
+  lh:'octave',rh:'close',top:[68,80],leg:.9,arps:['pulse8','lazy'],arpOn:.25,walk:0,bass808:1,groove:1,stasis:.5,space:.55,dens:-.15,
+  prog:{piano:0,arp:8,pad:49,bass:38,mel:0},mel:{dens:.45,sync:.65,s16:1,leg:.75},
+  piano:[P('9...............','8...............'),P('9.......7.......','8.....7.....6...'),P('9.....7...7.....','8..7..7.8..7....')],
+  bass:['R...............','R.....R.......R.','R..R......R..R..'],drums:'drill',
+  tex:{ostinato:3,sustain:2,stabs:1,broken:1},
+  modeW:{minor:1.6,harmonic:1.6,phrygian:1.4,dorian:.3,major:.1,lydian:0,mixolydian:0},
+  tm:{maj:['vi IV I V','vi V IV V'],min:['i bVI i V','i iv bVI V','i bII i bII','i bVI bVII V','i i bVI V']}},
+ reggaeton:{n:'Reggaeton',desc:'Dembow a 90–100: cassa dritta, rullante 3-3-2, basso che segue la cassa, giri minori ripetuti, piano e pluck in levare.',
+  tempo:[88,100],swing:0,unit:16,color:.3,harmV:.4,secdom:0,tritone:0,split:0,pass:0,push:.25,inv:0,susRes:0,
+  lh:'octave',rh:'close',top:[67,79],leg:.7,arps:['pulse8','up8'],arpOn:.35,walk:0,groove:1,stasis:.4,space:.35,dens:.05,
+  prog:{piano:0,arp:24,pad:89,bass:38,mel:0},mel:{dens:.55,sync:.75,s16:1,leg:.75},
+  piano:[P('9.......9.......','...7..7....7..7.'),P('9..7..7.9..7..7.','...7..7....7..7.'),P('9..7..7.9..7..7.','..77..7...77..7.')],
+  bass:['R..R..R.R.......','R..R..R.R..R..R.','R..R..R.R..R..R.'],drums:'reggaeton',
+  tex:{stabs:3,ostinato:2,block:1,sustain:.6},
+  modeW:{minor:2,phrygian:1,dorian:.6,harmonic:.5,major:.4,lydian:0,mixolydian:.1},
+  tm:{maj:['vi IV I V','I V vi IV'],min:['i bVI bIII bVII','i bVII bVI bVII','i iv bVII bIII','i bVI bVII i']}},
+ amapiano:{n:'Amapiano',desc:'Sudafrica, 108–116: log drum (basso percussivo che scivola), shaker continui, accordi jazz al Rhodes, groove rilassato e lungo.',
+  tempo:[108,116],swing:.12,unit:16,color:.8,harmV:.5,secdom:.1,tritone:0,split:0,pass:.1,push:.2,inv:.1,susRes:0,
+  lh:'shell',rh:'cluster',top:[66,78],leg:.95,arps:['lazy','pulse8'],arpOn:.2,walk:0,groove:1,stasis:.35,space:.4,dens:-.05,
+  prog:{piano:4,arp:4,pad:89,bass:38,mel:0},mel:{dens:.4,sync:.6,s16:1,leg:.85},
+  piano:[P('9...............','8...............'),P('9.......7.......','8.....7.........'),P('9.....7...7.....','8.....7...7..7..')],
+  bass:['R.....R...R.....','R..R..R...R..R..','R..R..R.R.R..R.a'],drums:'amapiano',
+  tex:{sustain:3,stabs:1.5,block:1,ostinato:1},
+  modeW:{dorian:1.6,minor:1.2,major:1,mixolydian:.6,lydian:.4,phrygian:.15,harmonic:.1},
+  tm:{maj:['I vi ii V','IV iii vi V','I iii IV iv','ii V I I'],min:['i iv i bVII','i bVI bVII i','i iv v i']}},
+ rnb:{n:'R&B moderno',desc:'Accordi lussureggianti (maj9, m11) al Rhodes, batteria trap rallentata con snap e roll leggeri, basso morbido, tanto spazio per la voce.',
+  tempo:[62,78],swing:.1,unit:16,color:.85,harmV:.55,secdom:.15,tritone:.05,split:.1,pass:.1,push:.25,inv:.15,susRes:.1,
+  lh:'shell',rh:'cluster',top:[66,78],leg:.95,arps:['lazy','ballad8'],arpOn:.15,walk:0,groove:1,stasis:.2,space:.45,dens:-.05,
+  prog:{piano:4,arp:4,pad:89,bass:33,mel:0},mel:{dens:.5,sync:.65,s16:1,leg:.85},
+  piano:[P('9...............','8...............'),P('9.......7.......','8......7..7.....'),P('9......7..9.....','8..7...7..7..7..')],
+  bass:['R...............','R......R..R.....','R..R...R..R...a.'],drums:'rnb',
+  tex:{sustain:3,block:1.5,broken:1.5,stabs:.8},
+  modeW:{dorian:1.4,minor:1.2,major:1,lydian:.5,mixolydian:.4,phrygian:.15,harmonic:.2},
+  tm:{maj:['IV iii ii I','I iii vi IV','IV V iii vi','ii V I vi'],min:['i iv bVII bIII','i bVI iv v','i iv i bVII','iv v i i']}},
+ house:{n:'House',desc:'Cassa in quattro a 118–126, clap su 2 e 4, hi-hat in levare, piano a stacchi, basso in levare; anche deep e afro house.',
+  tempo:[118,126],swing:.08,unit:16,color:.55,harmV:.45,secdom:.05,tritone:0,split:0,pass:0,push:.3,inv:.05,susRes:0,
+  lh:'octave',rh:'close',top:[67,79],leg:.6,arps:['up8','pulse8','alberti16'],arpOn:.35,walk:0,groove:1,stasis:.35,space:.2,dens:.1,
+  prog:{piano:0,arp:81,pad:89,bass:38,mel:0},mel:{dens:.55,sync:.6,s16:1,leg:.75},
+  piano:[P('9.......9.......','..7...7...7...7.'),P('9..7..7...7..7..','...7..7....7..7.'),P('9..7..7.9..7..7.','..7..7.7..7..7.7')],
+  bass:['..R...R...R...R.','..R...R...R..R.R','..R.R.R...R.R.R8'],drums:'house',
+  tex:{stabs:3,block:2,ostinato:1.5,octaves:1},
+  modeW:{minor:1.3,dorian:1.3,major:1,mixolydian:.5,lydian:.2,phrygian:.15,harmonic:0},
+  tm:{maj:['I V vi IV','vi IV I V','I iii vi IV'],min:['i bVII bVI bVII','i iv i iv','i bIII bVII iv']}}});
+
 const GENRE_EXTRA={
   pop:{tex:{block:3,broken:2,ostinato:1,stabs:1,sustain:.6,octaves:.5},space:.25},
   rock:{tex:{block:4,stabs:1,octaves:1.5,broken:.5},space:.15},
@@ -1182,7 +1231,7 @@ const PADS=[{id:'kick',n:'Kick'},{id:'snare',n:'Snare'},{id:'rim',n:'Rimshot'},{
   {id:'shaker',n:'Shaker'},{id:'perc1',n:'Tom 1'},{id:'perc2',n:'Tom 2'},{id:'crash',n:'Crash'},{id:'fx',n:'FX'}];
 const LINE_PAD={k:0,s:1,c:1,x:2,h:3,p:3,r:3,o:4,w:5,v:5,q:6,b:6,m:6,u:7,t:7,y:8};
 function drumKit(G,S){
-  const clap=['trap','afrobeat','afrorage','dancehall'].includes(G.drums),ride=G.drums==='jazz',conga=['afrobeat','afrorage','bossa','dancehall'].includes(G.drums);
+  const clap=['trap','afrobeat','afrorage','dancehall','drill','reggaeton','amapiano','rnb','house'].includes(G.drums),ride=G.drums==='jazz',conga=['afrobeat','afrorage','bossa','dancehall','amapiano','house'].includes(G.drums);
   return{notes:[36,S&&S.brush?40:clap?39:38,37,ride?51:42,ride?44:46,70,conga?63:48,conga?64:45,49,55],
     names:['Kick',S&&S.brush?'Spazzole':clap?'Clap':'Snare','Rimshot',ride?'Ride':'Hi-hat',ride?'Hi-hat (pedale)':'Hat aperto','Shaker',conga?'Conga alta':'Tom 1',conga?'Conga bassa':'Tom 2','Crash','FX']};
 }
@@ -1221,7 +1270,7 @@ const HOOK_CONT=[[0,1,-1],[0,1,1],[0,-1,-1],[2,-1,0],[0,-1,2],[1,-1,1],[0,2,-1],
 const MEL_FAM={pop:{straight:1,sync:1.2},rock:{straight:1.5,sync:.6},jazz:{swing:2,sync:.5},blues:{swing:1.5,straight:.5},soul:{sync:2,straight:.5},
   lofi:{sync:1,ballad:.8},classical:{straight:2,ballad:.6},cinematic:{ballad:2,straight:1},gospel:{sync:1,straight:1},bossa:{sync:1.5,swing:.3},
   trap:{flow16:2,sync:.6},boombap:{flow16:1.5,sync:1},triphop:{ballad:1.5,sync:.8},afrobeat:{sync:2,offbeat:.5},afrorage:{flow16:1.2,sync:1.2},
-  dancehall:{sync:1.5,offbeat:1},reggae:{offbeat:2,sync:.6}};
+  dancehall:{sync:1.5,offbeat:1},reggae:{offbeat:2,sync:.6},drill:{flow16:2,sync:.6},reggaeton:{sync:2,offbeat:1},amapiano:{sync:1.5,offbeat:.8,ballad:.5},rnb:{sync:1.5,flow16:1,ballad:.8},house:{straight:1,sync:1.2}};
 
 function genMelody(sec,ctx,r,shared){
   const G=ctx.G,M=ctx.M,type=sec.type,gid=Object.keys(GENRES).find(k=>GENRES[k]===G);
@@ -1416,7 +1465,7 @@ const GAP_FAM={urban:{trapDrop:3,drumHalf:2,kickOut:1.5,hatOnly:1.2,drop808:1,sk
   island:{bassDrop:2,drumOut1:1.5,skipSnare:1.2,stop4:1,breakDrums:.8},
   jazz:{stopTime:2,breakDrums:1.5,stop4:1},
   calm:{breath:2,stopTutti:1.5,stop4:1}};
-const GENRE_FAM={trap:'urban',afrorage:'urban',drill:'urban',boombap:'hiphop',lofi:'hiphop',triphop:'hiphop',pop:'pop',rock:'pop',soul:'pop',gospel:'pop',
+const GENRE_FAM={drill:'urban',reggaeton:'island',amapiano:'island',rnb:'hiphop',house:'pop',trap:'urban',afrorage:'urban',drill:'urban',boombap:'hiphop',lofi:'hiphop',triphop:'hiphop',pop:'pop',rock:'pop',soul:'pop',gospel:'pop',
   reggae:'island',dancehall:'island',afrobeat:'island',reggaeton:'island',jazz:'jazz',bossa:'jazz',blues:'jazz',cinematic:'calm',classical:'calm'};
 function planGaps(sec,G,gid,r,space,hasDrums){
   if(space<.15||sec.type==='intro'||sec.type==='outro')return[];
@@ -1699,8 +1748,8 @@ function padAtmos(sec,ctx,r,L){
 /* ---- Basso: personalità ----
    pattern a 16 sedicesimi: R fondamentale · 5 quinta · 8 ottava · 3 terza · 7 settima (o ottava) · 6 sesta · a avvicinamento al prossimo accordo
    n anticipo del prossimo accordo · g nota stoppata (ghost). Tre livelli di densità per stile. */
-const BASS_STY={genere:'Del genere',tenuto:'Tenuto',pulse:'Ottavi',ottave:'Ottave',walking:'Walking',b808:'808 con glide',cassa:'Segue la cassa',riddim:'Riddim (riff)',funk:'Sincopato / funk',arpeggio:'Arpeggiato'};
-const BASS_PAT={tenuto:{p:['R...............','R.......5.......','R.......R...5...'],leg:1},
+const BASS_STY={genere:'Del genere',logdrum:'Log drum (amapiano)',tenuto:'Tenuto',pulse:'Ottavi',ottave:'Ottave',walking:'Walking',b808:'808 con glide',cassa:'Segue la cassa',riddim:'Riddim (riff)',funk:'Sincopato / funk',arpeggio:'Arpeggiato'};
+const BASS_PAT={logdrum:{p:['R.....R...R.....','R..R..R...R..R..','R..R..R.R.R..R.8'],leg:.4},tenuto:{p:['R...............','R.......5.......','R.......R...5...'],leg:1},
   pulse:{p:['R...R...R...R...','R.R.R.R.R.R.R.R.','R.R.R.R.R.R.R.Ra'],leg:.8},
   ottave:{p:['R...8...R...8...','R.8.R.8.R.8.R.8.','R.8.R.8.R.8.R8a.'],leg:.5},
   funk:{p:['R.....R...R.....','R..g..R.8.g.R..a','R.gR..8.Rg.8R.5a'],leg:.45},
@@ -1708,13 +1757,14 @@ const BASS_PAT={tenuto:{p:['R...............','R.......5.......','R.......R...5.
 const RIDDIM_RH=['R..x..x.x...x.x.','R.....x.x.x.x...','..x.x.x...x.x.x.','R..x..x...x..x..','R.x...x.x...x.x.','x..x..x.x.....x.','R...x.x.x..x....'];
 function bassStyleFor(G,M,gid,r,lock){
   if(lock&&BASS_STY[lock])return lock;
-  const w={genere:1,tenuto:.3+M.space,pulse:.1+M.drive*.8,ottave:M.drive*.4,funk:.1,arpeggio:.15,cassa:.2,riddim:M.ostinato*.5,walking:0,b808:0};
+  const w={genere:1,logdrum:0,tenuto:.3+M.space,pulse:.1+M.drive*.8,ottave:M.drive*.4,funk:.1,arpeggio:.15,cassa:.2,riddim:M.ostinato*.5,walking:0,b808:0};
   const add=(k,x)=>w[k]=(w[k]||0)+x;
   if(G.walk)add('walking',gid==='jazz'?4:1.5);
   if(G.bass808){add('b808',4);w.genere=.3;}
   ({reggae:()=>{add('riddim',4);},dancehall:()=>{add('riddim',2);add('cassa',2);},afrobeat:()=>{add('cassa',1.5);add('funk',1.2);add('riddim',.8);},
     afrorage:()=>{add('cassa',1);},boombap:()=>{add('cassa',2);add('tenuto',.6);},lofi:()=>{add('cassa',1);add('tenuto',.8);},triphop:()=>{add('cassa',1);add('tenuto',1);},
     pop:()=>{add('pulse',1);add('ottave',.3);},rock:()=>{add('pulse',2);},soul:()=>{add('funk',1.2);add('arpeggio',.5);},gospel:()=>{add('funk',.8);add('arpeggio',.8);},
+    drill:()=>{add('b808',3);},amapiano:()=>{add('logdrum',5);w.genere=.2;},reggaeton:()=>{add('cassa',2.5);},rnb:()=>{add('tenuto',1);add('cassa',1);add('funk',.5);},house:()=>{add('genere',2);add('ottave',.6);},
     cinematic:()=>{add('tenuto',2);add('arpeggio',.5);},classical:()=>{add('tenuto',2);add('arpeggio',.8);},bossa:()=>{add('genere',2);}}[gid]||(()=>{}))();
   if(G.groove){w.pulse*=.35;w.ottave*=.35;}
   w.riddim*=1+M.ostinato*2;w.tenuto*=1+M.space;w.pulse*=1+M.drive;w.ottave*=1+M.drive;
@@ -1787,6 +1837,7 @@ function genBass(sec,ctx,r,L,plan,prevRef){
       const nxB=i+1<hits.length?bs+hits[i+1].s/4:bs+4,ghost=h.k==='g';
       const d=ghost?.12:Math.max(.15,(Math.min(nxB,c.start+c.beats+(h.k==='n'?1:0))-beat)*leg);
       E.add(beat+swingDelay(G,h.s)+E.jit(r,.02),d,m,ghost?40+e*10:E.vel(c,68+e*24+(h.k==='R'?8:0)+(h.s%4===0?3:0)+E.jit(r,8)));
+      if(st==='logdrum'&&i>0&&prev!==m&&r()<.4){const ev=L.bass[L.bass.length-1];if(ev&&ev.n===m)ev.gl=prev;}
       if(M.oct&&h.k==='R'&&m-12>=28&&st!=='ottave')E.add(beat+swingDelay(G,h.s),d,m-12,60+e*20);
       prev=m;
     });
@@ -1876,6 +1927,27 @@ const DSTY={
   cinematic:[
     {id:'epico',n:'Epico',w:1,kick:['9.......9.......'],p2:['9..7..7.9...7...','9...7...9...7...'],p1:['........7.7.7.7.'],snare:['........8.......'],fill:'toms',build:'toms'},
     {id:'tensione',n:'Tensione',w:.7,space:.6,kick:['9...............'],p2:['7.6.7.6.7.6.7.6.'],p1:['............7...'],fill:'toms',build:'toms'}],
+  drill:[
+    {id:'uk',n:'UK drill',w:1,half:1,kick:['9.........9.....','9.....9.......9.','9..9......9.....'],kB:['.............9..'],snare:['........9.......'],sB:['...........8....','..............8.'],
+      hat:['8.78..8.7.8.','8..78.8.7..8'],p1:['......5.......5.'],rolls:[[[14,'s']],[[6,'r'],[14,'z']]],fill:'trap',build:'trap',jit:.002},
+    {id:'ny',n:'NY / Brooklyn drill',w:.9,half:1,drive:.6,kick:['9.....9...9..9..','9..9..9...9.....'],snare:['........9.....7.','........9.......'],hat:['8.78.78.78.7','867867867867'],rolls:[[[12,'six']],[[14,'z']]],fill:'trap',build:'trap',jit:.002},
+    {id:'dark',n:'Drill scura (minimale)',w:.6,space:1,half:1,kick:['9.........9.....'],snare:['........9.......'],hat:['8.....8..7..','8..7..8..7..'],fill:'drop',build:'trap'}],
+  reggaeton:[
+    {id:'dembow',n:'Dembow',w:1,kick:['9...9...9...9...'],snare:['...8..8....8..8.'],hat:['..7...7...7...7.','8.7.8.7.8.7.8.7.'],op:['..6...6...6...6.'],p1:['......6.......6.'],fill:'snare',build:'snare'},
+    {id:'perreo',n:'Perreo (pieno)',w:.8,drive:1,kick:['9...9...9...9...'],snare:['...8..8....8..8.'],rim:['..7...7...7...7.'],hat:[H16],sh:['6464646464646464'],p2:['9.......9.......'],fill:'snare',build:'snare'},
+    {id:'moombah',n:'Moombahton lento',w:.5,kick:['9..7..7.9..7....'],snare:['....8.......8...'],hat:['..7...7...7...7.'],p1:['...6..6....6..6.'],fill:'conga',build:'snare'}],
+  amapiano:[
+    {id:'amapiano',n:'Amapiano',w:1,kick:['9.......9.......','9...9...9...9...'],snare:['............8...','....7.......8...'],rim:['..7..7....7..7..','...7..7...7..7..'],hat:['..6...6...6...6.'],
+      sh:['7575757575757575'],p1:['...7...7...7.7..','.7...7...7...7..'],p2:['......6.......6.'],fill:'conga',build:'conga',tm:{1:.02,2:.01}},
+    {id:'private',n:'Private school (morbido)',w:.7,space:1,kick:['9.......9.......'],rim:['..6..6....6..6..'],sh:['6464646464646464'],p1:['...6.......6....'],fill:'drop',build:'conga'}],
+  rnb:[
+    {id:'modern',n:'R&B moderno',w:1,kick:['9......9..9.....','9.........9..7..'],snare:['....9.......9...'],rim:['.......5......5.'],hat:['8676767686767676','8.6.7.6.8.6.7.6.'],rolls:[[[14,'z']],[[6,'r']],[[12,'s']]],fill:'trap',build:'roll',tm:{1:.02}},
+    {id:'slow',n:'Slow jam',w:.8,space:1,kick:['9.........9.....'],snare:['....9.......9...'],hat:['8.6.7.6.8.6.7.6.'],op:['..............6.'],fill:'drop',build:'roll',tm:{1:.03}},
+    {id:'neo',n:'Neo soul (swing)',w:.6,kick:['9.....7...9..7..'],snare:['....9..3....9.3.'],hat:['7.5.6.57.5.6.5.6'],fill:'drop',build:'snare',tm:{1:.035,3:.012}}],
+  house:[
+    {id:'classic',n:'House classica',w:1,kick:['9...9...9...9...'],snare:['....8.......8...'],hat:['..8...8...8...8.','5.8.5.8.5.8.5.8.'],op:['..7...7...7...7.'],sh:['5454545454545454'],fill:'snare',build:'roll'},
+    {id:'deep',n:'Deep house',w:.8,space:.6,kick:['9...9...9...9...'],snare:['....7.......7...'],rim:['...6......6.....'],hat:['..7...7...7...7.'],sh:['4.4.4.4.4.4.4.4.'],fill:'drop',build:'roll'},
+    {id:'afrohouse',n:'Afro house',w:.8,kick:['9...9...9...9...'],snare:['............8...'],rim:['9..9..9...9..9..'],hat:['..7...7...7...7.'],sh:['6464646464646464'],p1:['..7..6....7..6..'],p2:['6.....6.....6...'],fill:'conga',build:'conga'}],
   jazz:[
     {id:'swing',n:'Swing',w:1,jazz:1,hat:['8..8.68..8.6','8..8.68..8..'],op:['...8.....8..'],kick:['4..4..4..4..'],fill:'jazz',build:'jazz'},
     {id:'uptempo',n:'Swing veloce (two-feel)',w:.6,drive:1,jazz:1,hat:['8..8.68..8.6'],op:['...8.....8..'],kick:['5.....5.....'],fill:'jazz',build:'jazz'},
@@ -2065,12 +2137,12 @@ const GTR_STY={
     pat:['T.......T.......','T.....h.6...6.h.','T..h.6.6T..h6.6h']},
   lofi:{n:'Lo-fi (accordi con slide)',kind:'lofi',shape:'top4',tone:'jazz',prog:26,
     pat:['L...............','L......7..L.....','L..7..L...L..7..']}};
-const GTR_GENRE={pop:{strumPop:1,arpPick:.8,travis:.3,soul:.3,loop:.3},rock:{strumRock:1,power:1,arpPick:.4},blues:{boogie:1.2,soul:.6,strumRock:.3},
+const GTR_GENRE={drill:{loop:1,swell:.8},reggaeton:{loop:1,skank:.4,bossa:.2},amapiano:{highlife:.5,loop:.8,lofi:.6},rnb:{lofi:1,soul:1,swell:.5,arpPick:.5},house:{funk:1,skank:.4,loop:.5},pop:{strumPop:1,arpPick:.8,travis:.3,soul:.3,loop:.3},rock:{strumRock:1,power:1,arpPick:.4},blues:{boogie:1.2,soul:.6,strumRock:.3},
   soul:{soul:1,funk:.8,comp:.3},gospel:{soul:1,funk:.6,arpPick:.3},lofi:{lofi:1,arpPick:.6,comp:.4},boombap:{lofi:.8,soul:.6,loop:.5},
   trap:{loop:1.5,arpPick:.8,swell:.5},afrorage:{loop:1,highlife:.8},triphop:{swell:.8,arpPick:.8,lofi:.5},afrobeat:{highlife:1.5,funk:.8,skank:.3},
   dancehall:{skank:1,loop:.8},reggae:{skank:2,highlife:.3},bossa:{bossa:2},jazz:{comp:2,bossa:.3},cinematic:{swell:1.5,arpPick:1},classical:{arpPick:1,travis:.3}};
 // presenza automatica della chitarra per genere (0 = assente)
-const GTR_AUTO={rock:1,blues:1,reggae:1,afrobeat:1,bossa:1,soul:.8,pop:.6,lofi:.6,jazz:.6,dancehall:.5,gospel:.5,triphop:.5,trap:.4,afrorage:.4,cinematic:.4,boombap:.3,classical:0};
+const GTR_AUTO={drill:.3,reggaeton:.5,amapiano:.3,rnb:.6,house:.3,rock:1,blues:1,reggae:1,afrobeat:1,bossa:1,soul:.8,pop:.6,lofi:.6,jazz:.6,dancehall:.5,gospel:.5,triphop:.5,trap:.4,afrorage:.4,cinematic:.4,boombap:.3,classical:0};
 const RHYTHM_KINDS=new Set(['strum','power','funk','skank','comp','bossa','boogie','soul','lofi']);
 function gtrStyleFor(gid,M,r,lock){
   if(lock&&GTR_STY[lock])return lock;
@@ -2455,7 +2527,7 @@ function generateSong(o){
   const bpm=o.bpm||autoBpm;
   return{opts:o,genre:o.genre,mood:o.mood,key,mode,bpm,autoBpm,color,spell,keyName:spell(key),bars:bar,beats:total,sections,chords,layers:L,
     drumStyle:ctx.sty.drums?ctx.sty.drums.S:null,autoSpace:clamp((G.space||.3)*.6+M.space*.6,0,1),info:[...info],swing:G.swing,prog:{...G.prog,gtr:GTR_STY[ctx.sty.gtr.main].prog},secs,typeOrder:order,
-    bass808:ctx.sty.bass==='b808',gtrTone:GTR_STY[ctx.sty.gtr.main].tone,styles:{mel:null,gtr:ctx.sty.gtr.main,bass:ctx.sty.bass,drums:ctx.sty.drums&&ctx.sty.drums.id,piano:ctx.sty.piano.calm,arp:ctx.sty.arp},
+    bass808:ctx.sty.bass==='b808'||ctx.sty.bass==='logdrum',gtrTone:GTR_STY[ctx.sty.gtr.main].tone,styles:{mel:null,gtr:ctx.sty.gtr.main,bass:ctx.sty.bass,drums:ctx.sty.drums&&ctx.sty.drums.id,piano:ctx.sty.piano.calm,arp:ctx.sty.arp},
     defaults:{mel:1,cm:0,piano:1,arp:1,pad:1,bass:1,gtr:1,drums:G.groove?1:0}};
 }
 const rootSpell=(rn,spell)=>/^b/.test(rn)?(pc=>FLAT[mod12(pc)]):/^#/.test(rn)?(pc=>SHARP[mod12(pc)]):spell;
