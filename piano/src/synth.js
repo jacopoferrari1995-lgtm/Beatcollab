@@ -5,7 +5,7 @@
 const Synth=(()=>{
   let A=null,master,comp,revIn,noise,waves={};
   const bus={};
-  const LAYER_GAIN={mel:.95,cm:.62,gtr:.8,piano:.78,arp:.5,pad:.32,bass:.9,drums:.62,ex:.9};
+  const LAYER_GAIN={smp:.9,mel:.95,cm:.62,gtr:.8,piano:.78,arp:.5,pad:.32,bass:.9,drums:.62,ex:.9};
   function impulse(sec,decay){const len=Math.floor(A.sampleRate*sec),b=A.createBuffer(2,len,A.sampleRate);
     for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay);}return b;}
   function wave(parts){const re=new Float32Array(parts.length+1),im=new Float32Array(parts.length+1);parts.forEach((a,i)=>im[i+1]=a);return A.createPeriodicWave(re,im);}
@@ -171,6 +171,15 @@ const Synth=(()=>{
     if(art==='slide'){src.playbackRate.setValueAtTime(Math.pow(2,-1/12),t);src.playbackRate.linearRampToValueAtTime(1,t+.07);}
     src.start(t);src.stop(Math.min(t+src.buffer.duration,end+.4));
   }
+  /* ---- campioni caricati dall'utente ---- */
+  const SMPB=new Map();
+  async function loadSample(id,data){init();if(SMPB.has(id))return SMPB.get(id);const b=await A.decodeAudioData(data.slice(0));SMPB.set(id,b);return b;}
+  const sampleDur=id=>SMPB.has(id)?SMPB.get(id).duration:0;
+  function playSample(id,t,{dur=null,rate=1,gain=1,offset=0,layer='smp'}={}){const b=SMPB.get(id);if(!b||!A)return false;
+    const src=A.createBufferSource(),g=A.createGain();src.buffer=b;src.playbackRate.value=rate;src.connect(g);g.connect(bus[layer]||bus.smp);
+    g.gain.setValueAtTime(gain,t);src.start(t,Math.max(0,offset));
+    if(dur!=null){const e=t+dur;g.gain.setValueAtTime(gain,Math.max(t,e-.015));g.gain.linearRampToValueAtTime(0,e);src.stop(e+.02);}
+    return true;}
   const INST={piano,epiano,pluck,bass,pad,b808,gtr};
   function note(inst,n,t,d,v,layer,gl,art){init();(INST[inst]||piano)(n,t,d,v,bus[layer]||bus.ex,inst==='lead'?true:gl,art);}
   function hit(n,t,v,d){init();drum(n,t,v,bus.drums,d);}
@@ -178,5 +187,5 @@ const Synth=(()=>{
   function setLayerGain(k,x){fac[k]=x;if(bus[k])bus[k].gain.value=LAYER_GAIN[k]*x;}
   function setVolume(x){init();master.gain.value=x;}
   function useSamples(on,onprog){SAMP.on=on;return on?loadSamples(onprog):Promise.resolve('off');}
-  return{setGuitarTone,init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
+  return{loadSample,sampleDur,playSample,hasSample:id=>SMPB.has(id),setGuitarTone,init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
 })();

@@ -1,7 +1,7 @@
 /* ===================== Token ===================== */
 :root{
   --ok:#34d399;--ko:#f87171;
-  --c-mel:#ff6f91;--c-cm:#f472b6;--c-gtr:#e07a3f;--c-piano:#f4b740;--c-arp:#a78bfa;--c-pad:#34d399;--c-bass:#60a5fa;--c-drums:#94a3b8;
+  --c-mel:#ff6f91;--c-smp:#2dd4bf;--c-cm:#f472b6;--c-gtr:#e07a3f;--c-piano:#f4b740;--c-arp:#a78bfa;--c-pad:#34d399;--c-bass:#60a5fa;--c-drums:#94a3b8;
   --s-intro:#64748b;--s-verse:#3b82f6;--s-pre:#8b5cf6;--s-chorus:#f59e0b;--s-bridge:#10b981;--s-special:#ec4899;--s-outro:#64748b;--s-loop:#f59e0b;
   --r:16px;--r2:11px;--ease:cubic-bezier(.2,.7,.2,1);--glow1:rgba(244,183,64,.08);--glow2:rgba(167,139,250,.07);
 }
@@ -348,7 +348,7 @@ main>*,.panel{min-width:0}
 .vol span{font-size:10.5px;color:var(--tx3);font-variant-numeric:tabular-nums;min-width:26px;text-align:right}
 .lane-h.short{grid-template-rows:auto}.lane-h.short .r2{display:none}
 /* ===================== Pad batteria ===================== */
-.pads{padding:16px 18px}
+.pads,.smppanel{padding:16px 18px}
 .padhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .padgrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:14px}
 .dpad{position:relative;border-radius:14px;border:1px solid var(--line2);background:linear-gradient(180deg,var(--panel2),var(--panel3));padding:12px 12px 10px;cursor:pointer;
@@ -472,3 +472,10 @@ button.exgh{cursor:pointer}button.exgh:hover{color:var(--tx)}.exgh small{font-we
 .rngl{display:flex;justify-content:space-between;font-size:10.5px;color:var(--tx3);margin-top:-2px;padding-right:62px}
 .field .label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.field .rng{width:100%;min-width:0}.field .rng .btn{flex:none}.field .rngl{padding-right:58px}
 .sq-c .rl{position:absolute;inset:0;display:grid;place-items:center;font-style:normal;font-size:10.5px;font-weight:800;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);pointer-events:none}
+
+/* campioni e sequenze */
+.smprow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line);font-size:12.5px}
+.smprow:first-child{border-top:0}.smprow .sn{font-weight:650;min-width:120px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.smprow.miss .sn{opacity:.6}.smprow select{padding:4px 22px 4px 8px;border-radius:8px;border:1px solid var(--line);background-color:var(--bg2);font-size:12px}
+.smprow input[type=range]{width:80px;accent-color:var(--c-smp)}.toggle.sm{font-size:12px}
+.smppanel input[type=range]{accent-color:var(--c-smp)}.lane-h input[data-vol=smp]{accent-color:var(--c-smp)}
