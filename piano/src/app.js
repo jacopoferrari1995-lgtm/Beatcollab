@@ -73,7 +73,7 @@ function dropEdits(){if(St.edits.length){St.edits=[];toast('Modifiche agli accor
   St.selChord=-1;regen({resetMute:k==='genre'});}));
 $('#drumKit').addEventListener('change',e=>{St.opts.drumKit=e.target.value;saveOpts();ensureDrums();toast('Batteria: '+e.target.selectedOptions[0].text.split(' (')[0].toLowerCase());});
 $('#gtr').addEventListener('change',e=>{St.opts.gtr=e.target.value;saveOpts();St.mute.gtr=false;regen();toast('Chitarra: '+e.target.selectedOptions[0].text.toLowerCase());});
-$('#arrMode').addEventListener('change',e=>{St.opts.arr=e.target.value;saveOpts();regen({resetMute:true});toast(e.target.value==='sobria'?'Composizione sobria: melodia spenta, meno strati':'Composizione ricca: tutti gli strati');});
+$('#arrMode').addEventListener('change',e=>{St.opts.arr=e.target.value;saveOpts();regen({resetMute:true});toast(e.target.value==='sobria'?'Composizione sobria: solo pianoforte, arpeggio e basso':'Composizione ricca: tutti gli strati');});
 $('#pstyle').addEventListener('change',e=>{St.opts.pianoStyle=e.target.value;saveOpts();regen();toast(e.target.value==='classic'?'Pianoforte classico (v3)':'Pianoforte vivo');});
 $('#human').addEventListener('change',e=>{St.opts.human=e.target.checked;saveOpts();regen();});
 // barre 0–100: densità (50 = come decide il genere) e vuoto/pieno (auto = valore del genere e del mood)
@@ -961,6 +961,6 @@ $('#padSmpF').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(
 /* ---------------- Avvio ---------------- */
 $('#projName').value=St.name;
 // una volta sola: con la composizione sobria la melodia parte spenta anche nel lavoro in corso
-if(St.opts.arr==='sobria'&&!LS.get('pg_sob1',null)){St.mute.mel=true;St.mute.cm=true;LS.set('pg_sob1',1);}
+if(St.opts.arr==='sobria'&&!LS.get('pg_sob2',null)){['mel','cm','gtr','pad','drums'].forEach(k=>St.mute[k]=true);St.mute.piano=St.mute.arp=St.mute.bass=false;LS.set('pg_sob2',1);}
 syncControls();regen({resetMute:!St.muteInit});ensureSamples();
 window.__pg={St,regen,Player,selectSection,parseMidi,onAudioFiles,applyImports};

@@ -853,7 +853,9 @@ function planSection(sec,ctx,r,o){
   // estrazioni a indice fisso: cambiare una traccia non sposta le scelte delle altre
   const G=ctx.G,M=ctx.M,t=sec.type,e=sec.energy,sp=ctx.sty.piano,R=Array.from({length:10},()=>r());
   const busyP={chorus:.8,pre:.6,loop:.55,bridge:.3,special:.25,verse:.25,intro:.15,outro:.15}[t];
-  const dmT=sec.densMul||1,tex=dmT<.6?'sustain':dmT<.8?sp.calm:dmT>1.4?sp.busy:R[0]<(busyP==null?.4:busyP)?sp.busy:sp.calm;
+  const dmT=sec.densMul||1;let tex=dmT<.6?'sustain':dmT<.8?sp.calm:dmT>1.4?sp.busy:R[0]<(busyP==null?.4:busyP)?sp.busy:sp.calm;
+  // sobria: il pianoforte fa gli accordi e lascia l'arpeggio all'arpeggio (salvo stile scelto a mano)
+  if(ctx.sob&&!(o.style||{}).piano&&['broken','ostinato'].includes(tex))tex=e>=.6?'block':'sustain';
   const C=(o.secCfg||{})[t]||{},dm=sec.densMul||1;
   const space=spaceValue(o,C,clamp((G.space||.3)*.6+M.space*.6,0,1));
   // buchi e respiro solo se il vuoto/pieno è stato scelto (brano o sezione), mai in automatico
@@ -869,7 +871,8 @@ function planSection(sec,ctx,r,o){
   const ap=clamp(G.arpOn+M.arp+({intro:.1,verse:-.2,pre:.25,chorus:.3,bridge:.2,special:.2,outro:.05,loop:.15}[t]||0),0,.95);
   // gli strati entrano in ordine man mano che il brano cresce: soglie decise una volta per tutto il brano
   const EN=ctx.entry||{arp:.6,gtr:.5,cm:.7};void ap;
-  p.arp=e>=EN.arp&&(o.pianoStyle==='classic'||!['broken','ostinato'].includes(tex));
+  // sobria: piano, arpeggio e basso sono il cuore del brano, l'arpeggio c'è quasi sempre
+  p.arp=(ctx.sob?e>=.3:e>=EN.arp)&&(o.pianoStyle==='classic'||!['broken','ostinato'].includes(tex));
   if(p.arp&&o.pianoStyle!=='classic')p.dens*=.85;
   p.bass=t==='intro'?R[5]<(G.groove?.35:.2):t==='special'?R[5]<.5:true;
   const tier=e<.4?0:e<.7?1:2;
@@ -877,7 +880,7 @@ function planSection(sec,ctx,r,o){
     t==='special'?(R[6]<.55?null:0):t==='verse'?Math.min(tier,1):tier;
   p.pad=!!o.pad&&R[7]<({intro:.8,verse:.15,pre:.9,chorus:.85,bridge:.9,special:.95,outro:.9,loop:.6}[t]||.5);
   // poco denso: meno strati automaticamente; strati forzati dall'utente
-  if(dm<.6&&p.arp&&t!=='intro')p.arp=R[8]<.35;
+  if(dm<.6&&p.arp&&t!=='intro'&&!ctx.sob)p.arp=R[8]<.35;
   const LY=C.layers||{};
   if(LY.arp!=null)p.arp=LY.arp;if(LY.pad!=null)p.pad=LY.pad&&!!o.pad||LY.pad===true&&o.pad!==false&&true;
   if(LY.pad===true)p.pad=true;if(LY.cm!=null)p.cm=LY.cm;if(LY.bass!=null)p.bass=LY.bass;if(LY.mel!=null)p.mel=LY.mel;if(LY.piano!=null)p.piano=LY.piano;
@@ -1843,7 +1846,7 @@ function generateSong(o){
   return{opts:o,genre:o.genre,mood:o.mood,key,mode,bpm,autoBpm,color,spell,keyName:spell(key),bars:bar,beats:total,sections,chords,layers:L,
     drumStyle:ctx.sty.drums?ctx.sty.drums.S:null,autoSpace:clamp((G.space||.3)*.6+M.space*.6,0,1),info:[...info],swing:G.swing,prog:{...G.prog,gtr:GTR_STY[ctx.sty.gtr.main].prog},secs,typeOrder:order,
     bass808:ctx.sty.bass==='b808'||ctx.sty.bass==='logdrum',gtrTone:GTR_STY[ctx.sty.gtr.main].tone,styles:{mel:null,gtr:ctx.sty.gtr.main,bass:ctx.sty.bass,drums:ctx.sty.drums&&ctx.sty.drums.id,piano:ctx.sty.piano.calm,arp:ctx.sty.arp},
-    defaults:{mel:ctx.sob?0:1,cm:0,piano:1,arp:1,pad:1,bass:1,gtr:1,drums:G.groove?1:0}};
+    defaults:ctx.sob?{mel:0,cm:0,piano:1,arp:1,pad:0,bass:1,gtr:ctx.gtrOn?1:0,drums:0}:{mel:1,cm:0,piano:1,arp:1,pad:1,bass:1,gtr:1,drums:G.groove?1:0}};
 }
 const rootSpell=(rn,spell)=>/^b/.test(rn)?(pc=>FLAT[mod12(pc)]):/^#/.test(rn)?(pc=>SHARP[mod12(pc)]):spell;
 const Q_LEVEL={maj:0,min:0,dim:0,aug:0,sus2:1,sus4:1,add9:1,madd9:1,'6':1,m6:1,maj7:2,m7:2,'7':2,m7b5:2,dim7:2,mmaj7:2,'7sus4':2,
