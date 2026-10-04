@@ -856,12 +856,14 @@ function planSection(sec,ctx,r,o){
   const dmT=sec.densMul||1,tex=dmT<.6?'sustain':dmT<.8?sp.calm:dmT>1.4?sp.busy:R[0]<(busyP==null?.4:busyP)?sp.busy:sp.calm;
   const C=(o.secCfg||{})[t]||{},dm=sec.densMul||1;
   const space=spaceValue(o,C,clamp((G.space||.3)*.6+M.space*.6,0,1));
+  // buchi e respiro solo se il vuoto/pieno è stato scelto (brano o sezione), mai in automatico
+  const spaceSet=(C&&(C.spaceV!=null||C.space!=null))||(o.spaceV!=null&&o.spaceV!=='auto')||o.space!=null;
   const dens=clamp((.22+e*.55+(M.dens-.5)*.45+(G.dens||0)-space*.25)*dm,.05,1);
   // vuoto/pieno: più è alto, più le battute alternano pieno e quasi vuoto
   // vuoto/pieno: le battute non spariscono; respirano dentro (pause su alcuni battiti, ciclo di 2 battute)
   const shape=t==='pre'?[.6,.75,.9,1]:R[2]<space+.15?[1,1-.35*space,1,1-.3*space]:[1,1,1,1];
   const BR=[[1,1,1,.15,1,1,.6,0],[1,1,1,1,1,.5,0,0],[1,.25,1,.25,1,.25,1,0],[.5,.8,1,1,1,1,.4,.1],[1,1,.3,1,1,1,.3,0],[1,1,0,.6,1,1,1,0]];
-  const bp=t==='pre'||space<.4?null:BR[Math.floor(R[1]*BR.length)],bAmt=clamp((space-.35)*1.6,0,1)*(t==='chorus'?.75:1);
+  const bp=t==='pre'||space<.4||!spaceSet?null:BR[Math.floor(R[1]*BR.length)],bAmt=clamp((space-.35)*1.6,0,1)*(t==='chorus'?.75:1);
   const p={tex,dens,shape,space,breath:bp?BR.indexOf(bp):-1,br:bp?(b,beat)=>clamp(1-(1-bp[(b%2)*4+Math.min(3,Math.floor(beat+1e-6))])*bAmt,0,1):null};
   p.mel=t!=='intro'&&t!=='outro'&&!(t==='special'&&R[3]<.5);
   const ap=clamp(G.arpOn+M.arp+({intro:.1,verse:-.2,pre:.25,chorus:.3,bridge:.2,special:.2,outro:.05,loop:.15}[t]||0),0,.95);
@@ -888,7 +890,7 @@ function planSection(sec,ctx,r,o){
   p.cm=e>=EN.cm;if(LY.cm!=null)p.cm=LY.cm;
   if(LY.gtr!=null)p.gtr=LY.gtr&&ctx.gtrOn||LY.gtr===true;if(p.gtr&&!p.gtrStyle)p.gtrStyle=ctx.sty.gtr.main;
   if(p.gtr&&RHYTHM_KINDS.has(GTR_STY[p.gtrStyle].kind)&&o.pianoStyle!=='classic'&&p.tex!=='sustain'){p.tex=BUSY[sp.calm]<=1.4?sp.calm:'sustain';p.dens*=.85;}
-  p.gaps=planGaps(sec,G,ctx.gid,r,space,p.drums!=null&&!!G.drums);
+  p.gaps=spaceSet?planGaps(sec,G,ctx.gid,r,space,p.drums!=null&&!!G.drums):[];
   return p;
 }
 
@@ -1337,8 +1339,8 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
   const hit=(tt,pad,v,dd,man)=>{if(G2[pad]&&!man)return;const k=(PD[pad]!=null?PD[pad]:1);
     if(k<.98&&pad!==9&&pad!==8&&pad!==0&&pad!==1&&r()>k)return;
     L.drums.push({t:tt,d:dd||.12,n:kit.notes[pad],pad,v:clamp(Math.round(v*E.dyn(tt)),12,127)});};
-  const VX={X:112,x:90,o:52};
-  const vel=(ch,pad)=>(VX[ch]||84)*(.86+.16*e)+(pad===3||pad===5?-6:0)+(hum?(r()+r()-1)*5*hum:0);
+  const VX={X:112,x:90,o:52},VH={X:92,x:76,o:54};
+  const vel=(ch,pad)=>((pad===3||pad===5||pad===4?VH:VX)[ch]||84)*(.86+.16*e)+(hum?(r()+r()-1)*5*hum:0);
   const sw=S.sw!=null?S.sw:Math.min(.6,(G.swing||0)*1.2),swD=i=>g===16&&i%2===1?sw*.0833:0;
   const lr=rngFrom(d.lickSeed+hashStr(t)),fam=d.fam,lick=pick(lr,GLICK[fam]);
   const intro=t==='intro',bridgeHalf=(t==='bridge'||t==='special')&&lr()<.5;
@@ -1386,8 +1388,8 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
   for(const pd in G2){const steps=G2[pd];if(!steps)continue;for(let b=0;b<sec.bars;b++){const bs=sec.startBeat+b*4,o=steps.length>16&&drumKind(b,sec.bars)==='B'?16:0;
     for(let i=0;i<16;i++){const v=steps[o+i];if(!(v>0))continue;const n=Math.floor(v/1000)+1,vv=v%1000,t0=bs+i/4+(i%2?sw*.0833:0)+jit();
       for(let q=0;q<n;q++)hit(t0+q*.25/n,+pd,n>1?vv*(.6+.4*q/(n-1)):vv,+pd===9?1:.12,true);}}}
-  if(riseTo&&e>=.3)hit(sec.startBeat+(sec.bars-1)*4+(fillLen>=2?2:3),9,60+e*20,fillLen>=2?2:1);
-  if(sec.type==='chorus'&&sec.prev&&['trap','afrorage','cinematic','triphop','drill'].includes(G.drums))hit(sec.startBeat,9,88,.6);
+  // riser solo prima di un ritornello, quando la sezione è già piena
+  if(riseTo&&nx.type==='chorus'&&lev>=2)hit(sec.startBeat+(sec.bars-1)*4+2,9,55+e*15,2);
 }
 
 /* =====================================================================
