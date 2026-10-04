@@ -9,6 +9,15 @@ const bootHadLocal=!!LS.get('pg_current',null);
 const Cloud={ready:false,list:[],col:null,dl:null,_t:null,_last:null,
   save(id,body){if(!this.col)return;this.col.doc(id).set(body).catch(e=>{if(e&&e.code==='invalid_argument')toast('Progetto troppo grande per l\'archivio: fai anche un backup .json');});},
   remove(id){if(this.col)this.col.doc(id).delete().catch(()=>{});},
+  // audio: a pezzi da ~180 KB in data/users/<id>/samples/<campione>/<n>
+  smpCol(id){return this.col.doc('samples').collection(id);},
+  async putSample(id,name,type,buf){if(!this.col)return false;if(buf.byteLength>12e6){toast(`“${name}” è troppo grande per l'archivio (oltre 12 MB): resta solo in questo browser`);return false;}
+    const u8=new Uint8Array(buf),CH=180000,n=Math.ceil(u8.length/CH),c=this.smpCol(id);
+    try{for(let k=0;k<n;k++){let s='';const part=u8.subarray(k*CH,(k+1)*CH);for(let i=0;i<part.length;i+=8192)s+=String.fromCharCode.apply(null,part.subarray(i,i+8192));
+        await c.doc('p'+k).set({name,type,k,n,b64:btoa(s)});}return true;}catch(e){toast('Archivio pieno o non raggiungibile: il campione resta solo in questo browser');return false;}},
+  async getSample(id){if(!this.col)return null;try{const snap=await this.smpCol(id).get();const ps=snap.docs.map(d=>d.data()).filter(Boolean).sort((x,y)=>x.k-y.k);
+      if(!ps.length||ps.length!==ps[0].n)return null;const bins=ps.map(p=>{const s=atob(p.b64),u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u;});
+      const out=new Uint8Array(bins.reduce((q,b)=>q+b.length,0));let o=0;bins.forEach(b=>{out.set(b,o);o+=b.length;});return{name:ps[0].name,type:ps[0].type,data:out.buffer};}catch(e){return null;}},
   saveCurrent(json){if(!this.col||json===this._last)return;clearTimeout(this._t);this._t=setTimeout(()=>{this._last=json;this.col.doc('current').set({date:Date.now(),state:JSON.parse(json)}).catch(()=>{});},4000);}};
 const rndSeed=()=>1+Math.floor(Math.random()*99998);
 const fmtTime=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
@@ -774,12 +783,19 @@ const smpLoading=new Set();
 async function ensureSamples(){
   const ids=new Set([...(St.clips||[]).map(c=>c.sid),...Object.values(St.padSmp||{})]);
   for(const id of ids){if(Synth.hasSample(id)||smpLoading.has(id))continue;smpLoading.add(id);
-    try{const rec=await IDB.get(id);if(rec&&rec.data){await Synth.loadSample(id,rec.data);}}catch(e){}smpLoading.delete(id);}
+    try{let rec=await IDB.get(id).catch(()=>null);
+      // non è nel browser: si prende dall'archivio
+      if(!(rec&&rec.data)&&Cloud.ready){rec=await Cloud.getSample(id);if(rec)IDB.put(id,{name:rec.name,type:rec.type,data:rec.data}).catch(()=>{});}
+      if(rec&&rec.data){await Synth.loadSample(id,rec.data);}
+      // era solo nel browser: lo copia nell'archivio
+      if(rec&&rec.data&&Cloud.ready&&!rec._fromCloud){Cloud.smpCol(id).doc('p0').get().then(s=>{if(!s.exists)Cloud.putSample(id,rec.name||id,rec.type||'',rec.data.slice(0));}).catch(()=>{});}
+    }catch(e){}smpLoading.delete(id);}
   renderSamples();drawArr();
 }
 async function addSampleFile(f){
   const data=await f.arrayBuffer(),id='s'+Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36);
-  await Synth.loadSample(id,data);await IDB.put(id,{name:f.name,type:f.type,data}).catch(()=>toast('Memoria del browser piena: il campione vale solo per questa sessione'));
+  await Synth.loadSample(id,data);await IDB.put(id,{name:f.name,type:f.type,data}).catch(()=>{});
+  if(Cloud.ready)Cloud.putSample(id,f.name,f.type,data.slice(0)).then(ok=>{if(ok)toast(`“${f.name}” salvato nel tuo archivio`);});
   return{id,name:f.name.replace(/\.[^.]+$/,'')};
 }
 const curSec=()=>St.song.sections[St.sel];
@@ -884,7 +900,7 @@ $('#padSmpF').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(
   // se il browser ha perso il lavoro in corso, si riprende quello dell'archivio
   if(!bootHadLocal&&cur&&cur.state&&cur.state.opts){restore(JSON.stringify(cur.state));toast('Ripreso il lavoro in corso dal tuo archivio');}
   else toast(list.length?`Archivio collegato: ${list.length} progetti`:'Archivio collegato: i progetti si salvano nel tuo account');
-  updHist();if(!$('#modal').hidden&&$('#mTitle').textContent==='Progetti')renderProjects();
+  updHist();ensureSamples();if(!$('#modal').hidden&&$('#mTitle').textContent==='Progetti')renderProjects();
 }catch(e){}})();
 
 /* ---------------- Avvio ---------------- */
