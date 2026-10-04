@@ -23,10 +23,10 @@ const rndSeed=()=>1+Math.floor(Math.random()*99998);
 const fmtTime=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2000);}
 
-const DEF={genre:'pop',mood:'rilassato',mode:'auto',key:'auto',structure:'vc',color:'auto',human:true,pad:false,pianoStyle:'live',modLast:false,sound:'samp',dens:'auto',spaceLvl:'auto',gtr:'auto',drumKit:'auto'};
+const DEF={genre:'pop',mood:'rilassato',mode:'auto',key:'auto',structure:'vc',color:'auto',human:true,pad:false,pianoStyle:'live',modLast:false,sound:'samp',dens:'auto',spaceLvl:'auto',gtr:'auto',drumKit:'auto',arr:'sobria'};
 const St={opts:Object.assign({},DEF,LS.get('pg_opts',{})),seeds:{h:rndSeed(),a:rndSeed(),m:rndSeed()},bpm:null,song:null,ev:[],
   mute:{},solo:null,oct:{},vol:{},padMute:{},padVol:{},padDens:{},drumGrid:{},feel:{},style:{},inst:{},lib:[],clips:[],padSmp:{},padSmpName:{},imports:[],secCfg:{},padSel:null,showPads:false,reseed:{L:{},S:{}},sel:0,selChord:-1,scope:'rep',loop:false,muteInit:false,layout:null,secs:null,typeOrder:null,edits:[]};
-const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1},sound:{samp:1,synth:1},gtr:{auto:1,on:1,off:1},drumKit:{auto:1,acoustic:1,synth:1},};
+const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1},sound:{samp:1,synth:1},gtr:{auto:1,on:1,off:1},drumKit:{auto:1,acoustic:1,synth:1},arr:{sobria:1,ricca:1}};
 // densità e vuoto/pieno: 'auto' o 0–100 (i vecchi valori a parole vengono convertiti)
 const numOrAuto=(v,leg)=>v==null||v==='auto'?'auto':leg[v]!=null?leg[v]:isFinite(+v)?clamp(Math.round(+v),0,100):'auto';
 St.name='Senza titolo';St.projId=null;St.savedSnap=null;
@@ -57,7 +57,7 @@ fillSel('#key',[['auto','Auto'],...KEY_NAMES.map((n,i)=>[i,n])]);
 fillSel('#structure',Object.entries(STRUCTS).map(([k,s])=>[k,s.n]));
 fillSel('#color',[['auto','Auto (dal genere)'],['triadi','Triadi'],['colorati','Colorati (add9, sus, 6)'],['settime','Settime'],['estesi','Estesi (9, 11, 13)']]);
 fillSel('#addType',['intro','verse','pre','chorus','bridge','special','outro'].map(t=>[t,SEC_NAME[t]]));
-function syncControls(){['genre','mood','mode','key','structure','color','sound','gtr','drumKit'].forEach(k=>$('#'+k).value=St.opts[k]);syncRanges();$('#modLast').checked=!!St.opts.modLast;
+function syncControls(){['genre','mood','mode','key','structure','color','sound','gtr','drumKit'].forEach(k=>$('#'+k).value=St.opts[k]);$('#arrMode').value=St.opts.arr;syncRanges();$('#modLast').checked=!!St.opts.modLast;
   $('#pstyle').value=St.opts.pianoStyle;$('#human').checked=St.opts.human;$('#pad').checked=St.opts.pad;}
 const saveOpts=()=>LS.set('pg_opts',St.opts);
 function clearReseed(k){const R=St.reseed;Object.keys(R.S).forEach(x=>{if(x.endsWith('.'+k))delete R.S[x];});
@@ -73,6 +73,7 @@ function dropEdits(){if(St.edits.length){St.edits=[];toast('Modifiche agli accor
   St.selChord=-1;regen({resetMute:k==='genre'});}));
 $('#drumKit').addEventListener('change',e=>{St.opts.drumKit=e.target.value;saveOpts();ensureDrums();toast('Batteria: '+e.target.selectedOptions[0].text.split(' (')[0].toLowerCase());});
 $('#gtr').addEventListener('change',e=>{St.opts.gtr=e.target.value;saveOpts();St.mute.gtr=false;regen();toast('Chitarra: '+e.target.selectedOptions[0].text.toLowerCase());});
+$('#arrMode').addEventListener('change',e=>{St.opts.arr=e.target.value;saveOpts();regen({resetMute:true});toast(e.target.value==='sobria'?'Composizione sobria: melodia spenta, meno strati':'Composizione ricca: tutti gli strati');});
 $('#pstyle').addEventListener('change',e=>{St.opts.pianoStyle=e.target.value;saveOpts();regen();toast(e.target.value==='classic'?'Pianoforte classico (v3)':'Pianoforte vivo');});
 $('#human').addEventListener('change',e=>{St.opts.human=e.target.checked;saveOpts();regen();});
 // barre 0–100: densità (50 = come decide il genere) e vuoto/pieno (auto = valore del genere e del mood)
@@ -724,7 +725,7 @@ function updHist(){
 }
 function restore(json){
   const o=JSON.parse(json);H.restoring=true;
-  Object.assign(St,{opts:Object.assign({},DEF,o.opts),seeds:o.seeds,secs:o.secs||null,typeOrder:o.typeOrder||null,edits:o.edits||[],oct:o.oct||{},
+  Object.assign(St,{opts:Object.assign({},DEF,{arr:'ricca'},o.opts),seeds:o.seeds,secs:o.secs||null,typeOrder:o.typeOrder||null,edits:o.edits||[],oct:o.oct||{},
     mute:o.mute||{},solo:o.solo||null,bpm:o.bpm||null,name:o.name||St.name,muteInit:true,reseed:JSON.parse(JSON.stringify(o.reseed||{L:{},S:{}})),vol:{...(o.vol||{})},padMute:{...(o.padMute||{})},padVol:{...(o.padVol||{})},padDens:{...(o.padDens||{})},drumGrid:JSON.parse(JSON.stringify(o.drumGrid||{})),feel:JSON.parse(JSON.stringify(o.feel||{})),style:{...(o.style||{})},inst:JSON.parse(JSON.stringify(o.inst||{})),lib:JSON.parse(JSON.stringify(o.lib||[])),clips:JSON.parse(JSON.stringify(o.clips||[])),padSmp:{...(o.padSmp||{})},padSmpName:{...(o.padSmpName||{})},imports:JSON.parse(JSON.stringify(o.imports||[])),secCfg:JSON.parse(JSON.stringify(o.secCfg||{}))});
   syncControls();$('#projName').value=St.name;closePop();
   if(St.sel>=0)St.sel=Math.min(St.sel,99);regen();ensureSamples();H.restoring=false;H.last=json;LS.set('pg_current',o);updHist();
@@ -959,5 +960,7 @@ $('#padSmpF').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(
 
 /* ---------------- Avvio ---------------- */
 $('#projName').value=St.name;
+// una volta sola: con la composizione sobria la melodia parte spenta anche nel lavoro in corso
+if(St.opts.arr==='sobria'&&!LS.get('pg_sob1',null)){St.mute.mel=true;St.mute.cm=true;LS.set('pg_sob1',1);}
 syncControls();regen({resetMute:!St.muteInit});ensureSamples();
 window.__pg={St,regen,Player,selectSection,parseMidi,onAudioFiles,applyImports};

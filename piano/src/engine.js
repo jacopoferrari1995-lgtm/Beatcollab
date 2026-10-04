@@ -864,7 +864,7 @@ function planSection(sec,ctx,r,o){
   const shape=t==='pre'?[.6,.75,.9,1]:R[2]<space+.15?[1,1-.35*space,1,1-.3*space]:[1,1,1,1];
   const BR=[[1,1,1,.15,1,1,.6,0],[1,1,1,1,1,.5,0,0],[1,.25,1,.25,1,.25,1,0],[.5,.8,1,1,1,1,.4,.1],[1,1,.3,1,1,1,.3,0],[1,1,0,.6,1,1,1,0]];
   const bp=t==='pre'||space<.4||!spaceSet?null:BR[Math.floor(R[1]*BR.length)],bAmt=clamp((space-.35)*1.6,0,1)*(t==='chorus'?.75:1);
-  const p={tex,dens,shape,space,breath:bp?BR.indexOf(bp):-1,br:bp?(b,beat)=>clamp(1-(1-bp[(b%2)*4+Math.min(3,Math.floor(beat+1e-6))])*bAmt,0,1):null};
+  const p={sob:ctx.sob,tex,dens,shape,space,breath:bp?BR.indexOf(bp):-1,br:bp?(b,beat)=>clamp(1-(1-bp[(b%2)*4+Math.min(3,Math.floor(beat+1e-6))])*bAmt,0,1):null};
   p.mel=t!=='intro'&&t!=='outro'&&!(t==='special'&&R[3]<.5);
   const ap=clamp(G.arpOn+M.arp+({intro:.1,verse:-.2,pre:.25,chorus:.3,bridge:.2,special:.2,outro:.05,loop:.15}[t]||0),0,.95);
   // gli strati entrano in ordine man mano che il brano cresce: soglie decise una volta per tutto il brano
@@ -887,7 +887,7 @@ function planSection(sec,ctx,r,o){
   // chitarra nella sezione; se fa ritmica il pianoforte passa alla texture più calma
   if(ctx.gtrOn){p.gtr=e>=EN.gtr||t==='loop';
     p.gtrStyle=(t==='bridge'||t==='special')?ctx.sty.gtr.alt:(t==='verse'||t==='intro'||t==='outro'||e<.6)?ctx.sty.gtr.calm:ctx.sty.gtr.main;}
-  p.cm=e>=EN.cm;if(LY.cm!=null)p.cm=LY.cm;
+  p.cm=!ctx.sob&&e>=EN.cm;if(LY.cm!=null)p.cm=LY.cm;
   if(LY.gtr!=null)p.gtr=LY.gtr&&ctx.gtrOn||LY.gtr===true;if(p.gtr&&!p.gtrStyle)p.gtrStyle=ctx.sty.gtr.main;
   if(p.gtr&&RHYTHM_KINDS.has(GTR_STY[p.gtrStyle].kind)&&o.pianoStyle!=='classic'&&p.tex!=='sustain'){p.tex=BUSY[sp.calm]<=1.4?sp.calm:'sustain';p.dens*=.85;}
   p.gaps=spaceSet?planGaps(sec,G,ctx.gid,r,space,p.drums!=null&&!!G.drums):[];
@@ -917,9 +917,9 @@ function env(sec,ctx,L,layer){
 const barOf=(sec,b)=>Math.floor((b-sec.startBeat)/4+1e-6);
 // densità di battuta: la forma della frase (vuoto/pieno) e la melodia (il piano si dirada dove la melodia è fitta e riempie dove tace)
 function dBar(sec,plan,b){
-  const bs=sec.startBeat+b*4,n=(sec.mel||[]).filter(x=>x.t>=bs&&x.t<bs+4).length,act=clamp(n/6,0,1);
+  const bs=sec.startBeat+b*4,n=plan.sob?0:(sec.mel||[]).filter(x=>x.t>=bs&&x.t<bs+4).length,act=clamp(n/6,0,1);
   let d=plan.dens*plan.shape[b%4]*(1-.35*act);
-  if(sec.mel&&sec.mel.length&&act<.15)d+=.12*(1-plan.space);
+  if(!plan.sob&&sec.mel&&sec.mel.length&&act<.15)d+=.12*(1-plan.space);
   return clamp(d,.04,1);}
 const thinP=dB=>Math.min(.95,Math.pow(1-dB,1.4)*.8+(dB<.2?.15:0));
 
@@ -1363,8 +1363,8 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
   for(let b=0;b<sec.bars;b++){
     const bs=sec.startBeat+b*4,last=b===sec.bars-1,half=b%2;
     // quale variazione in questa battuta
-    let fill=null;if(last&&fillLen)fill={p:fillPick,len:fillLen};else if(b%8===7&&!last)fill={p:midFill,len:1};
-    const useLick=!fill&&b%4===3&&lev>=1;
+    let fill=null;if(last&&fillLen)fill={p:fillPick,len:fillLen};else if(b%8===7&&!last&&!ctx.sob)fill={p:midFill,len:1};
+    const useLick=!ctx.sob&&!fill&&b%4===3&&lev>=1;
     const lines={};for(const k in d.lines){let ln=d.lines[k];if(!ln)continue;lines[k]=ln.slice(half*g,half*g+g);}
     if(rim2s&&lines.r){lines.s=lines.r;delete lines.r;}
     if(bridgeHalf&&lines.s){lines.s=lines.s.replace(/X/g,'-');lines.s=lines.s.slice(0,g/2)+'X'+lines.s.slice(g/2+1);}
@@ -1378,11 +1378,11 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
       for(const k in fill.p){const pt=fill.p[k];const seg=(pt.length>=n?pt.slice(-n):pt.padStart(n,'-'));lines[k]=(lines[k]||'-'.repeat(g)).slice(0,from)+seg;}}
     // hat aperto: chiude l'hi-hat nello stesso punto
     if(lines.o&&lines.h&&!S.jazz){let h='';for(let i=0;i<g;i++)h+=(lines.o[i]!=='-'&&(lines.o[i]==='X'||(lines.o[i]==='x'&&lev>=1)||(lines.o[i]==='o'&&lev>=2)))?'-':lines.h[i];lines.h=h;}
-    if(lev===2&&!fill&&['hiphop','pop'].includes(d.fam)&&lines.s&&g===16&&r()<.4){const gp=pick(r,[7,9,15,3]);if(lines.s[gp]==='-'&&lines.s[gp+1]!=='X')lines.s=lines.s.slice(0,gp)+'o'+lines.s.slice(gp+1);}
+    if(!ctx.sob&&lev===2&&!fill&&['hiphop','pop'].includes(d.fam)&&lines.s&&g===16&&r()<.4){const gp=pick(r,[7,9,15,3]);if(lines.s[gp]==='-'&&lines.s[gp+1]!=='X')lines.s=lines.s.slice(0,gp)+'o'+lines.s.slice(gp+1);}
     for(const k in lines){const pad=GPAD[k],ln=lines[k];
       for(let i=0;i<g;i++){const ch=ln[i];if(ch==='-')continue;
         // probabilità: le decorazioni (o) entrano a volte già a densità media e quasi sempre a densità piena; così ogni battuta è un po' diversa
-        if(ch==='o'){if(lev===0||r()>(lev===2?.78:.28))continue;}else if(ch!=='X'&&lev<1)continue;
+        if(ch==='o'){if(lev===0||r()>(ctx.sob?(lev===2?.35:0):(lev===2?.78:.28)))continue;}else if(ch!=='X'&&lev<1)continue;
         const bf=plan.br?plan.br(b,i*stepB):1;if(bf<.35&&((pad>=3&&pad<=7)||(pad===0&&ch!=='X')))continue;
         const tt=bs+i*stepB+swD(i)+(TM[k]!=null?TM[k]:(FEEL[k]||0))+(pad>=3?(r()+r()-1)*.006*hum:0),v=vel(ch==='r'||ch==='t'||ch==='f'?'x':ch,pad,i,b);
         // posizione nel fill: crescendo
@@ -1667,7 +1667,9 @@ function generateSong(o){
   let autoBpm=Math.round(clamp((G.tempo[0]+(G.tempo[1]-G.tempo[0])*hr())*M.tempo,52,180));
   if(G.groove)autoBpm=clamp(autoBpm,G.tempo[0],G.tempo[1]);
   const ctx={gid:Object.keys(GENRES).find(k=>GENRES[k]===G),lockMel:(o.style||{}).mel,G,M,mode,key,color,tense:!!M.tense,human:o.human!==false,feel:o.feel||{},scalePcs:MODES[mode].scale.map(x=>mod12(key+x)),
-    allowDim:!!(M.tense||G.n==='Jazz'||G.n==='Gospel'||G.n==='Classico')};
+    allowDim:!!(M.tense||G.n==='Jazz'||G.n==='Gospel'||G.n==='Classico'),
+    // composizione sobria (predefinita): meno strati e meno decorazioni, come le prime versioni
+    sob:o.arr!=='ricca'};
   const info=new Set();
   const spell=speller(key,mode);
   // struttura
@@ -1758,11 +1760,11 @@ function generateSong(o){
   ctx.sty=songStyle(G,M,rA('sty-piano','piano'),rA('sty-arp','arp'),o.style);
   ctx.spb=60/(o.bpm||autoBpm);
   // chitarra: auto = dal genere; stile principale + alternativo (bridge/special)
-  {const gp=GTR_AUTO[ctx.gid]||0;ctx.gtrOn=o.gtr==='on'||o.gtr===true||(o.gtr!=='off'&&o.gtr!==false&&gp>=.5);
+  {const gp=GTR_AUTO[ctx.gid]||0;ctx.gtrOn=o.gtr==='on'||o.gtr===true||(!ctx.sob&&o.gtr!=='off'&&o.gtr!==false&&gp>=.5);
     const rg=rA('sty-gtr','gtr'),main=gtrStyleFor(ctx.gid,M,rg,(o.style||{}).gtr),pool=Object.keys(GTR_GENRE[ctx.gid]||{arpPick:1}).filter(k=>k!==main);
     const calm=(o.style||{}).gtr?main:({strumPop:'arpPick',strumRock:'power',funk:'funk',soul:'soul'}[main]||main);
     ctx.sty.gtr={main,calm,alt:(o.style||{}).gtr||!pool.length?main:pick(rg,pool)};}
-  {const re=rA('entry',null);ctx.entry={arp:clamp(.8-(G.arpOn+M.arp)*.6+(re()-.5)*.16,.3,.97),gtr:clamp(.5+(re()-.5)*.2,.4,.62),cm:clamp(.72+(re()-.5)*.16,.6,.85)};}
+  {const re=rA('entry',null);ctx.entry={arp:clamp(.8-(G.arpOn+M.arp)*.6+(re()-.5)*.16+(ctx.sob?.08:0),.3,.97),gtr:clamp(.5+(re()-.5)*.2,.4,.62),cm:clamp(.72+(re()-.5)*.16,.6,.85)};}
   {const gid=Object.keys(GENRES).find(k=>GENRES[k]===G),rb=rA('sty-bass','bass');ctx.sty.bass=bassStyleFor(G,M,gid,rb,(o.style||{}).bass);ctx.sty.riddim=riddimOf(rb);}
   ctx.sty.drums=G.drums?grooveDNA(G,M,rA('sty-drums-s','drums'),i=>subRng(seeds.a,tagx('sty-drums-p'+i,'drums')+(i>=8&&RS.L&&RS.L['drums.'+i]?'#P'+RS.L['drums.'+i]:'')),(o.style||{}).drums,i=>(RS.L&&RS.L['drums.'+i])||0):null;
   if(ctx.sty.drums&&G.groove)info.add('batteria: '+ctx.sty.drums.S.n.toLowerCase());
@@ -1808,7 +1810,7 @@ function generateSong(o){
         L.piano=L.piano.filter(x=>!drop.has(x)).concat(add);}}
     if(plan.drums!=null&&G.drums)genDrums(sec,ctx,rA('drums-'+t,'drums',t),L,plan.drums,plan,(o.drumGrid||{})[t],o.padDens);
     // spazio alla melodia, poi il controcanto
-    if(plan.mel){if(makeRoom(L,sec,['piano','arp','gtr'])>0)info.add('pianoforte e arpeggio lasciano spazio alla melodia (sotto di lei)');
+    if(plan.mel){if(!ctx.sob&&makeRoom(L,sec,['piano','arp','gtr'])>0)info.add('pianoforte e arpeggio lasciano spazio alla melodia (sotto di lei)');
       if(plan.cm!==false)genCounter(sec,ctx,rA('cm-'+t,'cm',t),L);}
     // densità: sotto 50 restano le note più importanti · vuoto/pieno: figure di pausa coordinate
     thinSection(L,sec,sec.densV<50?(50-sec.densV)/50:0);
@@ -1841,7 +1843,7 @@ function generateSong(o){
   return{opts:o,genre:o.genre,mood:o.mood,key,mode,bpm,autoBpm,color,spell,keyName:spell(key),bars:bar,beats:total,sections,chords,layers:L,
     drumStyle:ctx.sty.drums?ctx.sty.drums.S:null,autoSpace:clamp((G.space||.3)*.6+M.space*.6,0,1),info:[...info],swing:G.swing,prog:{...G.prog,gtr:GTR_STY[ctx.sty.gtr.main].prog},secs,typeOrder:order,
     bass808:ctx.sty.bass==='b808'||ctx.sty.bass==='logdrum',gtrTone:GTR_STY[ctx.sty.gtr.main].tone,styles:{mel:null,gtr:ctx.sty.gtr.main,bass:ctx.sty.bass,drums:ctx.sty.drums&&ctx.sty.drums.id,piano:ctx.sty.piano.calm,arp:ctx.sty.arp},
-    defaults:{mel:1,cm:0,piano:1,arp:1,pad:1,bass:1,gtr:1,drums:G.groove?1:0}};
+    defaults:{mel:ctx.sob?0:1,cm:0,piano:1,arp:1,pad:1,bass:1,gtr:1,drums:G.groove?1:0}};
 }
 const rootSpell=(rn,spell)=>/^b/.test(rn)?(pc=>FLAT[mod12(pc)]):/^#/.test(rn)?(pc=>SHARP[mod12(pc)]):spell;
 const Q_LEVEL={maj:0,min:0,dim:0,aug:0,sus2:1,sus4:1,add9:1,madd9:1,'6':1,m6:1,maj7:2,m7:2,'7':2,m7b5:2,dim7:2,mmaj7:2,'7sus4':2,
