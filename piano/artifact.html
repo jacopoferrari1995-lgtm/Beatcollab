@@ -1895,14 +1895,19 @@ const GB={
     {id:'uk',n:'UK drill',w:1,g:12,k:'X------X----|X---X-----X-',s:'------X-----|------X--x--',h:'X-xX--X-xX-x|X-xX-xX--X-t'},
     {id:'ny',n:'NY / Brooklyn drill',w:.9,drive:.6,k:'X-----x---x--x--|X--x--x---x-----',s:'--------X-----x-|--------X-------',h:'X-xxX-x-X-xxX-x-|X-x-X-xxX-x-XtX-'},
     {id:'dark',n:'Drill scura',w:.6,space:1,g:12,k:'X-----------|X-------X---',s:'------X-----',h:'X-----X--x--|X--x--X-----'}],
+  // afro rage: veloce (135-150), rim/clap su figure tipo 2/7/9, cassa che lascia spazio, tom in poliritmo (3 contro 4) o terzine leggere
   afrorage:[
-    {id:'rage',n:'Afro rage (terzine)',w:1,g:12,k:'X----X--X---|X----X---X-x',s:'---X-----X--',h:'XoxXoxXoxXox|XoxXoxXoxXot',c:'x-o--x-x--o-|x-o--x-x-xo-',d:'--x---x---x-|--x---x--x--'},
-    {id:'dritto',n:'Afro rage dritto (tresillo)',w:.8,drive:.8,k:'X--x--X---X-----|X--x--X---X--x--',s:'----X-------X---',h:'X-x-X-x-X-x-X-x-|X-x-X-x-X-x-X-r-',c:'x--x--x---x--x--',d:'------x-------x-',p:'o-o-o-o-o-o-o-o-'},
-    {id:'phonk',n:'Phonk afro (half-time)',w:.7,k:'X-----X-X-------|X-----X-X-----x-',s:'--------X-------',h:'X-x-X-x-X-x-X-x-|X-x-X-x-X-x-XtXr',c:'--x---x---x---x-'}],
+    {id:'rage279',n:'Afro rage 2·7·9',w:1.2,sw:.08,k:'X----X----X-----|X--X-----X----x-',s:'-X----X-X-------|-X----X---X--X--',h:'XoxoXoxoXoxoXoxo|XoxoXoxoXoxoXtxo',c:'X--x--x--x--x--x|x--x--x--x--x-t-',d:'--o-----o-----o-'},
+    {id:'ragepoli',n:'Afro rage poliritmo',w:1,drive:.8,k:'X-------X-x-----|X----X----x-----',r:'---X--X----X-X--|-X----X--X---X--',s:'------------X---|----x-------X---',h:'X-xoX-xoX-xoX-xo',c:'X--x--x--x--x--x',d:'---x--x--x--x--x|------x--x--t---'},
+    {id:'ragedrive',n:'Afro rage spinto',w:.8,drive:1.2,k:'X--x-----X-x----|X--x-----X-x--x-',s:'-X----X-X-------|-X------X----X--',h:'X-x-X-x-X-x-X-x-|X-x-X-x-X-x-XtX-',p:'xoxoxoxoxoxoxoxo',c:'--x---x---x-t---'},
+    {id:'rage',n:'Afro rage in terzine',w:.5,g:12,k:'X----X--X---|X----X---X-x',s:'---X-----X--|---X------X-',h:'XoxXoxXoxXox|XoxXoxXoxXot',c:'x-o--x-x--o-|x-o--x-x-xo-',d:'--x---x---x-|--x---x--x--'}],
+  // afrobeat: rim/snare sul 4° e 7° sedicesimo (3-3-2), mai addosso alla cassa; a volte sul 2°, a volte la cassa salta il 5°
   afrobeat:[
-    {id:'afrobeats',n:'Afrobeats',w:1,sw:.15,k:'X-----x-X-------|X--x----X-----x-',s:'------------X---|----o-------X---',r:'x--x--x---x--x--',h:'--x---x---x---x-',p:'XoxoXoxoXoxoXoxo',c:'------x-------x-|------x---x---x-'},
-    {id:'afropop',n:'Afro-pop',w:.8,drive:.6,k:'X---X---X---X---',s:'----x-------X---',r:'---x--x----x--x-',h:'--X---X---X---X-',p:'xoxoxoxoxoxoxoxo'},
-    {id:'highlife',n:'Highlife',w:.5,k:'X-------X--x----|X--x----X-------',r:'X-x--x-x-x--x-x-',h:'X-x-X-x-X-x-X-x-',c:'----x--o----x--o',d:'x-------x-------'}],
+    {id:'afrobeats',n:'Afrobeats (4·7)',w:1.2,sw:.12,k:'X-------X-------|X-------X----x--',r:'---X--X----X--X-|---X--X----X--X-',s:'------------x---|------------x---',h:'--x---x---x---x-',p:'XoxoXoxoXoxoXoxo',c:'------x--x----x-|------x--x--x---'},
+    {id:'skip5',n:'Afrobeats (salta il 5)',w:1,sw:.12,k:'X-------X---X---|X-------X----x--',r:'-X----X---X--X--|---X--X----X--X-',h:'--x---x---x---x-',p:'XoxoXoxoXoxoXoxo',c:'---o--x-------x-'},
+    {id:'complex',n:'Afro complesso',w:.8,sw:.1,k:'X--x----X-x-----|X-----x-X-x-----',r:'-----X-X-X--X---|---X-X-----X-X--',s:'------------X---|----o-------X---',h:'X-x-X-x-X-x-X-x-',p:'xoxoxoxoxoxoxoxo',c:'x--x--x--x--x--x',d:'------o-----o--x'},
+    {id:'afropop',n:'Afro-pop',w:.7,drive:.6,k:'X-------X---X---',r:'---X--X----X--X-',s:'----x---------x-',h:'--X---X---X---X-',p:'xoxoxoxoxoxoxoxo'},
+    {id:'highlife',n:'Highlife',w:.4,k:'X-------X--x----|X--x----X-------',r:'--X--X-X--X--X-X|--X--X-X--X--X-X',h:'X-x-X-x-X-x-X-x-',c:'----x--o----x--o',d:'x-------x-------'}],
   dancehall:[
     {id:'dembow',n:'Dembow',w:1,drive:.6,k:'X---X---X---X---',s:'---X--X----X--X-',h:'--x---x---x---x-',p:'xoxoxoxoxoxoxoxo'},
     {id:'bashment',n:'Bashment',w:.8,k:'X-------X-------|X-------X-----x-',s:'---X--X-----X---',r:'------x-------x-',h:'X-x-X-x-X-x-X-x-'},
@@ -1953,15 +1958,17 @@ const GLICK={
   hiphop:[{s:'---o'},{k:'--x-'},{o:'--x-'},{s:'-o-x'}],
   island:[{s:'--xX'},{c:'x-xx'},{o:'--x-'},{r:'x-xx'}],
   jazz:[{s:'-ox'},{k:'--x',s:'--x'},{s:'xox'}],
-  calm:[{c:'--xx'},{d:'x-x-'}]};
+  calm:[{c:'--xx'},{d:'x-x-'}],
+  afro:[{c:'t-x-'},{d:'x-t-'},{r:'-x-x'},{c:'x-xt'},{s:'-x-x'},{h:'t-t-'}]};
 const GFILL={
   pop:{1:[{s:'xxxX'},{s:'xx--',c:'--xX'},{s:'xxXX',k:'X---'}],2:[{s:'x-x-xxxX'},{s:'XX--x---',c:'--XX-x--',d:'-----xXX'},{s:'x-xxx-xX',k:'X-------'}]},
   urban:{1:[{h:'ffff',s:'--xX'},{k:'---x'},{h:'tttt'}],2:[{h:'rrrrffff',s:'------xX'},{h:'tttttttt',k:'X-------'},{k:'-------x'}]},
   hiphop:{1:[{k:'---x'},{s:'-o-x'},{s:'--xX'}],2:[{s:'x---x-xX'},{k:'X------x'},{s:'----xxxX'}]},
   island:{1:[{s:'x-xX'},{r:'x---',d:'--xX'},{c:'xxx-',d:'---X'}],2:[{s:'x-x-x-xX'},{c:'x-x-xxx-',d:'-------X'},{r:'x--x--xX'}]},
   jazz:{1:[{s:'xxX'},{s:'x-X',k:'--x'}],2:[{s:'x-xxxX',d:'-----x'},{s:'xxxxxX'}]},
-  calm:{1:[{c:'xxXX'},{d:'xxXX'}],2:[{c:'x-x-xxXX',d:'------xX'},{d:'xxxxxxXX'}]}};
-const GFAM=g=>({urban:'urban',hiphop:'hiphop',island:'island',jazz:'jazz',calm:'calm'}[GENRE_FAM[g]]||'pop');
+  calm:{1:[{c:'xxXX'},{d:'xxXX'}],2:[{c:'x-x-xxXX',d:'------xX'},{d:'xxxxxxXX'}]},
+  afro:{1:[{c:'t-tX'},{c:'x-x-',d:'--xX'},{r:'x-xx',d:'---X'}],2:[{c:'x--x--x-',d:'------tX'},{c:'t-t-t-x-',d:'-------X'},{r:'-x-x-x-x',d:'------xX'}]}};
+const GFAM=g=>(g==='afrobeat'||g==='afrorage')?'afro':({urban:'urban',hiphop:'hiphop',island:'island',jazz:'jazz',calm:'calm'}[GENRE_FAM[g]]||'pop');
 const gLine=(str,g)=>{if(!str)return null;const s=str.replace(/[|\s]/g,'');return s.length>=2*g?s.slice(0,2*g):(s+s).slice(0,2*g);};
 // compatibilità con il resto del programma (sequencer, menu stili, export)
 const DSTY=GB;
