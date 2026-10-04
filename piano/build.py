@@ -9,4 +9,9 @@ for tag,f in [('CSS','style.css'),('ENGINE','engine.js'),('SYNTH','synth.js'),('
     assert '</script' not in body.lower() and '</style' not in body.lower(), f
     html=html.replace('/*@@%s@@*/'%tag,body)
 open(os.path.join(here,'index.html'),'w',encoding='utf-8').write(html)
+# versione per il link fisso (Artifact): senza doctype/html/head/body, li aggiunge la piattaforma
+import re
+art=re.sub(r'<!DOCTYPE html>\s*<html[^>]*>\s*<head>\s*<meta charset="UTF-8">\s*<meta name="viewport"[^>]*>\s*','',html,count=1)
+art=art.replace('</head>\n<body>','',1).replace('</body>\n</html>','')
+open(os.path.join(here,'artifact.html'),'w',encoding='utf-8').write(art)
 print('index.html', len(html)//1024, 'KB')

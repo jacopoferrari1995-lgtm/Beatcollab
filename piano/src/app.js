@@ -5,6 +5,11 @@
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v);}catch(e){return d;}},
           set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}};
+const bootHadLocal=!!LS.get('pg_current',null);
+const Cloud={ready:false,list:[],col:null,dl:null,_t:null,_last:null,
+  save(id,body){if(!this.col)return;this.col.doc(id).set(body).catch(e=>{if(e&&e.code==='invalid_argument')toast('Progetto troppo grande per l\'archivio: fai anche un backup .json');});},
+  remove(id){if(this.col)this.col.doc(id).delete().catch(()=>{});},
+  saveCurrent(json){if(!this.col||json===this._last)return;clearTimeout(this._t);this._t=setTimeout(()=>{this._last=json;this.col.doc('current').set({date:Date.now(),state:JSON.parse(json)}).catch(()=>{});},4000);}};
 const rndSeed=()=>1+Math.floor(Math.random()*99998);
 const fmtTime=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2000);}
@@ -600,6 +605,9 @@ document.addEventListener('keydown',e=>{
 const slug=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/#/g,'s').replace(/[^A-Za-z0-9]+/g,'-').replace(/^-|-$/g,'');
 const baseName=()=>{const s=St.song;return slug(`${GENRES[s.genre].n} ${MOODS[s.mood].n} ${s.keyName} ${MODES[s.mode].n} ${curBpm()}bpm`);};
 function download(name,data,type){
+  if(Cloud.dl){const ext=name.split('.').pop().toLowerCase();let fn=name,d=data;
+    if(!['zip','json','txt','csv','md','html','pdf'].includes(ext)){d=makeZip([{name,data:typeof data==='string'?new TextEncoder().encode(data):data}]);fn=name+'.zip';}
+    Cloud.dl.save({filename:fn,data:d}).then(()=>toast('Salvato: '+fn)).catch(e=>{if(e&&e.code!=='declined')toast('Download non riuscito: '+((e&&e.message)||'riprova'));});return;}
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;
   document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);toast('Scaricato: '+name);}
 const allLayers=()=>lanes().map(l=>l.id);
@@ -642,7 +650,7 @@ const snapState=()=>JSON.stringify({opts:St.opts,seeds:St.seeds,secs:St.secs,typ
 function track(){
   const cur=snapState();
   if(H.last&&cur!==H.last&&!H.restoring){H.undo.push(H.last);if(H.undo.length>200)H.undo.shift();H.redo=[];}
-  H.last=cur;LS.set('pg_current',JSON.parse(cur));updHist();
+  H.last=cur;LS.set('pg_current',JSON.parse(cur));updHist();Cloud.saveCurrent(cur);
 }
 function updHist(){
   $('#undo').disabled=!H.undo.length;$('#redo').disabled=!H.redo.length;
@@ -663,13 +671,16 @@ function redo(){if(!H.redo.length)return;H.undo.push(H.last);restore(H.redo.pop(
 $('#undo').onclick=undo;$('#redo').onclick=redo;
 
 /* ---------------- Progetti ---------------- */
-const projects=()=>LS.get('pg_projects',[]);
+const projects=()=>Cloud.ready?Cloud.list.slice():LS.get('pg_projects',[]);
+// scrive la lista: nel browser e, se disponibile, nell'archivio permanente del tuo account
+function setProjects(list,{put=[],del=[]}={}){LS.set('pg_projects',list);if(!Cloud.ready)return;Cloud.list=list.slice();
+  put.forEach(id=>{const p=list.find(x=>x.id===id);if(p)Cloud.save(p.id,{name:p.name,date:p.date,state:p.state});});del.forEach(id=>Cloud.remove(id));}
 const saveMeta=()=>LS.set('pg_meta',{projId:St.projId,savedSnap:St.savedSnap});
 function writeProject(asNew,name){
   const list=projects(),now=Date.now();if(name)St.name=name;$('#projName').value=St.name;track();const state=JSON.parse(H.last);
   if(asNew||!St.projId||!list.some(p=>p.id===St.projId)){St.projId='p'+now.toString(36);list.unshift({id:St.projId,name:St.name,date:now,state});}
   else{const p=list.find(p=>p.id===St.projId);Object.assign(p,{name:St.name,date:now,state});}
-  LS.set('pg_projects',list);St.savedSnap=H.last;saveMeta();updHist();toast(`Progetto “${St.name}” salvato`);
+  setProjects(list,{put:[St.projId]});St.savedSnap=H.last;saveMeta();updHist();toast(`Progetto “${St.name}” salvato`+(Cloud.ready?' nel tuo archivio':''));
 }
 const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 function ask(title,html,buttons){
@@ -715,12 +726,13 @@ function renderProjects(){
       <button class="btn sm" data-open="${p.id}">Apri</button><button class="btn sm ghost danger" data-del="${p.id}">Elimina</button></div>`).join(''):'<div class="empty">Nessun progetto salvato. Dai un nome al brano e premi Salva.</div>'}</div>
     <div class="mrow"><button class="btn" id="mNew">+ Nuovo progetto</button><span class="spacer"></span>
       <button class="btn ghost" id="mExp" title="Solo il brano aperto">⬇ Brano .json</button><button class="btn" id="mBak" ${list.length?'':'disabled'} title="Tutti i progetti in un file">⬇ Backup di tutti</button><button class="btn ghost" id="mImp" title="Un brano o un backup completo">⬆ Importa</button><input type="file" id="mFile" accept=".json,application/json" hidden></div>
+    ${Cloud.ready?'<p class="okmsg">☁ I progetti sono salvati nel tuo archivio personale: restano anche se chiudi, ricarichi o aggiorni il sito.</p>':'<p class="warnmsg">⚠ Qui i progetti stanno solo nella memoria del browser, che alcuni visori cancellano dopo pochi minuti. Apri il sito dal suo link fisso per salvarli in modo permanente, oppure fai spesso “Backup di tutti”.</p>'}
     <p class="dim" style="font-size:12px">I progetti vivono nella memoria del browser <b>legata all'indirizzo da cui apri il file</b>: se apri una nuova versione da un altro percorso (o in un'altra app/browser) la lista riparte vuota. Prima di passare a una versione nuova fai <b>Backup di tutti</b>, poi nella nuova versione usa <b>Importa</b>.</p>`;
   $('#mSave').onclick=()=>saveProject();
   const sn=$('#mSaveNew');if(sn)sn.onclick=()=>ask('Salva come nuovo progetto',`<div class="mrow"><input type="text" id="askName" value="${esc(St.name+' (2)')}" placeholder="Nome del nuovo progetto"></div>`,
     [{label:'Annulla',cls:'ghost'},{label:'Salva come nuovo',cls:'primary',fn:()=>writeProject(true,($('#askName').value||'').trim()||St.name+' (2)')}]);
   $$('#mBody [data-open]').forEach(b=>b.onclick=()=>openProject(b.dataset.open));
-  $$('#mBody [data-del]').forEach(b=>b.onclick=()=>{if(b.dataset.sure){LS.set('pg_projects',projects().filter(p=>p.id!==b.dataset.del));
+  $$('#mBody [data-del]').forEach(b=>b.onclick=()=>{if(b.dataset.sure){setProjects(projects().filter(p=>p.id!==b.dataset.del),{del:[b.dataset.del]});
       if(St.projId===b.dataset.del){St.projId=null;St.savedSnap=null;saveMeta();updHist();}renderProjects();}else{b.dataset.sure=1;b.textContent='Sicuro?';}});
   $('#mNew').onclick=()=>newProject();
   $('#mExp').onclick=()=>download(slug(St.name||'progetto')+'.pianogen.json',JSON.stringify({app:'piano-generativo',v:1,name:St.name,state:JSON.parse(H.last)},null,1),'application/json');
@@ -729,7 +741,7 @@ function renderProjects(){
   $('#mFile').onchange=e=>{const f=e.target.files[0];if(!f)return;if(isDirty()&&!e.target._ok){guard(()=>{e.target._ok=1;e.target.onchange(e);});return;}e.target._ok=0;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);
       // backup completo: unisce i progetti (quelli già presenti con lo stesso id restano, quelli nuovi si aggiungono)
       if(d.backup&&Array.isArray(d.projects)){const cur=projects(),ids=new Set(cur.map(x=>x.id)),add=d.projects.filter(x=>x&&x.id&&x.state&&x.state.opts&&!ids.has(x.id));
-        LS.set('pg_projects',cur.concat(add).sort((x,y)=>(y.date||0)-(x.date||0)));renderProjects();toast(add.length?`${add.length} progetti ripristinati`:'Nessun progetto nuovo nel backup');return;}
+        setProjects(cur.concat(add).sort((x,y)=>(y.date||0)-(x.date||0)),{put:add.map(x=>x.id)});renderProjects();toast(add.length?`${add.length} progetti ripristinati`:'Nessun progetto nuovo nel backup');return;}
       const st=d.state||d;
       if(!st.opts||!st.seeds)throw 0;H.undo.push(H.last);H.redo=[];St.projId=null;St.savedSnap=null;restore(JSON.stringify({...st,name:d.name||st.name||'Importato'}));closeModal();toast('Progetto importato');}
     catch(err){toast('File non valido');}};rd.readAsText(f);};
@@ -741,7 +753,7 @@ $('#modal').addEventListener('pointerdown',e=>{if(e.target.id==='modal')closeMod
 $('#projName').addEventListener('change',e=>{St.name=e.target.value.trim()||'Senza titolo';e.target.value=St.name;track();});
 
 /* ---------------- Tema ---------------- */
-function setTheme(t){if(t==='auto')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=t;LS.set('pg_theme',t);$('#theme').value=t;
+function setTheme(t){if(t==='auto')delete document.documentElement.dataset.skin;else document.documentElement.dataset.skin=t;LS.set('pg_theme',t);$('#theme').value=t;
   if(St.song){drawArr();renderPads();}}
 $('#theme').onchange=e=>setTheme(e.target.value);
 setTheme(LS.get('pg_theme','crema'));
@@ -854,6 +866,26 @@ let padFor=null;
 $('#padSmpF').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f||padFor==null)return;Synth.init();
   try{const s=await addSampleFile(f);St.padSmp={...St.padSmp,[padFor]:s.id};St.padSmpName={...St.padSmpName,[padFor]:s.name};renderPads();track();
     hitPad(padFor,0,Synth.now()+.02,110);toast(`Pad ${padFor+1}: “${s.name}”`);}catch(err){toast('File audio non leggibile');}};
+
+/* ---------------- Archivio permanente ----------------
+   Aperto dal link fisso del sito, i progetti e il lavoro in corso vanno nel database del tuo account
+   (privato, sopravvive a ricariche, aggiornamenti e dispositivi). Altrove resta la memoria del browser, che alcuni visori cancellano. */
+(async()=>{try{
+  if(!window.claude||typeof window.claude.use!=='function')return;
+  const [db,user,dl]=await Promise.all([claude.use('db'),claude.use('user'),claude.use('downloads')]);
+  Cloud.dl=dl;if(!db||!user)return;const uid=await user.id();if(!uid)return;
+  Cloud.col=db.collection('data/users/'+uid);
+  const snap=await Cloud.col.get();const list=[];let cur=null;
+  snap.docs.forEach(d=>{const x=d.data();if(!x)return;if(d.id==='current')cur=x;else if(x.state&&x.state.opts)list.push({id:d.id,name:x.name,date:x.date,state:x.state});});
+  // i progetti che c'erano solo nel browser entrano nell'archivio
+  const ids=new Set(list.map(p=>p.id)),local=LS.get('pg_projects',[]).filter(p=>p&&p.id&&p.state&&!ids.has(p.id));
+  local.forEach(p=>{list.push(p);Cloud.save(p.id,{name:p.name,date:p.date,state:p.state});});
+  list.sort((x,y)=>(y.date||0)-(x.date||0));Cloud.list=list;Cloud.ready=true;LS.set('pg_projects',list);
+  // se il browser ha perso il lavoro in corso, si riprende quello dell'archivio
+  if(!bootHadLocal&&cur&&cur.state&&cur.state.opts){restore(JSON.stringify(cur.state));toast('Ripreso il lavoro in corso dal tuo archivio');}
+  else toast(list.length?`Archivio collegato: ${list.length} progetti`:'Archivio collegato: i progetti si salvano nel tuo account');
+  updHist();if(!$('#modal').hidden&&$('#mTitle').textContent==='Progetti')renderProjects();
+}catch(e){}})();
 
 /* ---------------- Avvio ---------------- */
 $('#projName').value=St.name;
