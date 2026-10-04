@@ -424,7 +424,7 @@ details.more summary::before{content:"▸ ";}details.more[open] summary::before{
 .ib.ghost{border-color:transparent;background:none;color:var(--tx3)}
 .sq-c{height:26px;border-radius:5px;background:var(--bg2);border:1px solid var(--line);cursor:pointer;position:relative;transition:transform .05s}
 .sq-c.b{border-left-color:var(--line2);background:color-mix(in srgb,var(--line) 35%,var(--bg2))}
-.sq-c.bar{margin-left:6px}
+.sq-c.bar{box-shadow:-4px 0 0 var(--panel),-5px 0 0 var(--line2)}
 .sq-c:hover{border-color:var(--tx3)}
 .sq-c.on{background:color-mix(in srgb,var(--pc) calc(var(--o)*100%),var(--panel));border-color:color-mix(in srgb,var(--pc) 70%,transparent)}
 .sq-c.on.man{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--tx) 25%,transparent)}
@@ -513,6 +513,8 @@ button.exgh{cursor:pointer}button.exgh:hover{color:var(--tx)}.exgh small{font-we
 
 .padsnd{display:grid;gap:6px}.psr{display:flex;align-items:center;gap:6px}.psr .pn{flex:1;font-size:12.5px;font-weight:600;min-width:0}.psr select{max-width:150px;padding:4px 22px 4px 8px;border-radius:8px;border:1px solid var(--line);background-color:var(--bg2);font-size:12px}
 
+.seqres{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2)}.seqres select{padding:4px 22px 4px 8px;border-radius:8px;border:1px solid var(--line);background-color:var(--bg2);font-size:12px}
+
 </style>
 
 <div id="errbox" hidden></div>
@@ -581,9 +583,9 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
 
   <section class="panel pads" id="padPanel" hidden>
     <div class="padhead"><h3>Batteria · sequencer</h3><span class="muted" id="padInfo"></span><span class="spacer"></span>
-      <button class="btn sm primary-soft" id="seqNew" title="Un groove completamente nuovo per tutto il brano">🎲 Nuovo groove</button><button class="ib" id="padClose" title="Chiudi">✕</button></div>
+      <label class="seqres">Griglia <select id="seqRes"><option value="16">1/16</option><option value="24">terzine (1/16T)</option><option value="32">1/32</option></select></label><button class="btn sm primary-soft" id="seqNew" title="Un groove completamente nuovo per tutto il brano">🎲 Nuovo groove</button><button class="ib" id="padClose" title="Chiudi">✕</button></div>
     <div class="seqwrap"><div class="seq" id="padGrid"></div></div>
-    <p class="dim" style="font-size:11.5px;margin-top:8px">Clic su una cella: forte → ghost → vuota. Le celle scritte a mano sostituiscono la figura generata di quel pad nella sezione (✎ per tornare al generato). Il 🎲 di riga rigenera solo quel pad.</p>
+    <p class="dim" style="font-size:11.5px;margin-top:8px">Ogni casella è un sedicesimo (1 e &amp; a); con la griglia puoi passare a terzine o trentaduesimi. Clic su una cella: forte → ghost → roll ×2 → ×3 → ×4 → vuota. Le celle scritte a mano sostituiscono la figura generata di quel pad nella sezione (✎ per tornare al generato). Il 🎲 di riga rigenera solo quel pad.</p>
   </section>
 
   <section class="panel smppanel">
@@ -1990,7 +1992,11 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
     if(k<.98&&pad!==9&&pad!==8&&pad!==0&&pad!==1&&r()>k)return;
     L.drums.push({t:tt,d:dd||.12,n:kit.notes[pad],pad,v:clamp(Math.round(v*E.dyn(tt)),12,127)});};
   const VX={X:112,x:90,o:52},VH={X:92,x:76,o:54};
-  const vel=(ch,pad)=>((pad===3||pad===5||pad===4?VH:VX)[ch]||84)*(.86+.16*e)+(hum?(r()+r()-1)*5*hum:0);
+  // accenti naturali: l'hi-hat respira dentro il battito (1 forte, & medio, e/a leggeri), un po' di crescendo verso fine frase
+  const LILT16=[1,.66,.84,.72],LILT12=[1,.7,.82],lilt=(pad,i)=>(pad===3||pad===5)?(g===16?LILT16[i%4]:g===12?LILT12[i%3]:1):1;
+  const vel=(ch,pad,i,b)=>((pad===3||pad===5||pad===4?VH:VX)[ch]||84)*(.86+.16*e)*(i!=null?lilt(pad,i):1)*(b!=null&&b%4===3?1.04:1)+(hum?(r()+r()-1)*8*hum:0);
+  // feel di genere: hat un filo avanti nell'urban, rullante dietro nell'hip hop (se il groove non lo dice già)
+  const FEEL={urban:{h:-.006},hiphop:{s:.018,h:.006},island:{s:.01},jazz:{s:.012},pop:{},calm:{}}[d.fam]||{};
   const sw=S.sw!=null?S.sw:Math.min(.6,(G.swing||0)*1.2),swD=i=>g===16&&i%2===1?sw*.0833:0;
   const lr=rngFrom(d.lickSeed+hashStr(t)),fam=d.fam,lick=pick(lr,GLICK[fam]);
   const intro=t==='intro',bridgeHalf=(t==='bridge'||t==='special')&&lr()<.5;
@@ -2017,12 +2023,13 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
       for(const k in fill.p){const pt=fill.p[k];const seg=(pt.length>=n?pt.slice(-n):pt.padStart(n,'-'));lines[k]=(lines[k]||'-'.repeat(g)).slice(0,from)+seg;}}
     // hat aperto: chiude l'hi-hat nello stesso punto
     if(lines.o&&lines.h&&!S.jazz){let h='';for(let i=0;i<g;i++)h+=(lines.o[i]!=='-'&&(lines.o[i]==='X'||(lines.o[i]==='x'&&lev>=1)||(lines.o[i]==='o'&&lev>=2)))?'-':lines.h[i];lines.h=h;}
+    if(lev===2&&!fill&&['hiphop','pop'].includes(d.fam)&&lines.s&&g===16&&r()<.4){const gp=pick(r,[7,9,15,3]);if(lines.s[gp]==='-'&&lines.s[gp+1]!=='X')lines.s=lines.s.slice(0,gp)+'o'+lines.s.slice(gp+1);}
     for(const k in lines){const pad=GPAD[k],ln=lines[k];
       for(let i=0;i<g;i++){const ch=ln[i];if(ch==='-')continue;
-        const need=ch==='X'?0:ch==='o'?2:1;let lv=lev;if((pad===5||pad===6||pad===7)&&ch!=='X')lv=lev-(intro?0:0);
-        if(lv<need)continue;
+        // probabilità: le decorazioni (o) entrano a volte già a densità media e quasi sempre a densità piena; così ogni battuta è un po' diversa
+        if(ch==='o'){if(lev===0||r()>(lev===2?.78:.28))continue;}else if(ch!=='X'&&lev<1)continue;
         const bf=plan.br?plan.br(b,i*stepB):1;if(bf<.35&&((pad>=3&&pad<=7)||(pad===0&&ch!=='X')))continue;
-        const tt=bs+i*stepB+swD(i)+(TM[k]||0),v=vel(ch==='r'||ch==='t'||ch==='f'?'x':ch,pad);
+        const tt=bs+i*stepB+swD(i)+(TM[k]!=null?TM[k]:(FEEL[k]||0))+(pad>=3?(r()+r()-1)*.006*hum:0),v=vel(ch==='r'||ch==='t'||ch==='f'?'x':ch,pad,i,b);
         // posizione nel fill: crescendo
         const inFill=fill&&i>=g-fill.len*perBeat,vv=inFill?v*(.8+.3*(i-(g-fill.len*perBeat))/(fill.len*perBeat)):v;
         if(ch==='r'){hit(tt,pad,vv*.85);hit(tt+stepB/2,pad,vv*.7);}
@@ -2035,9 +2042,11 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
     if(t==='outro'&&last)hit(bs,8,vel('x',8),1.5);
   }
   // colpi scritti a mano sulla griglia (sostituiscono quelli generati per quel pad)
-  for(const pd in G2){const steps=G2[pd];if(!steps)continue;for(let b=0;b<sec.bars;b++){const bs=sec.startBeat+b*4,o=steps.length>16&&drumKind(b,sec.bars)==='B'?16:0;
-    for(let i=0;i<16;i++){const v=steps[o+i];if(!(v>0))continue;const n=Math.floor(v/1000)+1,vv=v%1000,t0=bs+i/4+(i%2?sw*.0833:0)+jit();
-      for(let q=0;q<n;q++)hit(t0+q*.25/n,+pd,n>1?vv*(.6+.4*q/(n-1)):vv,+pd===9?1:.12,true);}}}
+  // (una riga = 2 battute alla risoluzione scelta: 16, 24 o 32 passi per battuta; le righe vecchie da 16 valgono per entrambe)
+  for(const pd in G2){const steps=G2[pd];if(!steps)continue;const two=steps.length>16,RS=two?steps.length/2:16,cell=4/RS;
+    for(let b=0;b<sec.bars;b++){const bs=sec.startBeat+b*4,o=two&&drumKind(b,sec.bars)==='B'?RS:0;
+    for(let i=0;i<RS;i++){const v=steps[o+i];if(!(v>0))continue;const n=Math.floor(v/1000)+1,vv=v%1000,t0=bs+i*cell+(RS===16&&i%2?sw*.0833:0)+jit();
+      for(let q=0;q<n;q++)hit(t0+q*cell/n,+pd,n>1?vv*(.6+.4*q/(n-1)):vv,+pd===9?1:.12,true);}}}
   // riser solo prima di un ritornello, quando la sezione è già piena
   if(riseTo&&nx.type==='chorus'&&lev>=2)hit(sec.startBeat+(sec.bars-1)*4+2,9,55+e*15,2);
 }
@@ -2622,7 +2631,9 @@ const Synth=(()=>{
     const wet=A.createGain();wet.gain.value=.2;conv.connect(wet);wet.connect(comp);
     const len=A.sampleRate*1.5;noise=A.createBuffer(1,len,A.sampleRate);const nd=noise.getChannelData(0);for(let i=0;i<len;i++)nd[i]=Math.random()*2-1;
     waves.pLow=wave([1,.55,.35,.22,.16,.1,.07,.05]);waves.pMid=wave([1,.42,.22,.12,.07,.04]);waves.pHigh=wave([1,.25,.08,.03]);
-    for(const k in LAYER_GAIN){const g=A.createGain();g.gain.value=LAYER_GAIN[k]*(fac[k]!=null?fac[k]:1);g.connect(master);
+    const dcomp=A.createDynamicsCompressor();dcomp.threshold.value=-20;dcomp.knee.value=6;dcomp.ratio.value=3.5;dcomp.attack.value=.008;dcomp.release.value=.12;
+    const dmake=A.createGain();dmake.gain.value=1.35;dcomp.connect(dmake);dmake.connect(master);
+    for(const k in LAYER_GAIN){const g=A.createGain();g.gain.value=LAYER_GAIN[k]*(fac[k]!=null?fac[k]:1);g.connect(k==='drums'?dcomp:master);
       const s=A.createGain();s.gain.value=k==='drums'?.08:k==='bass'?.05:.35;g.connect(s);s.connect(revIn);bus[k]=g;}
     if(A.state==='suspended')A.resume();
   }
@@ -2723,7 +2734,7 @@ const Synth=(()=>{
     MET.forEach(f=>{const o=A.createOscillator();o.type='square';o.frequency.value=f*1.47;o.connect(bp);o.start(t);o.stop(t+dur+.05);});bp.connect(hp);hp.connect(g);g.connect(out);
     g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(gain,t+.002);g.gain.exponentialRampToValueAtTime(.001,t+dur);}
   function drum(n,t,v,out,d){
-    const k=Math.pow(v/127,1.2);
+    const k=Math.pow(v/127,1.2)*(.94+Math.random()*.12);
     if(DK.ready&&DK.map[n]&&DK.buf[DK.map[n]]){const src=A.createBufferSource(),g=A.createGain();src.buffer=DK.buf[DK.map[n]];src.connect(g);g.connect(out);
       g.gain.value=k*(n===42||n===44?.55:.9);src.start(t);if(n===42||n===44)src.stop(t+.12);return;}
     switch(n){
@@ -2732,16 +2743,16 @@ const Synth=(()=>{
           g.gain.exponentialRampToValueAtTime(k*.3,t+d*.97);g.gain.linearRampToValueAtTime(0,t+d);s.connect(f);f.connect(g);g.connect(out);s.start(t);s.stop(t+d+.05);}
         else{tone(t,90,38,1.1,k*.9,out);noiseHit(t,.7,'lowpass',900,.7,k*.35,out);}break;
       case 36:{// cassa: corpo con caduta di intonazione, sub, clic del battente
-        const o=A.createOscillator(),g=A.createGain();o.type='sine';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(52,t+.07);o.frequency.exponentialRampToValueAtTime(44,t+.4);
+        const o=A.createOscillator(),g=A.createGain();o.type='sine';const kf=1+(Math.random()-.5)*.06;o.frequency.setValueAtTime(150*kf,t);o.frequency.exponentialRampToValueAtTime(52*kf,t+.07);o.frequency.exponentialRampToValueAtTime(44,t+.4);
         o.connect(g);g.connect(out);g.gain.setValueAtTime(k*1.25,t);g.gain.setTargetAtTime(0,t+.06,.12);o.start(t);o.stop(t+.6);
         noiseHit(t,.012,'highpass',3000,.7,k*.22,out);tone(t,900,200,.015,k*.25,out,'triangle');break;}
-      case 38:tone(t,200,170,.11,k*.55,out,'triangle');tone(t,330,280,.06,k*.2,out);noiseHit(t,.2,'bandpass',2600,.7,k*.62,out);noiseHit(t,.11,'highpass',7000,.7,k*.25,out);break;
+      case 38:tone(t,200,170,.11,k*.55,out,'triangle');tone(t,330,280,.06,k*.2,out);noiseHit(t,.16+k*.08,'bandpass',2300+Math.random()*600+k*500,.7,k*.62,out);noiseHit(t,.11,'highpass',7000,.7,k*.25,out);break;
       case 37:tone(t,1750,1600,.035,k*.45,out,'triangle');tone(t,430,400,.06,k*.3,out);noiseHit(t,.045,'bandpass',2600,3,k*.6,out);break;
       case 39:// clap: tre schiocchi ravvicinati e una coda
         [0,.011,.022].forEach(x=>noiseHit(t+x,.03,'bandpass',1250,1.6,k*.55,out));noiseHit(t+.03,.18,'bandpass',1150,1.1,k*.38,out);break;
       case 40:{const s2=A.createBufferSource();s2.buffer=noise;const f=A.createBiquadFilter();f.type='bandpass';f.frequency.value=2600;f.Q.value=.5;const g=A.createGain();
         s2.connect(f);f.connect(g);g.connect(out);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(k*.32,t+.025);g.gain.exponentialRampToValueAtTime(.001,t+.32);s2.start(t,Math.random()*.5);s2.stop(t+.36);break;}
-      case 42:metal(t,.045+k*.02,k*.42,out,7000,10000);break;
+      case 42:metal(t,.035+k*.035,k*.42,out,6800+Math.random()*600,9500+k*1500);break;
       case 44:metal(t,.035,k*.3,out,6000,9000);break;
       case 46:metal(t,.32,k*.36,out,6500,9500);break;
       case 51:metal(t,1.1,k*.16,out,4000,7500);noiseHit(t,.9,'bandpass',7200,1.8,k*.1,out);tone(t,3150,3140,.5,k*.02,out,'triangle');break;
@@ -3129,22 +3140,30 @@ const NOTE_NM=n=>KEY_NAMES[n%12]+(Math.floor(n/12)-1);
 // sequencer: 10 pad × 32 passi (le due battute del groove della sezione selezionata)
 function seqData(){
   const s=St.song,sec=s.sections[St.sel],t=sec.type,man=St.drumGrid[t]||{};
-  const gen=Array.from({length:10},()=>Array(32).fill(0));
+  const R=St.seqRes||16,N=2*R;
+  const gen=Array.from({length:10},()=>Array(N).fill(0));
   // prima metà = battuta A (groove), seconda = prima battuta B (risposta), come le suona il motore
   let bB=0;for(let b=0;b<sec.bars;b++)if(drumKind(b,sec.bars)==='B'){bB=b;break;}
   // più colpi nello stesso sedicesimo = roll (2) / terzina (3) / raffica (4): codificati come tipo*1000+velocity
-  const cnt=Array.from({length:10},()=>Array(32).fill(0));
-  const half=(bar,off)=>s.layers.drums.forEach(e=>{const rel=e.t-sec.startBeat-bar*4;if(rel<-.06||rel>=3.94)return;const st=clamp(Math.floor((rel+.06)*4),0,15)+off;gen[e.pad][st]=Math.max(gen[e.pad][st],e.v);cnt[e.pad][st]++;});
-  half(0,0);half(bB,16);
+  const cnt=Array.from({length:10},()=>Array(N).fill(0)),eps=1/R;
+  const half=(bar,off)=>s.layers.drums.forEach(e=>{const rel=e.t-sec.startBeat-bar*4;if(rel<-eps||rel>=4-eps)return;const st=clamp(Math.floor((rel+eps)*R/4),0,R-1)+off;gen[e.pad][st]=Math.max(gen[e.pad][st],e.v);cnt[e.pad][st]++;});
+  half(0,0);half(bB,R);
   gen.forEach((g,p)=>g.forEach((v,k)=>{if(cnt[p][k]>1)g[k]=(Math.min(cnt[p][k],4)-1)*1000+v;}));
-  return{sec,t,rows:gen.map((g,p)=>{const m=man[p];return m?{v:m.length>16?m:m.concat(m),man:true}:{v:g,man:false};})};
+  // righe scritte a mano: si portano alla risoluzione scelta
+  const fit=m=>{const L=m.length>16?m.length:m.length*2,src=m.length>16?m:m.concat(m),r0=L/2;if(r0===R)return src;const out=Array(N).fill(0);
+    src.forEach((v,i)=>{if(!(v>0))return;const bar=Math.floor(i/r0),pos=(i%r0)/r0,j=bar*R+Math.min(R-1,Math.round(pos*R));out[j]=Math.max(out[j],v);});return out;};
+  return{sec,t,R,rows:gen.map((g,p)=>{const m=man[p];return m?{v:fit(m),man:true}:{v:g,man:false};})};
 }
 function renderPads(){
   const s=St.song,panel=$('#padPanel'),has=s.layers.drums.length>0;
   panel.hidden=!(St.showPads&&has);if(panel.hidden)return;
-  const kit=drumKit(GENRES[s.genre],s.drumStyle),D=seqData(),nM=Object.keys(St.drumGrid[D.t]||{}).length;
+  $('#seqRes').value=String(St.seqRes||16);const kit=drumKit(GENRES[s.genre],s.drumStyle),D=seqData(),nM=Object.keys(St.drumGrid[D.t]||{}).length;
   $('#padInfo').textContent=`${D.sec.name} · 2 battute di groove (si ripetono per tutta la sezione)${nM?` · ${nM} pad scritti a mano`:''}`;
-  const head=`<div class="sq-h"></div>${Array.from({length:32},(_,k)=>`<div class="sq-n ${k%4===0?'b':''}">${k%16===0?'batt. '+(k/16+1):k%4===0?(k%16)/4+1:''}</div>`).join('')}`;
+  // etichette: ogni casella dice dove cade (1 e & a per i sedicesimi)
+  const R=D.R,per=R/4,SUB={4:['','e','&','a'],6:['','·','·','&','·','·'],8:['','·','e','·','&','·','a','·']}[per];
+  const head=`<div class="sq-h"></div>${Array.from({length:2*R},(_,k)=>{const kb=k%R,beat=Math.floor(kb/per),sub=kb%per;
+    return`<div class="sq-n ${sub===0?'b':''}">${sub===0?(kb===0?'B'+(Math.floor(k/R)+1)+'·1':beat+1):SUB[sub]}</div>`;}).join('')}`;
+  $('#padGrid').style.gridTemplateColumns=innerWidth<=560?`150px repeat(${2*R},22px)`:`236px repeat(${2*R},minmax(${R>16?12:18}px,1fr))`;
   $('#padGrid').innerHTML=head+PADS.map((p,i)=>{const R=D.rows[i],vol=St.padVol[i]!=null?St.padVol[i]:1;
     return`<div class="sq-h ${St.padMute[i]?'off':''}" data-row="${i}" style="--pc:${PAD_COL[i]}">
         <button class="sq-name" data-aud="${i}" title="Ascolta · nota ${kit.notes[i]} (${NOTE_NM(kit.notes[i])})"><i></i>${kit.names[i]}</button>
@@ -3153,7 +3172,7 @@ function renderPads(){
         <button class="ib rg" data-pr="${i}" title="Rigenera solo questo pad">🎲</button>
         <input type="range" min="0" max="150" value="${Math.round(vol*100)}" data-pv="${i}" title="Volume ${Math.round(vol*100)}%">
         ${R.man?`<button class="ib on" data-pg="${i}" title="Scritto a mano: torna al generato">✎</button>`:'<span class="ib ghost" title="Generato">·</span>'}</div>`+
-      R.v.map((v,k)=>{const ty=Math.floor(v/1000),vv=v%1000;return`<div class="sq-c ${v>0?'on':''} ${R.man?'man':''} ${k%4===0?'b':''} ${k===16?'bar':''}" data-p="${i}" data-s="${k}" style="--pc:${PAD_COL[i]};--o:${v>0?(.35+vv/127*.65).toFixed(2):0}">${ty?`<i class="rl">${ty+1}</i>`:''}</div>`;}).join('');}).join('');
+      R.v.map((v,k)=>{const ty=Math.floor(v/1000),vv=v%1000;return`<div class="sq-c ${v>0?'on':''} ${R.man?'man':''} ${k%per===0?'b':''} ${k===D.R?'bar':''}" data-p="${i}" data-s="${k}" style="--pc:${PAD_COL[i]};--o:${v>0?(.35+vv/127*.65).toFixed(2):0}">${ty?`<i class="rl">${ty+1}</i>`:''}</div>`;}).join('');}).join('');
   const g=$('#padGrid');
   g.querySelectorAll('[data-aud]').forEach(b=>b.onclick=()=>{const i=+b.dataset.aud;Synth.init();hitPad(i,kit.notes[i],Synth.now()+.01,100*(St.padVol[i]!=null?St.padVol[i]:1),i===9?2:.2);flashPad(i);});
   g.querySelectorAll('[data-ps]').forEach(b=>b.onclick=()=>{const i=+b.dataset.ps;if(St.padSmp[i]){const p={...St.padSmp},q={...St.padSmpName};delete p[i];delete q[i];St.padSmp=p;St.padSmpName=q;renderPads();track();toast('Pad: torna al suono sintetico');return;}padFor=i;$('#padSmpF').click();});
@@ -3165,7 +3184,7 @@ function renderPads(){
   g.querySelectorAll('.sq-c').forEach(el=>el.onclick=()=>{const i=+el.dataset.p,k=+el.dataset.s,arr=D.rows[i].v.map(x=>Math.round(x)),v=arr[k];
     // ciclo: vuota → forte → ghost → roll ×2 → terzina ×3 → raffica ×4 → vuota
     const ty=Math.floor(v/1000),vv=v%1000;arr[k]=v===0?110:ty===0&&vv>=85?60:ty===0?1100:ty<3?(ty+1)*1000+100:0;setGrid(D.t,i,arr);
-    if(arr[k]){Synth.init();const n2=Math.floor(arr[k]/1000)+1,sp=60/curBpm()/4/n2;for(let q=0;q<n2;q++)hitPad(i,kit.notes[i],Synth.now()+.01+q*sp,arr[k]%1000*(n2>1?.6+.4*q/(n2-1):1),.2);}});
+    if(arr[k]){Synth.init();const n2=Math.floor(arr[k]/1000)+1,sp=60/curBpm()*(4/D.R)/n2;for(let q=0;q<n2;q++)hitPad(i,kit.notes[i],Synth.now()+.01+q*sp,arr[k]%1000*(n2>1?.6+.4*q/(n2-1):1),.2);}});
 }
 function setGrid(t,i,arr){St.drumGrid[t]=Object.assign({},St.drumGrid[t]);if(arr)St.drumGrid[t][i]=arr;else delete St.drumGrid[t][i];if(!Object.keys(St.drumGrid[t]).length)delete St.drumGrid[t];regen();}
 function flashPad(i){const el=$(`#padGrid .sq-h[data-row="${i}"]`);if(!el)return;el.classList.add('flash');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('flash'),110);}
@@ -3176,6 +3195,8 @@ function seqPlayhead(p){
   if(k===lastSeqStep)return;$$('#padGrid .sq-c.ph').forEach(e=>e.classList.remove('ph'));
   if(k>=0)$$(`#padGrid .sq-c[data-s="${k}"]`).forEach(e=>e.classList.add('ph'));lastSeqStep=k;
 }
+$('#seqRes').onchange=e=>{St.seqRes=+e.target.value;LS.set('pg_seqRes',St.seqRes);renderPads();toast('Griglia: '+e.target.selectedOptions[0].text);};
+St.seqRes=LS.get('pg_seqRes',16);
 $('#seqNew').onclick=()=>{St.reseed.L.drums=(St.reseed.L.drums||0)+1;Object.keys(St.reseed.L).forEach(k=>{if(k.startsWith('drums.'))delete St.reseed.L[k];});regen();toast('Nuovo groove');};
 $('#padClose').onclick=()=>{St.showPads=false;renderLanes();renderPads();};
 const cache=document.createElement('canvas');

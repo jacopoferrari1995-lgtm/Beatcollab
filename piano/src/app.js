@@ -302,22 +302,30 @@ const NOTE_NM=n=>KEY_NAMES[n%12]+(Math.floor(n/12)-1);
 // sequencer: 10 pad × 32 passi (le due battute del groove della sezione selezionata)
 function seqData(){
   const s=St.song,sec=s.sections[St.sel],t=sec.type,man=St.drumGrid[t]||{};
-  const gen=Array.from({length:10},()=>Array(32).fill(0));
+  const R=St.seqRes||16,N=2*R;
+  const gen=Array.from({length:10},()=>Array(N).fill(0));
   // prima metà = battuta A (groove), seconda = prima battuta B (risposta), come le suona il motore
   let bB=0;for(let b=0;b<sec.bars;b++)if(drumKind(b,sec.bars)==='B'){bB=b;break;}
   // più colpi nello stesso sedicesimo = roll (2) / terzina (3) / raffica (4): codificati come tipo*1000+velocity
-  const cnt=Array.from({length:10},()=>Array(32).fill(0));
-  const half=(bar,off)=>s.layers.drums.forEach(e=>{const rel=e.t-sec.startBeat-bar*4;if(rel<-.06||rel>=3.94)return;const st=clamp(Math.floor((rel+.06)*4),0,15)+off;gen[e.pad][st]=Math.max(gen[e.pad][st],e.v);cnt[e.pad][st]++;});
-  half(0,0);half(bB,16);
+  const cnt=Array.from({length:10},()=>Array(N).fill(0)),eps=1/R;
+  const half=(bar,off)=>s.layers.drums.forEach(e=>{const rel=e.t-sec.startBeat-bar*4;if(rel<-eps||rel>=4-eps)return;const st=clamp(Math.floor((rel+eps)*R/4),0,R-1)+off;gen[e.pad][st]=Math.max(gen[e.pad][st],e.v);cnt[e.pad][st]++;});
+  half(0,0);half(bB,R);
   gen.forEach((g,p)=>g.forEach((v,k)=>{if(cnt[p][k]>1)g[k]=(Math.min(cnt[p][k],4)-1)*1000+v;}));
-  return{sec,t,rows:gen.map((g,p)=>{const m=man[p];return m?{v:m.length>16?m:m.concat(m),man:true}:{v:g,man:false};})};
+  // righe scritte a mano: si portano alla risoluzione scelta
+  const fit=m=>{const L=m.length>16?m.length:m.length*2,src=m.length>16?m:m.concat(m),r0=L/2;if(r0===R)return src;const out=Array(N).fill(0);
+    src.forEach((v,i)=>{if(!(v>0))return;const bar=Math.floor(i/r0),pos=(i%r0)/r0,j=bar*R+Math.min(R-1,Math.round(pos*R));out[j]=Math.max(out[j],v);});return out;};
+  return{sec,t,R,rows:gen.map((g,p)=>{const m=man[p];return m?{v:fit(m),man:true}:{v:g,man:false};})};
 }
 function renderPads(){
   const s=St.song,panel=$('#padPanel'),has=s.layers.drums.length>0;
   panel.hidden=!(St.showPads&&has);if(panel.hidden)return;
-  const kit=drumKit(GENRES[s.genre],s.drumStyle),D=seqData(),nM=Object.keys(St.drumGrid[D.t]||{}).length;
+  $('#seqRes').value=String(St.seqRes||16);const kit=drumKit(GENRES[s.genre],s.drumStyle),D=seqData(),nM=Object.keys(St.drumGrid[D.t]||{}).length;
   $('#padInfo').textContent=`${D.sec.name} · 2 battute di groove (si ripetono per tutta la sezione)${nM?` · ${nM} pad scritti a mano`:''}`;
-  const head=`<div class="sq-h"></div>${Array.from({length:32},(_,k)=>`<div class="sq-n ${k%4===0?'b':''}">${k%16===0?'batt. '+(k/16+1):k%4===0?(k%16)/4+1:''}</div>`).join('')}`;
+  // etichette: ogni casella dice dove cade (1 e & a per i sedicesimi)
+  const R=D.R,per=R/4,SUB={4:['','e','&','a'],6:['','·','·','&','·','·'],8:['','·','e','·','&','·','a','·']}[per];
+  const head=`<div class="sq-h"></div>${Array.from({length:2*R},(_,k)=>{const kb=k%R,beat=Math.floor(kb/per),sub=kb%per;
+    return`<div class="sq-n ${sub===0?'b':''}">${sub===0?(kb===0?'B'+(Math.floor(k/R)+1)+'·1':beat+1):SUB[sub]}</div>`;}).join('')}`;
+  $('#padGrid').style.gridTemplateColumns=innerWidth<=560?`150px repeat(${2*R},22px)`:`236px repeat(${2*R},minmax(${R>16?12:18}px,1fr))`;
   $('#padGrid').innerHTML=head+PADS.map((p,i)=>{const R=D.rows[i],vol=St.padVol[i]!=null?St.padVol[i]:1;
     return`<div class="sq-h ${St.padMute[i]?'off':''}" data-row="${i}" style="--pc:${PAD_COL[i]}">
         <button class="sq-name" data-aud="${i}" title="Ascolta · nota ${kit.notes[i]} (${NOTE_NM(kit.notes[i])})"><i></i>${kit.names[i]}</button>
@@ -326,7 +334,7 @@ function renderPads(){
         <button class="ib rg" data-pr="${i}" title="Rigenera solo questo pad">🎲</button>
         <input type="range" min="0" max="150" value="${Math.round(vol*100)}" data-pv="${i}" title="Volume ${Math.round(vol*100)}%">
         ${R.man?`<button class="ib on" data-pg="${i}" title="Scritto a mano: torna al generato">✎</button>`:'<span class="ib ghost" title="Generato">·</span>'}</div>`+
-      R.v.map((v,k)=>{const ty=Math.floor(v/1000),vv=v%1000;return`<div class="sq-c ${v>0?'on':''} ${R.man?'man':''} ${k%4===0?'b':''} ${k===16?'bar':''}" data-p="${i}" data-s="${k}" style="--pc:${PAD_COL[i]};--o:${v>0?(.35+vv/127*.65).toFixed(2):0}">${ty?`<i class="rl">${ty+1}</i>`:''}</div>`;}).join('');}).join('');
+      R.v.map((v,k)=>{const ty=Math.floor(v/1000),vv=v%1000;return`<div class="sq-c ${v>0?'on':''} ${R.man?'man':''} ${k%per===0?'b':''} ${k===D.R?'bar':''}" data-p="${i}" data-s="${k}" style="--pc:${PAD_COL[i]};--o:${v>0?(.35+vv/127*.65).toFixed(2):0}">${ty?`<i class="rl">${ty+1}</i>`:''}</div>`;}).join('');}).join('');
   const g=$('#padGrid');
   g.querySelectorAll('[data-aud]').forEach(b=>b.onclick=()=>{const i=+b.dataset.aud;Synth.init();hitPad(i,kit.notes[i],Synth.now()+.01,100*(St.padVol[i]!=null?St.padVol[i]:1),i===9?2:.2);flashPad(i);});
   g.querySelectorAll('[data-ps]').forEach(b=>b.onclick=()=>{const i=+b.dataset.ps;if(St.padSmp[i]){const p={...St.padSmp},q={...St.padSmpName};delete p[i];delete q[i];St.padSmp=p;St.padSmpName=q;renderPads();track();toast('Pad: torna al suono sintetico');return;}padFor=i;$('#padSmpF').click();});
@@ -338,7 +346,7 @@ function renderPads(){
   g.querySelectorAll('.sq-c').forEach(el=>el.onclick=()=>{const i=+el.dataset.p,k=+el.dataset.s,arr=D.rows[i].v.map(x=>Math.round(x)),v=arr[k];
     // ciclo: vuota → forte → ghost → roll ×2 → terzina ×3 → raffica ×4 → vuota
     const ty=Math.floor(v/1000),vv=v%1000;arr[k]=v===0?110:ty===0&&vv>=85?60:ty===0?1100:ty<3?(ty+1)*1000+100:0;setGrid(D.t,i,arr);
-    if(arr[k]){Synth.init();const n2=Math.floor(arr[k]/1000)+1,sp=60/curBpm()/4/n2;for(let q=0;q<n2;q++)hitPad(i,kit.notes[i],Synth.now()+.01+q*sp,arr[k]%1000*(n2>1?.6+.4*q/(n2-1):1),.2);}});
+    if(arr[k]){Synth.init();const n2=Math.floor(arr[k]/1000)+1,sp=60/curBpm()*(4/D.R)/n2;for(let q=0;q<n2;q++)hitPad(i,kit.notes[i],Synth.now()+.01+q*sp,arr[k]%1000*(n2>1?.6+.4*q/(n2-1):1),.2);}});
 }
 function setGrid(t,i,arr){St.drumGrid[t]=Object.assign({},St.drumGrid[t]);if(arr)St.drumGrid[t][i]=arr;else delete St.drumGrid[t][i];if(!Object.keys(St.drumGrid[t]).length)delete St.drumGrid[t];regen();}
 function flashPad(i){const el=$(`#padGrid .sq-h[data-row="${i}"]`);if(!el)return;el.classList.add('flash');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('flash'),110);}
@@ -349,6 +357,8 @@ function seqPlayhead(p){
   if(k===lastSeqStep)return;$$('#padGrid .sq-c.ph').forEach(e=>e.classList.remove('ph'));
   if(k>=0)$$(`#padGrid .sq-c[data-s="${k}"]`).forEach(e=>e.classList.add('ph'));lastSeqStep=k;
 }
+$('#seqRes').onchange=e=>{St.seqRes=+e.target.value;LS.set('pg_seqRes',St.seqRes);renderPads();toast('Griglia: '+e.target.selectedOptions[0].text);};
+St.seqRes=LS.get('pg_seqRes',16);
 $('#seqNew').onclick=()=>{St.reseed.L.drums=(St.reseed.L.drums||0)+1;Object.keys(St.reseed.L).forEach(k=>{if(k.startsWith('drums.'))delete St.reseed.L[k];});regen();toast('Nuovo groove');};
 $('#padClose').onclick=()=>{St.showPads=false;renderLanes();renderPads();};
 const cache=document.createElement('canvas');

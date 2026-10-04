@@ -418,7 +418,7 @@ details.more summary::before{content:"▸ ";}details.more[open] summary::before{
 .ib.ghost{border-color:transparent;background:none;color:var(--tx3)}
 .sq-c{height:26px;border-radius:5px;background:var(--bg2);border:1px solid var(--line);cursor:pointer;position:relative;transition:transform .05s}
 .sq-c.b{border-left-color:var(--line2);background:color-mix(in srgb,var(--line) 35%,var(--bg2))}
-.sq-c.bar{margin-left:6px}
+.sq-c.bar{box-shadow:-4px 0 0 var(--panel),-5px 0 0 var(--line2)}
 .sq-c:hover{border-color:var(--tx3)}
 .sq-c.on{background:color-mix(in srgb,var(--pc) calc(var(--o)*100%),var(--panel));border-color:color-mix(in srgb,var(--pc) 70%,transparent)}
 .sq-c.on.man{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--tx) 25%,transparent)}
@@ -506,3 +506,5 @@ button.exgh{cursor:pointer}button.exgh:hover{color:var(--tx)}.exgh small{font-we
 .okmsg,.warnmsg{font-size:12.5px;padding:9px 12px;border-radius:10px;margin:8px 0}.okmsg{background:color-mix(in srgb,var(--ok) 14%,var(--panel));color:var(--tx)}.warnmsg{background:color-mix(in srgb,var(--acc) 16%,var(--panel));color:var(--tx)}
 
 .padsnd{display:grid;gap:6px}.psr{display:flex;align-items:center;gap:6px}.psr .pn{flex:1;font-size:12.5px;font-weight:600;min-width:0}.psr select{max-width:150px;padding:4px 22px 4px 8px;border-radius:8px;border:1px solid var(--line);background-color:var(--bg2);font-size:12px}
+
+.seqres{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2)}.seqres select{padding:4px 22px 4px 8px;border-radius:8px;border:1px solid var(--line);background-color:var(--bg2);font-size:12px}

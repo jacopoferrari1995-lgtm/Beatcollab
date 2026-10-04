@@ -18,7 +18,9 @@ const Synth=(()=>{
     const wet=A.createGain();wet.gain.value=.2;conv.connect(wet);wet.connect(comp);
     const len=A.sampleRate*1.5;noise=A.createBuffer(1,len,A.sampleRate);const nd=noise.getChannelData(0);for(let i=0;i<len;i++)nd[i]=Math.random()*2-1;
     waves.pLow=wave([1,.55,.35,.22,.16,.1,.07,.05]);waves.pMid=wave([1,.42,.22,.12,.07,.04]);waves.pHigh=wave([1,.25,.08,.03]);
-    for(const k in LAYER_GAIN){const g=A.createGain();g.gain.value=LAYER_GAIN[k]*(fac[k]!=null?fac[k]:1);g.connect(master);
+    const dcomp=A.createDynamicsCompressor();dcomp.threshold.value=-20;dcomp.knee.value=6;dcomp.ratio.value=3.5;dcomp.attack.value=.008;dcomp.release.value=.12;
+    const dmake=A.createGain();dmake.gain.value=1.35;dcomp.connect(dmake);dmake.connect(master);
+    for(const k in LAYER_GAIN){const g=A.createGain();g.gain.value=LAYER_GAIN[k]*(fac[k]!=null?fac[k]:1);g.connect(k==='drums'?dcomp:master);
       const s=A.createGain();s.gain.value=k==='drums'?.08:k==='bass'?.05:.35;g.connect(s);s.connect(revIn);bus[k]=g;}
     if(A.state==='suspended')A.resume();
   }
@@ -119,7 +121,7 @@ const Synth=(()=>{
     MET.forEach(f=>{const o=A.createOscillator();o.type='square';o.frequency.value=f*1.47;o.connect(bp);o.start(t);o.stop(t+dur+.05);});bp.connect(hp);hp.connect(g);g.connect(out);
     g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(gain,t+.002);g.gain.exponentialRampToValueAtTime(.001,t+dur);}
   function drum(n,t,v,out,d){
-    const k=Math.pow(v/127,1.2);
+    const k=Math.pow(v/127,1.2)*(.94+Math.random()*.12);
     if(DK.ready&&DK.map[n]&&DK.buf[DK.map[n]]){const src=A.createBufferSource(),g=A.createGain();src.buffer=DK.buf[DK.map[n]];src.connect(g);g.connect(out);
       g.gain.value=k*(n===42||n===44?.55:.9);src.start(t);if(n===42||n===44)src.stop(t+.12);return;}
     switch(n){
@@ -128,16 +130,16 @@ const Synth=(()=>{
           g.gain.exponentialRampToValueAtTime(k*.3,t+d*.97);g.gain.linearRampToValueAtTime(0,t+d);s.connect(f);f.connect(g);g.connect(out);s.start(t);s.stop(t+d+.05);}
         else{tone(t,90,38,1.1,k*.9,out);noiseHit(t,.7,'lowpass',900,.7,k*.35,out);}break;
       case 36:{// cassa: corpo con caduta di intonazione, sub, clic del battente
-        const o=A.createOscillator(),g=A.createGain();o.type='sine';o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(52,t+.07);o.frequency.exponentialRampToValueAtTime(44,t+.4);
+        const o=A.createOscillator(),g=A.createGain();o.type='sine';const kf=1+(Math.random()-.5)*.06;o.frequency.setValueAtTime(150*kf,t);o.frequency.exponentialRampToValueAtTime(52*kf,t+.07);o.frequency.exponentialRampToValueAtTime(44,t+.4);
         o.connect(g);g.connect(out);g.gain.setValueAtTime(k*1.25,t);g.gain.setTargetAtTime(0,t+.06,.12);o.start(t);o.stop(t+.6);
         noiseHit(t,.012,'highpass',3000,.7,k*.22,out);tone(t,900,200,.015,k*.25,out,'triangle');break;}
-      case 38:tone(t,200,170,.11,k*.55,out,'triangle');tone(t,330,280,.06,k*.2,out);noiseHit(t,.2,'bandpass',2600,.7,k*.62,out);noiseHit(t,.11,'highpass',7000,.7,k*.25,out);break;
+      case 38:tone(t,200,170,.11,k*.55,out,'triangle');tone(t,330,280,.06,k*.2,out);noiseHit(t,.16+k*.08,'bandpass',2300+Math.random()*600+k*500,.7,k*.62,out);noiseHit(t,.11,'highpass',7000,.7,k*.25,out);break;
       case 37:tone(t,1750,1600,.035,k*.45,out,'triangle');tone(t,430,400,.06,k*.3,out);noiseHit(t,.045,'bandpass',2600,3,k*.6,out);break;
       case 39:// clap: tre schiocchi ravvicinati e una coda
         [0,.011,.022].forEach(x=>noiseHit(t+x,.03,'bandpass',1250,1.6,k*.55,out));noiseHit(t+.03,.18,'bandpass',1150,1.1,k*.38,out);break;
       case 40:{const s2=A.createBufferSource();s2.buffer=noise;const f=A.createBiquadFilter();f.type='bandpass';f.frequency.value=2600;f.Q.value=.5;const g=A.createGain();
         s2.connect(f);f.connect(g);g.connect(out);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(k*.32,t+.025);g.gain.exponentialRampToValueAtTime(.001,t+.32);s2.start(t,Math.random()*.5);s2.stop(t+.36);break;}
-      case 42:metal(t,.045+k*.02,k*.42,out,7000,10000);break;
+      case 42:metal(t,.035+k*.035,k*.42,out,6800+Math.random()*600,9500+k*1500);break;
       case 44:metal(t,.035,k*.3,out,6000,9000);break;
       case 46:metal(t,.32,k*.36,out,6500,9500);break;
       case 51:metal(t,1.1,k*.16,out,4000,7500);noiseHit(t,.9,'bandpass',7200,1.8,k*.1,out);tone(t,3150,3140,.5,k*.02,out,'triangle');break;

@@ -1340,7 +1340,11 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
     if(k<.98&&pad!==9&&pad!==8&&pad!==0&&pad!==1&&r()>k)return;
     L.drums.push({t:tt,d:dd||.12,n:kit.notes[pad],pad,v:clamp(Math.round(v*E.dyn(tt)),12,127)});};
   const VX={X:112,x:90,o:52},VH={X:92,x:76,o:54};
-  const vel=(ch,pad)=>((pad===3||pad===5||pad===4?VH:VX)[ch]||84)*(.86+.16*e)+(hum?(r()+r()-1)*5*hum:0);
+  // accenti naturali: l'hi-hat respira dentro il battito (1 forte, & medio, e/a leggeri), un po' di crescendo verso fine frase
+  const LILT16=[1,.66,.84,.72],LILT12=[1,.7,.82],lilt=(pad,i)=>(pad===3||pad===5)?(g===16?LILT16[i%4]:g===12?LILT12[i%3]:1):1;
+  const vel=(ch,pad,i,b)=>((pad===3||pad===5||pad===4?VH:VX)[ch]||84)*(.86+.16*e)*(i!=null?lilt(pad,i):1)*(b!=null&&b%4===3?1.04:1)+(hum?(r()+r()-1)*8*hum:0);
+  // feel di genere: hat un filo avanti nell'urban, rullante dietro nell'hip hop (se il groove non lo dice già)
+  const FEEL={urban:{h:-.006},hiphop:{s:.018,h:.006},island:{s:.01},jazz:{s:.012},pop:{},calm:{}}[d.fam]||{};
   const sw=S.sw!=null?S.sw:Math.min(.6,(G.swing||0)*1.2),swD=i=>g===16&&i%2===1?sw*.0833:0;
   const lr=rngFrom(d.lickSeed+hashStr(t)),fam=d.fam,lick=pick(lr,GLICK[fam]);
   const intro=t==='intro',bridgeHalf=(t==='bridge'||t==='special')&&lr()<.5;
@@ -1367,12 +1371,13 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
       for(const k in fill.p){const pt=fill.p[k];const seg=(pt.length>=n?pt.slice(-n):pt.padStart(n,'-'));lines[k]=(lines[k]||'-'.repeat(g)).slice(0,from)+seg;}}
     // hat aperto: chiude l'hi-hat nello stesso punto
     if(lines.o&&lines.h&&!S.jazz){let h='';for(let i=0;i<g;i++)h+=(lines.o[i]!=='-'&&(lines.o[i]==='X'||(lines.o[i]==='x'&&lev>=1)||(lines.o[i]==='o'&&lev>=2)))?'-':lines.h[i];lines.h=h;}
+    if(lev===2&&!fill&&['hiphop','pop'].includes(d.fam)&&lines.s&&g===16&&r()<.4){const gp=pick(r,[7,9,15,3]);if(lines.s[gp]==='-'&&lines.s[gp+1]!=='X')lines.s=lines.s.slice(0,gp)+'o'+lines.s.slice(gp+1);}
     for(const k in lines){const pad=GPAD[k],ln=lines[k];
       for(let i=0;i<g;i++){const ch=ln[i];if(ch==='-')continue;
-        const need=ch==='X'?0:ch==='o'?2:1;let lv=lev;if((pad===5||pad===6||pad===7)&&ch!=='X')lv=lev-(intro?0:0);
-        if(lv<need)continue;
+        // probabilità: le decorazioni (o) entrano a volte già a densità media e quasi sempre a densità piena; così ogni battuta è un po' diversa
+        if(ch==='o'){if(lev===0||r()>(lev===2?.78:.28))continue;}else if(ch!=='X'&&lev<1)continue;
         const bf=plan.br?plan.br(b,i*stepB):1;if(bf<.35&&((pad>=3&&pad<=7)||(pad===0&&ch!=='X')))continue;
-        const tt=bs+i*stepB+swD(i)+(TM[k]||0),v=vel(ch==='r'||ch==='t'||ch==='f'?'x':ch,pad);
+        const tt=bs+i*stepB+swD(i)+(TM[k]!=null?TM[k]:(FEEL[k]||0))+(pad>=3?(r()+r()-1)*.006*hum:0),v=vel(ch==='r'||ch==='t'||ch==='f'?'x':ch,pad,i,b);
         // posizione nel fill: crescendo
         const inFill=fill&&i>=g-fill.len*perBeat,vv=inFill?v*(.8+.3*(i-(g-fill.len*perBeat))/(fill.len*perBeat)):v;
         if(ch==='r'){hit(tt,pad,vv*.85);hit(tt+stepB/2,pad,vv*.7);}
@@ -1385,9 +1390,11 @@ function genDrums(sec,ctx,r,L,tier,plan,grid,pdens){
     if(t==='outro'&&last)hit(bs,8,vel('x',8),1.5);
   }
   // colpi scritti a mano sulla griglia (sostituiscono quelli generati per quel pad)
-  for(const pd in G2){const steps=G2[pd];if(!steps)continue;for(let b=0;b<sec.bars;b++){const bs=sec.startBeat+b*4,o=steps.length>16&&drumKind(b,sec.bars)==='B'?16:0;
-    for(let i=0;i<16;i++){const v=steps[o+i];if(!(v>0))continue;const n=Math.floor(v/1000)+1,vv=v%1000,t0=bs+i/4+(i%2?sw*.0833:0)+jit();
-      for(let q=0;q<n;q++)hit(t0+q*.25/n,+pd,n>1?vv*(.6+.4*q/(n-1)):vv,+pd===9?1:.12,true);}}}
+  // (una riga = 2 battute alla risoluzione scelta: 16, 24 o 32 passi per battuta; le righe vecchie da 16 valgono per entrambe)
+  for(const pd in G2){const steps=G2[pd];if(!steps)continue;const two=steps.length>16,RS=two?steps.length/2:16,cell=4/RS;
+    for(let b=0;b<sec.bars;b++){const bs=sec.startBeat+b*4,o=two&&drumKind(b,sec.bars)==='B'?RS:0;
+    for(let i=0;i<RS;i++){const v=steps[o+i];if(!(v>0))continue;const n=Math.floor(v/1000)+1,vv=v%1000,t0=bs+i*cell+(RS===16&&i%2?sw*.0833:0)+jit();
+      for(let q=0;q<n;q++)hit(t0+q*cell/n,+pd,n>1?vv*(.6+.4*q/(n-1)):vv,+pd===9?1:.12,true);}}}
   // riser solo prima di un ritornello, quando la sezione è già piena
   if(riseTo&&nx.type==='chorus'&&lev>=2)hit(sec.startBeat+(sec.bars-1)*4+2,9,55+e*15,2);
 }
