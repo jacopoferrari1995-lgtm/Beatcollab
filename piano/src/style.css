@@ -504,3 +504,5 @@ button.exgh{cursor:pointer}button.exgh:hover{color:var(--tx)}.exgh small{font-we
 @media (max-width:700px){.proj{flex-wrap:wrap;row-gap:6px}}
 
 .okmsg,.warnmsg{font-size:12.5px;padding:9px 12px;border-radius:10px;margin:8px 0}.okmsg{background:color-mix(in srgb,var(--ok) 14%,var(--panel));color:var(--tx)}.warnmsg{background:color-mix(in srgb,var(--acc) 16%,var(--panel));color:var(--tx)}
+
+.padsnd{display:grid;gap:6px}.psr{display:flex;align-items:center;gap:6px}.psr .pn{flex:1;font-size:12.5px;font-weight:600;min-width:0}.psr select{max-width:150px;padding:4px 22px 4px 8px;border-radius:8px;border:1px solid var(--line);background-color:var(--bg2);font-size:12px}

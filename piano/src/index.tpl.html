@@ -85,10 +85,10 @@ window.addEventListener('error',function(e){var b=document.getElementById('errbo
   </section>
 
   <section class="panel smppanel">
-    <div class="padhead"><h3>Campioni e sequenze</h3><span class="muted">audio nelle tracce, MIDI nelle parti</span><span class="spacer"></span>
+    <div class="padhead"><h3>Loop audio e sequenze MIDI</h3><span class="muted">loop a tempo su una corsia propria · MIDI dentro le tracce · per il suono di una traccia usa ♫ nella traccia</span><span class="spacer"></span>
       <button class="btn sm" id="smpAudio" title="Uno o più file audio: entrano dalla sezione selezionata, a tempo">＋ Campioni audio</button>
       <button class="btn sm" id="smpMidi" title="Un file .mid: le note entrano in una traccia">＋ Sequenza MIDI</button>
-      <input type="file" id="smpAudioF" accept="audio/*" multiple hidden><input type="file" id="smpMidiF" accept=".mid,.midi,audio/midi" hidden><input type="file" id="padSmpF" accept="audio/*" hidden></div>
+      <input type="file" id="smpAudioF" accept="audio/*" multiple hidden><input type="file" id="smpMidiF" accept=".mid,.midi,audio/midi" hidden><input type="file" id="padSmpF" accept="audio/*" hidden><input type="file" id="sndF" accept="audio/*" hidden></div>
     <div id="smpList"></div>
     <p class="dim" style="font-size:11.5px;margin-top:8px">I file audio si salvano nel tuo archivio quando apri il sito dal link fisso (non entrano nel MIDI esportato né nel backup .json). Le sequenze MIDI diventano note della traccia scelta ed escono nell'export. Per un campione su un pad della batteria usa 📁 nel sequencer.</p>
   </section>

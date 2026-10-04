@@ -202,8 +202,13 @@ const Synth=(()=>{
   function playSample(id,t,{dur=null,rate=1,gain=1,offset=0,layer='smp'}={}){const b=SMPB.get(id);if(!b||!A)return false;
     const src=A.createBufferSource(),g=A.createGain();src.buffer=b;src.playbackRate.value=rate;src.connect(g);g.connect(bus[layer]||bus.smp);
     g.gain.setValueAtTime(gain,t);src.start(t,Math.max(0,offset));
-    if(dur!=null){const e=t+dur;g.gain.setValueAtTime(gain,Math.max(t,e-.015));g.gain.linearRampToValueAtTime(0,e);src.stop(e+.02);}
+    if(dur!=null){const e=t+dur;g.gain.setTargetAtTime(0,e,.06);src.stop(e+.4);}
     return true;}
+  // nota fondamentale di un campione: autocorrelazione su un tratto dopo l'attacco
+  function detectRoot(id){const b=SMPB.get(id);if(!b)return null;const d=b.getChannelData(0),sr=b.sampleRate,st=Math.min(d.length-4096,Math.floor(sr*.06));if(st<0)return null;
+    const W=2048;let best=0,bl=0,e0=0;for(let i=0;i<W;i++)e0+=d[st+i]*d[st+i];if(e0<1e-4)return null;
+    for(let lag=Math.floor(sr/1000);lag<Math.floor(sr/40);lag++){let a=0;for(let i=0;i<W;i++)a+=d[st+i]*d[st+i+lag];if(a>best){best=a;bl=lag;}}
+    if(!bl||best/e0<.5)return null;return Math.round(69+12*Math.log2((sr/bl)/440));}
   const INST={piano,epiano,pluck,bass,pad,b808,gtr};
   function note(inst,n,t,d,v,layer,gl,art){init();(INST[inst]||piano)(n,t,d,v,bus[layer]||bus.ex,inst==='lead'?true:gl,art);}
   function hit(n,t,v,d){init();drum(n,t,v,bus.drums,d);}
@@ -211,5 +216,5 @@ const Synth=(()=>{
   function setLayerGain(k,x){fac[k]=x;if(bus[k])bus[k].gain.value=LAYER_GAIN[k]*x;}
   function setVolume(x){init();master.gain.value=x;}
   function useSamples(on,onprog){SAMP.on=on;return on?loadSamples(onprog):Promise.resolve('off');}
-  return{useDrumSamples,get drumSampleState(){return DK.state;},loadSample,sampleDur,playSample,hasSample:id=>SMPB.has(id),setGuitarTone,init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
+  return{detectRoot,useDrumSamples,get drumSampleState(){return DK.state;},loadSample,sampleDur,playSample,hasSample:id=>SMPB.has(id),setGuitarTone,init,now,note,hit,setLayerGain,setVolume,useSamples,get sampleState(){return SAMP.state;},get ctx(){return A;}};
 })();

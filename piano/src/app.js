@@ -25,14 +25,14 @@ function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show'
 
 const DEF={genre:'pop',mood:'rilassato',mode:'auto',key:'auto',structure:'vc',color:'auto',human:true,pad:false,pianoStyle:'live',modLast:false,sound:'samp',dens:'auto',spaceLvl:'auto',gtr:'auto',drumKit:'auto'};
 const St={opts:Object.assign({},DEF,LS.get('pg_opts',{})),seeds:{h:rndSeed(),a:rndSeed(),m:rndSeed()},bpm:null,song:null,ev:[],
-  mute:{},solo:null,oct:{},vol:{},padMute:{},padVol:{},padDens:{},drumGrid:{},feel:{},style:{},clips:[],padSmp:{},padSmpName:{},imports:[],secCfg:{},padSel:null,showPads:false,reseed:{L:{},S:{}},sel:0,selChord:-1,scope:'rep',loop:false,muteInit:false,layout:null,secs:null,typeOrder:null,edits:[]};
+  mute:{},solo:null,oct:{},vol:{},padMute:{},padVol:{},padDens:{},drumGrid:{},feel:{},style:{},inst:{},lib:[],clips:[],padSmp:{},padSmpName:{},imports:[],secCfg:{},padSel:null,showPads:false,reseed:{L:{},S:{}},sel:0,selChord:-1,scope:'rep',loop:false,muteInit:false,layout:null,secs:null,typeOrder:null,edits:[]};
 const VALID={genre:GENRES,mood:MOODS,mode:Object.assign({auto:1},MODES),structure:STRUCTS,color:{auto:1,triadi:1,colorati:1,settime:1,estesi:1},pianoStyle:{live:1,classic:1},sound:{samp:1,synth:1},gtr:{auto:1,on:1,off:1},drumKit:{auto:1,acoustic:1,synth:1},};
 // densità e vuoto/pieno: 'auto' o 0–100 (i vecchi valori a parole vengono convertiti)
 const numOrAuto=(v,leg)=>v==null||v==='auto'?'auto':leg[v]!=null?leg[v]:isFinite(+v)?clamp(Math.round(+v),0,100):'auto';
 St.name='Senza titolo';St.projId=null;St.savedSnap=null;
 (()=>{const cur=LS.get('pg_current',null),meta=LS.get('pg_meta',{});
   if(cur&&cur.opts&&cur.seeds){Object.assign(St,{opts:Object.assign({},DEF,cur.opts),seeds:cur.seeds,secs:cur.secs||null,typeOrder:cur.typeOrder||null,edits:cur.edits||[],
-    oct:cur.oct||{},mute:cur.mute||{},solo:cur.solo||null,bpm:cur.bpm||null,name:cur.name||'Senza titolo',muteInit:!!cur.mute,reseed:cur.reseed||{L:{},S:{}},vol:cur.vol||{},padMute:cur.padMute||{},padVol:cur.padVol||{},padDens:cur.padDens||{},drumGrid:cur.drumGrid||{},feel:cur.feel||{},style:cur.style||{},clips:cur.clips||[],padSmp:cur.padSmp||{},padSmpName:cur.padSmpName||{},imports:cur.imports||[],secCfg:cur.secCfg||{}});}
+    oct:cur.oct||{},mute:cur.mute||{},solo:cur.solo||null,bpm:cur.bpm||null,name:cur.name||'Senza titolo',muteInit:!!cur.mute,reseed:cur.reseed||{L:{},S:{}},vol:cur.vol||{},padMute:cur.padMute||{},padVol:cur.padVol||{},padDens:cur.padDens||{},drumGrid:cur.drumGrid||{},feel:cur.feel||{},style:cur.style||{},inst:cur.inst||{},lib:cur.lib||[],clips:cur.clips||[],padSmp:cur.padSmp||{},padSmpName:cur.padSmpName||{},imports:cur.imports||[],secCfg:cur.secCfg||{}});}
   St.projId=meta.projId||null;St.savedSnap=meta.savedSnap||null;})();
 for(const k in VALID)if(!(St.opts[k] in VALID[k]))St.opts[k]=DEF[k];
 St.opts.dens=numOrAuto(St.opts.dens,DENS_LEGACY);St.opts.spaceLvl=numOrAuto(St.opts.spaceLvl,SPACE_LEGACY);
@@ -40,7 +40,7 @@ if(St.opts.key!=='auto'&&!(+St.opts.key>=0&&+St.opts.key<12))St.opts.key='auto';
 
 const curBpm=()=>St.bpm||St.song.bpm;
 const audible=id=>St.solo?St.solo===id:!St.mute[id];
-const instOf=l=>{const s=St.song,p=s.prog;
+const instOf=l=>{const s=St.song,p=s.prog,ch=St.inst&&St.inst[l];if(ch&&ch.b)return ch.b;
   if(l==='piano')return p.piano===4?'epiano':'piano';
   if(l==='arp')return p.arp===4?'epiano':(p.arp===24||p.arp===46)?'pluck':'piano';
   if(l==='bass')return s.bass808?'b808':'bass';
@@ -179,6 +179,7 @@ function renderLanes(){
     return`<div class="lane-h ${audible(l.id)?'':'off'} ${LANE_H[l.id]<50?'short':''}" style="height:${LANE_H[l.id]}px">
       <span class="dot" style="background:var(--c-${l.id})"></span><span class="nm" title="${l.n}">${LANE_NAME[l.id]}</span>
       <div class="btns">${l.id==='smp'?'':`<button class="ib rg" data-rl="${l.id}" title="Rigenera ${l.n.toLowerCase()}: casuale o con uno stile scelto">🎲${St.style[l.id]?'<i class="lk">•</i>':''}</button>`}
+        ${l.id==='smp'?'':`<button class="ib ${St.inst[l.id]||(l.id==='drums'&&Object.keys(St.padSmp).length)?'on':''}" data-snd="${l.id}" title="Suono della traccia: strumenti e i tuoi campioni">♫</button>`}
         <button class="ib ${St.mute[l.id]?'on':''}" data-mute="${l.id}" title="Silenzia">M</button>
         <button class="ib ${St.solo===l.id?'on':''}" data-solo="${l.id}" title="Ascolta solo questa traccia">S</button>
         ${l.id==='smp'?`<input type="range" min="0" max="150" value="${v}" data-vol="smp" title="Volume campioni ${v}%" style="width:70px">`:`<button class="ib ${St.feel[l.id]&&Object.keys(St.feel[l.id]).length?'on':''}" data-feel="${l.id}" title="Feel: umanizzazione, swing, anticipo/ritardo">≈</button>
@@ -187,6 +188,7 @@ function renderLanes(){
         ${l.id==='drums'?`<button class="btn sm ${St.showPads?'primary-soft':''}" data-pads style="padding:3px 8px">Sequencer</button>`:`<span class="oct ${o?'on':''}" title="Ottava"><button data-oct="${l.id}" data-d="-1">−</button><span>${o>0?'+'+o:o}</span><button data-oct="${l.id}" data-d="1">+</button></span>`}</div>`}</div>`;}).join('');
   h.querySelectorAll('[data-rl]').forEach(b=>b.onclick=e=>{e.stopPropagation();const id=b.dataset.rl;
     if(!styleOpts(id).length){reseedLayer(id);return;}openStyle(id,b);});
+  h.querySelectorAll('[data-snd]').forEach(b=>b.onclick=e=>{e.stopPropagation();openSound(b.dataset.snd,b);});
   h.querySelectorAll('[data-mute]').forEach(b=>b.onclick=()=>{const id=b.dataset.mute;St.mute[id]=!St.mute[id];renderLanes();drawArr();track();});
   h.querySelectorAll('[data-solo]').forEach(b=>b.onclick=()=>{const id=b.dataset.solo;St.solo=St.solo===id?null:id;renderLanes();drawArr();track();});
   h.querySelectorAll('[data-oct]').forEach(b=>b.onclick=()=>{const id=b.dataset.oct;St.oct[id]=clamp((St.oct[id]||0)+(+b.dataset.d),-2,2);buildEv();renderLanes();track();
@@ -230,6 +232,47 @@ function openStyle(id,anchor){
     regen();toast(`${nm}: ${b.textContent.replace('🔒','').replace('· ora','').trim()}`);});
   const f=$('#sFree');if(f)f.onclick=()=>{const s={...St.style};delete s[id];St.style=s;close();regen();toast(`${nm}: stile libero`);};
 }
+/* ---------------- Suono di ogni traccia: strumenti interni o i tuoi campioni ---------------- */
+const BUILTIN=[['piano','Pianoforte'],['epiano','Rhodes'],['pluck','Pizzicato'],['pad','Pad'],['gtr','Chitarra'],['bass','Basso'],['b808','808']];
+// libreria: i campioni del progetto più quelli caricati in passato (browser e archivio)
+function libAll(){const m=new Map();[...LS.get('pg_lib',[]),...(Cloud.lib||[]),...(St.lib||[])].forEach(x=>{if(x&&x.sid&&!m.has(x.sid))m.set(x.sid,x);});return[...m.values()];}
+function libAdd(x){St.lib=[...(St.lib||[]).filter(y=>y.sid!==x.sid),x];const g=LS.get('pg_lib',[]).filter(y=>y.sid!==x.sid);g.push(x);LS.set('pg_lib',g.slice(-200));
+  if(Cloud.ready){Cloud.lib=[...(Cloud.lib||[]).filter(y=>y.sid!==x.sid),x];Cloud.col.doc('library').set({items:Cloud.lib.slice(-200)}).catch(()=>{});}}
+const NOTE_OPTS=Array.from({length:61},(_,i)=>i+24);
+let sndFile=null;
+function openSound(id,anchor){
+  const pop=$('#feelPop'),nm=LAYERS.find(l=>l.id===id).n,lib=libAll(),cur=St.inst[id]||{};feelFor=id;
+  const libChips=lib.length?lib.map(x=>`<button class="chip ${cur.sid===x.sid?'lock':''}" data-ls="${x.sid}" title="${Synth.hasSample(x.sid)?'':'non ancora caricato'}">${cur.sid===x.sid?'♪ ':''}${esc(x.name)}</button>`).join(''):'<span class="dim" style="font-size:12px">Nessun campione ancora: caricane uno qui sotto.</span>';
+  let body;
+  if(id==='drums'){const kit=drumKit(GENRES[St.song.genre],St.song.drumStyle);
+    body=`<div class="padsnd">${PADS.map((p,i)=>`<div class="psr"><span class="pn">${kit.names[i]}</span>
+      <select data-pl="${i}"><option value="">${St.padSmp[i]?'— suono interno —':'suono interno'}</option>${lib.map(x=>`<option value="${x.sid}" ${St.padSmp[i]===x.sid?'selected':''}>${esc(x.name)}</option>`).join('')}</select>
+      <button class="ib" data-pu="${i}" title="Carica un file audio per ${kit.names[i]}">📁</button><button class="ib" data-pp="${i}" title="Ascolta">▶</button></div>`).join('')}</div>`;}
+  else body=`<div class="label" style="margin:2px 0 6px">Strumenti</div><div class="stylechips"><button class="chip ${!St.inst[id]?'lock':''}" data-bi="">Auto (del genere)</button>${BUILTIN.map(([k,n])=>`<button class="chip ${cur.b===k?'lock':''}" data-bi="${k}">${n}</button>`).join('')}</div>
+    <div class="label" style="margin:12px 0 6px">I tuoi campioni</div><div class="stylechips">${libChips}</div>
+    ${cur.sid?`<div class="frow" style="margin-top:10px"><span title="L’altezza a cui il campione è stato registrato: da lì si calcolano tutte le altre note">Nota del campione</span><select id="sRoot">${NOTE_OPTS.map(n=>`<option value="${n}" ${n===(cur.root||60)?'selected':''}>${NOTE_NM(n)}</option>`).join('')}</select></div>`:''}`;
+  $('#feelBody').innerHTML=`<div class="phead"><div><div class="big" style="font-size:17px">Suono · ${nm}</div><div class="sub">${id==='drums'?'Un campione per ogni pad, o il suono interno':'Scegli lo strumento o un tuo campione: suona a tutte le altezze'}</div></div><span class="spacer"></span><button class="ib" id="sClose">✕</button></div>
+    <div class="pbody">${body}</div>
+    <div class="pfoot">${id==='drums'?'':'<button class="btn sm primary" id="sUp">＋ Carica campione audio</button><button class="btn sm" id="sTry">▶ Prova</button>'}<span class="spacer"></span><span class="dim" style="font-size:11px">${Cloud.ready?'☁ salvati nel tuo archivio':'wav, mp3, ogg…'}</span></div>`;
+  pop.hidden=false;placeLanePop(pop,anchor);
+  const again=()=>openSound(id,$(`[data-snd="${id}"]`)||anchor),apply=(msg)=>{renderLanes();track();if(msg)toast(msg);again();};
+  $('#sClose').onclick=()=>{pop.hidden=true;feelFor=null;};
+  $$('#feelBody [data-bi]').forEach(b=>b.onclick=()=>{const k=b.dataset.bi,x={...St.inst};if(k)x[id]={b:k};else delete x[id];St.inst=x;apply(`${nm}: ${b.textContent}`);});
+  $$('#feelBody [data-ls]').forEach(b=>b.onclick=async()=>{const x=lib.find(y=>y.sid===b.dataset.ls);St.inst={...St.inst,[id]:{sid:x.sid,root:x.root||60,name:x.name}};await ensureSamples();apply(`${nm}: “${x.name}”`);});
+  const rs=$('#sRoot');if(rs)rs.onchange=()=>{St.inst={...St.inst,[id]:{...St.inst[id],root:+rs.value}};const L2=libAll().find(y=>y.sid===St.inst[id].sid);if(L2)libAdd({...L2,root:+rs.value});track();};
+  const up=$('#sUp');if(up)up.onclick=()=>{sndFile={layer:id};$('#sndF').click();};
+  const tr=$('#sTry');if(tr)tr.onclick=()=>{Synth.init();const t0=Synth.now()+.05,si=St.inst[id];[60,64,67,72].forEach((n,i)=>{const at=t0+i*.28;
+    if(si&&si.sid&&Synth.hasSample(si.sid))Synth.playSample(si.sid,at,{dur:.5,rate:Math.pow(2,(n-(si.root||60))/12),gain:.8,layer:id});else Synth.note(instOf(id),n-(id==='bass'?24:0),at,.5,85,id);});};
+  $$('#feelBody [data-pl]').forEach(sel=>sel.onchange=async()=>{const i=+sel.dataset.pl,v=sel.value,p={...St.padSmp},q={...St.padSmpName};
+    if(v){const x=lib.find(y=>y.sid===v);p[i]=v;q[i]=x?x.name:'';}else{delete p[i];delete q[i];}St.padSmp=p;St.padSmpName=q;await ensureSamples();renderPads();apply();});
+  $$('#feelBody [data-pu]').forEach(b=>b.onclick=()=>{sndFile={pad:+b.dataset.pu};$('#sndF').click();});
+  $$('#feelBody [data-pp]').forEach(b=>b.onclick=()=>{const i=+b.dataset.pp,kit=drumKit(GENRES[St.song.genre],St.song.drumStyle);Synth.init();hitPad(i,kit.notes[i],Synth.now()+.02,105,i===9?2:.2);});
+}
+$('#sndF').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f||!sndFile)return;Synth.init();
+  try{const s=await addSampleFile(f),root=sndFile.pad!=null?null:(Synth.detectRoot(s.id)||60),x={sid:s.id,name:s.name,root:root||60};libAdd(x);
+    if(sndFile.pad!=null){St.padSmp={...St.padSmp,[sndFile.pad]:s.id};St.padSmpName={...St.padSmpName,[sndFile.pad]:s.name};renderPads();openSound('drums',$('[data-snd="drums"]'));}
+    else{const id=sndFile.layer;St.inst={...St.inst,[id]:{sid:s.id,root:x.root,name:s.name}};openSound(id,$(`[data-snd="${id}"]`));toast(`${LAYERS.find(l=>l.id===id).n}: “${s.name}” (nota ${NOTE_NM(x.root)})`);}
+    renderLanes();track();}catch(err){toast('File audio non leggibile');}};
 /* ---------------- Feel per traccia ---------------- */
 let feelFor=null;
 function openFeel(id,anchor){
@@ -251,7 +294,7 @@ function openFeel(id,anchor){
   $('#fReset').onclick=()=>{delete St.feel[id];regen();openFeel(id,$(`[data-feel="${id}"]`)||anchor);};
   $('#fClose').onclick=()=>{pop.hidden=true;feelFor=null;};
 }
-document.addEventListener('pointerdown',e=>{const p=$('#feelPop');if(!p.hidden&&!p.contains(e.target)&&!e.target.closest('[data-feel]')&&!e.target.closest('[data-rl]')){p.hidden=true;feelFor=null;}});
+document.addEventListener('pointerdown',e=>{const p=$('#feelPop');if(!p.hidden&&!p.contains(e.target)&&!e.target.closest('[data-feel]')&&!e.target.closest('[data-rl]')&&!e.target.closest('[data-snd]')){p.hidden=true;feelFor=null;}});
 
 /* ---------------- Pad batteria ---------------- */
 const PAD_COL=['#ef4444','#f59e0b','#eab308','#22c55e','#14b8a6','#06b6d4','#3b82f6','#6366f1','#a855f7','#ec4899'];
@@ -571,7 +614,8 @@ const Player={playing:false,base:0,p:0,timer:null,raf:0,
       if(!e||e.t>=L1){if(now+.2<this.base+L1*spb)break;this.base+=(L1-L0)*spb;this.p=this.first(L0);continue;}
       const at=this.base+e.t*spb;if(at>now+.2)break;
       if(at>=now-.04&&audible(e.l)){if(e.l==='smp')playClipEv(e,at,0);else if(e.l==='drums'){if(!St.padMute[e.pad]){hitPad(e.pad,e.n,at,e.v,e.d*spb);if(St.showPads){const pd=e.pad;setTimeout(()=>flashPad(pd),Math.max(0,(at-now)*1000));}}}
-        else Synth.note(instOf(e.l),e.n,at,e.d*spb,e.v,e.l,e.gl,e.art);}
+        else{const si=St.inst[e.l];if(si&&si.sid&&Synth.hasSample(si.sid))Synth.playSample(si.sid,at,{dur:Math.max(.08,e.d*spb),rate:Math.pow(2,(e.n-(si.root||60))/12),gain:Math.pow(e.v/127,1.2)*1.1,layer:e.l});
+          else Synth.note(instOf(e.l),e.n,at,e.d*spb,e.v,e.l,e.gl,e.art);}}
       this.p++;
     }
   },
@@ -655,7 +699,7 @@ $$('.tabs button').forEach(b=>b.onclick=()=>{
 
 /* ---------------- Storia: indietro / avanti ---------------- */
 const H={undo:[],redo:[],last:null,restoring:false};
-const snapState=()=>JSON.stringify({opts:St.opts,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,oct:St.oct,mute:St.mute,solo:St.solo,bpm:St.bpm,name:St.name,reseed:St.reseed,vol:St.vol,padMute:St.padMute,padVol:St.padVol,padDens:St.padDens,drumGrid:St.drumGrid,feel:St.feel,style:St.style,clips:St.clips,padSmp:St.padSmp,padSmpName:St.padSmpName,imports:St.imports,secCfg:St.secCfg});
+const snapState=()=>JSON.stringify({opts:St.opts,seeds:St.seeds,secs:St.secs,typeOrder:St.typeOrder,edits:St.edits,oct:St.oct,mute:St.mute,solo:St.solo,bpm:St.bpm,name:St.name,reseed:St.reseed,vol:St.vol,padMute:St.padMute,padVol:St.padVol,padDens:St.padDens,drumGrid:St.drumGrid,feel:St.feel,style:St.style,inst:St.inst,lib:St.lib,clips:St.clips,padSmp:St.padSmp,padSmpName:St.padSmpName,imports:St.imports,secCfg:St.secCfg});
 function track(){
   const cur=snapState();
   if(H.last&&cur!==H.last&&!H.restoring){H.undo.push(H.last);if(H.undo.length>200)H.undo.shift();H.redo=[];}
@@ -671,7 +715,7 @@ function updHist(){
 function restore(json){
   const o=JSON.parse(json);H.restoring=true;
   Object.assign(St,{opts:Object.assign({},DEF,o.opts),seeds:o.seeds,secs:o.secs||null,typeOrder:o.typeOrder||null,edits:o.edits||[],oct:o.oct||{},
-    mute:o.mute||{},solo:o.solo||null,bpm:o.bpm||null,name:o.name||St.name,muteInit:true,reseed:JSON.parse(JSON.stringify(o.reseed||{L:{},S:{}})),vol:{...(o.vol||{})},padMute:{...(o.padMute||{})},padVol:{...(o.padVol||{})},padDens:{...(o.padDens||{})},drumGrid:JSON.parse(JSON.stringify(o.drumGrid||{})),feel:JSON.parse(JSON.stringify(o.feel||{})),style:{...(o.style||{})},clips:JSON.parse(JSON.stringify(o.clips||[])),padSmp:{...(o.padSmp||{})},padSmpName:{...(o.padSmpName||{})},imports:JSON.parse(JSON.stringify(o.imports||[])),secCfg:JSON.parse(JSON.stringify(o.secCfg||{}))});
+    mute:o.mute||{},solo:o.solo||null,bpm:o.bpm||null,name:o.name||St.name,muteInit:true,reseed:JSON.parse(JSON.stringify(o.reseed||{L:{},S:{}})),vol:{...(o.vol||{})},padMute:{...(o.padMute||{})},padVol:{...(o.padVol||{})},padDens:{...(o.padDens||{})},drumGrid:JSON.parse(JSON.stringify(o.drumGrid||{})),feel:JSON.parse(JSON.stringify(o.feel||{})),style:{...(o.style||{})},inst:JSON.parse(JSON.stringify(o.inst||{})),lib:JSON.parse(JSON.stringify(o.lib||[])),clips:JSON.parse(JSON.stringify(o.clips||[])),padSmp:{...(o.padSmp||{})},padSmpName:{...(o.padSmpName||{})},imports:JSON.parse(JSON.stringify(o.imports||[])),secCfg:JSON.parse(JSON.stringify(o.secCfg||{}))});
   syncControls();$('#projName').value=St.name;closePop();
   if(St.sel>=0)St.sel=Math.min(St.sel,99);regen();ensureSamples();H.restoring=false;H.last=json;LS.set('pg_current',o);updHist();
 }
@@ -781,7 +825,7 @@ const IDB={db:null,
 const smpLoading=new Set();
 // carica nel motore audio i campioni usati dal progetto (se ci sono in questo browser)
 async function ensureSamples(){
-  const ids=new Set([...(St.clips||[]).map(c=>c.sid),...Object.values(St.padSmp||{})]);
+  const ids=new Set([...(St.clips||[]).map(c=>c.sid),...Object.values(St.padSmp||{}),...Object.values(St.inst||{}).map(x=>x&&x.sid).filter(Boolean),...libAll().map(x=>x.sid)]);
   for(const id of ids){if(Synth.hasSample(id)||smpLoading.has(id))continue;smpLoading.add(id);
     try{let rec=await IDB.get(id).catch(()=>null);
       // non è nel browser: si prende dall'archivio
@@ -807,7 +851,7 @@ function hitPad(i,n,at,v,d){const sid=(St.padSmp||{})[i];if(sid&&Synth.hasSample
 async function onAudioFiles(files){
   if(!files.length)return;Synth.init();let n=0;const sec=curSec();
   for(const f of files){try{const s=await addSampleFile(f),spb=60/curBpm(),bars=clamp(Math.round(Synth.sampleDur(s.id)/(4*spb))||1,1,16);
-      St.clips.push({sid:s.id,name:s.name,start:sec.startBeat,bars,reps:Math.max(1,Math.floor(sec.bars/bars)),fit:true,vol:1});n++;}catch(e){toast(`“${f.name}” non è un file audio leggibile`);}}
+      libAdd({sid:s.id,name:s.name,root:60});St.clips.push({sid:s.id,name:s.name,start:sec.startBeat,bars,reps:Math.max(1,Math.floor(sec.bars/bars)),fit:true,vol:1});n++;}catch(e){toast(`“${f.name}” non è un file audio leggibile`);}}
   if(n){St.mute.smp=false;buildEv();renderAll();track();toast(`${n} campion${n>1?'i':'e'} su ${sec.name}`);}
 }
 /* ---- MIDI: lettura di un file .mid ---- */
@@ -880,7 +924,7 @@ $('#smpMidiF').onchange=e=>{const f=e.target.files[0];if(f)onMidiFile(f);e.targe
 // campione su un pad della batteria
 let padFor=null;
 $('#padSmpF').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f||padFor==null)return;Synth.init();
-  try{const s=await addSampleFile(f);St.padSmp={...St.padSmp,[padFor]:s.id};St.padSmpName={...St.padSmpName,[padFor]:s.name};renderPads();track();
+  try{const s=await addSampleFile(f);libAdd({sid:s.id,name:s.name,root:60});St.padSmp={...St.padSmp,[padFor]:s.id};St.padSmpName={...St.padSmpName,[padFor]:s.name};renderPads();track();
     hitPad(padFor,0,Synth.now()+.02,110);toast(`Pad ${padFor+1}: “${s.name}”`);}catch(err){toast('File audio non leggibile');}};
 
 /* ---------------- Archivio permanente ----------------
@@ -892,7 +936,7 @@ $('#padSmpF').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(
   Cloud.dl=dl;if(!db||!user)return;const uid=await user.id();if(!uid)return;
   Cloud.col=db.collection('data/users/'+uid);
   const snap=await Cloud.col.get();const list=[];let cur=null;
-  snap.docs.forEach(d=>{const x=d.data();if(!x)return;if(d.id==='current')cur=x;else if(x.state&&x.state.opts)list.push({id:d.id,name:x.name,date:x.date,state:x.state});});
+  snap.docs.forEach(d=>{const x=d.data();if(!x)return;if(d.id==='library'){Cloud.lib=x.items||[];return;}if(d.id==='current')cur=x;else if(x.state&&x.state.opts)list.push({id:d.id,name:x.name,date:x.date,state:x.state});});
   // i progetti che c'erano solo nel browser entrano nell'archivio
   const ids=new Set(list.map(p=>p.id)),local=LS.get('pg_projects',[]).filter(p=>p&&p.id&&p.state&&!ids.has(p.id));
   local.forEach(p=>{list.push(p);Cloud.save(p.id,{name:p.name,date:p.date,state:p.state});});
