@@ -1,4 +1,5 @@
 #pragma once
+#include "JackpotLook.h"
 #include "PadProcessor.h"
 #include "Library.h"
 #include <set>
@@ -28,12 +29,14 @@ public:
     std::function<void()> reset;
     bool bipolar = false;
     void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override { if (! get) return; start = get(); dragging = true; }
+    void mouseDown (const juce::MouseEvent& e) override { if (! get) return; start = get(); dragging = true; if ((e.mods.isAltDown() || e.mods.isCommandDown()) && reset) { reset(); dragging = false; } }
+    void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::UpDownResizeCursor); repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
     void mouseUp (const juce::MouseEvent&) override { dragging = false; repaint(); }
-    void mouseDrag (const juce::MouseEvent& e) override { if (set) set (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 170.0f))); repaint(); }
+    void mouseDrag (const juce::MouseEvent& e) override { if (! dragging) return; if (set) set (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 170.0f))); repaint(); }
     void mouseDoubleClick (const juce::MouseEvent&) override { if (reset) reset(); repaint(); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { if (set) set (juce::jlimit (0.0f, 1.0f, get() + (w.deltaY > 0 ? 0.01f : -0.01f))); repaint(); }
-    juce::String label; juce::Colour col; float start = 0; bool dragging = false;
+    juce::String label; juce::Colour col; float start = 0; bool dragging = false, hover = false;
 };
 
 class Selector : public juce::Component
@@ -155,7 +158,7 @@ class Editor : public juce::AudioProcessorEditor, public juce::DragAndDropContai
 {
 public:
     explicit Editor (Processor&);
-    ~Editor() override = default;
+    ~Editor() override { setLookAndFeel (nullptr); }
     void resized() override;
     void paint (juce::Graphics& g) override { g.fillAll (Col::bg); }
     bool keyPressed (const juce::KeyPress&) override;
@@ -166,6 +169,7 @@ public:
     void stopPad (int p) { proc.uiNoteOff (p); }
     static constexpr int W = 1240, H = 736;
 
+    jlook::LnF lnf;
     Processor& proc;
     int sel = 0, page = PG_KIT, octave = 1, kbVel = 100, genre = 0;
     bool fullLevel = false, kbOn = false, exportSwing = false;

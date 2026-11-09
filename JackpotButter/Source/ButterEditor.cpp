@@ -4,10 +4,7 @@ namespace jb
 {
 juce::Font bf (float size, bool bold, bool mono)
 {
-    auto o = juce::FontOptions (size);
-    if (mono) o = o.withName (juce::Font::getDefaultMonospacedFontName());
-    if (bold) o = o.withStyle ("Bold");
-    return juce::Font (o);
+    return mono ? jlook::mono (size) : jlook::ui (size, bold ? 2 : 1);
 }
 static const char* kModNames[7] = { "BOOM / NOISE", "SHIFT", "COMPRESS", "SATURATE", "SPACE", "CLIP", "EXTRA" };
 static const char* kDlyNames[7] = { "1/16", "1/8T", "1/8", "3/16", "1/4", "3/8", "1/2" };
@@ -39,6 +36,7 @@ void PKnob::paint (juce::Graphics& g)
     const float lh = isBig ? 30.0f : 27.0f;
     const float size = juce::jmin ((float) getWidth(), getHeight() - lh);
     const float cx = getWidth() * 0.5f, cy = size * 0.5f + 1, R = size * 0.5f - 3, r = R - (isBig ? 11.0f : 8.0f);
+    jlook::knobHalo (g, cx, cy, R, col, active ? 1.0f : hover ? 0.6f : 0.0f);
     const float v = param->getValue(), a0 = -2.42f, a1 = 2.42f;
     const int nLed = isBig ? 31 : 21;
     for (int i = 0; i < nLed; ++i)
@@ -383,14 +381,8 @@ void Module::paint (juce::Graphics& g)
         smalls[0]->label = t == 0 ? "TIME" : t == 1 ? "BITS" : "RATE";
         smalls[1]->label = t == 0 ? "FEEDBACK" : t == 1 ? "RATE" : "DEPTH";
     }
-    // ombra e corpo in metallo
-    g.setColour (juce::Colours::black.withAlpha (dragging ? 0.7f : 0.5f)); g.fillRoundedRectangle (b.translated (0, dragging ? 8.0f : 4.0f), 12);
-    juce::ColourGradient bg (BC::panel1, 0, b.getY(), BC::panel2, 0, b.getBottom(), false); g.setGradientFill (bg); g.fillRoundedRectangle (b, 12);
-    juce::Random rr (mod * 17 + 1); for (int y = 0; y < (int) b.getHeight(); y += 2) { g.setColour (juce::Colours::white.withAlpha (rr.nextFloat() * 0.015f)); g.drawHorizontalLine (y, b.getX() + 4, b.getRight() - 4); }
-    // bordo luminoso
-    if (on) { g.setColour (c.withAlpha (0.12f)); g.drawRoundedRectangle (b.expanded (1.5f), 13, 3.0f); }
-    g.setColour (on ? c.withAlpha (0.65f) : juce::Colours::white.withAlpha (0.08f)); g.drawRoundedRectangle (b, 12, 1.2f);
-    juce::ColourGradient bev (juce::Colours::white.withAlpha (0.08f), 0, b.getY(), juce::Colours::transparentWhite, 0, b.getY() + 30, false); g.setGradientFill (bev); g.fillRoundedRectangle (b.withHeight (30), 12);
+    // scheda: ombra morbida, bordo che sfuma dall'accento
+    jlook::card (g, b, 12, c, on, dragging, false);
     // striscia LED in testa
     g.setColour (on ? c : c.withAlpha (0.2f)); g.fillRoundedRectangle (b.getX() + 12, b.getY() + 33, b.getWidth() - 24, 2.5f, 1.2f);
     if (on) { g.setColour (c.withAlpha (0.25f)); g.fillRoundedRectangle (b.getX() + 10, b.getY() + 31, b.getWidth() - 20, 6.5f, 3); }
@@ -404,7 +396,7 @@ void Module::paint (juce::Graphics& g)
     // maniglia per spostare
     if ((mod >= 1 && mod <= 4) || mod == 6) { g.setColour (BC::dim.withAlpha (0.5f)); for (int k = 0; k < 3; ++k) g.fillRoundedRectangle (b.getRight() - 46, b.getY() + 12 + k * 4.0f, 10, 2, 1); }
     drawDisplay (g, displayRect());
-    if (! on) { g.setColour (BC::panel2.withAlpha (0.6f)); g.fillRoundedRectangle (b.withTrimmedTop (38), 12); }
+    if (! on) { g.setColour (BC::panel2.withAlpha (0.55f)); g.fillRoundedRectangle (b.withTrimmedTop (38), 12); }
 }
 
 void Module::mouseDown (const juce::MouseEvent& e)
@@ -413,7 +405,7 @@ void Module::mouseDown (const juce::MouseEvent& e)
     dragging = ((mod >= 1 && mod <= 4) || mod == 6) && e.position.y < 36; dragX = getX();
     if (dragging) toFront (false);
 }
-void Module::mouseDrag (const juce::MouseEvent& e) { if (dragging) setTopLeftPosition (dragX + e.getDistanceFromDragStartX(), getY()); }
+void Module::mouseDrag (const juce::MouseEvent& e) { if (dragging) { setTopLeftPosition (dragX + e.getDistanceFromDragStartX(), getY()); ed.repaint(); } }
 void Module::mouseUp (const juce::MouseEvent&) { if (dragging) { dragging = false; ed.moduleDropped (*this); } }
 
 // ======================= EQ + analizzatore =======================
@@ -448,9 +440,7 @@ void EqPanel::updateSpectrum()
 void EqPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
-    g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillRoundedRectangle (b.translated (0, 4), 12);
-    juce::ColourGradient bg (BC::panel1, 0, 0, BC::panel2, 0, b.getBottom(), false); g.setGradientFill (bg); g.fillRoundedRectangle (b, 12);
-    g.setColour (juce::Colours::white.withAlpha (0.08f)); g.drawRoundedRectangle (b.reduced (0.5f), 12, 1.0f);
+    jlook::card (g, b.reduced (1), 12, BC::phos, true, false, false);
     glow (g, "EQ MASTER  +  ANALIZZATORE", juce::Rectangle<float> (84, 6, 300, 20), BC::text, bf (11.0f, true));
     g.setFont (bf (9.5f, false, true)); g.setColour (BC::dim);
     g.drawText ("grigio = entrata   ciano = uscita   trascina i punti, rotella = Q, doppio clic = 0 dB", juce::Rectangle<float> (b.getRight() - 470, 6, 456, 20), juce::Justification::centredRight);
@@ -537,6 +527,7 @@ static juce::Rectangle<int> slotRect (int s) { return { 18 + s * 158, 78, 150, 4
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    setLookAndFeel (&lnf);
     for (int m = 0; m < 7; ++m) addAndMakeVisible (modules.add (new Module (*this, m)));
     eq = std::make_unique<EqPanel> (*this); addAndMakeVisible (*eq);
     auto& A = proc.apvts; const auto mc = BC::amber;
@@ -567,7 +558,7 @@ void Editor::resized()
     clip->setBounds (mx + 30, 318, 120, 22);
     master[4]->setBounds (mx + 39, 352, 160, 186);
     master[5]->setBounds (mx + 18, 560, 96, 94); master[6]->setBounds (mx + 122, 560, 96, 94);
-    presetRect = { 500, 15, 340, 36 }; prevRect = { 462, 15, 36, 36 }; nextRect = { 842, 15, 36, 36 }; randRect = { 896, 15, 120, 36 };
+    presetRect = { 500, 15, 340, 36 }; prevRect = { 462, 15, 36, 36 }; nextRect = { 842, 15, 36, 36 }; randRect = { 896, 15, 120, 36 }; abRect = { 1026, 15, 100, 36 };
 }
 
 void Editor::moduleDropped (Module& m)
@@ -584,37 +575,25 @@ void Editor::moduleDropped (Module& m)
 void Editor::paint (juce::Graphics& g)
 {
     const float Wf = (float) W, Hf = (float) H;
-    juce::ColourGradient bg (juce::Colour (0xff181a20), 0, 0, BC::bg, 0, Hf, false); g.setGradientFill (bg); g.fillAll();
-    juce::Random rr (7); for (int y = 0; y < H; y += 2) { g.setColour (juce::Colours::white.withAlpha (rr.nextFloat() * 0.014f)); g.drawHorizontalLine (y, 0, Wf); }
-    juce::ColourGradient amb (BC::magenta.withAlpha (0.08f), Wf * 0.85f, 200, juce::Colours::transparentBlack, Wf * 0.85f + 500, 200, true); g.setGradientFill (amb); g.fillRect (0.0f, 0.0f, Wf, Hf);
-    juce::ColourGradient amb2 (BC::phos.withAlpha (0.06f), 300, 700, juce::Colours::transparentBlack, 900, 700, true); g.setGradientFill (amb2); g.fillRect (0.0f, 0.0f, Wf, Hf);
-    // intestazione
-    juce::ColourGradient hg (juce::Colour (0xff23262e), 0, 0, juce::Colour (0xff121419), 0, 64, false); g.setGradientFill (hg); g.fillRect (0.0f, 0.0f, Wf, 64.0f);
-    g.setColour (BC::magenta.withAlpha (0.8f)); g.fillRect (0.0f, 62.0f, Wf * 0.45f, 2.0f); g.setColour (BC::phos.withAlpha (0.8f)); g.fillRect (Wf * 0.45f, 62.0f, Wf * 0.55f, 2.0f);
-    glow (g, "JACKPOT", { 22, 12, 140, 38 }, BC::text, bf (27.0f, true));
-    glow (g, "BUTTER RACK", { 158, 12, 240, 38 }, BC::amber, bf (27.0f, true));
-    g.setFont (bf (9.5f, true, true)); g.setColour (BC::dim); g.drawText ("JB-7  DRUM BUS", juce::Rectangle<float> (22, 44, 200, 14), juce::Justification::centredLeft);
+    jlook::backdrop (g, { 0, 0, Wf, Hf }, BC::magenta, BC::phos);
+    jlook::header (g, { 0, 0, Wf, 64 }, "BUTTER RACK", BC::amber, "JB-7  DRUM BUS", BC::magenta, BC::phos);
+    // ombre morbide dietro le schede (disegnate dal genitore per non essere tagliate)
+    for (auto* m : modules) jlook::softShadow (g, m->getBounds().toFloat().reduced (1), 12, m->dragging ? 26.0f : 16.0f, m->dragging ? 0.75f : 0.6f, m->dragging ? 12.0f : 6.0f);
+    jlook::softShadow (g, eq->getBounds().toFloat().reduced (1), 12);
     // preset
-    inset (g, presetRect.toFloat(), 8);
+    inset (g, presetRect.toFloat(), 8); jlook::glass (g, presetRect.toFloat(), 8);
     glow (g, proc.getProgramName (proc.preset).toUpperCase(), presetRect.toFloat(), BC::amber, bf (12.5f, true, true), juce::Justification::centred);
-    // randomizzatore
-    {
-        auto rr2 = randRect.toFloat(); g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillRoundedRectangle (rr2.translated (0, 2), 7);
-        juce::ColourGradient rg (juce::Colour (0xff2a2d36), 0, rr2.getY(), juce::Colour (0xff16181d), 0, rr2.getBottom(), false); g.setGradientFill (rg); g.fillRoundedRectangle (rr2, 7);
-        g.setColour (BC::magenta.withAlpha (0.8f)); g.drawRoundedRectangle (rr2, 7, 1.3f);
-        glow (g, "RANDOM", rr2, BC::magenta, bf (12.0f, true), juce::Justification::centred);
-    }
+    jlook::button (g, randRect.toFloat(), BC::magenta, true, randHover, "RANDOM", bf (12.5f, true));
+    jlook::button (g, abRect.toFloat(), BC::phos, proc.ab.cur == 1, abHover, "CONFRONTO " + proc.ab.label(), bf (11.5f, true));
     g.setColour (BC::phos); g.setFont (bf (20.0f, true));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
     // griglia di aerazione
-    for (int i = 0; i < 12; ++i) { auto r = juce::Rectangle<float> (Wf - 250 + i * 11.0f, 18, 5, 26); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 2.5f); }
+    for (int i = 0; i < 9; ++i) { auto r = juce::Rectangle<float> (Wf - 200 + i * 11.0f, 18, 5, 26); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 2.5f); }
     // frecce della catena
     for (int s = 0; s < 6; ++s) { const float x = (float) slotRect (s).getRight() + 4; juce::Path ar; ar.addArrow ({ x - 2, 96.0f, x + 6, 96.0f }, 1.5f, 6, 6); g.setColour (BC::phos.withAlpha (0.6f)); g.fillPath (ar); }
     // master
     auto mr = juce::Rectangle<float> ((float) MX, 78, 238, 726);
-    g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillRoundedRectangle (mr.translated (0, 4), 12);
-    juce::ColourGradient mg (BC::panel1, 0, mr.getY(), BC::panel2, 0, mr.getBottom(), false); g.setGradientFill (mg); g.fillRoundedRectangle (mr, 12);
-    g.setColour (BC::magenta.withAlpha (0.5f)); g.drawRoundedRectangle (mr, 12, 1.2f);
+    jlook::card (g, mr, 12, BC::magenta, true);
     glow (g, "MASTER", mr.withHeight (34), BC::text, bf (12.0f, true), juce::Justification::centred);
     g.setColour (BC::magenta); g.fillRoundedRectangle (mr.getX() + 14, mr.getY() + 33, mr.getWidth() - 28, 2.5f, 1.2f);
     // meter verticali in/out
@@ -634,10 +613,17 @@ void Editor::paint (juce::Graphics& g)
     g.drawFittedText ("lucchetto = blocca il modulo nei preset\ntrascina la testata per riordinare", juce::Rectangle<int> (MX + 66, 680, 104, 90), juce::Justification::centred, 6);
 }
 
+void Editor::mouseMove (const juce::MouseEvent& e)
+{
+    const bool h = randRect.contains (e.getPosition()), h2 = abRect.contains (e.getPosition());
+    if (h != randHover || h2 != abHover) { randHover = h; abHover = h2; repaint(); }
+    setMouseCursor (h || h2 || presetRect.contains (e.getPosition()) || prevRect.contains (e.getPosition()) || nextRect.contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
 void Editor::mouseDown (const juce::MouseEvent& e)
 {
     const int n = proc.getNumPrograms();
-    if (randRect.contains (e.getPosition())) proc.randomize();
+    if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); resized(); repaint(); }
+    else if (randRect.contains (e.getPosition())) proc.randomize();
     else if (prevRect.contains (e.getPosition())) proc.loadPreset ((proc.preset - 1 + n) % n);
     else if (nextRect.contains (e.getPosition())) proc.loadPreset ((proc.preset + 1) % n);
     else if (presetRect.contains (e.getPosition()))

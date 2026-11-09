@@ -18,6 +18,7 @@ target_sources(JackpotButter PRIVATE
   Source/ButterProcessor.cpp
   Source/ButterEditor.cpp)
 
+target_include_directories(JackpotButter PRIVATE ${CMAKE_SOURCE_DIR}/Common)
 target_compile_definitions(JackpotButter PUBLIC
   JUCE_WEB_BROWSER=0
   JUCE_USE_CURL=0
@@ -25,14 +26,15 @@ target_compile_definitions(JackpotButter PUBLIC
   JUCE_DISPLAY_SPLASH_SCREEN=0)
 
 target_link_libraries(JackpotButter
-  PRIVATE juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp
+  PRIVATE juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp JackpotFonts
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 
 
 if(J60_TEST)
   juce_add_console_app(ButterTest PRODUCT_NAME "ButterTest")
+  target_include_directories(ButterTest PRIVATE ${CMAKE_SOURCE_DIR}/Common)
   target_sources(ButterTest PRIVATE test/main.cpp Source/ButterDSP.cpp Source/ButterProcessor.cpp Source/ButterEditor.cpp)
   target_compile_definitions(ButterTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotButter")
-  target_link_libraries(ButterTest PRIVATE juce::juce_audio_utils juce::juce_dsp)
+  target_link_libraries(ButterTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts)
 endif()

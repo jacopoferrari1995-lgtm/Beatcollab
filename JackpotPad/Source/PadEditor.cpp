@@ -10,10 +10,7 @@ juce::Colour padColour (int i)
 }
 juce::Font ft (float size, bool bold, bool mono)
 {
-    auto o = juce::FontOptions (size);
-    if (mono) o = o.withName (juce::Font::getDefaultMonospacedFontName());
-    if (bold) o = o.withStyle ("Bold");
-    return juce::Font (o);
+    return mono ? jlook::mono (size) : jlook::ui (size, bold ? 2 : 1);
 }
 static juce::String noteName (int n)
 {
@@ -46,7 +43,8 @@ void Knob::paint (juce::Graphics& g)
 {
     const float size = (float) juce::jmin (getWidth(), getHeight() - 26);
     const float cx = getWidth() * 0.5f, cy = size * 0.5f + 2, R = size * 0.5f - 3, r = R - 9;
-    const float v = get(), a0 = -2.42f, a1 = 2.42f;
+    const float v = get ? get() : 0.0f, a0 = -2.42f, a1 = 2.42f;
+    jlook::knobHalo (g, cx, cy, R, col, dragging ? 1.0f : hover ? 0.6f : 0.0f);
     // anello di LED
     const int nLed = 23;
     for (int i = 0; i < nLed; ++i)
@@ -1030,35 +1028,24 @@ void DragMidi::mouseDrag (const juce::MouseEvent& e)
 void Root::paint (juce::Graphics& g)
 {
     const float W = (float) Editor::W, H = (float) Editor::H;
-    juce::ColourGradient body (Col::chassis1, 0, 0, Col::chassis2, 0, H, false); g.setGradientFill (body); g.fillAll();
-    juce::Random rr (7);
-    for (int y = 0; y < (int) H; y += 2) { g.setColour (juce::Colours::white.withAlpha (rr.nextFloat() * 0.018f)); g.drawHorizontalLine (y, 0, W); }
-    juce::ColourGradient amb (Col::magenta.withAlpha (0.10f), W * 0.78f, 300, juce::Colours::transparentBlack, W * 0.78f + 520, 300, true); g.setGradientFill (amb); g.fillRect (0.0f, 0.0f, W, H);
-    juce::ColourGradient amb2 (Col::cyan.withAlpha (0.06f), 260, 200, juce::Colours::transparentBlack, 760, 200, true); g.setGradientFill (amb2); g.fillRect (0.0f, 0.0f, W, H);
-    juce::ColourGradient hg (juce::Colour (0xff22252d), 0, 0, juce::Colour (0xff121419), 0, 66, false); g.setGradientFill (hg); g.fillRect (0.0f, 0.0f, W, 66.0f);
-    g.setColour (juce::Colours::black); g.drawHorizontalLine (66, 0, W);
-    g.setColour (Col::magenta.withAlpha (0.8f)); g.fillRect (0.0f, 64.0f, W * 0.42f, 2.0f);
-    g.setColour (Col::cyan.withAlpha (0.8f)); g.fillRect (W * 0.42f, 64.0f, W * 0.58f, 2.0f);
-    glowText (g, "JACKPOT", { 28, 12, 200, 40 }, Col::text, ft (30.0f, true));
-    glowText (g, "SAMPLER", { 168, 12, 160, 40 }, Col::magenta, ft (30.0f, true));
-    g.setFont (ft (10.0f, true, true)); g.setColour (Col::dim);
-    g.drawText (juce::String::fromUTF8 ("JP-16  \xc2\xb7  KIT: ") + ed.proc.kitName.toUpperCase(), juce::Rectangle<float> (330, 12, 480, 40), juce::Justification::centredLeft);
+    jlook::backdrop (g, { 0, 0, W, H }, Col::magenta, Col::cyan);
+    jlook::header (g, { 0, 0, W, 66 }, "SAMPLER", Col::magenta, "JP-16  DRUM SAMPLER", Col::magenta, Col::cyan);
+    g.setFont (ft (10.0f, true, true)); g.setColour (Col::dim); g.drawText ("KIT", juce::Rectangle<float> (430, 12, 40, 40), juce::Justification::centredLeft);
+    glowText (g, ed.proc.kitName.toUpperCase(), { 462, 12, 380, 40 }, Col::amber, ft (11.0f, true, true));
     for (int i = 0; i < 14; ++i) { auto r = juce::Rectangle<float> (W - 380 + i * 11.0f, 20, 5, 26); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 2.5f); g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawLine (r.getX(), r.getBottom() + 1, r.getRight(), r.getBottom() + 1); }
     g.saveState(); auto hz = juce::Rectangle<float> (W - 210, 22, 70, 22); g.reduceClipRegion (hz.toNearestInt());
     g.setColour (Col::amber.withAlpha (0.85f)); g.fillRect (hz);
     g.setColour (juce::Colours::black.withAlpha (0.85f)); for (float x = hz.getX() - 30; x < hz.getRight(); x += 12) { juce::Path p; p.addQuadrilateral (x, hz.getBottom(), x + 6, hz.getBottom(), x + 28, hz.getY(), x + 22, hz.getY()); g.fillPath (p); }
     g.restoreState();
     for (auto pt : { juce::Point<float> (12, 80), juce::Point<float> (W - 12, 80), juce::Point<float> (12, H - 12), juce::Point<float> (W - 12, H - 12) }) screw (g, pt.x, pt.y);
-    insetPanel (g, { 724, 80, 496, 496 }, 14);
+    jlook::softShadow (g, { 724, 80, 496, 496 }, 14); insetPanel (g, { 724, 80, 496, 496 }, 14);
     // fascia Q-link
-    g.setColour (juce::Colours::black.withAlpha (0.28f)); g.fillRoundedRectangle (24, 416, 680, 98, 8);
-    g.setColour (juce::Colours::white.withAlpha (0.03f)); g.drawRoundedRectangle (24, 416, 680, 98, 8, 1.0f);
+    jlook::card (g, { 24, 416, 680, 98 }, 10, Col::cyan, true);
     g.saveState(); g.addTransform (juce::AffineTransform::rotation (-juce::MathConstants<float>::halfPi, 38, 465));
     g.setColour (Col::cyan); g.setFont (ft (9.5f, true)); g.drawText ("Q-LINK", juce::Rectangle<float> (38 - 40, 459, 80, 12), juce::Justification::centred);
     g.restoreState();
     // sequencer
-    g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (24, 524, 680, 198, 10);
-    g.setColour (juce::Colours::white.withAlpha (0.03f)); g.drawRoundedRectangle (24, 524, 680, 198, 10, 1.0f);
+    jlook::card (g, { 24, 524, 680, 198 }, 10, Col::magenta, true);
     glowText (g, juce::String::fromUTF8 ("LOOP & SWING  \xc2\xb7  sincronizzati con Ableton"), { 36, 528, 400, 18 }, Col::cyan, ft (10.0f, true));
     // info tastiera
     g.setFont (ft (10.0f, true, true)); g.setColour (Col::text);
@@ -1114,6 +1101,7 @@ Knob* Editor::paramKnob (const char* id, const juce::String& label, juce::Colour
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    setLookAndFeel (&lnf);
     addAndMakeVisible (root);
     root.addAndMakeVisible (screen); root.addAndMakeVisible (pattern); root.addAndMakeVisible (drag);
     for (int i = 0; i < kPads; ++i) root.addAndMakeVisible (pads.add (new PadComp (*this, i)));

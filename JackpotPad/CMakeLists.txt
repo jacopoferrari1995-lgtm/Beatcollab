@@ -28,6 +28,7 @@ target_sources(JackpotPad PRIVATE
   Source/Patterns.cpp
   Source/Library.cpp)
 
+target_include_directories(JackpotPad PRIVATE ${CMAKE_SOURCE_DIR}/Common)
 target_compile_definitions(JackpotPad PUBLIC
   JUCE_WEB_BROWSER=0
   JUCE_USE_CURL=0
@@ -35,13 +36,14 @@ target_compile_definitions(JackpotPad PUBLIC
   JUCE_DISPLAY_SPLASH_SCREEN=0)
 
 target_link_libraries(JackpotPad
-  PRIVATE juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp
+  PRIVATE juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp JackpotFonts
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 
 if(J60_TEST)
   juce_add_console_app(PadTest PRODUCT_NAME "PadTest")
+  target_include_directories(PadTest PRIVATE ${CMAKE_SOURCE_DIR}/Common)
   target_sources(PadTest PRIVATE test/main.cpp Source/PadProcessor.cpp Source/PadEditor.cpp Source/KitGen.cpp Source/Synth.cpp Source/Kits.cpp Source/Patterns.cpp Source/Library.cpp)
   target_compile_definitions(PadTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotPad")
-  target_link_libraries(PadTest PRIVATE juce::juce_audio_utils juce::juce_dsp)
+  target_link_libraries(PadTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts)
 endif()

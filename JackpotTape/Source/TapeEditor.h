@@ -1,4 +1,5 @@
 #pragma once
+#include "JackpotLook.h"
 #include "TapeProcessor.h"
 #include <set>
 
@@ -25,6 +26,9 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::UpDownResizeCursor); repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
+    bool hover = false, drag = false;
     std::function<void (float)> onUserChange;
     juce::RangedAudioParameter* param; juce::String lab; juce::Colour col; std::function<juce::String (float)> fmtFn;
 private:
@@ -138,6 +142,7 @@ public:
     bool keyPressed (const juce::KeyPress&) override;
     bool keyStateChanged (bool) override;
 
+    jlook::LnF lnf;
     Processor& proc;
     int sel = STUT, res = 0;   // risoluzione di disegno: 0 1/16, 1 1/8, 2 1/4
     void select (int f);
@@ -155,7 +160,7 @@ public:
     juce::OwnedArray<Knob> tapeKnobs;
     std::unique_ptr<Seg> modeSeg, qSeg, barsSeg, resSeg, genSeg;
     std::unique_ptr<Toggle> seqTog;
-    std::unique_ptr<TextBtn> pPrev, pNext, pName, bpmPill, clearBtn, styleBtn, genBtn;
+    std::unique_ptr<TextBtn> pPrev, pNext, pName, bpmPill, clearBtn, styleBtn, genBtn, abBtn;
 
 private:
     void timerCallback() override;

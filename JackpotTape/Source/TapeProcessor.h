@@ -1,4 +1,5 @@
 #pragma once
+#include "JackpotLook.h"
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 #include <atomic>
@@ -46,6 +47,7 @@ public:
     void changeProgramName (int, const juce::String&) override {}
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
+    jlook::ABCompare ab;
 
     juce::AudioProcessorValueTreeState apvts;
     std::atomic<bool> seq[kNumFx][kMaxSteps];

@@ -1,4 +1,5 @@
 #pragma once
+#include "JackpotLook.h"
 #include "ButterProcessor.h"
 #include <juce_dsp/juce_dsp.h>
 
@@ -19,12 +20,14 @@ class PKnob : public juce::Component
 public:
     PKnob (juce::RangedAudioParameter* p, juce::String l, juce::Colour c, bool big, std::function<juce::String (float)> f = {}) : param (p), label (std::move (l)), col (c), isBig (big), fmt (std::move (f)) {}
     void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override { start = param->getValue(); param->beginChangeGesture(); active = true; }
+    void mouseDown (const juce::MouseEvent& e) override { start = param->getValue(); param->beginChangeGesture(); active = true; if (e.mods.isAltDown() || e.mods.isCommandDown()) param->setValueNotifyingHost (param->getDefaultValue()); }
     void mouseUp (const juce::MouseEvent&) override { param->endChangeGesture(); active = false; repaint(); }
-    void mouseDrag (const juce::MouseEvent& e) override { param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 900.0f : 200.0f))); }
+    void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::UpDownResizeCursor); repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
+    void mouseDrag (const juce::MouseEvent& e) override { if (e.mods.isAltDown() || e.mods.isCommandDown()) return; param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 900.0f : 200.0f))); }
     void mouseDoubleClick (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getDefaultValue()); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + (w.deltaY > 0 ? 0.01f : -0.01f))); }
-    juce::RangedAudioParameter* param; juce::String label; juce::Colour col; bool isBig; std::function<juce::String (float)> fmt; float start = 0; bool active = false; bool bipolar = false;
+    juce::RangedAudioParameter* param; juce::String label; juce::Colour col; bool isBig; std::function<juce::String (float)> fmt; float start = 0; bool active = false, hover = false; bool bipolar = false;
 };
 
 class Pill : public juce::Component
@@ -106,19 +109,21 @@ class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
     explicit Editor (Processor&);
-    ~Editor() override = default;
+    ~Editor() override { setLookAndFeel (nullptr); }
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void layoutModules();
     void moduleDropped (Module& m);
     static constexpr int W = 1386, H = 820, MX = 1130;
+    jlook::LnF lnf;
     Processor& proc;
     juce::OwnedArray<Module> modules;
     juce::OwnedArray<PKnob> master;
     std::unique_ptr<Switch> clip;
     std::unique_ptr<EqPanel> eq;
-    juce::Rectangle<int> presetRect, prevRect, nextRect, randRect;
+    juce::Rectangle<int> presetRect, prevRect, nextRect, randRect, abRect; bool randHover = false, abHover = false;
+    void mouseMove (const juce::MouseEvent&) override;
 private:
     void timerCallback() override;
 };

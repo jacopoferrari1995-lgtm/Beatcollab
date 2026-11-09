@@ -1,4 +1,5 @@
 #pragma once
+#include "JackpotLook.h"
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "ButterDSP.h"
 
@@ -26,6 +27,7 @@ public:
     void changeProgramName (int, const juce::String&) override {}
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
+    jlook::ABCompare ab;
 
     void loadPreset (int i);
     static juce::StringArray moduleParams (int m);
