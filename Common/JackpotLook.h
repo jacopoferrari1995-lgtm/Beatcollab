@@ -194,4 +194,64 @@ struct ABCompare
     template <class P> void copyToOther (P& proc) { proc.getStateInformation (slot[cur ^ 1]); }
     juce::String label() const { return cur == 0 ? "A" : "B"; }
 };
+// manopola 3D della serie: incavo con arco luminoso, gonna zigrinata, cappello metallico spazzolato
+struct KnobLook { bool big = false, bipolar = false; float hover = 0, active = 0, activity = 0; bool enabled = true; };
+inline void drawKnob (juce::Graphics& g, juce::Rectangle<float> area, float v, juce::Colour col, const KnobLook& k)
+{
+    using namespace juce;
+    const float size = jmin (area.getWidth(), area.getHeight());
+    const float cx = area.getCentreX(), cy = area.getY() + size * 0.5f;
+    const float R = size * 0.5f - (k.big ? 5.0f : 3.5f), tw = k.big ? 5.0f : 3.4f;
+    const float a0 = -2.36f, a1 = 2.36f, av = a0 + jlimit (0.0f, 1.0f, v) * (a1 - a0);
+    const auto c = k.enabled ? col : Colour (0xff4f5562);
+    const float live = jlimit (0.0f, 1.0f, jmax (k.hover * 0.6f, k.active, k.activity * 0.8f));
+    // alone
+    if (live > 0.01f) { ColourGradient hg (c.withAlpha (0.2f * live), cx, cy, c.withAlpha (0.0f), cx + R * 1.3f, cy, true); g.setGradientFill (hg); g.fillEllipse (cx - R * 1.3f, cy - R * 1.3f, R * 2.6f, R * 2.6f); }
+    // incavo
+    { ColourGradient gr (Colour (0xff050608), cx, cy - R, Colour (0xff1c1f26), cx, cy + R, false); g.setGradientFill (gr); g.fillEllipse (cx - R - tw * 0.6f, cy - R - tw * 0.6f, (R + tw * 0.6f) * 2, (R + tw * 0.6f) * 2); }
+    g.setColour (Colours::white.withAlpha (0.06f)); { Path lip; lip.addCentredArc (cx, cy, R + tw * 0.6f, R + tw * 0.6f, 0, 1.9f, 4.4f, true); g.strokePath (lip, PathStrokeType (1.0f)); }
+    // tacche
+    for (int i = 0; i <= 10; ++i)
+    {
+        const float a = a0 + i / 10.0f * (a1 - a0), r1 = R + tw * 0.9f, r2 = R + tw * 0.9f + (i % 5 == 0 ? 3.5f : 2.0f);
+        g.setColour (Colours::white.withAlpha (i % 5 == 0 ? 0.28f : 0.14f)); g.drawLine (cx + std::sin (a) * r1, cy - std::cos (a) * r1, cx + std::sin (a) * r2, cy - std::cos (a) * r2, 1.0f);
+    }
+    // pista e arco del valore
+    Path track; track.addCentredArc (cx, cy, R, R, 0, a0, a1, true);
+    g.setColour (Colour (0xff0b0c10)); g.strokePath (track, PathStrokeType (tw, PathStrokeType::curved, PathStrokeType::rounded));
+    g.setColour (Colours::white.withAlpha (0.035f)); g.strokePath (track, PathStrokeType (tw * 0.4f, PathStrokeType::curved, PathStrokeType::rounded));
+    const float from = k.bipolar ? 0.0f : a0;
+    if (k.enabled && std::abs (av - from) > 0.015f)
+    {
+        Path val; val.addCentredArc (cx, cy, R, R, 0, jmin (from, av), jmax (from, av), true);
+        g.setColour (c.withAlpha (0.14f + 0.28f * live)); g.strokePath (val, PathStrokeType (tw * 3.0f, PathStrokeType::curved, PathStrokeType::rounded));
+        ColourGradient vg (c.darker (0.35f), cx - R, cy + R, c.brighter (0.3f + 0.4f * live), cx + std::sin (av) * R, cy - std::cos (av) * R, false);
+        g.setGradientFill (vg); g.strokePath (val, PathStrokeType (tw, PathStrokeType::curved, PathStrokeType::rounded));
+        g.setColour (Colours::white.withAlpha (0.35f)); g.strokePath (val, PathStrokeType (tw * 0.28f, PathStrokeType::curved, PathStrokeType::rounded));
+    }
+    // corpo
+    const float rb = R - tw - (k.big ? 5.0f : 3.5f), rc = rb * 0.76f;
+    { Path body; body.addEllipse (cx - rb, cy - rb, rb * 2, rb * 2); DropShadow (Colours::black.withAlpha (0.75f), (int) (rb * 0.55f), { 0, (int) (rb * 0.22f) }).drawForPath (g, body); }
+    { ColourGradient sk (Colour (0xff545a66), cx, cy - rb, Colour (0xff0c0d11), cx, cy + rb, false); sk.addColour (0.45, Colour (0xff2a2e36)); g.setGradientFill (sk); g.fillEllipse (cx - rb, cy - rb, rb * 2, rb * 2); }
+    // zigrinatura della gonna
+    const int nk = k.big ? 60 : 40;
+    for (int i = 0; i < nk; ++i)
+    {
+        const float a = i * MathConstants<float>::twoPi / nk, lit = 0.5f + 0.5f * -std::cos (a);   // piu chiara in alto
+        g.setColour ((i % 2 ? Colours::black : Colours::white).withAlpha (i % 2 ? 0.28f : 0.05f + 0.08f * lit));
+        g.drawLine (cx + std::sin (a) * rc * 1.02f, cy - std::cos (a) * rc * 1.02f, cx + std::sin (a) * rb * 0.98f, cy - std::cos (a) * rb * 0.98f, 1.0f);
+    }
+    { Path rim; rim.addCentredArc (cx, cy, rb - 0.5f, rb - 0.5f, 0, -1.2f, 1.2f, true); g.setColour (Colours::white.withAlpha (0.22f)); g.strokePath (rim, PathStrokeType (1.0f)); }
+    // cappello spazzolato
+    { ColourGradient cg (Colour (0xff3e434e), cx - rc * 0.35f, cy - rc * 0.6f, Colour (0xff121419), cx + rc * 0.5f, cy + rc, true); g.setGradientFill (cg); g.fillEllipse (cx - rc, cy - rc, rc * 2, rc * 2); }
+    for (float rr = rc * 0.95f; rr > 2; rr -= 1.6f) { g.setColour (Colours::white.withAlpha (0.018f)); g.drawEllipse (cx - rr, cy - rr, rr * 2, rr * 2, 0.6f); }
+    { ColourGradient sp (Colours::white.withAlpha (0.22f), cx - rc * 0.25f, cy - rc * 0.75f, Colours::transparentWhite, cx - rc * 0.25f, cy, true); g.setGradientFill (sp); g.fillEllipse (cx - rc, cy - rc, rc * 2, rc * 2); }
+    g.setColour (Colours::black.withAlpha (0.5f)); g.drawEllipse (cx - rc, cy - rc, rc * 2, rc * 2, 1.0f);
+    g.setColour (Colours::white.withAlpha (0.08f)); { Path cr; cr.addCentredArc (cx, cy, rc - 1, rc - 1, 0, -1.4f, 1.4f, true); g.strokePath (cr, PathStrokeType (1.0f)); }
+    // indicatore
+    const float sx = std::sin (av), sy = -std::cos (av);
+    g.setColour (c.withAlpha (k.enabled ? 0.35f : 0.1f)); g.drawLine (cx + sx * rc * 0.3f, cy + sy * rc * 0.3f, cx + sx * rc * 0.9f, cy + sy * rc * 0.9f, k.big ? 6.0f : 4.5f);
+    g.setColour (k.enabled ? c.brighter (0.7f) : Colour (0xff6b7180)); g.drawLine (cx + sx * rc * 0.34f, cy + sy * rc * 0.34f, cx + sx * rc * 0.88f, cy + sy * rc * 0.88f, k.big ? 2.4f : 1.8f);
+    g.setColour (c.brighter (0.4f).withAlpha (k.enabled ? 0.9f : 0.2f)); g.fillEllipse (cx + sx * (rb - 3) - 1.6f, cy + sy * (rb - 3) - 1.6f, 3.2f, 3.2f);
+}
 }

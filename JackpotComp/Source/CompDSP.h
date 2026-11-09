@@ -5,7 +5,9 @@
 
 namespace jc
 {
-enum Model { OPTO2A = 0, OPTO3A, FET76, VCABUS, VARIMU, RMS160, DISTRESS, kNumModels };
+enum Model { OPTO2A = 0, OPTO3A, FET76, VCABUS, VARIMU, RMS160, DISTRESS, OTT, kNumModels };
+constexpr int kStages = 6;
+inline const char* stagePfx (int s) { static const char* p[] = { "a_", "b_", "c_", "d_", "e_", "f_" }; return p[s]; }
 
 struct ModelInfo
 {
@@ -29,7 +31,8 @@ inline const ModelInfo& info (int m)
         { "VCA BUS", "ispirato al bus comp SSL G", "THRESH", false, true, true, { "2", "4", "10" }, "RATIO", 0xff1d2a24, 0xff7dff5a },
         { "VARI-MU", "ispirato a Fairchild 670 / Manley", "INPUT", true, false, false, { "TC1", "TC2", "TC3", "TC4", "TC5", "TC6" }, "TIME CONST.", 0xff2a2418, 0xffffd23f },
         { "RMS 160", "ispirato al dbx 160", "THRESH", false, false, false, { "2", "3", "4", "6", "10", "INF" }, "RATIO", 0xff121418, 0xffa66bff },
-        { "DISTRESS", "ispirato all'Empirical Labs Distressor", "INPUT", true, true, true, { "1", "2", "3", "4", "6", "10", "20", "NUKE" }, "RATIO", 0xff10223a, 0xff2e8bff } };
+        { "DISTRESS", "ispirato all'Empirical Labs Distressor", "INPUT", true, true, true, { "1", "2", "3", "4", "6", "10", "20", "NUKE" }, "RATIO", 0xff10223a, 0xff2e8bff },
+        { "OTT", "ispirato all'OTT multibanda (Xfer)", "DEPTH", false, true, true, { "UP + DOWN", "DOWN", "UP" }, "MODO", 0xff1a1024, 0xffff4fd8 } };
     return I[juce::jlimit (0, kNumModels - 1, m)];
 }
 
@@ -39,7 +42,7 @@ struct StageParams
 };
 
 // valori mostrati a schermo
-inline juce::String fmtDrive (int m, float d) { return info (m).fixedThreshold ? "+" + juce::String (d * 36.0f, 1) + " dB" : (m <= OPTO3A ? juce::String (juce::roundToInt (d * 100)) : juce::String (-d * 40.0f, 1) + " dB"); }
+inline juce::String fmtDrive (int m, float d) { if (m == OTT) return juce::String (juce::roundToInt (d * 100)) + "%"; return info (m).fixedThreshold ? "+" + juce::String (d * 36.0f, 1) + " dB" : (m <= OPTO3A ? juce::String (juce::roundToInt (d * 100)) : juce::String (-d * 40.0f, 1) + " dB"); }
 inline float attMs (int m, float a)
 {
     switch (m)
@@ -47,6 +50,7 @@ inline float attMs (int m, float a)
         case FET76: return 0.02f * std::pow (40.0f, a);                  // 20 us .. 800 us
         case VCABUS: { static const float t[] = { 0.1f, 0.3f, 1, 3, 10, 30 }; return t[juce::jlimit (0, 5, (int) (a * 5.99f))]; }
         case DISTRESS: return 0.05f * std::pow (600.0f, a);              // 0.05 .. 30 ms
+        case OTT: return 22.4f * std::pow (4.0f, (a - 0.5f) * 2.0f);
         case OPTO2A: return 10.0f;
         case OPTO3A: return 1.5f;
         default: return 5.0f;
@@ -59,6 +63,7 @@ inline float relMs (int m, float r)   // -1 = auto
         case FET76: return 50.0f * std::pow (22.0f, r);                  // 50 .. 1100 ms
         case VCABUS: { static const float t[] = { 100, 300, 600, 1200, -1 }; return t[juce::jlimit (0, 4, (int) (r * 4.99f))]; }
         case DISTRESS: return 50.0f * std::pow (70.0f, r);               // 50 .. 3500 ms
+        case OTT: return 282.0f * std::pow (4.0f, (r - 0.5f) * 2.0f);
         default: return -1;
     }
 }
@@ -77,6 +82,13 @@ inline float gainComputer (const StageParams& p, float levDb)
         case VARIMU: { T = -12; W = 24; const float over = juce::jmax (0.0f, levDb - T); R = 1.5f + over / 5.0f; R = juce::jmin (R, 8.0f); break; }
         case RMS160: { static const float r[] = { 2, 3, 4, 6, 10, 60 }; R = r[juce::jlimit (0, 5, p.ratio)]; T = -p.drive * 40.0f; W = 0.5f; break; }
         case DISTRESS: { static const float r[] = { 1, 2, 3, 4, 6, 10, 20, 100 }; R = r[juce::jlimit (0, 7, p.ratio)]; T = -18; W = R <= 3 ? 10.0f : R < 20 ? 4.0f : 1.0f; break; }
+        case OTT:
+        {   // curva statica indicativa della banda media: giu sopra -20, su sotto -40
+            float g = 0; const bool dn = p.ratio != 2, up = p.ratio != 1;
+            if (dn && levDb > -20) g += (levDb + 20) * (1 - 1.0f / 8.0f);
+            if (up && levDb < -40 && levDb > -80) g -= juce::jmin ((-40 - levDb) * (1 - 1.0f / 3.0f), 24.0f);
+            return g * p.drive;
+        }
         default: break;
     }
     const float over = levDb - T, s = 1.0f - 1.0f / R;
@@ -97,8 +109,9 @@ public:
     float grAvg = 0;
 
     // L/R in place; dL/dR = segnale del rilevatore (gia filtrato), stessa lunghezza
-    void process (float* L, float* R, const float* dL, const float* dR, int N, const StageParams& p, bool autoGain)
+    void process (float* L, float* R, const float* dL, const float* dR, int N, const StageParams& p, bool autoGain, float* deltaL = nullptr, float* deltaR = nullptr)
     {
+        if (p.model == OTT) { processOtt (L, R, N, p, autoGain, deltaL, deltaR); return; }
         const auto& I = info (p.model);
         const float inG = juce::Decibels::decibelsToGain (inputGainDb (p));
         const float a = std::exp (-1.0f / (0.001f * attMs (p.model, p.att) * (float) sr));
@@ -183,6 +196,7 @@ public:
             if (p.model == DISTRESS && p.ratio == 0) gr = 0;   // 1:1 = solo colore
             const float g = juce::Decibels::decibelsToGain (-gr);
             grAvg = avgC * grAvg + (1 - avgC) * gr;
+            if (deltaL) { deltaL[i] = L[i] * (1 - g); deltaR[i] = R[i] * (1 - g); }   // cio che lo stadio toglie
             const float og = juce::Decibels::decibelsToGain (p.outDb);
             float yl = xl * g, yr = xr * g;
             // auto gain: allinea l'energia d'uscita a quella d'ingresso (media su ~1 s)
@@ -199,6 +213,53 @@ public:
     }
 
 private:
+    // ---- OTT: tre bande (120 Hz / 2.5 kHz), compressione verso il basso sopra soglia e verso l'alto sotto soglia ----
+    struct Bq { double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1[2] = {}, z2[2] = {}; float run (float x, int c) { const double y = b0 * x + z1[c]; z1[c] = b1 * x - a1 * y + z2[c]; z2[c] = b2 * x - a2 * y; return (float) y; }
+        void set (bool hp, double f, double sr) { const double w = juce::MathConstants<double>::twoPi * f / sr, cs = std::cos (w), al = std::sin (w) / (2 * 0.7071); const double a0 = 1 + al; if (hp) { b0 = (1 + cs) / 2 / a0; b1 = -(1 + cs) / a0; b2 = b0; } else { b0 = (1 - cs) / 2 / a0; b1 = (1 - cs) / a0; b2 = b0; } a1 = -2 * cs / a0; a2 = (1 - al) / a0; } };
+    Bq xo[4][2]; double xoSr = 0; float oEnv[3] = {}, oG[3] = {};
+    void processOtt (float* L, float* R, int N, const StageParams& p, bool autoGain, float* deltaL, float* deltaR)
+    {
+        if (xoSr != sr) { for (int k = 0; k < 2; ++k) { xo[0][k].set (false, 120, sr); xo[1][k].set (false, 120, sr); xo[2][k].set (true, 2500, sr); xo[3][k].set (true, 2500, sr); } xoSr = sr; }
+        static const float baseA[3] = { 47.8f, 22.4f, 13.5f }, baseR[3] = { 282, 282, 132 };
+        const float tA = attMs (OTT, p.att) / 22.4f, tR = relMs (OTT, p.rel) / 282.0f;
+        float ca[3], cr[3]; for (int b = 0; b < 3; ++b) { ca[b] = std::exp (-1.0f / (0.001f * baseA[b] * tA * (float) sr)); cr[b] = std::exp (-1.0f / (0.001f * baseR[b] * tR * (float) sr)); }
+        const bool dn = p.ratio != 2, up = p.ratio != 1; const float depth = p.drive;
+        const float avgC = std::exp (-1.0f / (1.5f * (float) sr)), avgC2 = std::exp (-1.0f / (0.8f * (float) sr)), og = juce::Decibels::decibelsToGain (p.outDb);
+        for (int i = 0; i < N; ++i)
+        {
+            float band[3][2];
+            for (int c = 0; c < 2; ++c)
+            {
+                const float x = c ? R[i] : L[i];
+                const float lo = xo[1][c].run (xo[0][c].run (x, c), c), hi = xo[3][c].run (xo[2][c].run (x, c), c);
+                band[0][c] = lo; band[2][c] = hi; band[1][c] = x - lo - hi;
+            }
+            float yl = 0, yr = 0, maxDown = 0;
+            for (int b = 0; b < 3; ++b)
+            {
+                const float lev = juce::jmax (std::abs (band[b][0]), std::abs (band[b][1]));
+                oEnv[b] = lev > oEnv[b] ? ca[b] * oEnv[b] + (1 - ca[b]) * lev : cr[b] * oEnv[b] + (1 - cr[b]) * lev;
+                const float db = 20.0f * std::log10 (oEnv[b] + 1.0e-9f);
+                float gdb = 0;
+                if (dn && db > -20) gdb -= (db + 20) * (1 - 1.0f / 8.0f);
+                if (up && db < -40 && db > -80) gdb += juce::jmin ((-40 - db) * (1 - 1.0f / 3.0f), 24.0f);
+                gdb *= depth; maxDown = juce::jmax (maxDown, -gdb);
+                const float gg = juce::Decibels::decibelsToGain (gdb);
+                oG[b] = gg;
+                yl += band[b][0] * gg; yr += band[b][1] * gg;
+            }
+            gr = juce::jmax (0.0f, maxDown);
+            grAvg = avgC * grAvg + (1 - avgC) * gr;
+            sat (yl, 0, OTT, p.color); sat (yr, 1, OTT, p.color);
+            if (deltaL) { deltaL[i] = L[i] - yl; deltaR[i] = R[i] - yr; }
+            eIn = avgC2 * eIn + (1 - avgC2) * 0.5f * (L[i] * L[i] + R[i] * R[i]);
+            eOut = avgC2 * eOut + (1 - avgC2) * 0.5f * (yl * yl + yr * yr);
+            if (autoGain && eIn > 1.0e-8f && eOut > 1.0e-10f) autoC += (juce::jlimit (0.06f, 16.0f, std::sqrt (eIn / eOut)) - autoC) * 0.0002f;
+            else if (! autoGain) autoC = 1;
+            yl *= og * autoC; yr *= og * autoC;
+            L[i] = L[i] * (1 - p.mix) + yl * p.mix; R[i] = R[i] * (1 - p.mix) + yr * p.mix;
+        }
+    }
     double sr = 44100; float gr = 0, fast = 0, slow = 0, charge = 0, rms = 0, eIn = 0, eOut = 0, autoC = 1; float hpS[2]; float dc[2];
     void sat (float& y, int c, int m, float col)
     {
@@ -216,6 +277,7 @@ private:
             case VCABUS: z = asym (y, 1.0f + col * 1.0f, 0.1f * col); break;
             case VARIMU: z = asym (y, 1.0f + col * 2.0f, 0.35f * col); break;
             case RMS160: z = odd (y, 1.0f + col * 1.5f); break;
+            case OTT: z = odd (y, 1.0f + col * 1.5f); break;
             case DISTRESS: z = col < 0.5f ? asym (y, 1.0f + col * 3.0f, 0.5f * col) : odd (y, 1.0f + (col - 0.3f) * 4.0f); break;
             default: break;
         }

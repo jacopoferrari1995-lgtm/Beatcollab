@@ -44,30 +44,10 @@ void Knob::paint (juce::Graphics& g)
 {
     const float lh = big ? 30.0f : 27.0f;
     const float size = juce::jmin ((float) getWidth(), getHeight() - lh);
-    const float cx = getWidth() * 0.5f, cy = size * 0.5f + 1, R = size * 0.5f - 3, r = R - (big ? 11.0f : 8.0f);
-    const float v = param->getValue(), a0 = -2.42f, a1 = 2.42f;
+    const float v = param->getValue();
     const auto c = enabled ? col : C::faint;
-    jlook::knobHalo (g, cx, cy, R, c, ! enabled ? 0.0f : drag ? 1.0f : hover ? 0.6f : 0.0f);
-    const int nLed = big ? 31 : 21;
-    for (int i = 0; i < nLed; ++i)
-    {
-        const float t = i / (float) (nLed - 1), a = a0 + t * (a1 - a0);
-        const bool lit = enabled && (bipolar ? ((v >= 0.5f && t >= 0.5f && t <= v + 0.001f) || (v < 0.5f && t <= 0.5f && t >= v - 0.001f)) : (t <= v + 0.001f && v > 0.002f));
-        const float x = cx + std::sin (a) * R, y = cy - std::cos (a) * R, d = big ? 4.2f : 3.2f;
-        if (lit) { g.setColour (c.withAlpha (0.25f)); g.fillEllipse (x - d * 1.3f, y - d * 1.3f, d * 2.6f, d * 2.6f); g.setColour (c.brighter (0.25f)); }
-        else g.setColour (juce::Colour (0xff23262e));
-        g.fillEllipse (x - d * 0.5f, y - d * 0.5f, d, d);
-    }
-    g.setColour (juce::Colours::black.withAlpha (0.7f)); g.fillEllipse (cx - r - 1, cy - r + 4, r * 2 + 2, r * 2 + 2);
-    juce::ColourGradient sk (juce::Colour (0xff4a4f5a), cx, cy - r, juce::Colour (0xff0c0d11), cx, cy + r, false); g.setGradientFill (sk); g.fillEllipse (cx - r, cy - r, r * 2, r * 2);
-    const float r2 = r * 0.8f;
-    juce::ColourGradient cap (juce::Colour (0xff343843), cx - r2 * 0.5f, cy - r2, juce::Colour (0xff111318), cx + r2 * 0.4f, cy + r2, false); g.setGradientFill (cap); g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
-    for (int i = 0; i < 36; ++i) { const float a = i * juce::MathConstants<float>::twoPi / 36; g.setColour (juce::Colours::black.withAlpha (0.4f)); g.drawLine (cx + std::sin (a) * r2, cy - std::cos (a) * r2, cx + std::sin (a) * r, cy - std::cos (a) * r, 1.0f); }
-    juce::ColourGradient spec (juce::Colours::white.withAlpha (0.16f), cx - r2 * 0.4f, cy - r2 * 0.7f, juce::Colours::transparentWhite, cx, cy, true); g.setGradientFill (spec); g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
-    g.setColour (c.withAlpha (0.5f)); g.drawEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2, 1.0f);
-    const float a = a0 + v * (a1 - a0);
-    g.setColour (c.withAlpha (0.4f)); g.drawLine (cx + std::sin (a) * r2 * 0.25f, cy - std::cos (a) * r2 * 0.25f, cx + std::sin (a) * r2 * 0.95f, cy - std::cos (a) * r2 * 0.95f, big ? 6.0f : 4.0f);
-    g.setColour (enabled ? juce::Colours::white : C::dim); g.drawLine (cx + std::sin (a) * r2 * 0.3f, cy - std::cos (a) * r2 * 0.3f, cx + std::sin (a) * r2 * 0.92f, cy - std::cos (a) * r2 * 0.92f, big ? 2.6f : 1.8f);
+    jlook::KnobLook kl; kl.big = big; kl.bipolar = bipolar; kl.enabled = enabled; kl.hover = hover ? 1.0f : 0.0f; kl.active = drag ? 1.0f : 0.0f;
+    jlook::drawKnob (g, { (getWidth() - size) * 0.5f, 0, size, size }, v, col, kl);
     g.setColour (C::dim); g.setFont (uf (big ? 10.5f : 9.5f)); g.drawText (label, juce::Rectangle<float> (0, size + 1, (float) getWidth(), 13), juce::Justification::centred);
     glowText (g, text ? text() : param->getCurrentValueAsText(), juce::Rectangle<float> (0, size + 14, (float) getWidth(), 13), enabled ? (drag ? c.brighter (0.4f) : c) : C::faint, mf (big ? 11.5f : 10.5f), juce::Justification::centred);
 }
@@ -76,7 +56,8 @@ void Knob::paint (juce::Graphics& g)
 void Segs::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat(); lcd (g, b, 6);
-    const auto it = items(); const int n = juce::jmax (1, it.size()), cur = juce::roundToInt (param->convertFrom0to1 (param->getValue()));
+    const auto it = items(); const int n = juce::jmax (1, it.size()), val = juce::roundToInt (param->convertFrom0to1 (param->getValue()));
+    int cur = val; if (map) for (int k = 0; k < n; ++k) if (map (k) == val) cur = k;
     const float w = (b.getWidth() - 6) / n;
     for (int i = 0; i < n; ++i)
     {
@@ -89,7 +70,7 @@ void Segs::paint (juce::Graphics& g)
 void Segs::mouseDown (const juce::MouseEvent& e)
 {
     const int n = juce::jmax (1, items().size()); const int k = juce::jlimit (0, n - 1, (int) ((e.position.x - 3) / ((getWidth() - 6) / (float) n)));
-    param->setValueNotifyingHost (param->convertTo0to1 ((float) k)); if (onTouch) onTouch(); repaint();
+    param->setValueNotifyingHost (param->convertTo0to1 ((float) (map ? map (k) : k))); if (onTouch) onTouch(); repaint();
 }
 void Switch::paint (juce::Graphics& g)
 {
@@ -102,47 +83,104 @@ void Switch::paint (juce::Graphics& g)
     if (label.isNotEmpty()) { if (on) glowText (g, label, { w + 8, 0, getWidth() - w - 8, (float) getHeight() }, col, uf (11.0f)); else { g.setColour (C::dim); g.setFont (uf (11.0f)); g.drawText (label, juce::Rectangle<float> (w + 8, 0, getWidth() - w - 8, (float) getHeight()), juce::Justification::centredLeft); } }
 }
 
-// ======================= Stadio =======================
-StageCard::StageCard (Editor& e, int st) : ed (e), s (st), pfx (st == 0 ? "a_" : "b_")
+// ======================= Rack degli stadi =======================
+void Rack::mouseMove (const juce::MouseEvent& e)
 {
-    auto touch = [this] { ed.focus = s; ed.repaint(); };
-    const auto c = s == 0 ? C::phos : C::amber;
-    power = std::make_unique<Switch> (ed.P (pfx + "on"), c); power->onTouch = touch;
-    ratio = std::make_unique<Segs> (ed.P (pfx + "ratio"), c); ratio->onTouch = touch;
-    ratio->items = [this] { return info ((int) ed.proc.value ((pfx + "model").toRawUTF8())).ratios; };
-    auto mk = [&] (const char* id, const char* lab) { auto k = std::make_unique<Knob> (ed.P (pfx + id), c); k->label = lab; k->onTouch = touch; addAndMakeVisible (*k); return k; };
+    int h = -1; for (int s = 0; s < kStages; ++s) if (tile (s).contains (e.position)) h = s;
+    if (h != hov) { hov = h; repaint(); }
+    setMouseCursor (h >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+void Rack::mouseDown (const juce::MouseEvent& e)
+{
+    for (int s = 0; s < kStages; ++s)
+    {
+        if (! tile (s).contains (e.position)) continue;
+        auto* on = ed.P (juce::String (stagePfx (s)) + "on");
+        const bool isOn = on->getValue() > 0.5f;
+        if (powR (s).expanded (6).contains (e.position)) on->setValueNotifyingHost (isOn ? 0.0f : 1.0f);
+        else if (isOn && soloR (s).contains (e.position)) { auto* so = ed.P (juce::String (stagePfx (s)) + "solo"); so->setValueNotifyingHost (so->getValue() > 0.5f ? 0.0f : 1.0f); }
+        else if (! isOn) on->setValueNotifyingHost (1.0f);
+        ed.select (s); repaint(); return;
+    }
+}
+void Rack::paint (juce::Graphics& g)
+{
+    for (int s = 0; s < kStages; ++s)
+    {
+        auto t = tile (s); const bool on = ed.sv (s, "on") > 0.5f, sel = ed.focus == s, solo = on && ed.sv (s, "solo") > 0.5f;
+        const int m = (int) ed.sv (s, "model"); const auto c = C::stage[s];
+        jlook::softShadow (g, t, 12, sel ? 20.0f : 12.0f, sel ? 0.7f : 0.5f, sel ? 8.0f : 4.0f);
+        jlook::card (g, t, 12, c, on, sel, false);
+        if (sel) { g.setColour (c.withAlpha (0.85f)); g.drawRoundedRectangle (t.reduced (1), 11, 1.6f); }
+        else if (hov == s) { g.setColour (juce::Colours::white.withAlpha (0.18f)); g.drawRoundedRectangle (t.reduced (1), 11, 1.0f); }
+        // accensione
+        auto pr = powR (s);
+        if (on) { g.setColour (c.withAlpha (0.35f)); g.fillEllipse (pr.expanded (4)); }
+        juce::ColourGradient lg (on ? c.brighter (0.6f) : juce::Colour (0xff3a3e48), pr.getCentreX(), pr.getY(), on ? c : juce::Colour (0xff15171c), pr.getCentreX(), pr.getBottom(), false);
+        g.setGradientFill (lg); g.fillEllipse (pr);
+        glowText (g, juce::String (s + 1), { pr.getRight() + 6, pr.getY() - 2, 20, 22 }, on ? C::text : C::dim, mf (13.0f));
+        if (! on)
+        {
+            g.setColour (C::dim.withAlpha (hov == s ? 0.9f : 0.5f)); g.setFont (uf (12.0f));
+            g.drawText ("+  AGGIUNGI", t.withTrimmedTop (30), juce::Justification::centred);
+            continue;
+        }
+        glowText (g, info (m).name, { t.getX() + 10, t.getY() + 30, t.getWidth() - 20, 20 }, juce::Colour (info (m).accent), uf (13.5f));
+        // misuratore di riduzione orizzontale
+        meter[s] += (ed.proc.gr[s].load() - meter[s]) * (ed.proc.gr[s].load() > meter[s] ? 0.6f : 0.2f);
+        auto mb = juce::Rectangle<float> (t.getX() + 10, t.getY() + 56, t.getWidth() - 20, 8);
+        g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillRoundedRectangle (mb, 4);
+        const float w = juce::jlimit (0.0f, 1.0f, meter[s] / 20.0f) * mb.getWidth();
+        if (w > 0.5f) { juce::ColourGradient mg (c, mb.getRight() - w, 0, c.brighter (0.6f), mb.getRight(), 0, false); g.setGradientFill (mg); g.fillRoundedRectangle (mb.withLeft (mb.getRight() - w), 4); }
+        g.setColour (C::dim); g.setFont (mf (9.5f)); g.drawText ("GR " + juce::String (meter[s], 1), juce::Rectangle<float> (t.getX() + 10, t.getBottom() - 30, 70, 22), juce::Justification::centredLeft);
+        jlook::button (g, soloR (s), C::amber, solo, false, "SOLO", uf (10.0f));
+    }
+}
+
+// ======================= Editor dello stadio =======================
+StageEditor::StageEditor (Editor& e) : ed (e)
+{
+    auto touch = [] {};
+    power = std::make_unique<Switch> (ed.P ("a_on"), C::stage[0]);
+    ratio = std::make_unique<Segs> (ed.P ("a_ratio"), C::stage[0]);
+    ratio->items = [this] { return info ((int) ed.sv (s, "model")).ratios; };
+    auto mk = [&] (const char* id, const char* lab) { auto k = std::make_unique<Knob> (ed.P (juce::String ("a_") + id), C::stage[0]); k->label = lab; k->onTouch = touch; addAndMakeVisible (*k); return k; };
     drive = mk ("drive", "INPUT"); drive->big = true;
     att = mk ("att", "ATTACK"); rel = mk ("rel", "RELEASE"); out = mk ("out", "OUTPUT"); color = mk ("color", "COLOR"); mix = mk ("mix", "MIX");
-    auto M = [this] { return (int) ed.proc.value ((pfx + "model").toRawUTF8()); };
-    drive->text = [this, M] { return fmtDrive (M(), ed.proc.value ((pfx + "drive").toRawUTF8())); };
-    att->text = [this, M] { const int m = M(); return info (m).attKnob ? fmtTime (attMs (m, ed.proc.value ((pfx + "att").toRawUTF8()))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "AUTO"); };
-    rel->text = [this, M] { const int m = M(); return info (m).relKnob ? fmtTime (relMs (m, ed.proc.value ((pfx + "rel").toRawUTF8()))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "120 dB/s"); };
-    out->text = [this] { const float v = ed.proc.value ((pfx + "out").toRawUTF8()); return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; };
-    color->text = [this] { return juce::String (juce::roundToInt (ed.proc.value ((pfx + "color").toRawUTF8()) * 100)) + "%"; };
-    mix->text = [this] { return juce::String (juce::roundToInt (ed.proc.value ((pfx + "mix").toRawUTF8()) * 100)) + "%"; };
+    drive->text = [this] { return fmtDrive ((int) ed.sv (s, "model"), ed.sv (s, "drive")); };
+    att->text = [this] { const int m = (int) ed.sv (s, "model"); return info (m).attKnob ? fmtTime (attMs (m, ed.sv (s, "att"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "AUTO"); };
+    rel->text = [this] { const int m = (int) ed.sv (s, "model"); return info (m).relKnob ? fmtTime (relMs (m, ed.sv (s, "rel"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "120 dB/s"); };
+    out->text = [this] { const float v = ed.sv (s, "out"); return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; };
+    color->text = [this] { return juce::String (juce::roundToInt (ed.sv (s, "color") * 100)) + "%"; };
+    mix->text = [this] { return juce::String (juce::roundToInt (ed.sv (s, "mix") * 100)) + "%"; };
     addAndMakeVisible (*power); addAndMakeVisible (*ratio);
-    refresh();
+    bind (0);
 }
-void StageCard::refresh()
+void StageEditor::bind (int st)
 {
-    const int m = (int) ed.proc.value ((pfx + "model").toRawUTF8()); const auto& I = info (m);
+    s = st; pfx = stagePfx (s); const auto c = C::stage[s];
+    power->param = ed.P (pfx + "on"); power->col = c; ratio->param = ed.P (pfx + "ratio"); ratio->col = c;
+    for (auto* k : { drive.get(), att.get(), rel.get(), out.get(), color.get(), mix.get() }) k->col = c;
+    drive->param = ed.P (pfx + "drive"); att->param = ed.P (pfx + "att"); rel->param = ed.P (pfx + "rel");
+    out->param = ed.P (pfx + "out"); color->param = ed.P (pfx + "color"); mix->param = ed.P (pfx + "mix");
+    const int m = (int) ed.sv (s, "model"); const auto& I = info (m);
     drive->label = I.driveLabel; att->enabled = I.attKnob; rel->enabled = I.relKnob;
     att->stepped = rel->stepped = m == VCABUS; att->steps = 6; rel->steps = 5;
-    if (m == DISTRESS) color->label = ed.proc.value ((pfx + "color").toRawUTF8()) < 0.5f ? "DIST 2" : "DIST 3"; else color->label = m == FET76 ? "GRINTA" : m <= OPTO3A || m == VARIMU ? "VALVOLA" : "COLOR";
+    color->label = m == DISTRESS ? (ed.sv (s, "color") < 0.5f ? "DIST 2" : "DIST 3") : m == FET76 ? "GRINTA" : (m <= OPTO3A || m == VARIMU) ? "VALVOLA" : "COLOR";
     lastModel = m; repaint();
 }
-void StageCard::resized()
+void StageEditor::resized()
 {
-    power->setBounds (14, 12, 38, 20);
-    ratio->setBounds (16, 186, getWidth() - 32, 28);
-    const int cw = (getWidth() - 20) / 3;
-    drive->setBounds (10 + (cw - 90) / 2, 224, 90, 90 + 30);
-    att->setBounds (10 + cw + (cw - 72) / 2, 232, 72, 72 + 27); rel->setBounds (10 + cw * 2 + (cw - 72) / 2, 232, 72, 72 + 27);
-    out->setBounds (10 + (cw - 66) / 2, 350, 66, 66 + 27); color->setBounds (10 + cw + (cw - 66) / 2, 350, 66, 66 + 27); mix->setBounds (10 + cw * 2 + (cw - 66) / 2, 350, 66, 66 + 27);
+    power->setBounds (16, 13, 38, 22);
+    ratio->setBounds (16, 236, 330, 30);
+    const int x0 = 370, cw = (getWidth() - x0 - 14) / 3;
+    drive->setBounds (x0 + (cw - 104) / 2, 44, 104, 104 + 30);
+    att->setBounds (x0 + cw + (cw - 84) / 2, 52, 84, 84 + 27); rel->setBounds (x0 + cw * 2 + (cw - 84) / 2, 52, 84, 84 + 27);
+    out->setBounds (x0 + (cw - 76) / 2, 186, 76, 76 + 27); color->setBounds (x0 + cw + (cw - 76) / 2, 186, 76, 76 + 27); mix->setBounds (x0 + cw * 2 + (cw - 76) / 2, 186, 76, 76 + 27);
 }
-void StageCard::mouseDown (const juce::MouseEvent& e)
+void StageEditor::mouseDown (const juce::MouseEvent& e)
 {
-    ed.focus = s; ed.repaint();
+    if (soloRect().contains (e.getPosition())) { auto* so = ed.P (pfx + "solo"); so->setValueNotifyingHost (so->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); ed.rack.repaint(); return; }
     if (modelRect().contains (e.getPosition()))
     {
         juce::PopupMenu m; auto* pr = dynamic_cast<juce::AudioParameterChoice*> (ed.P (pfx + "model"));
@@ -154,57 +192,53 @@ void StageCard::mouseDown (const juce::MouseEvent& e)
             pr->setValueNotifyingHost (pr->convertTo0to1 ((float) (r - 1)));
             auto* rp = ed.P (pfx + "ratio"); const int n = info (r - 1).ratios.size();
             if (rp->convertFrom0to1 (rp->getValue()) > n - 1) rp->setValueNotifyingHost (rp->convertTo0to1 ((float) (n - 1)));
-            refresh();
+            bind (s); ed.rack.repaint();
         });
     }
 }
-void StageCard::paint (juce::Graphics& g)
+void StageEditor::paint (juce::Graphics& g)
 {
-    const int m = (int) ed.proc.value ((pfx + "model").toRawUTF8()); if (m != lastModel) refresh();
-    const auto& I = info (m); const bool on = power->param->getValue() > 0.5f && (s == 0 || ed.proc.value ("route") > 0.5f);
-    const auto c = s == 0 ? C::phos : C::amber;
+    const int m = (int) ed.sv (s, "model"); if (m != lastModel) bind (s);
+    const auto& I = info (m); const bool on = ed.sv (s, "on") > 0.5f; const auto c = C::stage[s];
     auto b = getLocalBounds().toFloat().reduced (1);
     jlook::card (g, b, 14, juce::Colour (I.accent), on, false, false);
-    if (ed.focus == s) { g.setColour (c.withAlpha (0.5f)); g.drawRoundedRectangle (b.reduced (2), 12, 1.0f); }
-    glowText (g, s == 0 ? "STADIO A" : "STADIO B", { 60, 9, 120, 26 }, on ? C::text : C::dim, uf (13.0f));
-    // modello
-    auto mr = modelRect().toFloat(); jlook::button (g, mr, juce::Colour (I.accent), true, false, juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), uf (12.5f));
-    g.setColour (C::dim); g.setFont (uf (10.5f, false)); g.drawText (I.inspired, juce::Rectangle<float> (16, 38, b.getWidth() - 32, 18), juce::Justification::centredRight);
-    if (s == 1 && ed.proc.value ("route") < 0.5f) { g.setColour (C::amber.withAlpha (0.8f)); g.setFont (uf (10.5f)); g.drawText ("attivo in SERIE o PARALLELO", juce::Rectangle<float> (16, 38, 220, 18), juce::Justification::centredLeft); }
-    // VU analogico di riduzione
+    glowText (g, "STADIO " + juce::String (s + 1), { 62, 10, 110, 28 }, on ? C::text : C::dim, uf (14.0f));
+    g.setColour (C::dim); g.setFont (uf (11.0f, false)); g.drawText (I.inspired, juce::Rectangle<float> (170, 10, b.getWidth() - 470, 28), juce::Justification::centredLeft);
+    jlook::button (g, modelRect().toFloat(), juce::Colour (I.accent), true, false, juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), uf (13.0f));
+    jlook::button (g, soloRect().toFloat(), C::amber, ed.sv (s, "solo") > 0.5f, false, "SOLO", uf (11.5f));
+    // VU analogico
     auto vu = vuRect();
-    jlook::softShadow (g, vu, 8, 10, 0.6f, 3);
+    jlook::softShadow (g, vu, 8, 12, 0.65f, 4);
+    g.setColour (juce::Colour (0xff0a0b0e)); g.fillRoundedRectangle (vu.expanded (5), 11);   // cornice
+    { juce::ColourGradient fr (juce::Colour (0xff3a3e48), 0, vu.getY() - 5, juce::Colour (0xff121419), 0, vu.getBottom() + 5, false); g.setGradientFill (fr); g.drawRoundedRectangle (vu.expanded (4), 10, 2.0f); }
     const auto face = juce::Colour (I.face); const bool light = face.getPerceivedBrightness() > 0.5f;
     juce::ColourGradient fg (face.brighter (0.15f), vu.getCentreX(), vu.getY(), face.darker (0.25f), vu.getCentreX(), vu.getBottom(), false); g.setGradientFill (fg); g.fillRoundedRectangle (vu, 8);
-    // lampadina calda dietro
-    juce::ColourGradient lamp (juce::Colour (0xffffc46b).withAlpha (light ? 0.35f : 0.12f), vu.getCentreX(), vu.getBottom(), juce::Colours::transparentBlack, vu.getCentreX(), vu.getY(), true); g.setGradientFill (lamp); g.fillRoundedRectangle (vu, 8);
+    juce::ColourGradient lamp (juce::Colour (0xffffc46b).withAlpha (light ? 0.38f : 0.14f), vu.getCentreX(), vu.getBottom(), juce::Colours::transparentBlack, vu.getCentreX(), vu.getY(), true); g.setGradientFill (lamp); g.fillRoundedRectangle (vu, 8);
     const auto ink = light ? juce::Colour (0xff1b1712) : juce::Colour (0xffe9e4d8);
-    const float pcx = vu.getCentreX(), pcy = vu.getBottom() + 40, rad = vu.getHeight() + 6;
-    // scala: 0 a destra, -20 a sinistra
-    auto angOf = [] (float grDb) { const float t = 1.0f - std::sqrt (juce::jlimit (0.0f, 20.0f, grDb) / 20.0f); return -0.75f + t * 1.5f; };
-    juce::Path arc; arc.addCentredArc (pcx, pcy, rad - 20, rad - 20, 0, angOf (20), angOf (0), true);
-    g.setColour (ink.withAlpha (0.8f)); g.strokePath (arc, juce::PathStrokeType (1.2f));
-    juce::Path red; red.addCentredArc (pcx, pcy, rad - 18, rad - 18, 0, angOf (20), angOf (10), true); g.setColour (juce::Colour (0xffd22b2b).withAlpha (0.8f)); g.strokePath (red, juce::PathStrokeType (3.0f));
+    const float pcx = vu.getCentreX(), pcy = vu.getBottom() + 44, rad = vu.getHeight() + 10;
+    auto angOf = [] (float grDb) { const float t = 1.0f - std::sqrt (juce::jlimit (0.0f, 20.0f, grDb) / 20.0f); return -0.72f + t * 1.44f; };
+    juce::Path arc; arc.addCentredArc (pcx, pcy, rad - 22, rad - 22, 0, angOf (20), angOf (0), true);
+    g.setColour (ink.withAlpha (0.85f)); g.strokePath (arc, juce::PathStrokeType (1.3f));
+    juce::Path red; red.addCentredArc (pcx, pcy, rad - 20, rad - 20, 0, angOf (20), angOf (10), true); g.setColour (juce::Colour (0xffd22b2b).withAlpha (0.85f)); g.strokePath (red, juce::PathStrokeType (3.5f));
     for (int db : { 0, 1, 2, 3, 5, 7, 10, 15, 20 })
     {
         const float a = angOf ((float) db), sx = std::sin (a), cy2 = -std::cos (a);
-        g.setColour (ink); g.drawLine (pcx + sx * (rad - 20), pcy + cy2 * (rad - 20), pcx + sx * (rad - 28), pcy + cy2 * (rad - 28), 1.3f);
+        g.setColour (ink); g.drawLine (pcx + sx * (rad - 22), pcy + cy2 * (rad - 22), pcx + sx * (rad - 31), pcy + cy2 * (rad - 31), 1.4f);
         if (db == 1 || db == 2 || db == 7 || db == 15) continue;
-        g.setFont (mf (9.0f)); g.drawText (juce::String (db == 0 ? 0 : -db), juce::Rectangle<float> (pcx + sx * (rad - 8) - 12, pcy + cy2 * (rad - 8) - 6, 24, 12), juce::Justification::centred);
+        g.setFont (mf (10.0f)); g.drawText (juce::String (db == 0 ? 0 : -db), juce::Rectangle<float> (pcx + sx * (rad - 9) - 13, pcy + cy2 * (rad - 9) - 6, 26, 12), juce::Justification::centred);
     }
-    g.setColour (ink.withAlpha (0.7f)); g.setFont (uf (10.0f)); g.drawText ("GAIN REDUCTION", vu.withTrimmedBottom (14).withTrimmedTop (vu.getHeight() - 30), juce::Justification::centred);
-    g.setFont (mf (9.5f)); g.drawText ("dB", vu.reduced (10, 6), juce::Justification::topLeft);
-    glowText (g, "-" + juce::String (needle, 1), vu.reduced (10, 6), light ? juce::Colour (0xff8a1e1e) : c, mf (11.0f), juce::Justification::topRight);
-    { // ago
+    g.setColour (ink.withAlpha (0.75f)); g.setFont (uf (10.5f)); g.drawText ("GAIN REDUCTION", vu.withTrimmedBottom (16).withTrimmedTop (vu.getHeight() - 34), juce::Justification::centred);
+    g.setFont (mf (10.0f)); g.drawText ("dB", vu.reduced (12, 8), juce::Justification::topLeft);
+    glowText (g, "-" + juce::String (needle, 1), vu.reduced (12, 8), light ? juce::Colour (0xff8a1e1e) : c, mf (12.0f), juce::Justification::topRight);
+    {
         const float a = angOf (needle); g.saveState(); g.reduceClipRegion (vu.toNearestInt());
-        g.setColour (juce::Colours::black.withAlpha (0.25f)); g.drawLine (pcx + 3, pcy, pcx + 3 + std::sin (a) * (rad - 14), pcy - std::cos (a) * (rad - 14), 2.0f);
-        g.setColour (light ? juce::Colour (0xff111111) : juce::Colour (0xffff4040)); g.drawLine (pcx, pcy, pcx + std::sin (a) * (rad - 14), pcy - std::cos (a) * (rad - 14), 1.6f);
+        g.setColour (juce::Colours::black.withAlpha (0.25f)); g.drawLine (pcx + 4, pcy, pcx + 4 + std::sin (a) * (rad - 16), pcy - std::cos (a) * (rad - 16), 2.2f);
+        g.setColour (light ? juce::Colour (0xff111111) : juce::Colour (0xffff4040)); g.drawLine (pcx, pcy, pcx + std::sin (a) * (rad - 16), pcy - std::cos (a) * (rad - 16), 1.7f);
         g.restoreState();
     }
-    jlook::glass (g, vu, 8); g.setColour (juce::Colours::black.withAlpha (0.6f)); g.drawRoundedRectangle (vu, 8, 2.0f);
-    // etichetta ratio
-    g.setColour (C::dim); g.setFont (uf (10.0f)); g.drawText (I.ratioLabel, juce::Rectangle<float> (16, 166, 140, 18), juce::Justification::centredLeft);
-    if (! on) { g.setColour (juce::Colour (0xff101216).withAlpha (0.55f)); g.fillRoundedRectangle (b.withTrimmedTop (40), 14); }
+    jlook::glass (g, vu, 8);
+    g.setColour (C::dim); g.setFont (uf (10.5f)); g.drawText (I.ratioLabel, juce::Rectangle<float> (16, 214, 200, 20), juce::Justification::centredLeft);
+    if (! on) { g.setColour (juce::Colour (0xff101216).withAlpha (0.6f)); g.fillRoundedRectangle (b.withTrimmedTop (46), 14); g.setColour (C::dim); g.setFont (uf (13.0f)); g.drawText ("stadio spento: accendilo con il pulsante in alto a sinistra", b.withTrimmedTop (46), juce::Justification::centred); }
 }
 
 // ======================= Grafico =======================
@@ -214,7 +248,7 @@ void Graph::paint (juce::Graphics& g)
     jlook::card (g, b, 14, C::magenta, true, false, false);
     glowText (g, "DINAMICA", { 18, 8, 160, 20 }, C::text, uf (12.0f));
     g.setFont (mf (9.5f)); g.setColour (C::dim);
-    g.drawText ("grigio = ingresso   ciano = uscita   magenta = GR A   ambra = GR B", juce::Rectangle<float> (150, 8, b.getWidth() - 360, 20), juce::Justification::centredLeft);
+    g.drawText ("grigio = ingresso   ciano = uscita   colori = riduzione di ogni stadio", juce::Rectangle<float> (130, 8, b.getWidth() - 340, 20), juce::Justification::centredLeft);
     auto in = b.reduced (14, 0).withTrimmedTop (32).withTrimmedBottom (14);
     auto tr = in.removeFromRight (in.getHeight()); in.removeFromRight (12);
     lcd (g, in, 6);
@@ -230,21 +264,22 @@ void Graph::paint (juce::Graphics& g)
     g.setColour (juce::Colours::white.withAlpha (0.12f)); g.fillPath (pin);
     juce::Path pout; for (int k = 0; k < NH; ++k) { const float y = yLev (P.hOut[at (k)].load()); if (k == 0) pout.startNewSubPath (in.getX(), y); else pout.lineTo (in.getX() + k * dx, y); }
     g.setColour (C::phos.withAlpha (0.3f)); g.strokePath (pout, juce::PathStrokeType (3.5f)); g.setColour (C::phos); g.strokePath (pout, juce::PathStrokeType (1.3f));
-    for (int st = 0; st < 2; ++st)
+    for (int st = 0; st < kStages; ++st)
     {
-        juce::Path pg; pg.startNewSubPath (in.getX(), in.getY());
-        float mx = 0;
-        for (int k = 0; k < NH; ++k) { const float v = (st == 0 ? P.hGrA : P.hGrB)[at (k)].load(); mx = juce::jmax (mx, v); pg.lineTo (in.getX() + k * dx, yGr (v)); }
+        if (ed.sv (st, "on") < 0.5f) continue;
+        juce::Path pg; pg.startNewSubPath (in.getX(), in.getY()); float mx = 0;
+        for (int k = 0; k < NH; ++k) { const float v = P.hGr[st][at (k)].load(); mx = juce::jmax (mx, v); pg.lineTo (in.getX() + k * dx, yGr (v)); }
         if (mx < 0.05f) continue;
         pg.lineTo (in.getRight(), in.getY()); pg.closeSubPath();
-        const auto c = st == 0 ? C::magenta : C::amber;
-        g.setColour (c.withAlpha (0.18f)); g.fillPath (pg); g.setColour (c.withAlpha (0.9f)); g.strokePath (pg, juce::PathStrokeType (1.2f));
+        const auto c = C::stage[st];
+        g.setColour (c.withAlpha (st == ed.focus ? 0.22f : 0.08f)); g.fillPath (pg); g.setColour (c.withAlpha (st == ed.focus ? 0.95f : 0.5f)); g.strokePath (pg, juce::PathStrokeType (st == ed.focus ? 1.5f : 1.0f));
     }
     g.setColour (C::magenta); g.fillRect (in.getRight() - 2, in.getY(), 2.0f, in.getHeight());
-    scan (g, in);
+    g.setColour (juce::Colours::black.withAlpha (0.16f)); for (float y = in.getY(); y < in.getBottom(); y += 3) g.drawHorizontalLine ((int) y, in.getX(), in.getRight());
+    jlook::glass (g, in, 6);
     // curva di trasferimento dello stadio selezionato
     lcd (g, tr, 6);
-    const auto sp = P.stageParams (ed.focus); const auto c = ed.focus == 0 ? C::phos : C::amber;
+    const auto sp = P.stageParams (ed.focus); const auto c = C::stage[ed.focus];
     auto tx = [&tr] (float db) { return tr.getX() + (db + 60.0f) / 60.0f * tr.getWidth(); };
     auto ty = [&tr] (float db) { return tr.getBottom() - (db + 60.0f) / 60.0f * tr.getHeight(); };
     g.setColour (C::phos.withAlpha (0.08f)); for (int d = -48; d < 0; d += 12) { g.drawVerticalLine ((int) tx ((float) d), tr.getY(), tr.getBottom()); g.drawHorizontalLine ((int) ty ((float) d), tr.getX(), tr.getRight()); }
@@ -255,8 +290,8 @@ void Graph::paint (juce::Graphics& g)
     g.setColour (c.withAlpha (0.3f)); g.strokePath (cv, juce::PathStrokeType (4.0f)); g.setColour (c); g.strokePath (cv, juce::PathStrokeType (1.6f));
     const float lin = juce::Decibels::gainToDecibels (juce::jmax (P.inPk[0].load(), P.inPk[1].load()), -60.0f);
     if (lin > -59) { const float o = juce::jlimit (-60.0f, 0.0f, lin - gainComputer (sp, lin + ig)); g.setColour (c.withAlpha (0.3f)); g.fillEllipse (tx (lin) - 7, ty (o) - 7, 14, 14); g.setColour (juce::Colours::white); g.fillEllipse (tx (lin) - 3, ty (o) - 3, 6, 6); }
-    g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText (juce::String (info (sp.model).name) + (ed.focus == 0 ? "  A" : "  B"), tr.reduced (6, 4), juce::Justification::topLeft);
-    scan (g, tr);
+    g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText (juce::String (info (sp.model).name) + "  " + juce::String (ed.focus + 1), tr.reduced (6, 4), juce::Justification::topLeft);
+    jlook::glass (g, tr, 6);
 }
 
 // ======================= Guida =======================
@@ -273,7 +308,7 @@ void GuidePanel::paint (juce::Graphics& g)
     for (int i = 0; i < 3; ++i)
     {
         auto r = juce::Rectangle<float> (16 + i * tw, 10, tw - 4, 24);
-        const bool sel = i == tab; jlook::button (g, r, C::amber, sel, false, tabs[i], uf (11.0f));
+        jlook::button (g, r, C::amber, i == tab, false, tabs[i], uf (11.0f));
         if (i == 2 && warn > 0) { g.setColour (C::red); g.fillEllipse (r.getRight() - 12, r.getY() + 4, 7, 7); }
     }
     auto t = b.reduced (18, 0).withTrimmedTop (44).withTrimmedBottom (12);
@@ -282,7 +317,7 @@ void GuidePanel::paint (juce::Graphics& g)
     auto body = [&as] (const juce::String& s) { as.append (s + "\n", jlook::ui (12.0f, 0), C::text.withAlpha (0.9f)); };
     if (tab == 0)
     {
-        const int m = (int) ed.proc.value (ed.focus == 0 ? "a_model" : "b_model"); const auto& G = guide (m);
+        const int m = (int) ed.sv (ed.focus, "model"); const auto& G = guide (m);
         head (juce::String (info (m).name) + "  -  " + info (m).inspired, juce::Colour (info (m).accent)); body (G.carattere);
         head ("PER COSA", C::dim); body (G.usi);
         head ("COME PARTIRE", C::dim); body (G.partenza);
@@ -290,8 +325,9 @@ void GuidePanel::paint (juce::Graphics& g)
     else if (tab == 1)
     {
         head ("ROUTING", C::phos); body (routeTip ((int) ed.proc.value ("route")));
+        head ("SOLO", C::phos); body ("SOLO su uno stadio fa sentire solo quello che sta togliendo: se senti il corpo dello strumento e non solo i picchi, stai comprimendo troppo.");
         head ("PRESET", C::phos); body (presets()[(size_t) juce::jlimit (0, (int) presets().size() - 1, ed.proc.preset)].note);
-        head ("SIDECHAIN", C::phos); body ("ESTERNO: in Ableton apri il plugin, sezione Sidechain, scegli la traccia (es. la cassa). HPF: il compressore ignora i bassi sotto quella frequenza. LISTEN: ascolti cosa sente il rilevatore.");
+        head ("SIDECHAIN", C::phos); body ("ESTERNO: in Ableton apri il plugin, sezione Sidechain, scegli la traccia (es. la cassa). HPF: il rilevatore ignora i bassi sotto quella frequenza. LISTEN: ascolti cosa sente il rilevatore.");
     }
     else
     {
@@ -305,27 +341,29 @@ void Editor::computeTips()
 {
     juce::StringArray t; int w = 0;
     const int f = focus; const auto sp = proc.stageParams (f);
-    const bool stageOn = sp.on && (f == 0 || proc.value ("route") > 0.5f);
-    const float gr = f == 0 ? proc.avgGrA.load() : proc.avgGrB.load();
+    const float gr = proc.avgGr[f].load();
     const float inDb = juce::Decibels::gainToDecibels (std::sqrt (proc.inRms.load()), -100.0f), outDb = juce::Decibels::gainToDecibels (std::sqrt (proc.outRms.load()), -100.0f);
-    const juce::String st = f == 0 ? "A" : "B";
+    const juce::String st = juce::String (f + 1);
     if (inDb < -60) { guide.tips = {}; guide.warn = 0; return; }
-    if (! stageOn) t.add ("Lo stadio " + st + " e spento" + juce::String (f == 1 && proc.value ("route") < 0.5f ? ": scegli SERIE o PARALLELO per usarlo." : "."));
+    if (proc.anySolo()) { t.add ("SOLO attivo: stai ascoltando solo quello che gli stadi in solo tolgono. Spegnilo per sentire il risultato."); ++w; }
+    if (! sp.on) t.add ("Lo stadio " + st + " e spento: clicca la sua casella nella fila in alto per accenderlo.");
     else
     {
-        if (gr < 0.5f) { t.add ("Stadio " + st + ": quasi nessuna riduzione. Alza " + juce::String (info (sp.model).driveLabel) + " finche il VU scende di 2-6 dB."); ++w; }
+        if (gr < 0.5f && sp.model != OTT) { t.add ("Stadio " + st + ": quasi nessuna riduzione. Alza " + juce::String (info (sp.model).driveLabel) + " finche il VU scende di 2-6 dB."); ++w; }
         else if (gr > 12) { t.add ("Stadio " + st + ": oltre 12 dB di riduzione. Va bene solo in parallelo (MIX 20-40%), altrimenti stai schiacciando."); ++w; }
         else if (gr > 6) t.add ("Stadio " + st + ": riduzione forte (" + juce::String (gr, 1) + " dB). Ok per voce rap, room e smash; tanto per bus e master.");
         else t.add ("Stadio " + st + ": " + juce::String (gr, 1) + " dB di riduzione media, zona giusta per quasi tutto.");
         if (info (sp.model).relKnob && relMs (sp.model, sp.rel) > 0 && relMs (sp.model, sp.rel) < 90 && gr > 6) { t.add ("Rilascio molto corto con tanta riduzione: rischi distorsione sui bassi e pumping. Allunga il RELEASE."); ++w; }
         if (info (sp.model).attKnob && attMs (sp.model, sp.att) < 0.1f && gr > 3) t.add ("Attacco velocissimo: smussa i transienti. Per una batteria che picchia allunga l'attacco.");
+        if (sp.model == OTT && sp.drive > 0.6f && sp.mix > 0.8f) t.add ("OTT molto profondo al 100% di MIX: suono famoso ma estremo. Prova MIX 30-50%.");
         if (proc.value ("scHpf") < 25 && gr > 3 && (sp.model == VCABUS || sp.model == VARIMU)) t.add ("Su bus e master alza l'HPF del sidechain a 80-150 Hz: il compressore smette di reagire alla cassa e non pompa.");
     }
+    int busy = 0; for (int s = 0; s < kStages; ++s) if (sv (s, "on") > 0.5f && proc.avgGr[s].load() > 6) ++busy;
+    if (busy >= 2) { t.add (juce::String (busy) + " stadi lavorano tanto: con piu stadi suona meglio 1-4 dB ciascuno."); ++w; }
     const float d = outDb - inDb;
     if (d > 2) { t.add ("L'uscita e piu forte dell'ingresso di " + juce::String (d, 1) + " dB: il piu forte sembra sempre meglio. Attiva AUTO GAIN o abbassa OUTPUT per un confronto onesto."); ++w; }
     else if (d < -3) t.add ("L'uscita e piu bassa di " + juce::String (-d, 1) + " dB: recupera con OUTPUT o AUTO GAIN.");
     if (proc.value ("scSrc") > 0.5f && ! proc.hasExtSidechain()) { t.add ("Sidechain ESTERNO selezionato ma nessuna traccia collegata: in Ableton scegli la sorgente nella sezione Sidechain del plugin."); ++w; }
-    if (proc.value ("route") > 0.5f && proc.avgGrA.load() > 6 && proc.avgGrB.load() > 6) { t.add ("Entrambi gli stadi lavorano tanto: in serie suona meglio con 2-4 dB ciascuno."); ++w; }
     if (juce::jmax (proc.outPk[0].load(), proc.outPk[1].load()) > 0.99f) { t.add ("L'uscita tocca 0 dBFS: abbassa OUTPUT."); ++w; }
     guide.tips = t; guide.warn = w;
 }
@@ -334,11 +372,12 @@ void Editor::computeTips()
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
     setLookAndFeel (&lnf);
-    addAndMakeVisible (a); addAndMakeVisible (b); addAndMakeVisible (graph); addAndMakeVisible (guide);
-    route = std::make_unique<Segs> (P ("route"), C::magenta); route->items = [] { return juce::StringArray { "SINGOLO", "SERIE", "PARALLELO" }; };
-    route->onTouch = [this] { a.repaint(); b.repaint(); repaint(); };
+    addAndMakeVisible (rack); addAndMakeVisible (stage); addAndMakeVisible (graph); addAndMakeVisible (guide);
+    route = std::make_unique<Segs> (P ("route"), C::magenta); route->items = [] { return juce::StringArray { "SERIE", "PARALLELO" }; };
+    route->map = [] (int k) { return k == 0 ? 0 : 2; };
+    route->onTouch = [this] { repaint(); };
     scSrc = std::make_unique<Segs> (P ("scSrc"), C::green); scSrc->items = [] { return juce::StringArray { "INTERNO", "ESTERNO" }; };
-    scTo = std::make_unique<Segs> (P ("scTo"), C::green); scTo->items = [] { return juce::StringArray { "A + B", "SOLO A", "SOLO B" }; };
+    scTo = std::make_unique<Segs> (P ("scTo"), C::green); scTo->items = [] { return juce::StringArray { "TUTTI", "1", "2", "3", "4", "5", "6" }; };
     scHpf = std::make_unique<Knob> (P ("scHpf"), C::green); scHpf->label = "SC HPF";
     scHpf->text = [this] { const float f = proc.value ("scHpf"); return f < 21 ? juce::String ("OFF") : juce::String (juce::roundToInt (f)) + " Hz"; };
     listen = std::make_unique<Switch> (P ("scListen"), C::green, "LISTEN");
@@ -349,62 +388,59 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     setSize (W, H);
     startTimerHz (30);
 }
+void Editor::select (int s) { focus = s; stage.bind (s); rack.repaint(); guide.repaint(); graph.repaint(); }
 
 void Editor::resized()
 {
     presetRect = { 470, 15, 330, 36 }; prevRect = { 432, 15, 36, 36 }; nextRect = { 802, 15, 36, 36 }; abRect = { 850, 15, 110, 36 };
-    a.setBounds (18, 80, 392, 452); b.setBounds (418, 80, 392, 452);
+    rack.setBounds (18, 78, 792, 100);
+    stage.setBounds (18, 190, 792, 300);
     const int rx = 818, rw = 404;
     route->setBounds (rx + 16, 112, rw - 32, 30);
-    scSrc->setBounds (rx + 16, 236, 180, 28); scTo->setBounds (rx + 16, 272, 180, 28);
-    scHpf->setBounds (rx + 224, 222, 72, 72 + 27); listen->setBounds (rx + 306, 250, 90, 22);
-    autoG->setBounds (rx + 16, 400, 130, 22);
-    gMix->setBounds (rx + 168, 384, 72, 72 + 27); gOut->setBounds (rx + 250, 384, 72, 72 + 27);
-    graph.setBounds (18, 546, 792, 230); guide.setBounds (818, 546, 404, 230);
+    scSrc->setBounds (rx + 16, 236, 180, 28); scTo->setBounds (rx + 16, 272, 220, 28);
+    scHpf->setBounds (rx + 246, 222, 72, 72 + 27); listen->setBounds (rx + 320, 250, 80, 22);
+    autoG->setBounds (rx + 16, 380, 130, 22);
+    gMix->setBounds (rx + 168, 366, 72, 72 + 27); gOut->setBounds (rx + 250, 366, 72, 72 + 27);
+    graph.setBounds (18, 502, 792, 284); guide.setBounds (818, 502, 404, 284);
 }
 
 void Editor::paint (juce::Graphics& g)
 {
     const float Wf = (float) W, Hf = (float) H;
     jlook::backdrop (g, { 0, 0, Wf, Hf }, C::magenta, C::phos);
-    jlook::header (g, { 0, 0, Wf, 64 }, "STUDIO COMP", C::phos, "JC-2  DUAL COMPRESSOR", C::magenta, C::phos);
-    for (auto* c : { (juce::Component*) &a, (juce::Component*) &b, (juce::Component*) &graph, (juce::Component*) &guide }) jlook::softShadow (g, c->getBounds().toFloat(), 14);
-    // preset
+    jlook::header (g, { 0, 0, Wf, 64 }, "STUDIO COMP", C::phos, "JC-6  MULTI COMPRESSOR", C::magenta, C::phos);
+    for (auto* c : { (juce::Component*) &stage, (juce::Component*) &graph, (juce::Component*) &guide }) jlook::softShadow (g, c->getBounds().toFloat(), 14);
     lcd (g, presetRect.toFloat(), 8); jlook::glass (g, presetRect.toFloat(), 8);
     glowText (g, proc.getProgramName (proc.preset).toUpperCase(), presetRect.toFloat(), C::amber, mf (12.5f), juce::Justification::centred);
     g.setColour (C::phos); g.setFont (uf (20.0f));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
     jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, abHover, "CONFRONTO " + proc.ab.label(), uf (11.5f));
-    for (int i = 0; i < 9; ++i) { auto r = juce::Rectangle<float> (Wf - 120 + i * 11.0f, 18, 5, 26); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 2.5f); }
-    // colonna destra
+    if (proc.anySolo()) { auto sr = juce::Rectangle<float> (Wf - 250, 18, 230, 30); jlook::button (g, sr, C::amber, true, false, "SOLO ATTIVO: ascolti cosa toglie", uf (11.0f)); }
+    else for (int i = 0; i < 9; ++i) { auto r = juce::Rectangle<float> (Wf - 120 + i * 11.0f, 18, 5, 26); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 2.5f); }
     const float rx = 818, rw = 404;
     auto cardR = [&] (juce::Rectangle<float> r, juce::Colour c, const char* t) { jlook::softShadow (g, r, 14); jlook::card (g, r, 14, c, true, false, false); glowText (g, t, { r.getX() + 16, r.getY() + 6, 200, 22 }, C::text, uf (12.0f)); };
-    cardR ({ rx, 80, rw, 112 }, C::magenta, "ROUTING");
-    { // schema del routing
-        const int rt = (int) proc.value ("route"); auto d = juce::Rectangle<float> (rx + 16, 150, rw - 32, 32);
-        auto box = [&] (float x, float y, const char* t, juce::Colour c, bool on) { auto r = juce::Rectangle<float> (x, y, 40, 18); g.setColour (c.withAlpha (on ? 0.25f : 0.05f)); g.fillRoundedRectangle (r, 4); g.setColour (c.withAlpha (on ? 0.9f : 0.25f)); g.drawRoundedRectangle (r, 4, 1.0f); g.setFont (uf (11.0f)); g.drawText (t, r, juce::Justification::centred); };
-        g.setColour (C::dim); g.setFont (mf (9.5f)); g.drawText ("IN", juce::Rectangle<float> (d.getX(), d.getY(), 30, 32), juce::Justification::centredLeft); g.drawText ("OUT", juce::Rectangle<float> (d.getRight() - 30, d.getY(), 30, 32), juce::Justification::centredRight);
-        const float x0 = d.getX() + 34, x1 = d.getRight() - 34, cy = d.getCentreY();
-        g.setColour (C::dim.withAlpha (0.6f));
-        if (rt == 2)
+    cardR ({ rx, 78, rw, 112 }, C::magenta, "ROUTING");
+    { // catena
+        const bool par = (int) proc.value ("route") == 2; auto d = juce::Rectangle<float> (rx + 16, 150, rw - 32, 32);
+        g.setColour (C::dim); g.setFont (mf (9.5f)); g.drawText ("IN", juce::Rectangle<float> (d.getX(), d.getY(), 24, 32), juce::Justification::centredLeft); g.drawText ("OUT", juce::Rectangle<float> (d.getRight() - 28, d.getY(), 28, 32), juce::Justification::centredRight);
+        juce::Array<int> on; for (int s = 0; s < kStages; ++s) if (sv (s, "on") > 0.5f) on.add (s);
+        const float x0 = d.getX() + 26, x1 = d.getRight() - 30, cy = d.getCentreY();
+        g.setColour (C::dim.withAlpha (0.6f)); g.drawLine (x0, cy, x1, cy);
+        const int n = juce::jmax (1, on.size()); const float bw = juce::jmin (34.0f, (x1 - x0) / n - 6);
+        for (int i = 0; i < on.size(); ++i)
         {
-            const float xm = (x0 + x1) / 2;
-            g.drawLine (x0, cy, xm - 50, cy - 8); g.drawLine (x0, cy, xm - 50, cy + 8); g.drawLine (xm + 50, cy - 8, x1, cy); g.drawLine (xm + 50, cy + 8, x1, cy);
-            g.drawLine (xm - 50, cy - 8, xm + 50, cy - 8); g.drawLine (xm - 50, cy + 8, xm + 50, cy + 8);
-            box (xm - 20, cy - 17, "A", C::phos, true); box (xm - 20, cy - 1, "B", C::amber, true);
+            const int s = on[i]; auto r = par ? juce::Rectangle<float> ((x0 + x1) / 2 - bw / 2 + (i - (on.size() - 1) / 2.0f) * (bw + 4), cy - 9, bw, 18)
+                                              : juce::Rectangle<float> (x0 + (x1 - x0) * (i + 0.5f) / n - bw / 2, cy - 9, bw, 18);
+            g.setColour (C::stage[s].withAlpha (0.25f)); g.fillRoundedRectangle (r, 4); g.setColour (C::stage[s]); g.drawRoundedRectangle (r, 4, 1.0f);
+            g.setFont (uf (11.0f)); g.drawText (juce::String (s + 1), r, juce::Justification::centred);
         }
-        else
-        {
-            g.drawLine (x0, cy, x1, cy);
-            if (rt == 0) box ((x0 + x1) / 2 - 20, cy - 9, "A", C::phos, true);
-            else { box ((x0 + x1) / 2 - 60, cy - 9, "A", C::phos, true); box ((x0 + x1) / 2 + 20, cy - 9, "B", C::amber, true); }
-        }
+        if (par && on.size() > 1) { g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText ("in parallelo, sommati", juce::Rectangle<float> (d.getX() + 30, d.getBottom() - 4, 200, 12), juce::Justification::centredLeft); }
     }
-    cardR ({ rx, 204, rw, 136 }, C::green, "SIDECHAIN");
+    cardR ({ rx, 202, rw, 140 }, C::green, "SIDECHAIN");
     g.setFont (mf (9.5f)); g.setColour (proc.hasExtSidechain() ? C::green : C::dim);
-    g.drawText (proc.hasExtSidechain() ? "esterno collegato" : "esterno non collegato", juce::Rectangle<float> (rx + 200, 210, rw - 216, 18), juce::Justification::centredRight);
-    cardR ({ rx, 352, rw, 180 }, C::phos, "USCITA");
-    // meter in/out
+    g.drawText (proc.hasExtSidechain() ? "esterno collegato" : "esterno non collegato", juce::Rectangle<float> (rx + 200, 208, rw - 216, 18), juce::Justification::centredRight);
+    g.setColour (C::dim); g.setFont (uf (9.5f)); g.drawText ("su", juce::Rectangle<float> (rx + 16, 300, 30, 14), juce::Justification::centredLeft);
+    cardR ({ rx, 354, rw, 136 }, C::phos, "USCITA");
     auto meter = [&] (juce::Rectangle<float> r, float l, float rr, const char* t)
     {
         g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText (t, r.removeFromBottom (12), juce::Justification::centred);
@@ -413,14 +449,14 @@ void Editor::paint (juce::Graphics& g)
         {
             auto m = juce::Rectangle<float> (r.getX() + 3 + c * (r.getWidth() / 2 - 1), r.getY() + 3, r.getWidth() / 2 - 5, r.getHeight() - 6);
             const float db = juce::Decibels::gainToDecibels (c ? rr : l, -60.0f), n = juce::jlimit (0.0f, 1.0f, (db + 60) / 63);
-            const int seg = 24;
+            const int seg = 22;
             for (int k = 0; k < seg; ++k) { const float t2 = k / (float) seg; g.setColour (t2 <= n ? (t2 > 0.93f ? C::red : t2 > 0.8f ? C::amber : C::phos) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (m.getX(), m.getBottom() - (k + 1) * m.getHeight() / seg + 1, m.getWidth(), m.getHeight() / seg - 1.5f); }
         }
     };
-    meter ({ rx + 336, 386, 24, 136 }, proc.inPk[0].load(), proc.inPk[1].load(), "IN");
-    meter ({ rx + 366, 386, 24, 136 }, proc.outPk[0].load(), proc.outPk[1].load(), "OUT");
+    meter ({ rx + 336, 384, 24, 100 }, proc.inPk[0].load(), proc.inPk[1].load(), "IN");
+    meter ({ rx + 366, 384, 24, 100 }, proc.outPk[0].load(), proc.outPk[1].load(), "OUT");
     g.setColour (C::dim); g.setFont (uf (10.0f, false));
-    g.drawFittedText ("AUTO GAIN compensa la riduzione: confronta a volume pari.", juce::Rectangle<int> ((int) rx + 16, 432, 140, 60), juce::Justification::topLeft, 4);
+    g.drawFittedText ("AUTO GAIN pareggia il volume: confronta ad orecchio onesto.", juce::Rectangle<int> ((int) rx + 16, 412, 140, 60), juce::Justification::topLeft, 4);
 }
 
 void Editor::mouseMove (const juce::MouseEvent& e)
@@ -433,7 +469,7 @@ void Editor::mouseMove (const juce::MouseEvent& e)
 void Editor::mouseDown (const juce::MouseEvent& e)
 {
     const int n = (int) presets().size();
-    auto after = [this] { a.refresh(); b.refresh(); repaint(); };
+    auto after = [this] { stage.bind (focus); rack.repaint(); repaint(); };
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); after(); }
     else if (prevRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + n - 1) % n); after(); }
     else if (nextRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + 1) % n); after(); }
@@ -455,12 +491,12 @@ void Editor::mouseDown (const juce::MouseEvent& e)
 
 void Editor::timerCallback()
 {
-    a.needle += (proc.grA.load() - a.needle) * (proc.grA.load() > a.needle ? 0.5f : 0.18f);
-    b.needle += (proc.grB.load() - b.needle) * (proc.grB.load() > b.needle ? 0.5f : 0.18f);
-    a.repaint (a.vuRect().toNearestInt().expanded (4)); b.repaint (b.vuRect().toNearestInt().expanded (4));
-    for (auto* k : { a.drive.get(), a.att.get(), a.rel.get(), a.out.get(), a.color.get(), a.mix.get(), b.drive.get(), b.att.get(), b.rel.get(), b.out.get(), b.color.get(), b.mix.get(), scHpf.get(), gMix.get(), gOut.get() }) k->repaint();
-    graph.repaint();
-    repaint (818, 352, 404, 180);
-    if (++tick % 15 == 0) { computeTips(); guide.repaint(); }
+    const float g = proc.gr[focus].load();
+    stage.needle += (g - stage.needle) * (g > stage.needle ? 0.5f : 0.18f);
+    stage.repaint (stage.vuRect().toNearestInt().expanded (8));
+    for (auto* k : { stage.drive.get(), stage.att.get(), stage.rel.get(), stage.out.get(), stage.color.get(), stage.mix.get(), scHpf.get(), gMix.get(), gOut.get() }) k->repaint();
+    rack.repaint(); graph.repaint();
+    repaint (818, 354, 404, 136);
+    if (++tick % 15 == 0) { computeTips(); guide.repaint(); repaint (W - 260, 10, 250, 44); }
 }
 }

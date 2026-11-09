@@ -42,33 +42,9 @@ static void screw (juce::Graphics& g, float x, float y)
 void Knob::paint (juce::Graphics& g)
 {
     const float size = (float) juce::jmin (getWidth(), getHeight() - 26);
-    const float cx = getWidth() * 0.5f, cy = size * 0.5f + 2, R = size * 0.5f - 3, r = R - 9;
-    const float v = get ? get() : 0.0f, a0 = -2.42f, a1 = 2.42f;
-    jlook::knobHalo (g, cx, cy, R, col, dragging ? 1.0f : hover ? 0.6f : 0.0f);
-    // anello di LED
-    const int nLed = 23;
-    for (int i = 0; i < nLed; ++i)
-    {
-        const float t = i / (float) (nLed - 1), a = a0 + t * (a1 - a0);
-        const bool on = bipolar ? ((v >= 0.5f && t >= 0.5f && t <= v + 0.001f) || (v < 0.5f && t <= 0.5f && t >= v - 0.001f)) : t <= v + 0.001f && v > 0.002f;
-        const float x = cx + std::sin (a) * R, y = cy - std::cos (a) * R;
-        if (on) { g.setColour (col.withAlpha (0.25f)); g.fillEllipse (x - 4, y - 4, 8, 8); g.setColour (col.brighter (0.3f)); }
-        else g.setColour (juce::Colour (0xff23262e));
-        g.fillEllipse (x - 1.8f, y - 1.8f, 3.6f, 3.6f);
-    }
-    // corpo 3D
-    g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillEllipse (cx - r - 1, cy - r + 3, r * 2 + 2, r * 2 + 2);
-    juce::ColourGradient sk (juce::Colour (0xff3b3f49), cx, cy - r, juce::Colour (0xff0d0e12), cx, cy + r, false);
-    g.setGradientFill (sk); g.fillEllipse (cx - r, cy - r, r * 2, r * 2);
-    const float r2 = r * 0.8f;
-    juce::ColourGradient cap (juce::Colour (0xff2c3038), cx - r2 * 0.5f, cy - r2, juce::Colour (0xff121419), cx + r2 * 0.4f, cy + r2, false);
-    g.setGradientFill (cap); g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
-    g.setColour (juce::Colours::white.withAlpha (0.08f)); g.drawEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2, 1.0f);
-    for (int i = 0; i < 28; ++i) { const float a = i * juce::MathConstants<float>::twoPi / 28; g.setColour (juce::Colours::black.withAlpha (0.35f)); g.drawLine (cx + std::sin (a) * r2, cy - std::cos (a) * r2, cx + std::sin (a) * r, cy - std::cos (a) * r, 1.0f); }
-    const float a = a0 + v * (a1 - a0);
-    g.setColour (col.withAlpha (0.35f)); g.drawLine (cx + std::sin (a) * r2 * 0.25f, cy - std::cos (a) * r2 * 0.25f, cx + std::sin (a) * r2 * 0.95f, cy - std::cos (a) * r2 * 0.95f, 4.0f);
-    g.setColour (juce::Colours::white); g.drawLine (cx + std::sin (a) * r2 * 0.3f, cy - std::cos (a) * r2 * 0.3f, cx + std::sin (a) * r2 * 0.92f, cy - std::cos (a) * r2 * 0.92f, 1.8f);
-    // etichetta e valore
+    const float v = get ? get() : 0.0f;
+    jlook::KnobLook kl; kl.bipolar = bipolar; kl.big = size > 70; kl.hover = hover ? 1.0f : 0.0f; kl.active = dragging ? 1.0f : 0.0f;
+    jlook::drawKnob (g, { (getWidth() - size) * 0.5f, 0, size, size }, v, col, kl);
     g.setFont (ft (9.0f, true)); g.setColour (Col::dim); g.drawText (label, juce::Rectangle<float> (0, size + 3, (float) getWidth(), 11), juce::Justification::centred);
     g.setFont (ft (10.0f, false, true)); g.setColour (dragging ? col.brighter (0.4f) : col.withAlpha (0.9f)); g.drawText (text(), juce::Rectangle<float> (0, size + 14, (float) getWidth(), 12), juce::Justification::centred);
 }

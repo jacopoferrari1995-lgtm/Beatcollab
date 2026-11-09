@@ -7,8 +7,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
 {
     using namespace juce;
     AudioProcessorValueTreeState::ParameterLayout l;
-    const float fr[kBands] = { 60, 200, 800, 2500, 6000, 12000 };
-    const int ty[kBands] = { LCUT, LSHELF, BELL, BELL, BELL, HSHELF };
+    const float fr[kBands] = { 60, 200, 800, 2500, 6000, 12000, 100, 400, 1200, 3500, 8000, 16000 };
+    const int ty[kBands] = { LCUT, LSHELF, BELL, BELL, BELL, HSHELF, BELL, BELL, BELL, BELL, BELL, HCUT };
     for (int b = 0; b < kBands; ++b)
     {
         const String p = "b" + String (b + 1) + "_", n = "Band " + String (b + 1) + " ";
@@ -25,6 +25,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "profile", 1 }, "Profilo", StringArray { "TRAP / DRILL", "HIP HOP / BOOM BAP", "LO-FI", "POP", "ACUSTICO" }, 0));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "spec", 1 }, "Spettro", StringArray { "MID + SIDE", "L + R" }, 0));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "out", 1 }, "Output", NormalisableRange<float> (-12, 12), 0));
+    // imager
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "imOn", 1 }, "Imager On", true));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "imWidth", 1 }, "Imager Width", NormalisableRange<float> (0, 2), 1));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "imLow", 1 }, "Imager Low Width", NormalisableRange<float> (0, 2), 1));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "imMid", 1 }, "Imager Mid Width", NormalisableRange<float> (0, 2), 1));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "imHigh", 1 }, "Imager High Width", NormalisableRange<float> (0, 2), 1));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "imMono", 1 }, "Imager Mono Bass", NormalisableRange<float> (20, 300, 0, 0.5f), 20));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "imBal", 1 }, "Imager Balance", NormalisableRange<float> (-1, 1), 0));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "monoChk", 1 }, "Mono Check", false));
     return l;
 }
 
@@ -59,6 +68,8 @@ void Processor::prepareToPlay (double s, int maxBlock)
     blocks.assign (30, 0.0); blockIdx = 0;
     histI.assign (760, 0); histST.assign (760, 0); nI = nST = 0;
     os.reset(); os.initProcessing ((size_t) maxBlock); tpBuf.setSize (2, maxBlock);
+    imX[0].set (HCUT, 150, 0, 0.707, sr); imX[1].set (HCUT, 150, 0, 0.707, sr); imX[2].set (LCUT, 2000, 0, 0.707, sr); imX[3].set (LCUT, 2000, 0, 0.707, sr);
+    for (auto& x : imX) x.reset(); imMonoLast = -1; soloLast[0] = -1;
     xo[0].set (HCUT, 150, 0, 0.707, sr); xo[1].set (LCUT, 150, 0, 0.707, sr); xo[2].set (HCUT, 2000, 0, 0.707, sr); xo[3].set (LCUT, 2000, 0, 0.707, sr);
     for (auto& x : xo) x.reset();
     for (int b = 0; b < kBands; ++b) { eq[b].reset(); det[b].reset(); env[b] = 0; }
@@ -113,6 +124,38 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             }
         }
     }
+    // ---------- solo di una banda ----------
+    {
+        const int sb = soloBand.load();
+        if (sb >= 0 && sb < kBands)
+        {
+            const juce::String p = "b" + juce::String (sb + 1) + "_";
+            const float f = value ((p + "freq").toRawUTF8()), q = value ((p + "q").toRawUTF8()); const int t = (int) value ((p + "type").toRawUTF8());
+            const float qq = t == BELL ? juce::jmax (0.5f, q) : 0.8f;
+            if (f != soloLast[0] || qq != soloLast[1]) { soloF.set (9, f, 0, qq, sr); soloLast[0] = f; soloLast[1] = qq; }
+            for (int i = 0; i < N; ++i) { L[i] = soloF.tick (L[i], 0) * 1.4f; R[i] = soloF.tick (R[i], 1) * 1.4f; }
+        }
+    }
+    // ---------- imager multibanda ----------
+    if (value ("imOn") > 0.5f)
+    {
+        const float wG = value ("imWidth"), wl = value ("imLow"), wm = value ("imMid"), wh = value ("imHigh"), mono = value ("imMono"), bal = value ("imBal");
+        const bool active = std::abs (wG - 1) > 0.003f || std::abs (wl - 1) > 0.003f || std::abs (wm - 1) > 0.003f || std::abs (wh - 1) > 0.003f || mono > 21 || std::abs (bal) > 0.003f;
+        if (active)
+        {
+            if (mono > 21 && mono != imMonoLast) { imMono.set (HCUT, mono, 0, 0.707, sr); imMonoLast = mono; }
+            const float gl = juce::jmin (1.0f, 1.0f - bal), gr = juce::jmin (1.0f, 1.0f + bal);
+            for (int i = 0; i < N; ++i)
+            {
+                const float m = 0.5f * (L[i] + R[i]), sd = 0.5f * (L[i] - R[i]);
+                const float lo = imX[1].tick (imX[0].tick (sd, 0), 0), hi = imX[3].tick (imX[2].tick (sd, 0), 0), mid = sd - lo - hi;
+                float s2 = (lo * wl + mid * wm + hi * wh) * wG;
+                if (mono > 21) s2 -= imMono.tick (s2, 0);
+                L[i] = (m + s2) * gl; R[i] = (m - s2) * gr;
+            }
+        }
+    }
+    if (value ("monoChk") > 0.5f) for (int i = 0; i < N; ++i) { const float m = 0.5f * (L[i] + R[i]); L[i] = R[i] = m; }
     const float og = juce::Decibels::decibelsToGain (value ("out"));
     if (std::abs (og - 1.0f) > 1.0e-4f) buffer.applyGain (0, 0, N, og);
 
@@ -216,6 +259,14 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             widthB[b] = m2 > 1e-14 ? (float) juce::jlimit (0.0, 2.0, std::sqrt (juce::jmax (0.0, s2) / m2)) : 0.0f;
         }
         rmsDb = (float) (10 * std::log10 (0.5 * (sLL + sRR) / juce::jmax (1, N) + 1e-12));
+        // livelli per canale in dBFS: picco istantaneo con tenuta, RMS su 300 ms
+        float pl = 0, pr = 0; double el = 0, er = 0;
+        for (int i = 0; i < N; ++i) { pl = juce::jmax (pl, std::abs (L[i])); pr = juce::jmax (pr, std::abs (R[i])); el += L[i] * L[i]; er += R[i] * R[i]; }
+        eL = k * eL + ki * el / juce::jmax (1, N); eR = k * eR + ki * er / juce::jmax (1, N);
+        const float dl = juce::Decibels::gainToDecibels (pl, -100.0f), dr = juce::Decibels::gainToDecibels (pr, -100.0f);
+        pkL = juce::jmax (dl, pkL.load() - 0.6f); pkR = juce::jmax (dr, pkR.load() - 0.6f);
+        pkHoldL = juce::jmax (dl, pkHoldL.load() - 0.02f); pkHoldR = juce::jmax (dr, pkHoldR.load() - 0.02f);
+        rmsL = (float) (10 * std::log10 (eL + 1e-12)); rmsR = (float) (10 * std::log10 (eR + 1e-12));
     }
 }
 

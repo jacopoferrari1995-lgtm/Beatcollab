@@ -35,42 +35,10 @@ void PKnob::paint (juce::Graphics& g)
 {
     const float lh = isBig ? 30.0f : 27.0f;
     const float size = juce::jmin ((float) getWidth(), getHeight() - lh);
-    const float cx = getWidth() * 0.5f, cy = size * 0.5f + 1, R = size * 0.5f - (isBig ? 6.0f : 4.0f), r = R - (isBig ? 10.0f : 7.0f);
-    const float v = param->getValue(), a0 = -2.36f, a1 = 2.36f, av = a0 + v * (a1 - a0);
+    const float v = param->getValue();
     actSm += ((activity ? juce::jlimit (0.0f, 1.0f, activity()) : 0.0f) - actSm) * 0.35f;
-    jlook::knobHalo (g, cx, cy, R, col, juce::jmax (active ? 1.0f : hover ? 0.6f : 0.0f, actSm * 0.8f));
-    const float tw = isBig ? 5.0f : 3.4f;
-    // pista e arco del valore
-    juce::Path track; track.addCentredArc (cx, cy, R, R, 0, a0, a1, true);
-    g.setColour (juce::Colour (0xff0e1014)); g.strokePath (track, juce::PathStrokeType (tw + 2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    g.setColour (juce::Colour (0xff262a33)); g.strokePath (track, juce::PathStrokeType (tw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    const float from = bipolar ? 0.0f : a0;
-    if (std::abs (av - from) > 0.01f)
-    {
-        juce::Path val; val.addCentredArc (cx, cy, R, R, 0, juce::jmin (from, av), juce::jmax (from, av), true);
-        g.setColour (col.withAlpha (0.16f + 0.3f * actSm)); g.strokePath (val, juce::PathStrokeType (tw * 2.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        juce::ColourGradient vg (col.darker (0.3f), cx - R, cy + R, col.brighter (0.35f + 0.4f * actSm), cx + std::sin (av) * R, cy - std::cos (av) * R, false);
-        g.setGradientFill (vg); g.strokePath (val, juce::PathStrokeType (tw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    }
-    { // punta luminosa
-        const float tx = cx + std::sin (av) * R, ty = cy - std::cos (av) * R;
-        g.setColour (col.withAlpha (0.35f)); g.fillEllipse (tx - tw * 1.3f, ty - tw * 1.3f, tw * 2.6f, tw * 2.6f);
-        g.setColour (juce::Colours::white.withAlpha (0.95f)); g.fillEllipse (tx - tw * 0.45f, ty - tw * 0.45f, tw * 0.9f, tw * 0.9f);
-    }
-    // corpo morbido
-    juce::Path body; body.addEllipse (cx - r, cy - r, r * 2, r * 2);
-    juce::DropShadow (juce::Colours::black.withAlpha (0.7f), (int) (r * 0.5f), { 0, (int) (r * 0.18f) }).drawForPath (g, body);
-    juce::ColourGradient bg (juce::Colour (0xff3a3e48), cx, cy - r, juce::Colour (0xff121419), cx, cy + r, false);
-    g.setGradientFill (bg); g.fillEllipse (cx - r, cy - r, r * 2, r * 2);
-    const float r2 = r * 0.86f;
-    juce::ColourGradient tg (juce::Colour (0xff2b2f37), cx, cy - r2, juce::Colour (0xff181a20), cx, cy + r2, false);
-    g.setGradientFill (tg); g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
-    juce::ColourGradient spec (juce::Colours::white.withAlpha (0.12f), cx - r2 * 0.3f, cy - r2 * 0.8f, juce::Colours::transparentWhite, cx, cy, true);
-    g.setGradientFill (spec); g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
-    g.setColour (juce::Colours::white.withAlpha (0.07f)); g.drawEllipse (cx - r, cy - r, r * 2, r * 2, 1.0f);
-    // indicatore
-    g.setColour (col.withAlpha (0.35f)); g.drawLine (cx + std::sin (av) * r2 * 0.35f, cy - std::cos (av) * r2 * 0.35f, cx + std::sin (av) * r2 * 0.88f, cy - std::cos (av) * r2 * 0.88f, isBig ? 5.0f : 3.5f);
-    g.setColour (col.brighter (0.6f)); g.drawLine (cx + std::sin (av) * r2 * 0.4f, cy - std::cos (av) * r2 * 0.4f, cx + std::sin (av) * r2 * 0.86f, cy - std::cos (av) * r2 * 0.86f, isBig ? 2.4f : 1.7f);
+    jlook::KnobLook kl; kl.big = isBig; kl.bipolar = bipolar; kl.hover = hover ? 1.0f : 0.0f; kl.active = active ? 1.0f : 0.0f; kl.activity = actSm;
+    jlook::drawKnob (g, { (getWidth() - size) * 0.5f, 0, size, size }, v, col, kl);
     g.setColour (BC::dim); g.setFont (bf (isBig ? 10.5f : 9.0f, true)); g.drawText (label, juce::Rectangle<float> (0, size + 2, (float) getWidth(), 12), juce::Justification::centred);
     glow (g, fmt ? fmt (param->convertFrom0to1 (v)) : param->getCurrentValueAsText(), juce::Rectangle<float> (0, size + 14, (float) getWidth(), 13), active ? col.brighter (0.4f) : col, bf (isBig ? 11.5f : 10.0f, true, true), juce::Justification::centred);
 }

@@ -27,8 +27,11 @@ inline const Guide& guide (int m)
           "Ratio 4, threshold per 4-8 dB. Sul basso/808 tiene il livello costante senza mangiare l'attacco." },
         { "Moderno e versatile: va dal quasi trasparente al distrutto. 1 = solo colore, NUKE = limitatore brutale. COLOR sotto 0.5 = distorsione di 2a armonica, sopra = 3a.",
           "Batteria in parallelo, room, voce aggressiva, basso distorto, parallel smash.",
-          "Ratio 4, attacco 5-10 ms, rilascio 200-400 ms. Per lo smash parallelo: ratio 20 o NUKE, COLOR 0.6, MIX 25-35%." } };
-    return G[juce::jlimit (0, 6, m)];
+          "Ratio 4, attacco 5-10 ms, rilascio 200-400 ms. Per lo smash parallelo: ratio 20 o NUKE, COLOR 0.6, MIX 25-35%." },
+        { "Multibanda su tre bande: schiaccia le parti forti e alza quelle deboli (compressione verso l'alto). Tutto diventa denso, brillante e in faccia. DEPTH dosa l'effetto, ATTACK e RELEASE scalano i tempi delle tre bande.",
+          "Hat, synth, pad, voci di sfondo, 808 che deve uscire sulle casse piccole, bus FX. Sul master solo pochissimo.",
+          "UP + DOWN, DEPTH 20-40% (100% e l'effetto famoso, molto estremo). Usa MIX 30-50% per tenere la dinamica. Attento al rumore di fondo: l'UP lo alza." } };
+    return G[juce::jlimit (0, 7, m)];
 }
 
 // consigli generali sulle tecniche
@@ -36,9 +39,8 @@ inline const char* routeTip (int route)
 {
     switch (route)
     {
-        case 1: return "SERIE: A poi B. Classico: FET 76 veloce che prende i picchi (2-4 dB) e OPTO 2A che livella (2-4 dB). Due compressori leggeri suonano piu naturali di uno spinto.";
-        case 2: return "PARALLELO: A e B lavorano sullo stesso segnale e vengono sommati. Usa uno stadio spinto (ALL/NUKE) e uno delicato, poi dosa con i MIX.";
-        default: return "SINGOLO: lavora solo lo stadio A. Usa MIX sotto il 100% per la compressione parallela (New York): il dry tiene i transienti, il compresso da corpo.";
+        case 2: return "PARALLELO: tutti gli stadi accesi lavorano sullo stesso segnale e vengono sommati. Usa uno stadio spinto (ALL/NUKE/OTT) e uno delicato, poi dosa con i MIX. SOLO su uno stadio fa sentire cosa sta togliendo.";
+        default: return "SERIE: gli stadi accesi lavorano uno dopo l'altro (1, 2, 3...). Classico: FET 76 veloce che prende i picchi (2-4 dB) e OPTO 2A che livella (2-4 dB). Piu stadi leggeri suonano piu naturali di uno spinto. MIX sotto il 100% su uno stadio = compressione parallela (New York).";
     }
 }
 }

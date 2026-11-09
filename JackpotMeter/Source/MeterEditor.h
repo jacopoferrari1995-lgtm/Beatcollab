@@ -8,7 +8,8 @@ namespace C
     const juce::Colour text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
     const juce::Colour magenta { 0xffff2e88 }, phos { 0xff5ef2ff }, amber { 0xffffb000 }, green { 0xff7dff5a }, red { 0xffff3b5c }, violet { 0xffa66bff };
     const juce::Colour lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
-    const juce::Colour band[kBands] = { juce::Colour (0xffff6a3d), juce::Colour (0xffffd23f), juce::Colour (0xff7dff5a), juce::Colour (0xff2de2e6), juce::Colour (0xffa66bff), juce::Colour (0xffff4fd8) };
+    const juce::Colour band[kBands] = { juce::Colour (0xffff6a3d), juce::Colour (0xffffd23f), juce::Colour (0xff7dff5a), juce::Colour (0xff2de2e6), juce::Colour (0xffa66bff), juce::Colour (0xffff4fd8),
+                                        juce::Colour (0xffff9f5a), juce::Colour (0xffd4ff4a), juce::Colour (0xff3dffb0), juce::Colour (0xff4aa8ff), juce::Colour (0xffd07bff), juce::Colour (0xffff6b9a) };
 }
 class Editor;
 
@@ -44,7 +45,7 @@ public:
     Editor& ed;
     static constexpr int kOrder = 13, kN = 1 << kOrder, kPts = 320;
     juce::dsp::FFT fft { kOrder }; juce::dsp::WindowingFunction<float> win { (size_t) kN, juce::dsp::WindowingFunction<float>::hann };
-    std::vector<float> fbuf; float specA[kPts] {}, specB[kPts] {}, peak[kPts] {}; float bandE[kBands] {}; bool bandInit = false;
+    std::vector<float> fbuf; float specA[kPts] {}, specB[kPts] {}, peak[kPts] {}; float bandE[kBal] {}; bool bandInit = false;
     int dragBand = -1, hoverBand = -1; float hoverF = 0;
     juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (14, 10).withTrimmedTop (30).withTrimmedBottom (16); }
     float xOf (float f) const; float fOf (float x) const; float yOf (float db) const; float dbOf (float y) const;
@@ -73,9 +74,13 @@ public:
 class Stereo : public juce::Component
 {
 public:
-    Stereo (Editor& e) : ed (e) {}
+    Stereo (Editor& e);
     void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
     Editor& ed; juce::Image persist;
+    Knob width { C::violet }, bal { C::violet }, low { C::violet }, mid { C::violet }, high { C::violet }, mono { C::violet };
+    juce::Rectangle<float> monoR, onR;
 };
 
 class BandPanel : public juce::Component
@@ -88,6 +93,7 @@ public:
     void bind();
     Editor& ed;
     Knob freq { C::phos }, gain { C::phos }, q { C::phos }, dyn { C::magenta }, thr { C::magenta };
+    juce::Rectangle<float> soloR;
 };
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer

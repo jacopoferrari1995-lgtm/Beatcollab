@@ -5,7 +5,8 @@
 
 namespace jm
 {
-constexpr int kBands = 6;
+constexpr int kBands = 12;
+constexpr int kBal = 6;   // bande del bilanciamento tonale
 enum BandType { BELL = 0, LSHELF, HSHELF, LCUT, HCUT, kNumTypes };
 
 struct Target { const char* name; float lufs; float tp; };
@@ -91,6 +92,9 @@ public:
     float ringL[kRing] {}, ringR[kRing] {}; std::atomic<int> ringW { 0 };
     // EQ: dati per l'interfaccia
     std::atomic<float> dynGain[kBands] {};
+    std::atomic<int> soloBand { -1 };   // ascolto di una sola banda dell'EQ
+    // livelli in dBFS per canale
+    std::atomic<float> pkL { -100 }, pkR { -100 }, rmsL { -100 }, rmsR { -100 }, pkHoldL { -100 }, pkHoldR { -100 };
     // loudness
     std::atomic<float> lufsM { -100 }, lufsS { -100 }, lufsI { -100 }, lra { 0 }, tpMax { -100 }, tpNow { -100 }, rmsDb { -100 }, pkMax { -100 };
     static constexpr int kHist = 600;   // storia short-term, un punto ogni 0.2 s (2 minuti)
@@ -113,6 +117,8 @@ private:
     juce::dsp::Oversampling<float> os { 2, 2, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true };
     juce::AudioBuffer<float> tpBuf;
     // stereo
+    Biq soloF; float soloLast[3] = { -1, -1, -1 };
+    Biq imX[4]; Biq imMono; float imMonoLast = -1; double eL = 0, eR = 0;
     Biq xo[4]; double sLL = 0, sRR = 0, sLR = 0, bLL[3] {}, bRR[3] {}, bLR[3] {}, bM[3] {}, bS[3] {}, eM = 0, eS = 0;
     int histTick = 0, blocksSeen = 0; float stMax = -100;
     void resetLoudness();

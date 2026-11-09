@@ -41,15 +41,16 @@ public:
 
     // misure per l'interfaccia
     static constexpr int kHist = 400;
-    std::atomic<float> hIn[kHist], hOut[kHist], hGrA[kHist], hGrB[kHist]; std::atomic<int> hW { 0 };
-    std::atomic<float> grA { 0 }, grB { 0 }, inPk[2] {}, outPk[2] {}, inRms { 0 }, outRms { 0 }, avgGrA { 0 }, avgGrB { 0 };
+    std::atomic<float> hIn[kHist], hOut[kHist], hGr[kStages][kHist]; std::atomic<int> hW { 0 };
+    std::atomic<float> gr[kStages] {}, avgGr[kStages] {}, inPk[2] {}, outPk[2] {}, inRms { 0 }, outRms { 0 };
+    bool anySolo() const { for (int s = 0; s < kStages; ++s) if (value ((juce::String (stagePfx (s)) + "solo").toRawUTF8()) > 0.5f) return true; return false; }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
-    Stage st[2]; double sr = 44100;
-    juce::AudioBuffer<float> dry, det, aux;
-    juce::dsp::IIR::Filter<float> hp[2][2];  // per stadio, per canale
+    Stage st[kStages]; double sr = 44100;
+    juce::AudioBuffer<float> dry, det, aux, acc, dlt;
+    juce::dsp::IIR::Filter<float> hp[kStages][2];  // per stadio, per canale
     float lastHp = -1; std::atomic<bool> extSc { false };
-    float colIn = 0, colOut = 0, colA = 0, colB = 0; int colN = 0; float rmsIn = 0, rmsOut = 0;
+    float colIn = 0, colOut = 0, colGr[kStages] {}; int colN = 0; float rmsIn = 0, rmsOut = 0;
 };
 }

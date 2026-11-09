@@ -64,33 +64,10 @@ void Knob::paint (juce::Graphics& g)
     const bool big = getWidth() > 90;
     const float lh = big ? 30.0f : 27.0f;
     const float size = juce::jmin ((float) getWidth(), getHeight() - lh);
-    const float cx = getWidth() * 0.5f, cy = size * 0.5f + 1, R = size * 0.5f - 3, r = R - (big ? 11.0f : 7.5f);
-    const float v = param->getValue(), a0 = -2.42f, a1 = 2.42f;
-    jlook::knobHalo (g, cx, cy, R, col, drag ? 1.0f : hover ? 0.6f : 0.0f);
+    const float v = param->getValue();
     const bool bip = param->convertFrom0to1 (0.0f) < 0 && param->convertFrom0to1 (1.0f) > 0 && std::abs (param->convertFrom0to1 (0.0f) + param->convertFrom0to1 (1.0f)) < 0.01f;
-    const int nLed = big ? 31 : 21;
-    for (int i = 0; i < nLed; ++i)
-    {
-        const float t = i / (float) (nLed - 1), a = a0 + t * (a1 - a0);
-        const bool lit = bip ? ((v >= 0.5f && t >= 0.5f && t <= v + 0.001f) || (v < 0.5f && t <= 0.5f && t >= v - 0.001f)) : (t <= v + 0.001f && v > 0.002f);
-        const float x = cx + std::sin (a) * R, y = cy - std::cos (a) * R, d = big ? 4.2f : 3.2f;
-        if (lit) { g.setColour (col.withAlpha (0.25f)); g.fillEllipse (x - d * 1.3f, y - d * 1.3f, d * 2.6f, d * 2.6f); g.setColour (col.brighter (0.25f)); }
-        else g.setColour (juce::Colour (0xff23262e));
-        g.fillEllipse (x - d * 0.5f, y - d * 0.5f, d, d);
-    }
-    g.setColour (juce::Colours::black.withAlpha (0.7f)); g.fillEllipse (cx - r - 1, cy - r + 4, r * 2 + 2, r * 2 + 2);
-    juce::ColourGradient sk (juce::Colour (0xff4a4f5a), cx, cy - r, juce::Colour (0xff0c0d11), cx, cy + r, false);
-    g.setGradientFill (sk); g.fillEllipse (cx - r, cy - r, r * 2, r * 2);
-    const float r2 = r * 0.8f;
-    juce::ColourGradient cap (juce::Colour (0xff343843), cx - r2 * 0.5f, cy - r2, juce::Colour (0xff111318), cx + r2 * 0.4f, cy + r2, false);
-    g.setGradientFill (cap); g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
-    for (int i = 0; i < 36; ++i) { const float a = i * juce::MathConstants<float>::twoPi / 36; g.setColour (juce::Colours::black.withAlpha (0.4f)); g.drawLine (cx + std::sin (a) * r2, cy - std::cos (a) * r2, cx + std::sin (a) * r, cy - std::cos (a) * r, 1.0f); }
-    juce::ColourGradient spec (juce::Colours::white.withAlpha (0.16f), cx - r2 * 0.4f, cy - r2 * 0.7f, juce::Colours::transparentWhite, cx, cy, true);
-    g.setGradientFill (spec); g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
-    g.setColour (col.withAlpha (0.55f)); g.drawEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2, 1.0f);
-    const float a = a0 + v * (a1 - a0);
-    g.setColour (col.withAlpha (0.4f)); g.drawLine (cx + std::sin (a) * r2 * 0.25f, cy - std::cos (a) * r2 * 0.25f, cx + std::sin (a) * r2 * 0.95f, cy - std::cos (a) * r2 * 0.95f, big ? 6.0f : 4.0f);
-    g.setColour (juce::Colours::white); g.drawLine (cx + std::sin (a) * r2 * 0.3f, cy - std::cos (a) * r2 * 0.3f, cx + std::sin (a) * r2 * 0.92f, cy - std::cos (a) * r2 * 0.92f, big ? 2.6f : 1.8f);
+    jlook::KnobLook kl; kl.big = big; kl.bipolar = bip; kl.hover = hover ? 1.0f : 0.0f; kl.active = drag ? 1.0f : 0.0f;
+    jlook::drawKnob (g, { (getWidth() - size) * 0.5f, 0, size, size }, v, col, kl);
     g.setColour (K::dim); g.setFont (tf (big ? 10.5f : 9.0f, 2)); g.drawText (lab.toUpperCase(), juce::Rectangle<float> (0, size + 2, (float) getWidth(), 12), juce::Justification::centred);
     glow (g, fmtFn ? fmtFn (param->convertFrom0to1 (v)) : param->getCurrentValueAsText(), juce::Rectangle<float> (0, size + 14, (float) getWidth(), 13), col, tf (big ? 11.5f : 10.0f, 2, true), juce::Justification::centred);
 }
