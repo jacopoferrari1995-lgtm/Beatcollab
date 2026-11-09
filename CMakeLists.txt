@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.22)
+project(JackpotPlugins VERSION 1.0.0)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(APPLE)
+  set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "" FORCE)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "" FORCE)
+  set(JP_FORMATS AU)
+else()
+  set(JP_FORMATS Standalone)
+endif()
+
+add_subdirectory(JUCE)
+add_subdirectory(Jackpot60)
+add_subdirectory(JackpotTape)
