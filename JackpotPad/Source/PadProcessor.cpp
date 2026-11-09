@@ -111,6 +111,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
 
     F ("revSize", "Reverb Size", 0, 1, 0.5f); F ("revDamp", "Reverb Damp", 0, 1, 0.5f); F ("revRet", "Reverb Return", 0, 1, 0.7f);
     C ("dlyTime", "Delay Time", kDly, 3); F ("dlyFb", "Delay Feedback", 0, 0.95f, 0.35f); F ("dlyTone", "Delay Tone", 0, 1, 0.5f); F ("dlyRet", "Delay Return", 0, 1, 0.6f);
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "nrOn", 1 }, "Note Repeat", false));
+    C ("nrRate", "Note Repeat Rate", StringArray { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T" }, 3);
     C ("busMode", "Bus Comp", kBus, 0); F ("busAmt", "Bus Comp Amount", 0, 1, 0.4f);
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "clip", 1 }, "Clip", false));
     return l;
@@ -363,6 +365,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         {
             const auto& e = fifoBuf[k < n1 ? s1 + k : s2 + k - n1];
             trigs.push_back ({ 0, e.pad, e.vel, e.on });
+            heldVel[e.pad] = e.on ? juce::jmax (1, e.vel) : 0; if (e.on) { nrStart[e.pad] = t0; nrPhase[e.pad] = 0; }
             out.addEvent (e.on ? juce::MidiMessage::noteOn (1, root + e.pad, (juce::uint8) juce::jlimit (1, 127, e.vel)) : juce::MidiMessage::noteOff (1, root + e.pad), 0);
         }
         fifo.finishedRead (n1 + n2);
@@ -373,6 +376,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         const auto msg = m.getMessage(); if (! msg.isNoteOnOrOff()) continue;
         const int p = msg.getNoteNumber() - root; if (p < 0 || p >= kPads) continue;
         juce::int64 delay = 0;
+        heldVel[p] = msg.isNoteOn() ? juce::jmax (1, (int) msg.getVelocity()) : 0;
+        if (msg.isNoteOn()) { nrStart[p] = t0 + m.samplePosition * tps; nrPhase[p] = -m.samplePosition; }
         if (msg.isNoteOn())
         {
             if (swMidi) { const double t = t0 + m.samplePosition * tps, st = swingTick (t); if (st > t) delay = (juce::int64) ((st - t) / tps); }
@@ -390,6 +395,33 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         else ++k;
     }
     absSample += N;
+    // note repeat: ripete i pad tenuti a tempo, con lo swing
+    if (par ("nrOn") > 0.5f)
+    {
+        static const double rates[] = { 96, 48, 32, 24, 16, 12, 8 };
+        const int ri = juce::jlimit (0, 6, (int) par ("nrRate")); const double rt = rates[ri];
+        const bool straight = ri == 1 || ri == 3;
+        for (int p = 0; p < kPads; ++p)
+        {
+            if (heldVel[p] <= 0) continue;
+            if (running)
+            {
+                for (double g = std::floor (t0 / rt) * rt - rt; g < t1; g += rt)
+                {
+                    if (g <= nrStart[p] + 0.5) continue;
+                    const double a = straight ? swingTick (g) : g;
+                    if (a >= t0 && a < t1) trigs.push_back ({ juce::jlimit (0, N - 1, (int) ((a - t0) / tps)), p, heldVel[p], true });
+                }
+            }
+            else
+            {
+                const double step = rt / tps;
+                double ph = nrPhase[p];
+                for (double k = std::ceil ((ph + 1) / step) * step; k < ph + N; k += step) if (k > 0) trigs.push_back ({ juce::jlimit (0, N - 1, (int) (k - ph)), p, heldVel[p], true });
+                nrPhase[p] = ph + N;
+            }
+        }
+    }
     // loop della banca, sincronizzato
     if (running && loopOn.load())
     {
@@ -610,9 +642,16 @@ bool Processor::loadFile (const juce::File& f, int p)
 }
 
 // ---------------- kit ----------------
+juce::File Processor::baseFolder()
+{
+    const auto music = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+    auto nu = music.getChildFile ("Jackpot Sampler"), old = music.getChildFile ("Jackpot Pad");
+    if (! nu.exists() && old.isDirectory()) old.moveFileTo (nu);
+    nu.createDirectory(); return nu;
+}
 juce::File Processor::kitFolder()
 {
-    auto d = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot Pad").getChildFile ("Kits");
+    auto d = baseFolder().getChildFile ("Kits");
     d.createDirectory(); return d;
 }
 juce::Array<juce::File> Processor::userKits() const

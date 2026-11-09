@@ -17,7 +17,7 @@ juce_add_plugin(JackpotPad
   PLUGIN_CODE Jpad
   AU_MAIN_TYPE kAudioUnitType_MusicDevice
   FORMATS ${JP_PAD_FORMATS}
-  PRODUCT_NAME "Jackpot Pad")
+  PRODUCT_NAME "Jackpot Sampler")
 
 target_sources(JackpotPad PRIVATE
   Source/PadProcessor.cpp

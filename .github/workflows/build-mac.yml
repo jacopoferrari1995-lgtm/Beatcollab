@@ -16,42 +16,41 @@ jobs:
         run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
       - name: Build
         run: |
-          cmake --build build --config Release --target Jackpot60_AU -- -quiet
           cmake --build build --config Release --target JackpotTape_AU -- -quiet
           cmake --build build --config Release --target JackpotPad_AU -- -quiet
           cmake --build build --config Release --target JackpotPad_VST3 -- -quiet
+          cmake --build build --config Release --target JackpotButter_AU -- -quiet
       - name: Firma, validazione, zip
         run: |
           mkdir -p out ~/Library/Audio/Plug-Ins/Components
-          for NAME in "Jackpot 60" "Jackpot Tape" "Jackpot Pad"; do
+          for NAME in "Jackpot Tape" "Jackpot Sampler" "Jackpot Butter Rack"; do
             C="$(find build -name "$NAME.component" -type d | head -1)"
             echo "trovato: $C"
             codesign --force --deep -s - "$C"
             cp -R "$C" ~/Library/Audio/Plug-Ins/Components/
             cp -R "$C" out/
           done
-          V="$(find build -name 'Jackpot Pad.vst3' -type d | head -1)"
+          V="$(find build -name 'Jackpot Sampler.vst3' -type d | head -1)"
           codesign --force --deep -s - "$V"
           cp -R "$V" out/
           killall -9 AudioComponentRegistrar || true
-          auval -v aumu Jk60 Jkpt | tail -5 || true
           auval -v aufx Jtap Jkpt | tail -5 || true
           auval -v aumu Jpad Jkpt | tail -5 || true
+          auval -v aufx Jbtr Jkpt | tail -5 || true
           cd out
-          ditto -c -k --keepParent "Jackpot 60.component" "Jackpot60-AU.zip"
           ditto -c -k --keepParent "Jackpot Tape.component" "JackpotTape-AU.zip"
-          ditto -c -k --keepParent "Jackpot Pad.component" "JackpotPad-AU.zip"
-          ditto -c -k --keepParent "Jackpot Pad.vst3" "JackpotPad-VST3.zip"
-          ditto -c -k --sequesterRsrc . "../Jackpot-Plugins-AU.zip"
+          ditto -c -k --keepParent "Jackpot Sampler.component" "JackpotSampler-AU.zip"
+          ditto -c -k --keepParent "Jackpot Sampler.vst3" "JackpotSampler-VST3.zip"
+          ditto -c -k --keepParent "Jackpot Butter Rack.component" "JackpotButterRack-AU.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: Jackpot-Plugins-AU
+          name: Jackpot-Plugins
           path: out/*.zip
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="plugins-v1.0.${{ github.run_number }}"
-          gh release create "$TAG" out/Jackpot60-AU.zip out/JackpotTape-AU.zip out/JackpotPad-AU.zip out/JackpotPad-VST3.zip \
-            --target "${{ github.sha }}" --title "Jackpot Pad + Jackpot 60 + Jackpot Tape (AU) $TAG" \
-            --notes "Plugin Audio Unit per macOS (Apple Silicon e Intel). Scompatta, copia i .component in ~/Library/Audio/Plug-Ins/Components, poi: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Jackpot*.component"
+          TAG="plugins-v1.1.${{ github.run_number }}"
+          gh release create "$TAG" out/JackpotTape-AU.zip out/JackpotSampler-AU.zip out/JackpotSampler-VST3.zip out/JackpotButterRack-AU.zip \
+            --target "${{ github.sha }}" --title "Jackpot Sampler + Butter Rack + Tape $TAG" \
+            --notes "Plugin per macOS (Apple Silicon e Intel). Copia i .component in ~/Library/Audio/Plug-Ins/Components (e il .vst3 in ~/Library/Audio/Plug-Ins/VST3), poi: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Jackpot*.component"

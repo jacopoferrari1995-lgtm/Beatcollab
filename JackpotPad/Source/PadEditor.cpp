@@ -999,9 +999,9 @@ void Root::paint (juce::Graphics& g)
     g.setColour (Col::magenta.withAlpha (0.8f)); g.fillRect (0.0f, 64.0f, W * 0.42f, 2.0f);
     g.setColour (Col::cyan.withAlpha (0.8f)); g.fillRect (W * 0.42f, 64.0f, W * 0.58f, 2.0f);
     glowText (g, "JACKPOT", { 28, 12, 200, 40 }, Col::text, ft (30.0f, true));
-    glowText (g, "PAD", { 168, 12, 100, 40 }, Col::magenta, ft (30.0f, true));
+    glowText (g, "SAMPLER", { 168, 12, 160, 40 }, Col::magenta, ft (30.0f, true));
     g.setFont (ft (10.0f, true, true)); g.setColour (Col::dim);
-    g.drawText (juce::String::fromUTF8 ("JP-16  \xc2\xb7  DRUM SAMPLER  \xc2\xb7  KIT: ") + ed.proc.kitName.toUpperCase(), juce::Rectangle<float> (250, 12, 560, 40), juce::Justification::centredLeft);
+    g.drawText (juce::String::fromUTF8 ("JP-16  \xc2\xb7  KIT: ") + ed.proc.kitName.toUpperCase(), juce::Rectangle<float> (330, 12, 480, 40), juce::Justification::centredLeft);
     for (int i = 0; i < 14; ++i) { auto r = juce::Rectangle<float> (W - 380 + i * 11.0f, 20, 5, 26); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 2.5f); g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawLine (r.getX(), r.getBottom() + 1, r.getRight(), r.getBottom() + 1); }
     g.saveState(); auto hz = juce::Rectangle<float> (W - 210, 22, 70, 22); g.reduceClipRegion (hz.toNearestInt());
     g.setColour (Col::amber.withAlpha (0.85f)); g.fillRect (hz);
@@ -1090,6 +1090,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     };
     choice ("curve", "CURVA VELOCITY", Col::magenta);
     choice ("swGrid", "SWING SU", Col::magenta);
+    choice ("nrRate", "RATE", Col::magenta);
     {
         auto* s = selectors.add (new Selector ("GENERE")); s->setName ("genre"); s->col = Col::magenta;
         s->get = [this] { return genre; };
@@ -1131,6 +1132,8 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
          [this] { auto* pr = proc.apvts.getParameter ("swMidi"); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); })->setName ("swmidi");
     btn ("+SWING", Col::cyan, [this] { return exportSwing; }, [this] { exportSwing = ! exportSwing; })->setName ("expsw");
     btn ("TASTIERA PLUGIN", Col::cyan, [this] { return kbOn; }, [this] { kbOn = ! kbOn; setWantsKeyboardFocus (kbOn); if (kbOn) grabKeyboardFocus(); else giveAwayKeyboardFocus(); root.repaint(); })->setName ("kb");
+    btn ("NOTE REPEAT", Col::magenta, [this] { return proc.apvts.getRawParameterValue ("nrOn")->load() > 0.5f; },
+         [this] { auto* pr = proc.apvts.getParameter ("nrOn"); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); })->setName ("nr");
     btn ("FULL LEVEL", Col::magenta, [this] { return fullLevel; }, [this] { fullLevel = ! fullLevel; root.repaint(); })->setName ("full");
     btn ("LOAD", Col::cyan, [] { return false; }, [this] { loadDialog (sel); })->setName ("load");
 
@@ -1168,6 +1171,8 @@ void Editor::resized()
     named (root, "expsw")->setBounds (640, 608, 62, 34);
     drag.setBounds (442, 682, 260, 32);
     named (root, "kb")->setBounds (726, 686, 130, 30);
+    named (root, "nr")->setBounds (726, 642, 130, 34);
+    named (root, "nrRate")->setBounds (862, 634, 90, 44);
 }
 
 // le 8 manopole Q-link cambiano con la pagina, come sulle MPC
@@ -1241,7 +1246,7 @@ void Editor::addToLibraryDialog()
 void Editor::saveKit (bool askName)
 {
     if (! askName && proc.kitFile.existsAsFile()) { proc.saveKit (proc.kitFile, proc.kitName); kitChanged(); return; }
-    auto* w = new juce::AlertWindow ("Salva kit", "Nome del kit (finisce in Musica/Jackpot Pad/Kits)", juce::MessageBoxIconType::NoIcon, this);
+    auto* w = new juce::AlertWindow ("Salva kit", "Nome del kit (finisce in Musica/Jackpot Sampler/Kits)", juce::MessageBoxIconType::NoIcon, this);
     w->addTextEditor ("name", proc.kitFile.existsAsFile() ? proc.kitName : proc.kitName + " (mio)");
     w->addButton ("Salva", 1, juce::KeyPress (juce::KeyPress::returnKey)); w->addButton ("Annulla", 0, juce::KeyPress (juce::KeyPress::escapeKey));
     w->enterModalState (true, juce::ModalCallbackFunction::create ([this, w] (int r)

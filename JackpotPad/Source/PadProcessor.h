@@ -63,7 +63,7 @@ public:
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
-    const juce::String getName() const override { return "Jackpot Pad"; }
+    const juce::String getName() const override { return "Jackpot Sampler"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
     double getTailLengthSeconds() const override { return 3.0; }
@@ -89,6 +89,7 @@ public:
     juce::String kitName { "Boom Bap Classico" };
     juce::File kitFile;                       // vuoto = kit di fabbrica
     static juce::File kitFolder();
+    static juce::File baseFolder();
     juce::Array<juce::File> userKits() const;
     void loadFactoryKit (int i);
     bool saveKit (const juce::File&, const juce::String& name);
@@ -150,6 +151,7 @@ private:
     double intTick = 0; bool wasRunning = false;
     struct Pend { juce::int64 at; int pad, vel; bool on; };
     std::vector<Pend> pend; juce::int64 absSample = 0; juce::int64 padDelay[kPads] = {};
+    int heldVel[kPads] = {}; double nrStart[kPads] = {}; double nrPhase[kPads] = {};
     struct Trig { int off, pad, vel; bool on; };
     std::vector<Trig> trigs;
     juce::AudioBuffer<float> padBuf;

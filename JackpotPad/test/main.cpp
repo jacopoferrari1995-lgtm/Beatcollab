@@ -59,6 +59,15 @@ int main()
     bool c; std::printf ("bpm: %.1f %.1f\n", Processor::estimateBpm ("loop 92bpm", 5.2, c), Processor::estimateBpm ("break", 4.0, c));
     for (auto& c : libCategories()) { auto items = libItems (c); std::printf ("%s: %d suoni\n", c.toRawUTF8(), (int) items.size()); if (! items.empty()) loadLibItem (p, items.back(), 5); }
     for (int i = 0; i < (int) patternBank().size(); ++i) if (juce::String (patternBank()[(size_t) i].name).startsWith ("4 Bar")) { p.loadPattern (i); std::printf ("%s %s: %d battute, %d note\n", patternBank()[(size_t) i].genre, patternBank()[(size_t) i].name, p.patternBars.load(), (int) p.events.size()); }
+    // note repeat: pad tenuto 1 battuta a 1/16 = 16 colpi
+    {
+        p.loopOn = false; p.apvts.getParameter ("nrOn")->setValueNotifyingHost (1); p.apvts.getParameter ("swing")->setValueNotifyingHost (0);
+        p.requestPlay (false); { juce::MidiBuffer m; p.processBlock (blk, m); } p.requestPlay (true);
+        const auto before = p.hits[3].load(); const double tps = 120.0 / 60 * PPQ / sr; const int nb = (int) (384 / tps / 512);
+        for (int b = 0; b < nb; ++b) { juce::MidiBuffer m; if (b == 1) m.addEvent (juce::MidiMessage::noteOn (1, 39, (juce::uint8) 90), 0); if (b == nb - 1) m.addEvent (juce::MidiMessage::noteOff (1, 39), 0); p.processBlock (blk, m); }
+        std::printf ("note repeat: %d colpi in ~1 battuta\n", (int) (p.hits[3].load() - before));
+        p.apvts.getParameter ("nrOn")->setValueNotifyingHost (0);
+    }
     juce::MemoryBlock mb; p.getStateInformation (mb); Processor q; q.setStateInformation (mb.getData(), (int) mb.getSize());
     std::printf ("stato ricaricato: eventi %d, nome pad1 %s\n", (int) q.events.size(), q.getSample (0) ? q.getSample (0)->name.toRawUTF8() : "-");
 }

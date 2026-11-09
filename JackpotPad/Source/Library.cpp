@@ -10,7 +10,7 @@ const juce::StringArray& libCategories()
 
 juce::File libFolder (const juce::String& category)
 {
-    auto d = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot Pad").getChildFile ("Samples")
+    auto d = Processor::baseFolder().getChildFile ("Samples")
                  .getChildFile (juce::File::createLegalFileName (category.replace (" / ", " e ")));
     d.createDirectory(); return d;
 }
