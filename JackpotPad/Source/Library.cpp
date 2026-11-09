@@ -4,7 +4,7 @@ namespace jp
 {
 const juce::StringArray& libCategories()
 {
-    static const juce::StringArray c { "KICK", "SNARE", "CLAP / SNAP", "HAT", "OPEN HAT", "808", "PERC", "TOM", "CYMBAL", "MELODICI", "TEXTURE" };
+    static const juce::StringArray c { "KICK", "SNARE", "CLAP / SNAP", "HAT", "OPEN HAT", "808", "PERC", "TOM", "CYMBAL", "MELODICI", "TEXTURE", "FX", "VOCI", "LOOP" };
     return c;
 }
 
@@ -71,7 +71,33 @@ std::vector<LibItem> libItems (const juce::String& category)
     auto files = libFolder (category).findChildFiles (juce::File::findFiles, true, "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
     std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b) { return a.getFileName().compareNatural (b.getFileName()) < 0; });
     for (auto& f : files) { LibItem it; it.name = f.getFileNameWithoutExtension(); it.category = category; it.user = true; it.file = f; out.push_back (it); }
+    // campioni trovati dallo SCAN (restano dove sono)
+    juce::SharedResourcePointer<SampleIndex> idx;
+    auto sc = idx->entries (category);
+    std::sort (sc.begin(), sc.end(), [] (const ScanEntry& a, const ScanEntry& b) { return juce::File (a.path).getFileName().compareNatural (juce::File (b.path).getFileName()) < 0; });
+    for (auto& e : sc) { LibItem it; it.file = juce::File (e.path); it.name = it.file.getFileNameWithoutExtension(); it.category = category; it.user = true; it.scanned = true; out.push_back (it); }
     return out;
+}
+
+std::vector<LibItem> searchLibrary (const juce::String& query, size_t maxItems)
+{
+    std::vector<LibItem> out; const auto words = juce::StringArray::fromTokens (query.toLowerCase(), " ", "");
+    for (auto& c : libCategories())
+        for (auto& it : libItems (c))
+        {
+            const auto hay = (it.name + " " + (it.scanned ? it.file.getParentDirectory().getFileName() : juce::String())).toLowerCase();
+            bool ok = true; for (auto& w : words) if (w.isNotEmpty() && ! hay.contains (w)) ok = false;
+            if (ok) { out.push_back (it); if (out.size() >= maxItems) return out; }
+        }
+    return out;
+}
+
+bool moveLibItem (const LibItem& it, const juce::String& category)
+{
+    if (! it.user || it.category == category) return false;
+    if (it.scanned) { juce::SharedResourcePointer<SampleIndex> idx; idx->setCategory (it.file.getFullPathName(), category); return true; }
+    if (! it.file.existsAsFile()) return false;
+    return it.file.moveFileTo (libFolder (category).getNonexistentChildFile (it.file.getFileNameWithoutExtension(), it.file.getFileExtension(), false));
 }
 
 bool loadLibItem (Processor& P, const LibItem& it, int p)

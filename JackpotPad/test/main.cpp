@@ -1,9 +1,67 @@
+#include <cstdlib>
 #include "../Source/PadProcessor.h"
 #include "../Source/PadEditor.h"
 #include "../Source/Library.h"
 using namespace jp;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "scan")
+    {
+        juce::ScopedJuceInitialiser_GUI gui3;
+        juce::File dir ("/tmp/jscan"); dir.deleteRecursively(); dir.createDirectory();
+        juce::AudioFormatManager fm; fm.registerBasicFormats(); juce::WavAudioFormat wav;
+        auto write = [&] (const juce::File& f, const juce::AudioBuffer<float>& b, double sr)
+        { f.getParentDirectory().createDirectory(); std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (f), sr, (unsigned) b.getNumChannels(), 24, {}, 0)); w->writeFromAudioSampleBuffer (b, 0, b.getNumSamples()); };
+        // 1) suoni di fabbrica con nomi anonimi: il riconoscimento dall'ascolto deve indovinare la categoria
+        int ok = 0, tot = 0; std::map<juce::String, std::pair<int,int>> per;
+        juce::StringArray seen;
+        for (auto& k : factoryKits()) for (auto& pd : k.pads)
+        {
+            const auto key = descToPath (pd.d); if (seen.contains (key)) continue; seen.add (key);
+            auto smp = makeDrum (pd.d); if (! smp) continue;
+            auto f = dir.getChildFile ("anon").getChildFile ("x" + juce::String (tot) + ".wav"); write (f, smp->buf, smp->sr);
+            float dur = 0; const auto got = SampleIndex::classify (f, fm, dur); const auto want = categoryOf (pd.d);
+            const bool good = got == want || (want == "OPEN HAT" && got == "HAT") || (want == "HAT" && got == "OPEN HAT") || (want == "TEXTURE" && got == "FX");
+            ++tot; if (good) ++ok; per[want].second++; if (good) per[want].first++;
+            if (! good)
+            {
+                std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (f)); const auto F = SampleIndex::analyse (*rd);
+                std::printf ("  %-18s %-10s->%-10s d%.2f a%.3f t30 %.2f L%.2f M%.2f H%.2f z%.0f ton%.2f f0 %.0f mic%d on%d\n", pd.d.name.toRawUTF8(), want.toRawUTF8(), got.toRawUTF8(), dur,
+                             F.attack, F.t30, F.low, F.mid, F.high, F.zcr, F.tonal, F.f0, F.micro, F.onsets);
+            }
+        }
+        for (auto& [c, v] : per) std::printf ("%-12s %d/%d\n", c.toRawUTF8(), v.first, v.second);
+        std::printf ("ascolto: %d/%d giusti\n", ok, tot);
+        // 2) nomi tipici dei pack
+        const char* names[][2] = { { "Kicks/KSHMR_Kick_03.wav", "KICK" }, { "Drums/One Shots/Snares/TL_snr_12.wav", "SNARE" }, { "OpenHat02.wav", "OPEN HAT" }, { "hh_closed_tight.wav", "HAT" },
+            { "Loops/Drum Loop 90bpm Am.wav", "LOOP" }, { "808 Mafia Kit/808_C_long.wav", "808" }, { "FX/Riser_Big_01.wav", "FX" }, { "Vocals/vox_chop_hey.wav", "VOCI" }, { "Melodic One Shots/Piano_C3.wav", "MELODICI" },
+            { "Perc/Shaker_04.wav", "PERC" }, { "Crash 1.wav", "CYMBAL" }, { "Clap_Trap_05.wav", "CLAP / SNAP" }, { "Bass Drum 2.wav", "KICK" }, { "Vinyl Crackle.wav", "TEXTURE" }, { "Guitar Loop 120 BPM.wav", "LOOP" },
+            { "Rim 3.wav", "PERC" }, { "Tom Low.wav", "TOM" }, { "Snare Roll.wav", "SNARE" }, { "superkick.wav", "KICK" } };
+        int nok = 0, ntot = 0;
+        for (auto& n : names)
+        {
+            // contenuto plausibile: loop lunghi, one shot corti
+            const bool lng = juce::String (n[1]) == "LOOP"; const double sr = 44100; juce::AudioBuffer<float> b (1, (int) (sr * (lng ? 4.0 : 0.6))); b.clear(); juce::Random r (3);
+            for (int beat = 0; beat < (lng ? 8 : 1); ++beat) for (int i = 0; i < (int) (sr * 0.25); ++i) b.addSample (0, beat * (int) (sr * 0.5) + i, (r.nextFloat() * 2 - 1) * (float) std::exp (-i / sr * 20) * 0.5f);
+            auto f = dir.getChildFile (n[0]); write (f, b, sr);
+            float dur = 0; const auto got = SampleIndex::classify (f, fm, dur); ++ntot; if (got == n[1]) ++nok; else std::printf ("  NOME %-40s atteso %-12s ottenuto %s\n", n[0], n[1], got.toRawUTF8());
+        }
+        std::printf ("nomi: %d/%d giusti\n", nok, ntot);
+        // 3) scansione completa in sottofondo
+        juce::SharedResourcePointer<SampleIndex> idx; idx->clearAll(); idx->addRoot (dir);
+        while (idx->scanning()) juce::Thread::sleep (20);
+        std::printf ("indice: %d file, KICK %d LOOP %d\n", idx->size(), idx->count ("KICK"), idx->count ("LOOP"));
+        if (argc > 2)
+        {
+            Processor p; p.prepareToPlay (48000, 480);
+            Editor ed (p);
+            if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc)); ed.setPage (PG_BROWSE); ed.screen.browseCat = 0; ed.screen.browseDirty = true;
+            auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+            juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+        }
+        idx->clearAll();
+        return 0;
+    }
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
         juce::ScopedJuceInitialiser_GUI gui2;

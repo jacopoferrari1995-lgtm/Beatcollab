@@ -634,7 +634,8 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     add (A.getParameter ("u_in"), "INPUT", BC::phos, false, [] (float v) { return juce::String (v, 1) + " dB"; }, true);
     add (A.getParameter ("u_out"), "OUTPUT", BC::phos, false, [] (float v) { return juce::String (v, 1) + " dB"; });
     clip = std::make_unique<Switch> (A.getParameter ("u_clip"), "CLIP", BC::magenta); addAndMakeVisible (*clip);
-    setSize (W, H);
+    addAndMakeVisible (sizeChip);
+    scaler.setup();
     startTimerHz (30);
 }
 
@@ -645,6 +646,7 @@ void Editor::layoutModules()
 }
 void Editor::resized()
 {
+    const float sc = scaler.update();
     layoutModules();
     eq->setBounds (18, 560, 722, 244);
     filt->setBounds (750, 560, 180, 244); imager->setBounds (938, 560, 180, 244);
@@ -654,6 +656,8 @@ void Editor::resized()
     master[4]->setBounds (mx + 39, 352, 160, 186);
     master[5]->setBounds (mx + 18, 560, 96, 94); master[6]->setBounds (mx + 122, 560, 96, 94);
     presetRect = { 500, 15, 340, 36 }; prevRect = { 462, 15, 36, 36 }; nextRect = { 842, 15, 36, 36 }; randRect = { 896, 15, 120, 36 }; abRect = { 1026, 15, 100, 36 };
+    sizeChip.setBounds (W - 76, H - 18, 58, 15);
+    jlook::scaleChildren (*this, sc);
 }
 
 void Editor::moduleDropped (Module& m)
@@ -669,6 +673,7 @@ void Editor::moduleDropped (Module& m)
 
 void Editor::paint (juce::Graphics& g)
 {
+    g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float Wf = (float) W, Hf = (float) H;
     jlook::backdrop (g, { 0, 0, Wf, Hf }, BC::magenta, BC::phos);
     jlook::header (g, { 0, 0, Wf, 64 }, "BUTTER RACK", BC::amber, "JB-7  DRUM BUS", BC::magenta, BC::phos);
@@ -708,14 +713,16 @@ void Editor::paint (juce::Graphics& g)
     g.drawFittedText ("lucchetto = blocca il modulo nei preset\ntrascina la testata per riordinare", juce::Rectangle<int> (MX + 66, 680, 104, 90), juce::Justification::centred, 6);
 }
 
-void Editor::mouseMove (const juce::MouseEvent& e)
+void Editor::mouseMove (const juce::MouseEvent& e0)
 {
+    const auto e = e0.withNewPosition (e0.position / scaler.s);
     const bool h = randRect.contains (e.getPosition()), h2 = abRect.contains (e.getPosition());
     if (h != randHover || h2 != abHover) { randHover = h; abHover = h2; repaint(); }
     setMouseCursor (h || h2 || presetRect.contains (e.getPosition()) || prevRect.contains (e.getPosition()) || nextRect.contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
-void Editor::mouseDown (const juce::MouseEvent& e)
+void Editor::mouseDown (const juce::MouseEvent& e0)
 {
+    const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int n = proc.getNumPrograms();
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); resized(); repaint(); }
     else if (randRect.contains (e.getPosition())) proc.randomize();
@@ -732,7 +739,7 @@ void Editor::mouseDown (const juce::MouseEvent& e)
             if (! found) { juce::PopupMenu pm; pm.addItem (i + 1, name.fromFirstOccurrenceOf (" | ", false, false), true, i == proc.preset); groups.push_back ({ gname, pm }); }
         }
         for (auto& gr : groups) m.addSubMenu (gr.first, gr.second);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (presetRect)), [this] (int r) { if (r > 0) { proc.loadPreset (r - 1); repaint(); } });
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (scaler.map (presetRect))), [this] (int r) { if (r > 0) { proc.loadPreset (r - 1); repaint(); } });
     }
     repaint();
 }
@@ -743,6 +750,6 @@ void Editor::timerCallback()
     for (auto* m : modules) m->repaint();
     for (auto* k : master) k->repaint();
     clip->repaint();
-    repaint (MX, 660, 238, 140); repaint (presetRect);
+    repaint (scaler.map ({ MX, 660, 238, 140 })); repaint (scaler.map (presetRect));
 }
 }

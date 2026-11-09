@@ -1,5 +1,6 @@
 #pragma once
 #include "CompProcessor.h"
+#include "JackpotScale.h"
 
 namespace jc
 {
@@ -116,6 +117,8 @@ public:
     static constexpr int W = 1240, H = 800;
     jlook::LnF lnf;
     Processor& proc;
+    jlook::Scaler scaler { *this, "comp", W, H };
+    jlook::SizeChip sizeChip { scaler };
     int focus = 0;
     juce::RangedAudioParameter* P (const juce::String& id) { return proc.apvts.getParameter (id); }
     float sv (int s, const char* k) const { return proc.value ((juce::String (stagePfx (s)) + k).toRawUTF8()); }

@@ -1,5 +1,6 @@
 #pragma once
 #include "JackpotLook.h"
+#include "JackpotScale.h"
 #include "TapeProcessor.h"
 #include <set>
 
@@ -149,6 +150,8 @@ public:
 
     jlook::LnF lnf;
     Processor& proc;
+    jlook::Scaler scaler { *this, "tape", W, H };
+    jlook::SizeChip sizeChip { scaler };
     int sel = STUT, res = 0;   // risoluzione di disegno: 0 1/16, 1 1/8, 2 1/4
     void select (int f);
     int steps() const;

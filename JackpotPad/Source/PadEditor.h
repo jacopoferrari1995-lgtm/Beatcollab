@@ -1,5 +1,6 @@
 #pragma once
 #include "JackpotLook.h"
+#include "JackpotScale.h"
 #include "PadProcessor.h"
 #include "Library.h"
 #include <set>
@@ -82,7 +83,7 @@ enum Page { PG_KIT, PG_BROWSE, PG_MIX, PG_SAMPLE, PG_VEL, PG_EQ, PG_FILTER, PG_C
 class Screen : public juce::Component, public juce::FileDragAndDropTarget
 {
 public:
-    explicit Screen (Editor& e) : ed (e) {}
+    explicit Screen (Editor& e) : ed (e) { setupSearch(); }
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
@@ -125,8 +126,11 @@ private:
     void pageMaster (juce::Graphics&, juce::Rectangle<float>);
     void pageBrowse (juce::Graphics&, juce::Rectangle<float>);
 public:
-    int browseCat = 0, browseScroll = 0; bool browseDirty = true;
+    int browseCat = 0, browseScroll = 0, browseGen = -1; bool browseDirty = true;
     std::vector<struct LibItem> browseItems;
+    juce::TextEditor search;
+    void setupSearch();
+    void itemMenu (int i);
 };
 
 class PatternView : public juce::Component
@@ -158,7 +162,7 @@ public:
 class ChopView : public juce::Component
 {
 public:
-    explicit ChopView (Editor& e) : ed (e) {}
+    explicit ChopView (Editor& e) : ed (e) { setOpaque (true); }
     void open (int pad);
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -184,6 +188,9 @@ public:
     void rebuild();
     float snapTo (float fx) const;
     void close();
+    void paintChrome (juce::Graphics&);
+    juce::Image chrome; float chromeScale = 0; bool chromeDirty = true;
+    juce::Path wavePath; float pathV0 = -1, pathV1 = -1;
 };
 
 class Editor : public juce::AudioProcessorEditor, public juce::DragAndDropContainer, private juce::Timer
@@ -203,6 +210,8 @@ public:
 
     jlook::LnF lnf;
     Processor& proc;
+    jlook::Scaler scaler { *this, "pad", W, H };
+    jlook::SizeChip sizeChip { scaler };
     int sel = 0, page = PG_KIT, octave = 1, kbVel = 100, genre = 0;
     bool fullLevel = false, kbOn = false, exportSwing = false;
     std::set<int> keysDown;
@@ -214,6 +223,7 @@ public:
     void kitChanged();
     void openBrowser (int pad);
     void addToLibraryDialog();
+    void scanMenu();
 
     // valori normalizzati dei parametri dei pad (per manopole e grafici)
     static float toNorm (int i, float v);

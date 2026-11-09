@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "../Source/ButterProcessor.h"
 #include "../Source/ButterEditor.h"
 using namespace jb;
@@ -11,6 +12,7 @@ int main (int argc, char** argv)
         auto set = [&p] (const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
         set ("u_spAmt", 0.3f); set ("u_xAmt", 0.2f); set ("u_fLp", 9000); set ("u_fHp", 60); set ("u_e2g", -3); set ("u_e4g", 3);
         jb::Editor ed (p);
+        if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer m; juce::Random r (5);
         for (int k = 0; k < 100 * 6; ++k)
         {

@@ -522,17 +522,22 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
     setLookAndFeel (&lnf);
     for (auto* c : std::initializer_list<juce::Component*> { &spec, &loud, &bal, &st, &band }) addAndMakeVisible (c);
-    setSize (W, H);
+    addAndMakeVisible (sizeChip);
+    scaler.setup();
     startTimerHz (30);
 }
 void Editor::resized()
 {
+    const float sc = scaler.update();
     specRect = { 470, 15, 220, 36 }; eqRect = { 700, 15, 120, 36 }; abRect = { 830, 15, 110, 36 };
     spec.setBounds (18, 80, 820, 410); loud.setBounds (850, 80, 372, 410);
     bal.setBounds (18, 502, 250, 284); st.setBounds (278, 502, 560, 284); band.setBounds (850, 502, 372, 284);
+    sizeChip.setBounds (W - 76, H - 18, 58, 15);
+    jlook::scaleChildren (*this, sc);
 }
 void Editor::paint (juce::Graphics& g)
 {
+    g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float Wf = (float) W, Hf = (float) H;
     jlook::backdrop (g, { 0, 0, Wf, Hf }, C::magenta, C::phos);
     jlook::header (g, { 0, 0, Wf, 64 }, "METERING HUB", C::green, "JM-1  ANALISI PRE / POST MASTER", C::magenta, C::phos);
@@ -542,8 +547,9 @@ void Editor::paint (juce::Graphics& g)
     jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, false, "CONFRONTO " + proc.ab.label(), uf (11.5f));
     g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText ("analisi: latenza zero", juce::Rectangle<float> (Wf - 250, 20, 230, 24), juce::Justification::centredRight);
 }
-void Editor::mouseDown (const juce::MouseEvent& e)
+void Editor::mouseDown (const juce::MouseEvent& e0)
 {
+    const auto e = e0.withNewPosition (e0.position / scaler.s);
     if (specRect.contains (e.getPosition())) setP (P ("spec"), proc.value ("spec") < 0.5f ? 1.0f : 0.0f);
     else if (eqRect.contains (e.getPosition())) setP (P ("eqOn"), proc.value ("eqOn") > 0.5f ? 0.0f : 1.0f);
     else if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); band.bind(); }

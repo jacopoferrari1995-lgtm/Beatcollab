@@ -1,5 +1,6 @@
 #pragma once
 #include "MeterProcessor.h"
+#include "JackpotScale.h"
 
 namespace jm
 {
@@ -107,6 +108,8 @@ public:
     static constexpr int W = 1240, H = 800;
     jlook::LnF lnf;
     Processor& proc;
+    jlook::Scaler scaler { *this, "meter", W, H };
+    jlook::SizeChip sizeChip { scaler };
     int selBand = 0;
     juce::RangedAudioParameter* P (const juce::String& id) { return proc.apvts.getParameter (id); }
     float bp (int b, const char* k) const { return proc.value (("b" + juce::String (b + 1) + "_" + k).toRawUTF8()); }

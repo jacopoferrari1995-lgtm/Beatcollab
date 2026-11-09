@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "../Source/MeterProcessor.h"
 #include "../Source/MeterEditor.h"
 #include <cstdio>
@@ -12,6 +13,7 @@ int main (int argc, char** argv)
         set ("b1_on", 1); set ("b3_on", 1); set ("b3_freq", 350); set ("b3_gain", -3); set ("b3_dyn", -6); set ("b3_q", 1.5f); set ("b5_on", 1); set ("b5_type", BELL); set ("b5_freq", 5000); set ("b5_gain", 2.5f);
         juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer m; juce::Random r (3); float pk[2] = {}; double ph = 0;
         Editor ed (p);
+        if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         for (int k = 0; k < 100 * 12; ++k)
         {
             for (int i = 0; i < 480; ++i)

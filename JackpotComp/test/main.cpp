@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "../Source/CompProcessor.h"
 #include "../Source/CompEditor.h"
 #include <cstdio>
@@ -10,6 +11,7 @@ int main (int argc, char** argv)
         Processor p; p.prepareToPlay (48000, 480);
         for (int i = 0; i < p.getNumPrograms(); ++i) if (p.getProgramName (i).contains ("Voce a 4")) p.loadPreset (i);
         Editor ed (p);
+        if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer m; juce::Random r (5); double ph = 0;
         for (int k = 0; k < 100 * 5; ++k)
         {

@@ -26,7 +26,8 @@ target_sources(JackpotPad PRIVATE
   Source/Synth.cpp
   Source/Kits.cpp
   Source/Patterns.cpp
-  Source/Library.cpp)
+  Source/Library.cpp
+  Source/SampleScan.cpp)
 
 target_include_directories(JackpotPad PRIVATE ${CMAKE_SOURCE_DIR}/Common)
 target_compile_definitions(JackpotPad PUBLIC
@@ -43,7 +44,7 @@ target_link_libraries(JackpotPad
 if(J60_TEST)
   juce_add_console_app(PadTest PRODUCT_NAME "PadTest")
   target_include_directories(PadTest PRIVATE ${CMAKE_SOURCE_DIR}/Common)
-  target_sources(PadTest PRIVATE test/main.cpp Source/PadProcessor.cpp Source/PadEditor.cpp Source/KitGen.cpp Source/Synth.cpp Source/Kits.cpp Source/Patterns.cpp Source/Library.cpp)
+  target_sources(PadTest PRIVATE test/main.cpp Source/PadProcessor.cpp Source/PadEditor.cpp Source/KitGen.cpp Source/Synth.cpp Source/Kits.cpp Source/Patterns.cpp Source/Library.cpp Source/SampleScan.cpp)
   target_compile_definitions(PadTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotPad")
   target_link_libraries(PadTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts)
 endif()

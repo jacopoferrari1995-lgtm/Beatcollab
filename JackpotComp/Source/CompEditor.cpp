@@ -385,13 +385,15 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     gMix = std::make_unique<Knob> (P ("mix"), C::phos); gMix->label = "MIX"; gMix->text = [this] { return juce::String (juce::roundToInt (proc.value ("mix") * 100)) + "%"; };
     gOut = std::make_unique<Knob> (P ("out"), C::phos); gOut->label = "OUTPUT"; gOut->bipolar = true; gOut->text = [this] { const float v = proc.value ("out"); return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; };
     for (juce::Component* c : std::initializer_list<juce::Component*> { route.get(), scSrc.get(), scTo.get(), scHpf.get(), listen.get(), autoG.get(), gMix.get(), gOut.get() }) addAndMakeVisible (c);
-    setSize (W, H);
+    addAndMakeVisible (sizeChip);
+    scaler.setup();
     startTimerHz (30);
 }
 void Editor::select (int s) { focus = s; stage.bind (s); rack.repaint(); guide.repaint(); graph.repaint(); }
 
 void Editor::resized()
 {
+    const float sc = scaler.update();
     presetRect = { 470, 15, 330, 36 }; prevRect = { 432, 15, 36, 36 }; nextRect = { 802, 15, 36, 36 }; abRect = { 850, 15, 110, 36 };
     rack.setBounds (18, 78, 792, 100);
     stage.setBounds (18, 190, 792, 300);
@@ -402,10 +404,13 @@ void Editor::resized()
     autoG->setBounds (rx + 16, 380, 130, 22);
     gMix->setBounds (rx + 168, 366, 72, 72 + 27); gOut->setBounds (rx + 250, 366, 72, 72 + 27);
     graph.setBounds (18, 502, 792, 284); guide.setBounds (818, 502, 404, 284);
+    sizeChip.setBounds (W - 76, H - 18, 58, 15);
+    jlook::scaleChildren (*this, sc);
 }
 
 void Editor::paint (juce::Graphics& g)
 {
+    g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float Wf = (float) W, Hf = (float) H;
     jlook::backdrop (g, { 0, 0, Wf, Hf }, C::magenta, C::phos);
     jlook::header (g, { 0, 0, Wf, 64 }, "STUDIO COMP", C::phos, "JC-6  MULTI COMPRESSOR", C::magenta, C::phos);
@@ -459,15 +464,17 @@ void Editor::paint (juce::Graphics& g)
     g.drawFittedText ("AUTO GAIN pareggia il volume: confronta ad orecchio onesto.", juce::Rectangle<int> ((int) rx + 16, 412, 140, 60), juce::Justification::topLeft, 4);
 }
 
-void Editor::mouseMove (const juce::MouseEvent& e)
+void Editor::mouseMove (const juce::MouseEvent& e0)
 {
+    const auto e = e0.withNewPosition (e0.position / scaler.s);
     const bool h = abRect.contains (e.getPosition());
-    if (h != abHover) { abHover = h; repaint (abRect.expanded (8)); }
+    if (h != abHover) { abHover = h; repaint (scaler.map (abRect.expanded (8))); }
     setMouseCursor (h || presetRect.contains (e.getPosition()) || prevRect.contains (e.getPosition()) || nextRect.contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 
-void Editor::mouseDown (const juce::MouseEvent& e)
+void Editor::mouseDown (const juce::MouseEvent& e0)
 {
+    const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int n = (int) presets().size();
     auto after = [this] { stage.bind (focus); rack.repaint(); repaint(); };
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); after(); }
@@ -485,7 +492,7 @@ void Editor::mouseDown (const juce::MouseEvent& e)
             if (! found) { juce::PopupMenu pm; pm.addItem (i + 1, it, true, i == proc.preset); groups.push_back ({ gn, pm }); }
         }
         for (auto& gr : groups) m.addSubMenu (gr.first, gr.second);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (presetRect)), [this, after] (int r) { if (r > 0) { proc.loadPreset (r - 1); after(); } });
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (presetRect))), [this, after] (int r) { if (r > 0) { proc.loadPreset (r - 1); after(); } });
     }
 }
 
@@ -496,7 +503,7 @@ void Editor::timerCallback()
     stage.repaint (stage.vuRect().toNearestInt().expanded (8));
     for (auto* k : { stage.drive.get(), stage.att.get(), stage.rel.get(), stage.out.get(), stage.color.get(), stage.mix.get(), scHpf.get(), gMix.get(), gOut.get() }) k->repaint();
     rack.repaint(); graph.repaint();
-    repaint (818, 354, 404, 136);
-    if (++tick % 15 == 0) { computeTips(); guide.repaint(); repaint (W - 260, 10, 250, 44); }
+    repaint (scaler.map ({ 818, 354, 404, 136 }));
+    if (++tick % 15 == 0) { computeTips(); guide.repaint(); repaint (scaler.map ({ W - 260, 10, 250, 44 })); }
 }
 }

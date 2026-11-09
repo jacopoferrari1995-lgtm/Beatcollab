@@ -532,10 +532,8 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 
     select (STUT);
     setWantsKeyboardFocus (true);
-    setResizable (true, true);
-    setResizeLimits (W * 6 / 10, H * 6 / 10, W * 3 / 2, H * 3 / 2);
-    if (auto* c = getConstrainer()) c->setFixedAspectRatio ((double) W / H);
-    setSize (W, H);
+    root.addAndMakeVisible (sizeChip);
+    scaler.setup();
     startTimerHz (30);
 }
 Editor::~Editor() { setLookAndFeel (nullptr); }
@@ -545,7 +543,8 @@ void Editor::select (int f) { sel = f; fxEd.rebuild(); list.repaint(); }
 
 void Editor::resized()
 {
-    const float s = getWidth() / (float) W;
+    const float s = scaler.update();
+    sizeChip.setBounds (W - 76, H - 18, 58, 15);
     root.setBounds (0, 0, W, H); root.setTransform (juce::AffineTransform::scale (s));
     list.setBounds (20, 74, 172, 400);
     disp.setBounds (224, 72, 782, 182);

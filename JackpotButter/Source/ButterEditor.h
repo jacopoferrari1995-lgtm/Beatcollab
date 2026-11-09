@@ -1,5 +1,6 @@
 #pragma once
 #include "JackpotLook.h"
+#include "JackpotScale.h"
 #include "ButterProcessor.h"
 #include <juce_dsp/juce_dsp.h>
 
@@ -137,6 +138,8 @@ public:
     static constexpr int W = 1386, H = 820, MX = 1130;
     jlook::LnF lnf;
     Processor& proc;
+    jlook::Scaler scaler { *this, "butter", W, H };
+    jlook::SizeChip sizeChip { scaler };
     juce::OwnedArray<Module> modules;
     juce::OwnedArray<PKnob> master;
     std::unique_ptr<Switch> clip;

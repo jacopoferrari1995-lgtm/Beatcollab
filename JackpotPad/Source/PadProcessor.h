@@ -5,6 +5,7 @@
 #include <vector>
 #include "KitGen.h"
 #include "Synth.h"
+#include "SampleScan.h"
 
 namespace jp
 {
@@ -132,6 +133,7 @@ public:
     int rootNote() const { return (int) apvts.getRawParameterValue ("root")->load(); }
     float velCurve (int vel) const;
     juce::AudioFormatManager formats;
+    juce::SharedResourcePointer<SampleIndex> sampleIndex;   // indice SCAN condiviso (la scansione continua anche a editor chiuso)
 
 private:
     float colPk = 0; int colN = 0, colHits = 0, colVel = 0;
