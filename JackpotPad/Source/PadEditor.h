@@ -1,5 +1,6 @@
 #pragma once
 #include "PadProcessor.h"
+#include "Library.h"
 #include <set>
 #include <map>
 
@@ -72,7 +73,7 @@ public:
     Editor& ed; int pad; bool held = false, dragOver = false; float glow = 0, flash = 0; juce::uint32 lastHit = 0;
 };
 
-enum Page { PG_KIT, PG_MIX, PG_SAMPLE, PG_VEL, PG_EQ, PG_FILTER, PG_COMP, PG_FX, PG_MASTER, kNumPages };
+enum Page { PG_KIT, PG_BROWSE, PG_MIX, PG_SAMPLE, PG_VEL, PG_EQ, PG_FILTER, PG_COMP, PG_FX, PG_MASTER, kNumPages };
 
 // schermo a pagine
 class Screen : public juce::Component, public juce::FileDragAndDropTarget
@@ -119,6 +120,10 @@ private:
     void pageComp (juce::Graphics&, juce::Rectangle<float>);
     void pageFx (juce::Graphics&, juce::Rectangle<float>);
     void pageMaster (juce::Graphics&, juce::Rectangle<float>);
+    void pageBrowse (juce::Graphics&, juce::Rectangle<float>);
+public:
+    int browseCat = 0, browseScroll = 0; bool browseDirty = true;
+    std::vector<struct LibItem> browseItems;
 };
 
 class PatternView : public juce::Component
@@ -171,6 +176,8 @@ public:
     void saveKit (bool askName);
     void loadKitDialog();
     void kitChanged();
+    void openBrowser (int pad);
+    void addToLibraryDialog();
 
     // valori normalizzati dei parametri dei pad (per manopole e grafici)
     static float toNorm (int i, float v);

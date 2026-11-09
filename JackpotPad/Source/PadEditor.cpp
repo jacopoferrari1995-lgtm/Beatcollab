@@ -173,7 +173,7 @@ void PadComp::filesDropped (const juce::StringArray& files, int, int)
 }
 
 // ======================= Schermo =======================
-static const char* kPageNames[kNumPages] = { "KIT", "MIXER", "SAMPLE", "VELOCITY", "EQ", "FILTRO", "COMP", "FX", "MASTER" };
+static const char* kPageNames[kNumPages] = { "KIT", "SUONI", "MIXER", "SAMPLE", "VELOCITY", "EQ", "FILTRO", "COMP", "FX", "MASTER" };
 
 static float freqToX (float f, juce::Rectangle<float> r) { return r.getX() + r.getWidth() * std::log (f / 20.0f) / std::log (1000.0f); }
 static float xToFreq (float x, juce::Rectangle<float> r) { return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, (x - r.getX()) / r.getWidth())); }
@@ -209,8 +209,9 @@ void Screen::padHeader (juce::Graphics& g, juce::Rectangle<float> r)
 {
     auto& P = ed.proc; const int p = ed.sel; auto s = P.getSample (p); const auto pc = padColour (P.pad[p].colour.load());
     g.setColour (pc); g.fillRoundedRectangle (r.getX(), r.getY() + 3, 4, r.getHeight() - 6, 2);
-    glowText (g, "PAD " + juce::String (p + 1).paddedLeft ('0', 2) + "  " + noteName (P.rootNote() + p) + "  " + (s ? s->name.toUpperCase() : juce::String ("VUOTO")),
+    glowText (g, "PAD " + juce::String (p + 1).paddedLeft ('0', 2) + "  " + noteName (P.rootNote() + p) + "  " + (s ? s->name.toUpperCase() : juce::String ("VUOTO")) + juce::String::fromUTF8 ("  \xe2\x96\xbe"),
               r.withTrimmedLeft (12).withWidth (330), Col::phos, ft (13.0f, true, true));
+    hots.push_back ({ r.withTrimmedLeft (12).withWidth (330), [this] (const juce::MouseEvent&) { ed.openBrowser (ed.sel); }, nullptr, nullptr, nullptr });
     // gain e volume come barre grafiche
     auto bars = juce::Rectangle<float> (r.getRight() - 300, r.getY() + 2, 300, r.getHeight() - 4);
     auto drawBar = [&] (juce::Rectangle<float> b, const char* lab, float norm, const juce::String& val, bool bip, int param)
@@ -265,6 +266,7 @@ void Screen::paint (juce::Graphics& g)
             pageKit (g, c); break;
         }
         case PG_MASTER: glowText (g, juce::String::fromUTF8 ("MASTER  \xc2\xb7  REVERB  \xc2\xb7  DELAY  \xc2\xb7  BUS"), hdr, Col::phos, ft (12.0f, true, true)); pageMaster (g, c); break;
+        case PG_BROWSE: padHeader (g, hdr); pageBrowse (g, c); break;
         case PG_MIX: glowText (g, juce::String::fromUTF8 ("MIXER  \xc2\xb7  GAIN  \xc2\xb7  PAN  \xc2\xb7  VOLUME  \xc2\xb7  MUTE / SOLO"), hdr, Col::phos, ft (12.0f, true, true)); pageMix (g, c); break;
         default:
             padHeader (g, hdr);
@@ -278,6 +280,58 @@ void Screen::paint (juce::Graphics& g)
     g.setColour (juce::Colours::black.withAlpha (0.2f)); for (float y = s.getY(); y < s.getBottom(); y += 3) g.drawHorizontalLine ((int) y, s.getX(), s.getRight());
     juce::ColourGradient gl (juce::Colours::white.withAlpha (0.05f), s.getX(), s.getY(), juce::Colours::transparentWhite, s.getX() + s.getWidth() * 0.35f, s.getY() + s.getHeight() * 0.6f, false);
     g.setGradientFill (gl); g.fillRoundedRectangle (s, 6);
+}
+
+// ---------- SUONI (banca per categoria) ----------
+void Screen::pageBrowse (juce::Graphics& g, juce::Rectangle<float> c)
+{
+    auto& P = ed.proc; const auto& cats = libCategories();
+    if (browseDirty) { browseItems = libItems (cats[browseCat]); browseDirty = false; }
+    auto bottom = c.removeFromBottom (30); c.removeFromBottom (6);
+    auto left = c.removeFromLeft (130); c.removeFromLeft (10);
+    const float ch = left.getHeight() / cats.size();
+    for (int i = 0; i < cats.size(); ++i)
+    {
+        auto r = juce::Rectangle<float> (left.getX(), left.getY() + i * ch, left.getWidth(), ch - 2);
+        const bool on = i == browseCat;
+        g.setColour (on ? Col::magenta.withAlpha (0.22f) : Col::phos.withAlpha (0.04f)); g.fillRoundedRectangle (r, 3);
+        if (on) { g.setColour (Col::magenta); g.fillRoundedRectangle (r.getX(), r.getY() + 3, 3, r.getHeight() - 6, 1.5f); }
+        glowText (g, cats[i], r.reduced (10, 0), on ? Col::magenta : Col::phos.withAlpha (0.8f), ft (10.0f, true, true));
+        hots.push_back ({ r, [this, i] (const juce::MouseEvent&) { browseCat = i; browseScroll = 0; browseDirty = true; }, nullptr, nullptr, nullptr });
+    }
+    // elenco su due colonne
+    auto cur = P.getSample (ed.sel); const juce::String curPath = cur ? cur->path : juce::String();
+    const float rh = 20; const int rows = (int) (c.getHeight() / rh), cols = 2, perPage = rows * cols;
+    browseScroll = juce::jlimit (0, juce::jmax (0, ((int) browseItems.size() - perPage + 1) / 2 * 2), browseScroll);
+    const float cw = c.getWidth() / cols;
+    hots.push_back ({ c, nullptr, nullptr, [this] (float d) { browseScroll += d > 0 ? -2 : 2; repaint(); }, nullptr });
+    for (int k = 0; k < perPage; ++k)
+    {
+        const int i = browseScroll + k; if (i >= (int) browseItems.size()) break;
+        const auto& it = browseItems[(size_t) i];
+        auto r = juce::Rectangle<float> (c.getX() + (k / rows) * cw, c.getY() + (k % rows) * rh, cw - 6, rh - 2);
+        const bool on = curPath.isNotEmpty() && (it.user ? it.file.getFullPathName() == curPath : descToPath (it.d) == curPath);
+        g.setColour (on ? padColour (P.pad[ed.sel].colour.load()).withAlpha (0.25f) : Col::phos.withAlpha (0.03f)); g.fillRoundedRectangle (r, 3);
+        glowText (g, (it.user ? juce::String::fromUTF8 ("\xe2\x98\x85 ") : juce::String()) + it.name, r.reduced (8, 0), on ? Col::text : (it.user ? Col::amber : Col::phos), ft (10.0f, on, true));
+        hots.push_back ({ r, [this, i] (const juce::MouseEvent&)
+                          {
+                              if (i >= (int) browseItems.size()) return;
+                              loadLibItem (ed.proc, browseItems[(size_t) i], ed.sel); ed.playPad (ed.sel, 100); ed.kitChanged();
+                          }, nullptr, [this, perPage] (float d) { browseScroll += d > 0 ? -2 : 2; juce::ignoreUnused (perPage); repaint(); }, nullptr });
+    }
+    if ((int) browseItems.size() > perPage)
+    {
+        const float frac = (float) perPage / browseItems.size(), pos = (float) browseScroll / browseItems.size();
+        g.setColour (Col::phos.withAlpha (0.1f)); g.fillRect (c.getRight() - 3, c.getY(), 3.0f, c.getHeight());
+        g.setColour (Col::phos.withAlpha (0.6f)); g.fillRect (c.getRight() - 3, c.getY() + c.getHeight() * pos, 3.0f, c.getHeight() * frac);
+    }
+    if (browseItems.empty()) glowText (g, "NESSUN SUONO", c, Col::phos.withAlpha (0.4f), ft (11.0f, true, true), juce::Justification::centred);
+    // azioni
+    const float bw = (bottom.getWidth() - 16) / 3;
+    chip (g, bottom.removeFromLeft (bw), "", "AGGIUNGI I TUOI...", true, [this] (const juce::MouseEvent&) { ed.addToLibraryDialog(); }, Col::amber); bottom.removeFromLeft (8);
+    chip (g, bottom.removeFromLeft (bw), "", "SALVA SUONO DEL PAD", false, [this] (const juce::MouseEvent&)
+          { savePadToLibrary (ed.proc, ed.sel, libCategories()[browseCat]); browseDirty = true; }, Col::amber); bottom.removeFromLeft (8);
+    chip (g, bottom, "", "APRI CARTELLA", false, [this] (const juce::MouseEvent&) { libFolder (libCategories()[browseCat]).revealToUser(); }, Col::phos);
 }
 
 // ---------- KIT ----------
@@ -345,7 +399,7 @@ void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
         const float lv = Editor::toNorm (LEVEL, P.pad[p].get (LEVEL));
         auto vb = juce::Rectangle<float> (r.getX() + 5, r.getBottom() - 6, (r.getWidth() - 10) * lv, 2.5f);
         g.setColour (pc.withAlpha (0.8f)); g.fillRect (vb);
-        hots.push_back ({ r, [this, p] (const juce::MouseEvent& e) { ed.selectPad (p); if (! e.mods.isPopupMenu()) { ed.playPad (p, 100); ed.setPage (PG_SAMPLE); } }, nullptr, nullptr, nullptr });
+        hots.push_back ({ r, [this, p] (const juce::MouseEvent& e) { ed.selectPad (p); if (e.mods.isPopupMenu()) ed.openBrowser (p); else { ed.playPad (p, 100); ed.setPage (PG_SAMPLE); } }, nullptr, nullptr, nullptr });
     }
 }
 
@@ -873,6 +927,12 @@ void Screen::mouseDoubleClick (const juce::MouseEvent& e)
 void Screen::filesDropped (const juce::StringArray& files, int, int)
 {
     int n = 0; for (auto& f : files) { if (ed.sel + n >= kPads) break; if (ed.proc.loadFile (juce::File (f), ed.sel + n)) ++n; }
+    if (ed.page == PG_BROWSE)
+    {
+        const auto cat = libCategories()[browseCat]; bool first = true;
+        for (auto& f : files) if (addFileToLibrary (juce::File (f), cat) && first) { ed.proc.loadFile (juce::File (f), ed.sel); first = false; }
+        browseDirty = true; ed.root.repaint(); return;
+    }
     if (ed.page == PG_KIT || ed.page == PG_MIX || ed.page == PG_MASTER) ed.setPage (PG_SAMPLE);
     ed.root.repaint();
 }
@@ -1116,6 +1176,7 @@ void Editor::bindQlinks()
     struct Q { int pad; const char* global; const char* label; };
     static const std::vector<std::vector<Q>> map = {
         { { GAIN }, { LEVEL }, { PAN }, { TUNE }, { DECAY }, { CUTOFF }, { SREV }, { SDLY } },
+        { { GAIN }, { LEVEL }, { PAN }, { TUNE }, { DECAY }, { CUTOFF }, { SREV }, { SDLY } },
         { { GAIN }, { LEVEL }, { PAN }, { SREV }, { SDLY }, { DRIVE }, { -1 }, { -1 } },
         { { START }, { END }, { TUNE }, { FINE }, { ATTACK }, { DECAY }, { RELEASE }, { GAIN } },
         { { VLEVEL }, { VFILTER }, { VSTART }, { VPITCH }, { GAIN }, { LEVEL }, { -1 }, { -1 } },
@@ -1159,6 +1220,23 @@ void Editor::bindQlinks()
 void Editor::setPage (int pg) { page = juce::jlimit (0, kNumPages - 1, pg); bindQlinks(); screen.repaint(); }
 void Editor::selectPad (int p) { sel = juce::jlimit (0, kPads - 1, p); root.repaint(); }
 void Editor::kitChanged() { for (auto* pd : pads) pd->repaint(); root.repaint(); screen.repaint(); }
+void Editor::openBrowser (int p)
+{
+    selectPad (p);
+    if (auto s = proc.getSample (p)) { DrumDesc d; if (pathToDesc (s->path, d)) screen.browseCat = juce::jmax (0, libCategories().indexOf (categoryOf (d))); }
+    screen.browseScroll = 0; screen.browseDirty = true; setPage (PG_BROWSE);
+}
+void Editor::addToLibraryDialog()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Aggiungi suoni alla categoria " + libCategories()[screen.browseCat], juce::File(), proc.formats.getWildcardForAllFormats());
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectMultipleItems,
+                          [this] (const juce::FileChooser& fc)
+                          {
+                              bool first = true;
+                              for (auto& f : fc.getResults()) if (addFileToLibrary (f, libCategories()[screen.browseCat]) && first) { proc.loadFile (f, sel); first = false; }
+                              screen.browseDirty = true; kitChanged();
+                          });
+}
 
 void Editor::saveKit (bool askName)
 {
@@ -1189,7 +1267,8 @@ void Editor::loadDialog (int p)
 void Editor::padMenu (int p)
 {
     juce::PopupMenu m, cm;
-    m.addItem (1, "Carica campione...");
+    m.addItem (7, "Scegli suono dalla banca...");
+    m.addItem (1, "Carica campione da file...");
     m.addItem (2, "Svuota pad");
     m.addItem (4, "Ripristina parametri del pad");
     m.addItem (6, "Rileva BPM del campione");
@@ -1202,6 +1281,7 @@ void Editor::padMenu (int p)
         else if (r == 2) proc.clearPad (p);
         else if (r == 4) { const int c = proc.pad[p].colour.load(); proc.pad[p].reset(); proc.pad[p].colour = c; }
         else if (r == 6) { proc.detectBpm (p); setPage (PG_SAMPLE); }
+        else if (r == 7) openBrowser (p);
         else if (r >= 100) proc.pad[p].colour = r - 100;
         root.repaint();
     });

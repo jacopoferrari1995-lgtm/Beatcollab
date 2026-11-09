@@ -286,17 +286,19 @@ double Processor::swingTick (double t) const
 void Processor::loadPattern (int index)
 {
     const auto& bank = patternBank(); index = juce::jlimit (0, (int) bank.size() - 1, index);
-    std::vector<PatEv> ev;
+    std::vector<PatEv> ev; int len = 32;
+    for (auto& [pd, str] : bank[(size_t) index].lanes) len = juce::jmax (len, (int) std::strlen (str));
+    len = len > 32 ? 64 : 32;
     for (auto& [pd, str] : bank[(size_t) index].lanes)
     {
         const juce::String s (str);
-        for (int i = 0; i < juce::jmin (32, s.length()); ++i)
+        for (int i = 0; i < juce::jmin (len, s.length()); ++i)
         {
             const auto c = s[i]; const int vel = c == 'X' ? 127 : c == 'x' ? 100 : c == 'o' ? 72 : c == '-' ? 48 : 0;
             if (vel > 0 && pd >= 1 && pd <= kPads) ev.push_back ({ i * 24.0, pd - 1, vel });
         }
     }
-    const juce::SpinLock::ScopedLockType l (recLock); events = std::move (ev); patternIndex = index;
+    const juce::SpinLock::ScopedLockType l (recLock); events = std::move (ev); patternIndex = index; patternBars = len / 16;
 }
 void Processor::randomPattern (const juce::String& genre)
 {
@@ -319,8 +321,8 @@ void Processor::varyPattern()
         e.vel = juce::jlimit (30, 127, e.vel + r.nextInt ({ -14, 8 }));
         out.push_back (e);
     }
-    for (int k = 0; k < 2; ++k) if (r.nextFloat() < 0.6f) out.push_back ({ (double) (r.nextInt (32) * 24), 0, 90 });   // cassa in più
-    if (hasHat && r.nextFloat() < 0.5f) { const int st = 24 + r.nextInt (6); for (int q = 0; q < 4; ++q) out.push_back ({ (st + q * 0.5) * 24.0, 3, 70 + q * 10 }); }   // roll
+    for (int k = 0; k < 2; ++k) if (r.nextFloat() < 0.6f) out.push_back ({ (double) (r.nextInt (patternBars.load() * 16) * 24), 0, 90 });   // cassa in più
+    if (hasHat && r.nextFloat() < 0.5f) { const int st = patternBars.load() * 16 - 8 + r.nextInt (6); for (int q = 0; q < 4; ++q) out.push_back ({ (st + q * 0.5) * 24.0, 3, 70 + q * 10 }); }   // roll
     events = std::move (out);
 }
 
@@ -715,7 +717,7 @@ void Processor::getStateInformation (juce::MemoryBlock& dest)
     x.addChildElement (padsToXml().release());
     juce::String ev; { const juce::SpinLock::ScopedLockType l (recLock); for (auto& e : events) ev << juce::String (e.tick, 2) << "," << e.pad << "," << e.vel << ";"; }
     x.createNewChildElement ("PATTERN")->addTextElement (ev);
-    x.setAttribute ("pattern", patternIndex); x.setAttribute ("loopOn", loopOn.load() ? 1 : 0);
+    x.setAttribute ("pattern", patternIndex); x.setAttribute ("bars", patternBars.load()); x.setAttribute ("loopOn", loopOn.load() ? 1 : 0);
     copyXmlToBinary (x, dest);
 }
 void Processor::setStateInformation (const void* data, int size)
@@ -724,7 +726,7 @@ void Processor::setStateInformation (const void* data, int size)
     if (auto* ps = x->getChildByName (apvts.state.getType())) apvts.replaceState (juce::ValueTree::fromXml (*ps));
     if (auto* pads = x->getChildByName ("PADS")) padsFromXml (*pads);
     kitName = x->getStringAttribute ("kit", kitName);
-    patternIndex = x->getIntAttribute ("pattern", 0); loopOn = x->getIntAttribute ("loopOn", 0) != 0;
+    patternIndex = x->getIntAttribute ("pattern", 0); loopOn = x->getIntAttribute ("loopOn", 0) != 0; patternBars = x->getIntAttribute ("bars", 2);
     const auto kf = x->getStringAttribute ("kitFile"); kitFile = kf.isNotEmpty() ? juce::File (kf) : juce::File();
     if (auto* pt = x->getChildByName ("PATTERN"))
     {

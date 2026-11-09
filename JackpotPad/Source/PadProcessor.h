@@ -110,7 +110,8 @@ public:
     void varyPattern();
     double swingTick (double tick) const;      // posizione con swing applicato
     juce::File writeMidi (bool withSwing);
-    int loopTicks() const { return 2 * kBar; }
+    std::atomic<int> patternBars { 2 };
+    int loopTicks() const { return patternBars.load() * kBar; }
 
     // per la UI
     std::atomic<float> padGlow[kPads], padMeter[kPads], padGr[kPads];

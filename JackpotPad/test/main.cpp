@@ -1,4 +1,5 @@
 #include "../Source/PadProcessor.h"
+#include "../Source/Library.h"
 using namespace jp;
 int main()
 {
@@ -32,7 +33,7 @@ int main()
     }
     // banca loop
     for (int i = 0; i < (int) patternBank().size(); ++i)
-        for (auto& [pd, str] : patternBank()[(size_t) i].lanes) if (std::strlen (str) != 32) std::printf ("PATTERN ERRATO %s %s pad %d len %d\n", patternBank()[(size_t) i].genre, patternBank()[(size_t) i].name, pd, (int) std::strlen (str));
+        for (auto& [pd, str] : patternBank()[(size_t) i].lanes) if (std::strlen (str) != 32 && std::strlen (str) != 64) std::printf ("PATTERN ERRATO %s %s pad %d len %d\n", patternBank()[(size_t) i].genre, patternBank()[(size_t) i].name, pd, (int) std::strlen (str));
     p.loadPattern (4); p.loopOn = true; p.varyPattern();
     std::printf ("pattern caricato: %d note\n", (int) p.events.size());
     // ogni kit, ogni pad, con catena attiva
@@ -56,6 +57,8 @@ int main()
         std::printf ("stretch+catena: picco %.2f nan %d\n", sp, (int) sn);
     }
     bool c; std::printf ("bpm: %.1f %.1f\n", Processor::estimateBpm ("loop 92bpm", 5.2, c), Processor::estimateBpm ("break", 4.0, c));
+    for (auto& c : libCategories()) { auto items = libItems (c); std::printf ("%s: %d suoni\n", c.toRawUTF8(), (int) items.size()); if (! items.empty()) loadLibItem (p, items.back(), 5); }
+    for (int i = 0; i < (int) patternBank().size(); ++i) if (juce::String (patternBank()[(size_t) i].name).startsWith ("4 Bar")) { p.loadPattern (i); std::printf ("%s %s: %d battute, %d note\n", patternBank()[(size_t) i].genre, patternBank()[(size_t) i].name, p.patternBars.load(), (int) p.events.size()); }
     juce::MemoryBlock mb; p.getStateInformation (mb); Processor q; q.setStateInformation (mb.getData(), (int) mb.getSize());
     std::printf ("stato ricaricato: eventi %d, nome pad1 %s\n", (int) q.events.size(), q.getSample (0) ? q.getSample (0)->name.toRawUTF8() : "-");
 }
