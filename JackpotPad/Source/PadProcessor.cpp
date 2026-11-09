@@ -167,7 +167,7 @@ void Processor::uiNoteOff (int p)
     fifo.finishedWrite (n1 + n2);
 }
 
-void Processor::startVoice (int p, int vel)
+void Processor::startVoice (int p, int vel, float r0, float r1)
 {
     auto s = getSample (p);
     hits[p] = hits[p].load() + 1; lastVel[p] = vel; colHits |= 1 << p; colVel = juce::jmax (colVel, vel);
@@ -183,7 +183,7 @@ void Processor::startVoice (int p, int vel)
     if (v == nullptr) { int oldest = -1; for (auto& x : voices) if (x.age > oldest) { oldest = x.age; v = &x; } }
     const float vv = velCurve (vel);
     const int n = s->buf.getNumSamples();
-    double a0 = P.get (START) * n, a1 = P.get (END) * n; if (a1 - a0 < 32) a1 = juce::jmin ((double) n, a0 + 32);
+    double a0 = (r0 >= 0 ? r0 : P.get (START)) * n, a1 = (r1 >= 0 ? r1 : P.get (END)) * n; if (a1 - a0 < 32) a1 = juce::jmin ((double) n, a0 + 32);
     const double sa0 = a0;
     a0 += (1.0 - vv) * P.get (VSTART) * 0.2 * (a1 - a0);
     const double semis = P.get (TUNE) + P.get (FINE) / 100.0 + (vv - 0.75) * P.get (VPITCH) * 4.0;
@@ -210,6 +210,7 @@ void Processor::startVoice (int p, int vel)
     v->decCoef = (float) std::exp (-1.0 / (dec * 0.001 * sr / 4.6));
     v->relCoef = (float) std::exp (-1.0 / (P.get (RELEASE) * 0.001 * sr / 4.6));
     v->gate = (P.get (MODE) > 0.5f || loop) ? 1 : -1;
+    if (r0 >= 0) { v->gate = -1; v->loop = false; v->hold = true; }   // ascolto di una fetta dall'editor
     v->cutBase = juce::jlimit (30.0f, 20000.0f, P.get (CUTOFF) * std::pow (2.0f, (vv - 1.0f) * P.get (VFILTER) * 5.0f));
     v->fenvAmt = P.get (FENV); v->fEnv = 1.0f; v->fEnvCoef = (float) std::exp (-1.0 / (P.get (FDECAY) * 0.001 * sr / 4.6));
     v->ftype = juce::roundToInt (P.get (FTYPE)); v->fCount = 0;
@@ -353,8 +354,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     const double tps = bpm / 60.0 * PPQ / sr;
     const double t0 = hostPlay ? ppq * PPQ : intTick, t1 = t0 + N * tps;
     uiHost = hostPlay; uiRunning = running; uiBpm = bpm;
-    if (! running && wasRunning) for (auto& v : voices) if (v.active && v.loop) v.rel = true;
+    // stop del trasporto: si fermano i campioni lunghi (loop, hold, gate)
+    if (! running && wasRunning) for (auto& v : voices) if (v.active && (v.loop || v.hold || v.gate > 0)) v.rel = true;
     wasRunning = running;
+    if (stopReq.exchange (false)) for (auto& v : voices) if (v.active) v.choking = true;
+    if (audReq.load() != audSeen) { audSeen = audReq.load(); const int ap = audP.load(); if (ap >= 0 && ap < kPads) { for (auto& v : voices) if (v.active && v.pad == ap) v.choking = true; startVoice (ap, 110, audS0.load(), audS1.load()); } }
 
     const int root = rootNote();
     const bool swMidi = par ("swMidi") > 0.5f && par ("swing") > 50.05f && running;
@@ -374,7 +378,9 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     // MIDI da Ableton, con swing in tempo reale sulle note in levare
     for (const auto m : midi)
     {
-        const auto msg = m.getMessage(); if (! msg.isNoteOnOrOff()) continue;
+        const auto msg = m.getMessage();
+        if (msg.isAllNotesOff() || msg.isAllSoundOff()) { for (auto& v : voices) if (v.active) v.choking = true; continue; }
+        if (! msg.isNoteOnOrOff()) continue;
         const int p = msg.getNoteNumber() - root; if (p < 0 || p >= kPads) continue;
         juce::int64 delay = 0;
         heldVel[p] = msg.isNoteOn() ? juce::jmax (1, (int) msg.getVelocity()) : 0;
@@ -625,12 +631,50 @@ float Processor::estimateBpm (const juce::String& name, double sec, bool& confid
     return best;
 }
 
+// tempo dall'audio: autocorrelazione del flusso di energia, con preferenza per durate a battute intere
+float Processor::estimateBpmAudio (const juce::AudioBuffer<float>& b, double sampleRate, double& strength)
+{
+    strength = 0;
+    const int n = b.getNumSamples(); const double sec = n / sampleRate; if (sec < 1.5) return 0;
+    const int hop = juce::jmax (64, (int) (sampleRate / 200.0));   // 200 fotogrammi al secondo
+    const float* d0 = b.getReadPointer (0); const float* d1 = b.getReadPointer (juce::jmin (1, b.getNumChannels() - 1));
+    std::vector<float> fl; float prev = 0;
+    for (int i = 0; i + hop <= n; i += hop) { float e = 0; for (int k = 0; k < hop; ++k) { const float x = 0.5f * (d0[i + k] + d1[i + k]); e += x * x; } e = std::log (1e-6f + e); fl.push_back (juce::jmax (0.0f, e - prev)); prev = e; }
+    const double fps = sampleRate / hop; const int F = (int) fl.size(); if (F < 64) return 0;
+    double mean = 0; for (float f : fl) mean += f; mean /= F; for (auto& f : fl) f = (float) (f - mean);
+    double e0 = 0; for (float f : fl) e0 += f * f; if (e0 <= 0) return 0;
+    float best = 0; double bestS = -1;
+    for (double bpm = 70; bpm <= 180; bpm += 0.5)
+    {
+        const double lag = fps * 60.0 / bpm; double acc = 0;
+        for (int m = 1; m <= 4; ++m)
+        {
+            const double L = lag * m; const int l0 = (int) L; const float fr = (float) (L - l0); double c = 0;
+            for (int i = 0; i + l0 + 1 < F; ++i) c += fl[(size_t) i] * (fl[(size_t) (i + l0)] * (1 - fr) + fl[(size_t) (i + l0 + 1)] * fr);
+            acc += c / e0 / m;
+        }
+        // durata a battute intere: premio forte
+        const double bars = sec * bpm / 240.0, near = std::abs (bars - std::round (bars * 2) / 2);
+        acc *= (near < 0.03 ? 1.35 : 1.0);
+        acc *= 1.0 - 0.15 * std::abs (std::log (bpm / 110.0));   // preferenza leggera per tempi medi
+        if (acc > bestS) { bestS = acc; best = (float) bpm; }
+    }
+    strength = bestS;
+    // se la durata a battute intere da un tempo vicino, aggancialo
+    for (double beats : { 4.0, 8.0, 16.0, 32.0, 64.0 }) { const double bb = beats * 60.0 / sec; if (std::abs (bb - best) < 1.2) { best = (float) bb; break; } }
+    return std::abs (best - std::round (best)) < 0.15f ? std::round (best) : best;
+}
+
 void Processor::detectBpm (int p)
 {
     auto s = getSample (p); if (! s) return;
-    bool conf = false; const float b = estimateBpm (s->name, s->buf.getNumSamples() / s->sr, conf);
+    const double sec = s->buf.getNumSamples() / s->sr;
+    bool conf = false; float b = estimateBpm (s->name, sec, conf);
+    if (! conf && sec >= 1.5) { double st = 0; const float ba = estimateBpmAudio (s->buf, s->sr, st); if (ba > 0 && st > 0.15) { b = ba; conf = true; } else if (b <= 0) b = ba; }
     pad[p].v[SBPM] = b;
-    if (conf && b > 0) { pad[p].v[WARP] = 2; pad[p].v[DECAY] = 4000; }
+    // i campioni lunghi (loop, frasi) vanno a tempo con la DAW e si fermano quando lasci il pad
+    if (b > 0 && sec >= 1.8) { pad[p].v[WARP] = 2; pad[p].v[DECAY] = 4000; pad[p].v[MODE] = 1; }
+    else if (sec >= 1.8) { pad[p].v[MODE] = 1; pad[p].v[DECAY] = 4000; }
 }
 
 bool Processor::loadFile (const juce::File& f, int p)
@@ -795,14 +839,24 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new jp::Proces
 
 namespace jp
 {
-void Processor::chopToPads (int src, const std::vector<float>& pts)
+void Processor::assignSlice (int src, float s0, float s1, int dst, int sliceNo)
+{
+    auto s = getSample (src); if (s == nullptr || dst < 0 || dst >= kPads) return;
+    const int col = pad[src].colour.load(); const float gain = pad[src].get (GAIN), sb = pad[src].get (SBPM), wp = pad[src].get (WARP);
+    pad[dst].reset(); pad[dst].colour = col; pad[dst].v[GAIN] = gain; pad[dst].v[SBPM] = sb; pad[dst].v[WARP] = wp;
+    pad[dst].v[START] = s0; pad[dst].v[END] = s1; pad[dst].v[SLICE] = (float) sliceNo; pad[dst].v[DECAY] = 4000;
+    setSample (dst, s);
+}
+void Processor::chopToPads (int src, const std::vector<float>& pts, int firstPad)
 {
     auto s = getSample (src); if (s == nullptr || pts.size() < 2) return;
-    const int col = pad[src].colour.load(); const float gain = pad[src].get (GAIN);
+    const int start = firstPad < 0 ? src : firstPad;
+    // copia i dati della sorgente prima di sovrascrivere (la sorgente puo essere tra le destinazioni)
+    const int col = pad[src].colour.load(); const float gain = pad[src].get (GAIN), sb = pad[src].get (SBPM), wp = pad[src].get (WARP);
     for (size_t k = 0; k + 1 < pts.size(); ++k)
     {
-        const int p = src + (int) k; if (p >= kPads) break;
-        pad[p].reset(); pad[p].colour = col; pad[p].v[GAIN] = gain;
+        const int p = start + (int) k; if (p >= kPads) break;
+        pad[p].reset(); pad[p].colour = col; pad[p].v[GAIN] = gain; pad[p].v[SBPM] = sb; pad[p].v[WARP] = wp;
         pad[p].v[START] = pts[k]; pad[p].v[END] = pts[k + 1]; pad[p].v[SLICE] = (float) (k + 1); pad[p].v[DECAY] = 4000;
         setSample (p, s);
     }

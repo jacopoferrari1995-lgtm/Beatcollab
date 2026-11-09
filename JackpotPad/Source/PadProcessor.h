@@ -80,7 +80,12 @@ public:
     SamplePtr getSample (int p) const { const juce::SpinLock::ScopedLockType l (sLock); return smp[p]; }
     void setSample (int p, SamplePtr s) { const juce::SpinLock::ScopedLockType l (sLock); smp[p] = std::move (s); }
     bool loadFile (const juce::File&, int p);
-    void chopToPads (int src, const std::vector<float>& points);   // punti normalizzati, inizio e fine inclusi
+    void chopToPads (int src, const std::vector<float>& points, int firstPad = -1);   // punti normalizzati, inizio e fine inclusi
+    void assignSlice (int src, float s0, float s1, int dst, int sliceNo);
+    void audition (int p, float s0, float s1) { audP = p; audS0 = s0; audS1 = s1; audReq = audReq.load() + 1; }
+    void stopAll() { stopReq = true; }
+    static float estimateBpmAudio (const juce::AudioBuffer<float>& b, double sampleRate, double& strength);
+    double hostBpm() const { return curBpm; }
     void clearPad (int p) { setSample (p, nullptr); }
     void detectBpm (int p);
     static float estimateBpm (const juce::String& name, double seconds, bool& confident);
@@ -149,6 +154,7 @@ private:
     SamplePtr smp[kPads];
     mutable juce::SpinLock sLock;
     double sr = 44100, curBpm = 120;
+    std::atomic<int> audP { -1 }, audReq { 0 }; std::atomic<float> audS0 { 0 }, audS1 { 1 }; int audSeen = 0; std::atomic<bool> stopReq { false };
     struct UiEv { int pad, vel; bool on; };
     juce::AbstractFifo fifo { 512 }; UiEv fifoBuf[512];
     std::atomic<int> transportReq { 0 };
@@ -164,7 +170,7 @@ private:
     juce::Reverb reverb;
     juce::Random rng;
     float busEnv = 0;
-    void startVoice (int p, int vel);
+    void startVoice (int p, int vel, float r0 = -1, float r1 = -1);
     void releasePad (int p);
     void render (Voice& v, float* L, float* R, int i);
 

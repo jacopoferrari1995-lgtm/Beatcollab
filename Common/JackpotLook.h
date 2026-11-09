@@ -5,22 +5,23 @@
 
 namespace jlook
 {
-inline juce::Typeface::Ptr face (int which)
+// risorse grafiche condivise: vivono finche c'e almeno un editor aperto (niente oggetti JUCE statici
+// distrutti alla chiusura della DAW, che causavano l'errore all'uscita di Ableton)
+struct Resources
 {
-    static juce::Typeface::Ptr f[5];
-    if (f[which] == nullptr)
+    juce::Typeface::Ptr f[5]; juce::Image grainImg;
+    Resources()
     {
-        switch (which)
-        {
-            case 0: f[0] = juce::Typeface::createSystemTypefaceFor (JackpotFontsData::RajdhaniMedium_ttf, JackpotFontsData::RajdhaniMedium_ttfSize); break;
-            case 1: f[1] = juce::Typeface::createSystemTypefaceFor (JackpotFontsData::RajdhaniSemiBold_ttf, JackpotFontsData::RajdhaniSemiBold_ttfSize); break;
-            case 2: f[2] = juce::Typeface::createSystemTypefaceFor (JackpotFontsData::RajdhaniBold_ttf, JackpotFontsData::RajdhaniBold_ttfSize); break;
-            case 3: f[3] = juce::Typeface::createSystemTypefaceFor (JackpotFontsData::ShareTechMonoRegular_ttf, JackpotFontsData::ShareTechMonoRegular_ttfSize); break;
-            default: f[4] = juce::Typeface::createSystemTypefaceFor (JackpotFontsData::MichromaRegular_ttf, JackpotFontsData::MichromaRegular_ttfSize); break;
-        }
+        f[0] = juce::Typeface::createSystemTypefaceFor (JackpotFontsData::RajdhaniMedium_ttf, JackpotFontsData::RajdhaniMedium_ttfSize);
+        f[1] = juce::Typeface::createSystemTypefaceFor (JackpotFontsData::RajdhaniSemiBold_ttf, JackpotFontsData::RajdhaniSemiBold_ttfSize);
+        f[2] = juce::Typeface::createSystemTypefaceFor (JackpotFontsData::RajdhaniBold_ttf, JackpotFontsData::RajdhaniBold_ttfSize);
+        f[3] = juce::Typeface::createSystemTypefaceFor (JackpotFontsData::ShareTechMonoRegular_ttf, JackpotFontsData::ShareTechMonoRegular_ttfSize);
+        f[4] = juce::Typeface::createSystemTypefaceFor (JackpotFontsData::MichromaRegular_ttf, JackpotFontsData::MichromaRegular_ttfSize);
+        grainImg = juce::Image (juce::Image::ARGB, 256, 256, true); juce::Random rr (42);
+        for (int y = 0; y < 256; ++y) for (int x = 0; x < 256; ++x) { const auto v = (juce::uint8) rr.nextInt (256); grainImg.setPixelAt (x, y, juce::Colour (v, v, v, (juce::uint8) 255)); }
     }
-    return f[which];
-}
+};
+inline juce::Typeface::Ptr face (int which) { return juce::SharedResourcePointer<Resources>()->f[juce::jlimit (0, 4, which)]; }
 // testo dell'interfaccia (Rajdhani): weight 0 medio, 1 semibold, 2 bold
 inline juce::Font ui (float size, int weight = 1) { return juce::Font (juce::FontOptions (face (juce::jlimit (0, 2, weight))).withHeight (size * 1.24f)); }
 // display LCD (Share Tech Mono)
@@ -31,6 +32,7 @@ inline juce::Font logo (float size) { return juce::Font (juce::FontOptions (face
 // LookAndFeel per menu e finestre native
 struct LnF : juce::LookAndFeel_V4
 {
+    juce::SharedResourcePointer<Resources> keepAlive;   // tiene vive le risorse per tutta la vita dell'editor
     LnF()
     {
         setDefaultSansSerifTypeface (face (1));
@@ -57,12 +59,7 @@ inline void softShadow (juce::Graphics& g, juce::Rectangle<float> r, float rad, 
 // grana fine (texture cacheata) per togliere l'effetto "piatto"
 inline void grain (juce::Graphics& g, juce::Rectangle<int> r, float alpha = 0.035f)
 {
-    static juce::Image img;
-    if (img.isNull())
-    {
-        img = juce::Image (juce::Image::ARGB, 256, 256, true); juce::Random rr (42);
-        for (int y = 0; y < 256; ++y) for (int x = 0; x < 256; ++x) { const auto v = (juce::uint8) rr.nextInt (256); img.setPixelAt (x, y, juce::Colour (v, v, v, (juce::uint8) 255)); }
-    }
+    juce::SharedResourcePointer<Resources> rs; const auto& img = rs->grainImg;
     g.saveState(); g.reduceClipRegion (r); g.setOpacity (alpha);
     for (int y = r.getY(); y < r.getBottom(); y += 256) for (int x = r.getX(); x < r.getRight(); x += 256) g.drawImageAt (img, x, y);
     g.restoreState();

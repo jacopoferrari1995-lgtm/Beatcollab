@@ -154,6 +154,38 @@ public:
     Editor& ed;
 };
 
+// editor del campione a tutto schermo: BPM, zoom, chop, assegnazione delle fette ai pad
+class ChopView : public juce::Component
+{
+public:
+    explicit ChopView (Editor& e) : ed (e) {}
+    void open (int pad);
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    bool keyPressed (const juce::KeyPress&) override;
+    Editor& ed; int src = 0; SamplePtr smp; int colour = 0; float gain = 0;
+    float r0 = 0, r1 = 1, v0 = 0, v1 = 1, bpm = 0; int warp = 0;
+    int mode = 0, div = 2, sens = 1; bool snap = true; int firstPad = 0, selSlice = -1, drag = 0, hovSlice = -1;   // drag: 0 nulla, 1+ marker, -1 inizio, -2 fine, -3 panoramica
+    std::vector<float> marks, onsets, pkMin, pkMax; float lastFx = 0, dragOff = 0;
+    std::map<int, int> assigned;   // pad -> fetta
+    struct Hot { juce::Rectangle<float> r; std::function<void (const juce::MouseEvent&)> fn; std::function<void (float)> wheel; };
+    std::vector<Hot> hots;
+    juce::Rectangle<float> wave() const { return { 36, 156, 1168, 270 }; }
+    juce::Rectangle<float> overview() const { return { 36, 436, 1168, 26 }; }
+    float xOf (float fx) const { auto w = wave(); return w.getX() + (fx - v0) / (v1 - v0) * w.getWidth(); }
+    float fxOf (float x) const { auto w = wave(); return v0 + (x - w.getX()) / w.getWidth() * (v1 - v0); }
+    std::vector<float> points() const { std::vector<float> p { r0 }; for (float m : marks) if (m > r0 && m < r1) p.push_back (m); p.push_back (r1); return p; }
+    std::vector<float> grid() const;
+    void rebuild();
+    float snapTo (float fx) const;
+    void close();
+};
+
 class Editor : public juce::AudioProcessorEditor, public juce::DragAndDropContainer, private juce::Timer
 {
 public:
@@ -190,6 +222,8 @@ public:
 
     Root root { *this };
     Screen screen { *this };
+    ChopView chop { *this };
+    void openChop (int pad) { chop.open (pad); }
     PatternView pattern { *this };
     DragMidi drag { *this };
     juce::OwnedArray<PadComp> pads;

@@ -1,8 +1,39 @@
 #include "../Source/PadProcessor.h"
+#include "../Source/PadEditor.h"
 #include "../Source/Library.h"
 using namespace jp;
-int main()
+int main (int argc, char** argv)
 {
+    if (argc > 2 && juce::String (argv[1]) == "snap")
+    {
+        juce::ScopedJuceInitialiser_GUI gui2;
+        // loop sintetico: 4 battute a 92 BPM, nome senza BPM
+        const double sr = 44100, bpm = 92; const int len = (int) (sr * 60.0 / bpm * 16);
+        juce::AudioBuffer<float> b (2, len); b.clear(); juce::Random r (2);
+        for (int beat = 0; beat < 16; ++beat)
+        {
+            const int st = (int) (beat * sr * 60.0 / bpm);
+            for (int i = 0; i < (int) (sr * 0.3) && st + i < len; ++i)
+            {
+                const double t = i / sr; float v;
+                if (beat % 2 == 0) v = (float) (std::sin (2 * 3.14159 * (50 + 100 * std::exp (-t * 30)) * t) * std::exp (-t * 7)) * 0.8f;
+                else v = (r.nextFloat() * 2 - 1) * (float) std::exp (-t * 15) * 0.5f;
+                b.addSample (0, st + i, v); b.addSample (1, st + i, v);
+            }
+            const int st2 = st + (int) (sr * 30.0 / bpm);
+            for (int i = 0; i < (int) (sr * 0.05) && st2 + i < len; ++i) { const float v = (r.nextFloat() * 2 - 1) * (float) std::exp (-i / sr * 60) * 0.2f; b.addSample (0, st2 + i, v); b.addSample (1, st2 + i, v); }
+        }
+        juce::File wf ("/tmp/loop_test.wav"); wf.deleteFile();
+        { juce::WavAudioFormat wav; std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (wf), sr, 2, 16, {}, 0)); w->writeFromAudioSampleBuffer (b, 0, len); }
+        Processor p; p.prepareToPlay (48000, 480);
+        p.loadFile (wf, 0);
+        std::printf ("BPM rilevato %.2f  warp %d  mode %d\n", p.pad[0].get (SBPM), (int) p.pad[0].get (WARP), (int) p.pad[0].get (MODE));
+        Editor ed (p);
+        ed.openChop (0);
+        auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+        juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+        return 0;
+    }
     juce::ScopedJuceInitialiser_GUI gui;
     Processor p; const double sr = 44100; p.prepareToPlay (sr, 512);
     juce::AudioBuffer<float> blk (2, 512); float peak = 0; bool nan = false;
