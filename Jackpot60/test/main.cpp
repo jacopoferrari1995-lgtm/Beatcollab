@@ -5,7 +5,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI gui;
     Processor p; p.syncHost = false; p.prepareToPlay (44100, 512);
     auto set = [&] (const char* id, float v) { auto* pr = p.apvts.getParameter (id); pr->setValueNotifyingHost (pr->convertTo0to1 (v)); };
-    set ("bComp", 0.6f); set ("bTrans", 0.5f); set ("bCrunch", 0.4f); set ("bBoom", 0.7f); set ("bDamp", 9000.0f);
+    j60::Burro::applyPreset (p.apvts, std::getenv ("BP") ? atoi (std::getenv ("BP")) : 1);
     p.pad[1].sendRev = 0.8f; p.pad[2].sendDly = 0.6f; p.pad[2].sendRev = 0.5f;
     // pad loop sincronizzato
     p.setSample (20, p.getSample (15)); p.pad[20].loop = 1; p.pad[20].sync = 1; p.pad[20].bpm = 120; p.pad[20].mode = 1;

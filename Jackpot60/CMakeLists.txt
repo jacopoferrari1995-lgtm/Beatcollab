@@ -16,7 +16,8 @@ juce_add_plugin(Jackpot60
 target_sources(Jackpot60 PRIVATE
   Source/PluginProcessor.cpp
   Source/PluginEditor.cpp
-  Source/KitGen.cpp)
+  Source/KitGen.cpp
+  Source/Burro.cpp)
 
 target_compile_definitions(Jackpot60 PUBLIC
   JUCE_WEB_BROWSER=0
@@ -30,7 +31,7 @@ target_link_libraries(Jackpot60
 
 if(J60_TEST)
   juce_add_console_app(J60Test PRODUCT_NAME "J60Test")
-  target_sources(J60Test PRIVATE test/main.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/KitGen.cpp)
+  target_sources(J60Test PRIVATE test/main.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/KitGen.cpp Source/Burro.cpp)
   target_compile_definitions(J60Test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="Jackpot60")
   target_link_libraries(J60Test PRIVATE juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp)
 endif()

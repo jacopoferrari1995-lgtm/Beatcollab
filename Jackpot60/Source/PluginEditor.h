@@ -95,12 +95,17 @@ public:
     explicit FxRack (Processor&);
     void paint (juce::Graphics&) override;
     void resized() override;
-    juce::Rectangle<int> module (int m) const;
     Processor& proc;
+    struct Lab { juce::Rectangle<int> r; juce::String t; };
     juce::OwnedArray<juce::Slider> knobs;
     juce::OwnedArray<juce::AudioProcessorValueTreeState::SliderAttachment> atts;
-    juce::StringArray labels; juce::Array<int> mods;
-    std::unique_ptr<ParamBox> dTime;
+    juce::OwnedArray<ParamBox> boxes;
+    juce::OwnedArray<HwButton> toggles;
+    juce::Array<Lab> labs;
+    std::unique_ptr<HwButton> close, preset;
+    int presetIdx = 0;
+    juce::Rectangle<int> modRect (int m) const;
+    juce::Slider* mag = nullptr;
 };
 
 class DragMidi : public juce::Component

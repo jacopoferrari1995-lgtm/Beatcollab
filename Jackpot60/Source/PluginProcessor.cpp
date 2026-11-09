@@ -25,14 +25,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "out", 1 }, "Output", NormalisableRange<float> (-24.0f, 6.0f, 0.1f), 0.0f));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bpm", 1 }, "Internal BPM", NormalisableRange<float> (60.0f, 200.0f, 0.1f), 90.0f));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "click", 1 }, "Click", false));
-    // drum bus
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bComp", 1 }, "Bus Comp", 0.0f, 1.0f, 0.0f));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bTrans", 1 }, "Bus Transients", -1.0f, 1.0f, 0.0f));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bCrunch", 1 }, "Bus Crunch", 0.0f, 1.0f, 0.0f));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bBoom", 1 }, "Bus Boom", 0.0f, 1.0f, 0.0f));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bFreq", 1 }, "Boom Freq", NormalisableRange<float> (30.0f, 90.0f, 0.1f), 55.0f));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bDecay", 1 }, "Boom Decay", 0.0f, 1.0f, 0.5f));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bDamp", 1 }, "Bus Damp", NormalisableRange<float> (1500.0f, 20000.0f, 1.0f, 0.3f), 20000.0f));
+    Burro::addParams (l);
     // delay e riverbero (mandate per pad)
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "dTime", 1 }, "Delay Time", kDLY, 3));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "dFb", 1 }, "Delay Feedback", 0.0f, 0.95f, 0.4f));
@@ -77,13 +70,14 @@ void Processor::loadDefaultKit()
     add (31, 3, 60); add (29, 3, 55);
 }
 
-void Processor::prepareToPlay (double sampleRate, int)
+void Processor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     sr = sampleRate;
     for (auto& v : voices) v.active = false;
     dlyBuf.setSize (2, (int) (sr * 4.5)); dlyBuf.clear(); dlyW = 0;
     rsBuf.setSize (2, (int) (sr * 60.0)); rsState = 0;
     reverb.setSampleRate (sr); reverb.reset();
+    burro.prepare (sr, samplesPerBlock);
 }
 
 double Processor::swingTick (int tick, float swing) const
@@ -359,19 +353,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 
     // drum bus, delay, riverbero
     auto P = [this] (const char* id) { return apvts.getRawParameterValue (id)->load(); };
-    const float bComp = P ("bComp"), bTrans = P ("bTrans"), bCrunch = P ("bCrunch"), bBoom = P ("bBoom"), bFreq = P ("bFreq"), bDecay = P ("bDecay"), bDamp = P ("bDamp");
     const float dFb = P ("dFb"), dRet = P ("dRet"), rRet = P ("rRet");
     const int dlyLen = dlyBuf.getNumSamples();
     const double dlyT = juce::jlimit (16.0, (double) dlyLen - 4.0, kDlyBeats[juce::jlimit (0, 6, (int) P ("dTime"))] * 60.0 / bpm * sr);
     const float dlyA = (float) std::exp (-juce::MathConstants<double>::twoPi * (800.0 * std::pow (10.0, P ("dTone") * 1.3)) / sr);
     { juce::Reverb::Parameters rp; rp.roomSize = 0.3f + 0.68f * P ("rSize"); rp.damping = P ("rDamp"); rp.wetLevel = 1.0f; rp.dryLevel = 0.0f; rp.width = 1.0f; reverb.setParameters (rp); }
-    const float fA = (float) std::exp (-1.0 / (0.0008 * sr)), fR = (float) std::exp (-1.0 / (0.02 * sr)), sA = (float) std::exp (-1.0 / (0.03 * sr)), sR = (float) std::exp (-1.0 / (0.12 * sr));
-    const float cA = (float) std::exp (-1.0 / (0.002 * sr)), cR = (float) std::exp (-1.0 / (0.12 * sr));
-    const float thrDb = -24.0f * bComp, makeup = juce::Decibels::decibelsToGain (bComp * 9.0f);
-    const float boomQ = 4.0f + bDecay * 46.0f, boomG = (float) std::tan (juce::MathConstants<double>::pi * bFreq / sr), boomK = 1.0f / boomQ;
-    const float boomLpA = (float) std::exp (-juce::MathConstants<double>::twoPi * 160.0 / sr);
-    const float crA = (float) std::exp (-juce::MathConstants<double>::twoPi * 2500.0 / sr);
-    const float dmA = bDamp < 19000.0f ? (float) std::exp (-juce::MathConstants<double>::twoPi * bDamp / sr) : 0.0f;
     if (revL.size() < (size_t) N) { revL.resize ((size_t) N); revR.resize ((size_t) N); }
 
     float* oL = buffer.getWritePointer (0); float* oR = buffer.getWritePointer (1);
@@ -406,42 +392,16 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     for (int i = 0; i < N; ++i)
     {
         float l = oL[i] + revL[(size_t) i] * rRet * 0.7f, r = oR[i] + revR[(size_t) i] * rRet * 0.7f;
-        // --- drum bus ---
-        const float x = 0.5f * (std::abs (l) + std::abs (r));
-        if (bTrans != 0.0f)
-        {
-            busEnvF = x > busEnvF ? fA * busEnvF + (1 - fA) * x : fR * busEnvF + (1 - fR) * x;
-            busEnvS = x > busEnvS ? sA * busEnvS + (1 - sA) * x : sR * busEnvS + (1 - sR) * x;
-            const float g = juce::jlimit (0.25f, 4.0f, std::pow ((busEnvF + 1e-5f) / (busEnvS + 1e-5f), bTrans * 1.3f));
-            l *= g; r *= g;
-        }
-        if (bCrunch > 0.0f)
-        {
-            crunchXL = (1 - crA) * l + crA * crunchXL; crunchXR = (1 - crA) * r + crA * crunchXR;
-            const float hl = l - crunchXL, hr = r - crunchXR, k = 1.0f + bCrunch * 14.0f;
-            l += bCrunch * (std::tanh (hl * k) * 0.6f - hl * 0.3f); r += bCrunch * (std::tanh (hr * k) * 0.6f - hr * 0.3f);
-        }
-        if (bBoom > 0.0f)
-        {
-            boomLp = (1 - boomLpA) * (0.5f * (l + r)) + boomLpA * boomLp;
-            const float v3 = boomLp - boomIc2, v1 = (boomIc1 + boomG * v3) / (1 + boomG * (boomG + boomK)), v2 = boomIc2 + boomG * v1;
-            boomIc1 = 2 * v1 - boomIc1; boomIc2 = 2 * v2 - boomIc2;
-            const float y = std::tanh (v1 * boomK * (2.0f + bDecay * 6.0f)) * bBoom * 1.4f;
-            l += y; r += y;
-        }
-        if (bComp > 0.0f)
-        {
-            const float pk = juce::jmax (std::abs (l), std::abs (r));
-            busComp = pk > busComp ? cA * busComp + (1 - cA) * pk : cR * busComp + (1 - cR) * pk;
-            const float lev = juce::Decibels::gainToDecibels (busComp + 1e-6f);
-            const float gr = lev > thrDb ? (lev - thrDb) * (1.0f - 1.0f / 4.0f) : 0.0f;
-            const float g = juce::Decibels::decibelsToGain (-gr) * makeup; l *= g; r *= g;
-        }
-        if (dmA > 0) { dampZL = (1 - dmA) * l + dmA * dampZL; dampZR = (1 - dmA) * r + dmA * dampZR; l = dampZL; r = dampZR; }
         // --- carattere vintage ---
         if (vRate[vin] > 0) { vPhase += vRate[vin] / sr; if (vPhase >= 1.0) { vPhase -= 1.0; vHoldL = l; vHoldR = r; } l = vHoldL; r = vHoldR; }
         if (q > 0) { l = std::round (l * q) / q; r = std::round (r * q) / q; }
         if (charA > 0) { charZL = (1 - charA) * l + charA * charZL; charZR = (1 - charA) * r + charA * charZR; l = charZL; r = charZR; }
+        oL[i] = l; oR[i] = r;
+    }
+    burro.process (oL, oR, N, apvts);
+    for (int i = 0; i < N; ++i)
+    {
+        float l = oL[i], r = oR[i];
         if (d > 0.01f) { l = std::tanh (l * (1 + d)) / dn; r = std::tanh (r * (1 + d)) / dn; }
         toneZL = (1 - toneA) * l + toneA * toneZL; toneZR = (1 - toneA) * r + toneA * toneZR;
         l = toneZL; r = toneZR;

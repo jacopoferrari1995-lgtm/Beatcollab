@@ -1,6 +1,7 @@
 #pragma once
 #include "Shared.h"
 #include "KitGen.h"
+#include "Burro.h"
 
 namespace j60
 {
@@ -85,6 +86,7 @@ public:
     float sendDL = 0, sendDR = 0, sendRL = 0, sendRR = 0;
     std::vector<float> revL, revR;
     void toggleResample();
+    Burro burro;
     SamplePtr takeResample();
     double getSampleRateNow() const { return sr; }
 
@@ -108,8 +110,6 @@ private:
     // effetti
     juce::AudioBuffer<float> dlyBuf; int dlyW = 0; float dlyLpL = 0, dlyLpR = 0;
     juce::Reverb reverb;
-    float busEnvF = 0, busEnvS = 0, busComp = 0;
-    float boomIc1 = 0, boomIc2 = 0, boomLp = 0, crunchHpL = 0, crunchHpR = 0, crunchXL = 0, crunchXR = 0, dampZL = 0, dampZR = 0;
 
     struct Trig { int offset; int pad; int vel; bool on; int gate = 0; };
     std::vector<Trig> trigs;

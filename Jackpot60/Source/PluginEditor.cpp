@@ -436,77 +436,180 @@ void GridComp::mouseDrag (const juce::MouseEvent& e)
 }
 
 // ======================= FX rack =======================
+namespace
+{
+    struct Ctl { const char* id; const char* lab; int kind; };   // kind 0 knob, 1 scelta, 2 interruttore
+    struct ModDef { const char* name; const char* on; const char* type; Ctl big; std::vector<Ctl> small; juce::uint32 accent; };
+    const std::vector<ModDef>& mods()
+    {
+        static const std::vector<ModDef> M = {
+            { "BOOM / NOISE", "u_bOn", nullptr, { "u_boom", "BOOM", 0 }, { { "u_bTone", "FREQ", 0 }, { "u_acid", "ACID", 2 }, { "u_noise", "NOISE", 0 }, { "u_nType", "TIPO", 1 } }, 0xffd4602c },
+            { "SHIFT", "u_shOn", nullptr, { "u_shAmt", "MIX", 0 }, { { "u_shPitch", "PITCH", 0 }, { "u_shTgt", "TARGET", 0 }, { "u_shFoc", "FOCUS", 1 } }, 0xffe8a93a },
+            { "COMPRESS", "u_cOn", "u_cType", { "u_cAmt", "AMOUNT", 0 }, { { "u_cBands", "BANDE", 0 } }, 0xffc43c2b },
+            { "SATURATE", "u_sOn", "u_sType", { "u_sAmt", "AMOUNT", 0 }, { { "u_sStyle", "STILE", 0 }, { "u_sTgt", "TARGET", 0 }, { "u_sFoc", "FOCUS", 1 } }, 0xffffb347 },
+            { "SPACE", "u_spOn", "u_spType", { "u_spAmt", "AMOUNT", 0 }, { { "u_spDecay", "DECAY", 0 }, { "u_spPre", "PRE", 0 }, { "u_spDuck", "DUCK", 0 }, { "u_spWidth", "WIDTH", 0 } }, 0xff6f9a4a },
+            { "CLIP", "u_mOn", nullptr, { "u_mAmt", "DRIVE", 0 }, { { "u_mStages", "STADI", 1 }, { "u_mTone", "TONO", 0 }, { "u_mTgt", "TARGET", 0 }, { "u_mFoc", "FOCUS", 1 } }, 0xffb73a2c } };
+        return M;
+    }
+    juce::String fmtFor (const juce::String& id, double v)
+    {
+        if (id == "u_bTone") return juce::String (juce::roundToInt (v)) + " Hz";
+        if (id == "u_shPitch") return (v > 0 ? "+" : "") + juce::String (v, 1) + " st";
+        if (id == "u_spPre") return juce::String (juce::roundToInt (v)) + " ms";
+        if (id == "u_shTgt" || id == "u_sTgt" || id == "u_mTgt")
+            return std::abs (v) < 0.03 ? juce::String ("TUTTO") : (v > 0 ? "TRANS " : "SUST ") + juce::String (juce::roundToInt (std::abs (v) * 100));
+        if (id == "u_cAmt") return std::abs (v) < 0.01 ? juce::String ("0") : (v > 0 ? juce::String::fromUTF8 ("\xe2\x86\x93 ") : juce::String::fromUTF8 ("\xe2\x86\x91 ")) + juce::String (juce::roundToInt (std::abs (v) * 100));
+        if (id == "u_tone" || id == "u_att" || id == "u_sus" || id == "u_mTone") return std::abs (v) < 0.01 ? juce::String ("0") : (v > 0 ? "+" : "") + juce::String (juce::roundToInt (v * 100));
+        if (id == "dFb" || id == "dTone" || id == "dRet" || id == "rSize" || id == "rDamp" || id == "rRet" || id.startsWith ("u_")) return juce::String (juce::roundToInt (v * 100)) + "%";
+        return juce::String (v, 2);
+    }
+}
+
 FxRack::FxRack (Processor& p) : proc (p)
 {
-    struct K { const char* id; const char* lab; int mod; };
-    const K ks[] = { { "bComp", "COMP", 0 }, { "bTrans", "TRANSIENT", 0 }, { "bCrunch", "CRUNCH", 0 }, { "bBoom", "BOOM", 0 }, { "bFreq", "FREQ", 0 }, { "bDecay", "DECAY", 0 }, { "bDamp", "DAMP", 0 },
-                     { "dFb", "FEEDBACK", 1 }, { "dTone", "TONE", 1 }, { "dRet", "RETURN", 1 },
-                     { "rSize", "SIZE", 2 }, { "rDamp", "DAMP", 2 }, { "rRet", "RETURN", 2 } };
-    for (auto& k : ks)
+    auto mkKnob = [this] (const char* id, int box)
     {
         auto* s = knobs.add (new juce::Slider());
-        s->setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag); s->setTextBoxStyle (juce::Slider::TextBoxBelow, false, 58, 15);
+        s->setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag); s->setTextBoxStyle (juce::Slider::TextBoxBelow, false, box, 15);
         s->setRotaryParameters (juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
         s->setColour (juce::Slider::textBoxBackgroundColourId, C::lcdBg2); s->setColour (juce::Slider::textBoxTextColourId, C::amber);
         s->setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-        addAndMakeVisible (s); atts.add (new juce::AudioProcessorValueTreeState::SliderAttachment (proc.apvts, k.id, *s));
-        labels.add (k.lab); mods.add (k.mod);
+        addAndMakeVisible (s); atts.add (new juce::AudioProcessorValueTreeState::SliderAttachment (proc.apvts, id, *s));
+        const juce::String sid (id); s->textFromValueFunction = [sid] (double v) { return fmtFor (sid, v); }; s->updateText();
+        s->setName (id); return s;
+    };
+    auto mkToggle = [this] (const char* id, const char* lab, juce::Colour led)
+    {
+        auto* b = toggles.add (new HwButton (lab, led)); addAndMakeVisible (b);
+        b->isLit = [this, id] { return proc.apvts.getRawParameterValue (id)->load() > 0.5f; };
+        b->onClick = [this, id] { auto* pr = proc.apvts.getParameter (id); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); };
+        b->setName (id); return b;
+    };
+    for (const auto& m : mods())
+    {
+        mkToggle (m.on, "ON", C::green);
+        if (m.type) { auto* bx = boxes.add (new ParamBox (proc.apvts.getParameter (m.type), "TIPO")); bx->setName (m.type); addAndMakeVisible (bx); }
+        mkKnob (m.big.id, 70);
+        for (auto& c : m.small)
+        {
+            if (c.kind == 0) mkKnob (c.id, 62);
+            else if (c.kind == 1) { auto* bx = boxes.add (new ParamBox (proc.apvts.getParameter (c.id), c.lab)); bx->setName (c.id); addAndMakeVisible (bx); }
+            else mkToggle (c.id, c.lab, C::red);
+        }
     }
-    knobs[1]->textFromValueFunction = [] (double v) { return std::abs (v) < 0.01 ? juce::String ("0") : (v > 0 ? "+" : "") + juce::String (juce::roundToInt (v * 100)); };
-    knobs[4]->textFromValueFunction = [] (double v) { return juce::String (v, 1) + " Hz"; };
-    knobs[6]->textFromValueFunction = [] (double v) { return v >= 19000 ? juce::String ("OFF") : juce::String (v / 1000.0, 1) + "k"; };
-    for (int i : { 0, 2, 3, 5, 7, 8, 9, 10, 11, 12 }) knobs[i]->textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v * 100)) + "%"; };
-    for (auto* k : knobs) k->updateText();
-    dTime = std::make_unique<ParamBox> (proc.apvts.getParameter ("dTime"), "TIME"); addAndMakeVisible (*dTime);
+    for (auto id : { "u_tone", "u_air", "u_att", "u_sus" }) mkKnob (id, 56);
+    mkToggle ("u_clip", "CLIP", C::red);
+    { auto* bx = boxes.add (new ParamBox (proc.apvts.getParameter ("dTime"), "TIME")); bx->setName ("dTime"); addAndMakeVisible (bx); }
+    for (auto id : { "dFb", "dTone", "dRet", "rSize", "rDamp", "rRet" }) mkKnob (id, 56);
+    mag = mkKnob ("u_mag", 52);
+    close = std::make_unique<HwButton> ("CHIUDI"); close->onClick = [this] { setVisible (false); }; addAndMakeVisible (*close);
+    preset = std::make_unique<HwButton> ("PRESET BUS", C::amber);
+    preset->onClick = [this]
+    {
+        juce::PopupMenu menu; const auto& P = burroPresets();
+        for (int i = 0; i < (int) P.size(); ++i) menu.addItem (i + 1, P[(size_t) i].name, true, i == presetIdx);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (preset.get()), [this] (int r) { if (r > 0) { presetIdx = r - 1; Burro::applyPreset (proc.apvts, presetIdx); repaint(); } });
+    };
+    addAndMakeVisible (*preset);
 }
-juce::Rectangle<int> FxRack::module (int m) const
+
+juce::Rectangle<int> FxRack::modRect (int m) const { return { 8 + (m % 3) * 244, 62 + (m / 3) * 198, 238, 192 }; }
+
+static juce::Component* findNamed (juce::Component& parent, const juce::String& n)
 {
-    auto b = getLocalBounds().reduced (10, 10);
-    const int w0 = 360, w1 = 176;
-    if (m == 0) return b.removeFromLeft (w0);
-    b.removeFromLeft (w0 + 8);
-    if (m == 1) return b.removeFromLeft (w1);
-    b.removeFromLeft (w1 + 8);
-    return b;
+    for (auto* c : parent.getChildren()) if (c->getName() == n) return c;
+    return nullptr;
 }
+
+void FxRack::resized()
+{
+    labs.clear();
+    auto put = [this] (const char* id, juce::Rectangle<int> r, const char* lab)
+    {
+        if (auto* c = findNamed (*this, id))
+        {
+            const bool isKnob = dynamic_cast<juce::Slider*> (c) != nullptr;
+            c->setBounds (r);
+            if (isKnob && lab) labs.add ({ r.withHeight (12).translated (0, -13), lab });
+        }
+    };
+    for (int m = 0; m < (int) mods().size(); ++m)
+    {
+        const auto& d = mods()[(size_t) m]; auto r = modRect (m);
+        put (d.on, { r.getRight() - 52, r.getY() + 6, 44, 20 }, nullptr);
+        put (d.big.id, { r.getX() + 8, r.getY() + 46, 84, 96 }, d.big.lab);
+        if (d.type) put (d.type, { r.getX() + 12, r.getY() + 144, 76, 42 }, nullptr);
+        for (int k = 0; k < (int) d.small.size(); ++k)
+        {
+            const int cx = r.getX() + 98 + (k % 2) * 70, cy = r.getY() + 44 + (k / 2) * 80;
+            const auto& c = d.small[(size_t) k];
+            if (c.kind == 0) put (c.id, { cx, cy, 66, 66 }, c.lab);
+            else if (c.kind == 1) put (c.id, { cx + 3, cy + 8, 60, 44 }, nullptr);
+            else put (c.id, { cx + 3, cy + 18, 60, 24 }, nullptr);
+        }
+    }
+    // riga master
+    const int y = 470;
+    const char* ml[] = { "TONE", "AIR", "ATTACK", "SUSTAIN" };
+    const char* mi[] = { "u_tone", "u_air", "u_att", "u_sus" };
+    for (int i = 0; i < 4; ++i) put (mi[i], { 16 + i * 66, y + 34, 60, 72 }, ml[i]);
+    put ("u_clip", { 284, y + 52, 64, 26 }, nullptr);
+    put ("dTime", { 372, y + 36, 58, 44 }, nullptr);
+    put ("dFb", { 434, y + 34, 60, 72 }, "FEEDBACK"); put ("dTone", { 496, y + 34, 60, 72 }, "TONE"); put ("dRet", { 558, y + 34, 60, 72 }, "RETURN");
+    put ("rSize", { 628, y + 22, 54, 56 }, "SIZE"); put ("rDamp", { 684, y + 22, 54, 56 }, "DAMP"); put ("rRet", { 658, y + 92, 54, 56 }, "RETURN");
+    mag->setBounds (getWidth() - 214, 4, 54, 54);
+    preset->setBounds (getWidth() - 330, 16, 108, 26);
+    close->setBounds (getWidth() - 88, 16, 78, 26);
+}
+
 void FxRack::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
-    g.setColour (C::darkPanel2); g.fillRoundedRectangle (b, 10);
-    const char* names[] = { "DRUM BUS", "DELAY  \xc2\xb7  MANDATA", "REVERB  \xc2\xb7  MANDATA" };
-    const juce::Colour accents[] = { C::orange, C::amber, juce::Colour (0xffe8a93a) };
-    for (int m = 0; m < 3; ++m)
+    g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (b.translated (0, 3), 12);
+    juce::ColourGradient bg (juce::Colour (0xff3a322a), 0, 0, juce::Colour (0xff221d18), 0, b.getBottom(), false);
+    g.setGradientFill (bg); g.fillRoundedRectangle (b, 12);
+    g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawRoundedRectangle (b.reduced (0.5f), 12, 1.0f);
+    // titolo
+    g.setColour (C::orange); g.fillRoundedRectangle (14, 18, 6, 22, 3);
+    g.setFont (fnt (22.0f, true)); g.setColour (C::chassisHi); g.drawText ("BURRO BUS", 28, 8, 200, 40, juce::Justification::centredLeft);
+    g.setFont (fnt (10.5f, false)); g.setColour (C::chassisHi.withAlpha (0.45f));
+    g.drawText (juce::String::fromUTF8 ("6 MODULI \xc2\xb7 TARGET \xc2\xb7 FOCUS"), 154, 8, 240, 40, juce::Justification::centredLeft);
+    g.setFont (fnt (9.5f, true)); g.setColour (C::chassisHi.withAlpha (0.6f)); g.drawText ("MAGNITUDE", getWidth() - 160, 4, 70, 54, juce::Justification::centredLeft);
+    // moduli
+    const juce::String nums[] = { "1", "2", "3", "4", "5", "6" };
+    for (int m = 0; m < (int) mods().size(); ++m)
     {
-        auto r = module (m).toFloat();
-        juce::ColourGradient cg (C::darkPanel, r.getX(), r.getY(), C::darkPanel2.darker (0.2f), r.getX(), r.getBottom(), false);
-        g.setGradientFill (cg); g.fillRoundedRectangle (r, 7);
-        g.setColour (juce::Colours::white.withAlpha (0.05f)); g.drawRoundedRectangle (r, 7, 1.0f);
-        g.setColour (accents[m]); g.fillRoundedRectangle (r.getX() + 10, r.getY() + 12, 4, 14, 2);
-        g.setFont (fnt (12.0f, true)); g.setColour (C::chassisHi); g.drawText (juce::String::fromUTF8 (names[m]), r.toNearestInt().withTrimmedLeft (20).removeFromTop (38), juce::Justification::centredLeft);
+        const auto& d = mods()[(size_t) m]; auto r = modRect (m).toFloat();
+        const bool on = proc.apvts.getRawParameterValue (d.on)->load() > 0.5f;
+        juce::ColourGradient cg (C::darkPanel.brighter (0.05f), r.getX(), r.getY(), C::darkPanel2.darker (0.25f), r.getX(), r.getBottom(), false);
+        g.setGradientFill (cg); g.fillRoundedRectangle (r, 8);
+        g.setColour (juce::Colours::white.withAlpha (0.05f)); g.drawRoundedRectangle (r, 8, 1.0f);
+        const auto ac = juce::Colour (d.accent);
+        g.setColour (on ? ac : ac.withAlpha (0.25f)); g.fillRoundedRectangle (r.getX(), r.getY(), r.getWidth(), 3, 1.5f);
+        g.setFont (fnt (9.0f, true, true)); g.setColour (C::chassisHi.withAlpha (0.35f)); g.drawText (nums[m], juce::Rectangle<float> (r.getX() + 10, r.getY() + 8, 14, 18), juce::Justification::centredLeft);
+        g.setFont (fnt (13.0f, true)); g.setColour (on ? C::chassisHi : C::chassisHi.withAlpha (0.4f)); g.drawText (d.name, juce::Rectangle<float> (r.getX() + 24, r.getY() + 6, 150, 22), juce::Justification::centredLeft);
+        if (m == 2)
+        {
+            const float gr = juce::jlimit (0.0f, 24.0f, proc.burro.grMeter.load());
+            auto mr = juce::Rectangle<float> (r.getX() + 132, r.getY() + 13, 50, 6);
+            g.setColour (C::lcdBg2); g.fillRoundedRectangle (mr, 3);
+            g.setColour (C::amber); g.fillRoundedRectangle (mr.withLeft (mr.getRight() - mr.getWidth() * gr / 24.0f), 3);
+        }
+        if (! on) { g.setColour (juce::Colours::black.withAlpha (0.3f)); g.fillRoundedRectangle (r.withTrimmedTop (30), 8); }
     }
-    g.setFont (fnt (9.5f, true));
-    for (int i = 0; i < knobs.size(); ++i)
+    // pannelli master, delay, riverbero
+    auto section = [&g] (juce::Rectangle<float> r, const juce::String& t, juce::Colour ac)
     {
-        auto kb = knobs[i]->getBounds();
-        g.setColour (C::chassisHi.withAlpha (0.6f)); g.drawText (labels[i], kb.withY (kb.getY() - 15).withHeight (14), juce::Justification::centred);
-    }
-    auto m0 = module (0);
-    juce::ignoreUnused (m0);
-}
-void FxRack::resized()
-{
-    auto place = [this] (int idx, juce::Rectangle<int> r) { knobs[idx]->setBounds (r); };
-    auto m0 = module (0); const int kw = 56, kh = 78;
-    // drum bus: 4 sopra, 3 sotto
-    for (int i = 0; i < 4; ++i) place (i, { m0.getX() + 8 + i * 87, m0.getY() + 50, 76, kh });
-    for (int i = 0; i < 3; ++i) place (4 + i, { m0.getX() + 51 + i * 87, m0.getY() + 148, 76, kh });
-    auto m1 = module (1);
-    dTime->setBounds (m1.getX() + 16, m1.getY() + 54, 64, 42);
-    place (7, { m1.getX() + 94, m1.getY() + 50, 72, kh });
-    place (8, { m1.getX() + 12, m1.getY() + 148, 72, kh }); place (9, { m1.getX() + 94, m1.getY() + 148, 72, kh });
-    auto m2 = module (2);
-    place (10, { m2.getX() + 10, m2.getY() + 50, 72, kh }); place (11, { m2.getX() + 90, m2.getY() + 50, 72, kh });
-    place (12, { m2.getX() + 50, m2.getY() + 148, 72, kh });
+        juce::ColourGradient cg (C::darkPanel.brighter (0.05f), r.getX(), r.getY(), C::darkPanel2.darker (0.25f), r.getX(), r.getBottom(), false);
+        g.setGradientFill (cg); g.fillRoundedRectangle (r, 8); g.setColour (juce::Colours::white.withAlpha (0.05f)); g.drawRoundedRectangle (r, 8, 1.0f);
+        g.setColour (ac); g.fillRoundedRectangle (r.getX(), r.getY(), r.getWidth(), 3, 1.5f);
+        g.setFont (fnt (12.0f, true)); g.setColour (C::chassisHi); g.drawText (t, r.reduced (10, 6).removeFromTop (18).toNearestInt(), juce::Justification::centredLeft);
+    };
+    section ({ 8, 458, 350, 158 }, "MASTER", C::orange);
+    section ({ 364, 458, 258, 158 }, juce::String::fromUTF8 ("DELAY \xc2\xb7 MANDATA PAD"), C::amber);
+    section ({ 628, 458, 116, 158 }, "REVERB", juce::Colour (0xffe8a93a));
+    g.setFont (fnt (9.0f, true)); g.setColour (C::chassisHi.withAlpha (0.55f));
+    for (auto& l : labs) g.drawText (l.t, l.r, juce::Justification::centred);
 }
 
 // ======================= Drag MIDI =======================
@@ -548,7 +651,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     bResample->onClick = [this] { proc.toggleResample(); const int st = proc.rsState.load();
         setStatus (st == 1 ? "RESAMPLE: PARTE ALLA PROSSIMA BATTUTA" : st == 0 ? "RESAMPLE ANNULLATO" : "RESAMPLE: STOP"); };
     bFx = mk ("FX RACK", C::amber); bFx->isLit = [this] { return fxRack->isVisible(); };
-    bFx->onClick = [this] { const bool show = ! fxRack->isVisible(); fxRack->setVisible (show); grid->setVisible (! show); bPgDn->setVisible (! show); bPgUp->setVisible (! show); };
+    bFx->onClick = [this] { fxRack->setVisible (! fxRack->isVisible()); if (fxRack->isVisible()) fxRack->toFront (false); };
     // trasporto
     bRec = mk ("REC", C::red); bRec->big = true; bRec->isLit = [this] { return proc.recording.load(); }; bRec->onClick = [this] { proc.recording = ! proc.recording; };
     bStop = mk ("STOP"); bStop->big = true; bStop->onClick = [this] { proc.requestStop(); proc.recording = false; };
@@ -668,7 +771,7 @@ void Editor::resized()
     for (int i = 0; i < 7; ++i) buttons[i]->setBounds (20 + i * 93, 386, 87, 32);
     dragMidi->setBounds (20 + 7 * 93, 386, 93, 32);
     grid->setBounds (20, 426, 744, 254);
-    fxRack->setBounds (20, 426, 744, 254);
+    fxRack->setBounds (20, 70, 752, 624);
     bPgDn->setBounds (702, 432, 26, 18); bPgUp->setBounds (732, 432, 26, 18);
     // trasporto
     bRec->setBounds (20, 694, 72, 58); bStop->setBounds (96, 694, 72, 58); bPlay->setBounds (172, 694, 72, 58); bStart->setBounds (248, 694, 96, 58);
@@ -706,6 +809,7 @@ void Editor::timerCallback()
         if (pc->flash > 0.0f) { pc->flash = juce::jmax (0.0f, pc->flash - 0.12f); pc->repaint(); }
     }
     lcd->repaint(); grid->repaint();
+    if (fxRack->isVisible()) { fxRack->repaint (0, 60, 752, 40); for (auto* t : fxRack->toggles) t->repaint(); }
     for (auto* b : buttons) if (b->isLit) b->repaint();
     pbBpm->repaint(); pbTc->repaint(); pbRpt->repaint(); pbVin->repaint();
     repaint (350, 710, 190, 40);
