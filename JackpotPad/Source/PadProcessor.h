@@ -121,11 +121,15 @@ public:
     std::atomic<double> uiTick { 0 }, uiBpm { 120 };
     std::atomic<bool> uiRunning { false }, uiHost { false };
     std::atomic<float> meterL { 0 }, meterR { 0 }, busGr { 0 };
+    // vista transienti: colonne a scorrimento (~3 s) con picco d'uscita e pad colpiti
+    static constexpr int kScope = 480;
+    std::atomic<float> scPk[kScope]; std::atomic<int> scHit[kScope], scVel[kScope]; std::atomic<int> scW { 0 };
     int rootNote() const { return (int) apvts.getRawParameterValue ("root")->load(); }
     float velCurve (int vel) const;
     juce::AudioFormatManager formats;
 
 private:
+    float colPk = 0; int colN = 0, colHits = 0, colVel = 0;
     struct Grain { double start = 0, ph = 0; };
     struct Voice
     {

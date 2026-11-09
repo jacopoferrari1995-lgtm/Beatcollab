@@ -103,4 +103,45 @@ bool savePadToLibrary (Processor& P, int p, const juce::String& category)
     juce::AudioBuffer<float> part (2, b - a); part.copyFrom (0, 0, s->buf, 0, a, b - a); part.copyFrom (1, 0, s->buf, juce::jmin (1, s->buf.getNumChannels() - 1), a, b - a);
     return w->writeFromAudioSampleBuffer (part, 0, b - a);
 }
+
+const char* kRandModes[3] = { "MIX KIT", "LIBRERIA", "SOLO MIEI" };
+
+// Kit casuale con criterio: un kit "base" decide ruoli, colori e catena di ogni pad; le parti melodiche e gli 808
+// restano tutte dello stesso kit base (stessa tonalita); i suoni di batteria vengono pescati per ruolo.
+void randomKit (Processor& P, int mode)
+{
+    juce::Random r;
+    const auto& kits = factoryKits(); const int base = r.nextInt ((int) kits.size());
+    const auto& B = kits[(size_t) base];
+    for (int p = 0; p < kPads; ++p)
+    {
+        auto& pd = P.pad[p]; pd.reset();
+        if (p >= (int) B.pads.size()) { P.setSample (p, nullptr); continue; }
+        const auto& kp = B.pads[(size_t) p];
+        pd.colour = kp.colour; for (auto& [i, v] : kp.p) pd.v[i] = v;
+        const auto cat = categoryOf (kp.d); const bool tonal = cat == "MELODICI" || cat == "808";
+        bool done = false;
+        if (mode == 2 || (mode == 1 && ! tonal))
+        {
+            std::vector<LibItem> pool;
+            for (auto& it : libItems (cat)) if (it.user || mode == 1) pool.push_back (it);
+            if (mode == 1) { std::vector<LibItem> mine; for (auto& it : pool) if (it.user) mine.push_back (it); if (! mine.empty() && r.nextFloat() < 0.5f) pool = mine; }
+            if (! pool.empty()) done = loadLibItem (P, pool[(size_t) r.nextInt ((int) pool.size())], p);
+        }
+        if (! done && ! tonal && mode != 2)
+        {
+            // stesso pad da un altro kit, se ha lo stesso ruolo
+            for (int t = 0; t < 6 && ! done; ++t)
+            {
+                const auto& K2 = kits[(size_t) r.nextInt ((int) kits.size())];
+                if (p < (int) K2.pads.size() && categoryOf (K2.pads[(size_t) p].d) == cat) { P.setSample (p, makeDrum (K2.pads[(size_t) p].d)); done = true; }
+            }
+        }
+        if (! done) P.setSample (p, makeDrum (kp.d));
+        // piccola variazione umana (mai sull'intonazione delle parti tonali)
+        pd.v[LEVEL] = juce::jlimit (0.0f, 1.41f, pd.get (LEVEL) * (0.92f + r.nextFloat() * 0.12f));
+        if (! tonal && r.nextFloat() < 0.5f) pd.v[TUNE] = juce::jlimit (-24.0f, 24.0f, pd.get (TUNE) + (float) (r.nextInt (3) - 1));
+    }
+    P.kitName = juce::String ("Random ") + kRandModes[juce::jlimit (0, 2, mode)] + " / " + B.name; P.kitFile = juce::File();
+}
 }

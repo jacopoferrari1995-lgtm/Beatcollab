@@ -9,7 +9,8 @@ juce::Font bf (float size, bool bold, bool mono)
     if (bold) o = o.withStyle ("Bold");
     return juce::Font (o);
 }
-static const char* kModNames[6] = { "BOOM / NOISE", "SHIFT", "COMPRESS", "SATURATE", "SPACE", "CLIP" };
+static const char* kModNames[7] = { "BOOM / NOISE", "SHIFT", "COMPRESS", "SATURATE", "SPACE", "CLIP", "EXTRA" };
+static const char* kDlyNames[7] = { "1/16", "1/8T", "1/8", "3/16", "1/4", "3/8", "1/2" };
 static juce::String pct (float v) { return juce::String (juce::roundToInt (v * 100)) + "%"; }
 static juce::String bip (float v) { return std::abs (v) < 0.01f ? juce::String ("0") : (v > 0 ? "+" : "") + juce::String (juce::roundToInt (v * 100)); }
 
@@ -187,6 +188,20 @@ Module::Module (Editor& e, int m) : ed (e), mod (m)
             addSmall (P ("u_spDecay"), "DECAY", pct); addSmall (P ("u_spPre"), "PRE", [] (float v) { return juce::String (juce::roundToInt (v)) + " ms"; });
             addSmall (P ("u_spDuck"), "DUCK", pct); addSmall (P ("u_spWidth"), "WIDTH", pct);
             break;
+        case 6:
+        {
+            power = std::make_unique<Switch> (P ("u_xOn"), "", c);
+            type = std::make_unique<Pill> (C ("u_xType"), c);
+            big = std::make_unique<PKnob> (P ("u_xAmt"), "AMOUNT", c, true, pct);
+            auto* tp = P ("u_xType");
+            addSmall (P ("u_xP1"), "TIME", [tp] (float v) { const int t = juce::roundToInt (tp->convertFrom0to1 (tp->getValue()));
+                if (t == 0) return juce::String (kDlyNames[juce::jlimit (0, 6, (int) (v * 6.99f))]);
+                if (t == 1) return juce::String (juce::roundToInt (2.0f + (1.0f - v) * 13.0f)) + " bit";
+                return juce::String (0.1f + v * v * 8.0f, 2) + " Hz"; });
+            addSmall (P ("u_xP2"), "FEEDBACK", pct);
+            target = std::make_unique<Target> (P ("u_xTgt"), c);
+            break;
+        }
         default:
             power = std::make_unique<Switch> (P ("u_mOn"), "", c);
             big = std::make_unique<PKnob> (P ("u_mAmt"), "DRIVE", c, true, pct);
@@ -299,6 +314,55 @@ void Module::drawDisplay (juce::Graphics& g, juce::Rectangle<float> r)
             g.setColour (c.withAlpha (0.25f)); g.fillPath (p); g.setColour (c); g.strokePath (p, juce::PathStrokeType (1.4f));
             break;
         }
+        case 6:
+        {
+            const int t = (int) v ("u_xType"); const float amt = v ("u_xAmt"), p1 = v ("u_xP1"), p2 = v ("u_xP2");
+            if (t == 0)
+            {
+                // eco: impulsi che decadono col feedback, distanziati a tempo
+                static const float bt[] = { 0.25f, 1.0f / 3.0f, 0.5f, 0.75f, 1.0f, 1.5f, 2.0f };
+                const float step = bt[juce::jlimit (0, 6, (int) (p1 * 6.99f))] / 4.0f;
+                g.setColour (BC::phos.withAlpha (0.25f)); g.strokePath (envPath (D.scOut, 1.2f), juce::PathStrokeType (1.0f));
+                float a2 = 1.0f; int k = 0;
+                for (float x = 0; x <= 1.0f && k < 24; x += step, ++k)
+                {
+                    const float h = (k == 0 ? 1.0f : amt * a2) * in.getHeight() * 0.85f; const float xx = in.getX() + x * in.getWidth();
+                    g.setColour ((k == 0 ? BC::text : c).withAlpha (k == 0 ? 0.6f : 0.95f)); g.fillRect (xx, in.getBottom() - h, 3.0f, h);
+                    g.setColour (c.withAlpha (0.25f)); g.fillRect (xx - 2, in.getBottom() - h, 7.0f, h);
+                    if (k > 0) a2 *= p2 * 0.9f + 0.05f;
+                }
+                glow (g, kDlyNames[juce::jlimit (0, 6, (int) (p1 * 6.99f))], in.withHeight (12), c, bf (9.5f, true, true), juce::Justification::centredRight);
+            }
+            else if (t == 1)
+            {
+                const float q = std::pow (2.0f, 2.0f + (1.0f - p1) * 13.0f); const int hold = 1 + (int) (p2 * 18);
+                juce::Path p;
+                for (int i = 0; i <= 120; ++i)
+                {
+                    const int hi = (i / hold) * hold; const float sx = std::sin (hi / 120.0f * 12.566f) * 0.8f;
+                    const float y0 = std::sin (i / 120.0f * 12.566f) * 0.8f, yq = std::round (sx * q) / q, y = y0 + (yq - y0) * amt;
+                    const float x = in.getX() + in.getWidth() * i / 120.0f, yy = in.getCentreY() - y * in.getHeight() * 0.45f;
+                    if (i == 0) p.startNewSubPath (x, yy); else p.lineTo (x, yy);
+                }
+                g.setColour (c.withAlpha (0.3f)); g.strokePath (p, juce::PathStrokeType (4.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (1.4f));
+                glow (g, juce::String (juce::roundToInt (2.0f + (1.0f - p1) * 13.0f)) + " BIT", in.withHeight (12), c, bf (9.5f, true, true), juce::Justification::centredRight);
+            }
+            else
+            {
+                const float ph = (float) (juce::Time::getMillisecondCounterHiRes() * 0.001 * (0.1 + p1 * p1 * 8.0));
+                juce::Path p;
+                for (int i = 0; i <= 80; ++i)
+                {
+                    const float t2 = i / 80.0f, y = std::sin ((t2 * 2.0f + ph) * juce::MathConstants<float>::twoPi) * (0.15f + p2 * 0.7f) * (0.3f + amt * 0.7f);
+                    const float x = in.getX() + in.getWidth() * t2, yy = in.getCentreY() - y * in.getHeight() * 0.45f;
+                    if (i == 0) p.startNewSubPath (x, yy); else p.lineTo (x, yy);
+                }
+                g.setColour (BC::phos.withAlpha (0.25f)); g.strokePath (envPath (D.scOut, 1.2f), juce::PathStrokeType (1.0f));
+                g.setColour (c.withAlpha (0.3f)); g.strokePath (p, juce::PathStrokeType (4.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (1.6f));
+                glow (g, "WOBBLE", in.withHeight (12), c, bf (9.5f, true, true), juce::Justification::centredRight);
+            }
+            break;
+        }
         default:
         {
             const float a = v ("u_mAmt"); const int stg = (int) v ("u_mStages") + 1;
@@ -313,6 +377,12 @@ void Module::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1);
     const auto c = BC::mod[mod]; const bool on = power->param->getValue() > 0.5f;
+    if (mod == 6)
+    {
+        const int t = (int) ed.proc.apvts.getRawParameterValue ("u_xType")->load();
+        smalls[0]->label = t == 0 ? "TIME" : t == 1 ? "BITS" : "RATE";
+        smalls[1]->label = t == 0 ? "FEEDBACK" : t == 1 ? "RATE" : "DEPTH";
+    }
     // ombra e corpo in metallo
     g.setColour (juce::Colours::black.withAlpha (dragging ? 0.7f : 0.5f)); g.fillRoundedRectangle (b.translated (0, dragging ? 8.0f : 4.0f), 12);
     juce::ColourGradient bg (BC::panel1, 0, b.getY(), BC::panel2, 0, b.getBottom(), false); g.setGradientFill (bg); g.fillRoundedRectangle (b, 12);
@@ -332,7 +402,7 @@ void Module::paint (juce::Graphics& g)
     juce::Path arc; arc.addCentredArc (lr.getCentreX(), lr.getY() + 8, 4, 5, 0, -juce::MathConstants<float>::halfPi, lk ? juce::MathConstants<float>::halfPi : 0.3f, true);
     g.strokePath (arc, juce::PathStrokeType (1.5f));
     // maniglia per spostare
-    if (mod >= 1 && mod <= 4) { g.setColour (BC::dim.withAlpha (0.5f)); for (int k = 0; k < 3; ++k) g.fillRoundedRectangle (b.getRight() - 46, b.getY() + 12 + k * 4.0f, 10, 2, 1); }
+    if ((mod >= 1 && mod <= 4) || mod == 6) { g.setColour (BC::dim.withAlpha (0.5f)); for (int k = 0; k < 3; ++k) g.fillRoundedRectangle (b.getRight() - 46, b.getY() + 12 + k * 4.0f, 10, 2, 1); }
     drawDisplay (g, displayRect());
     if (! on) { g.setColour (BC::panel2.withAlpha (0.6f)); g.fillRoundedRectangle (b.withTrimmedTop (38), 12); }
 }
@@ -340,7 +410,7 @@ void Module::paint (juce::Graphics& g)
 void Module::mouseDown (const juce::MouseEvent& e)
 {
     if (lockRect().contains (e.getPosition())) { ed.proc.locked[mod] = ! ed.proc.locked[mod].load(); repaint(); return; }
-    dragging = mod >= 1 && mod <= 4 && e.position.y < 36; dragX = getX();
+    dragging = ((mod >= 1 && mod <= 4) || mod == 6) && e.position.y < 36; dragX = getX();
     if (dragging) toFront (false);
 }
 void Module::mouseDrag (const juce::MouseEvent& e) { if (dragging) setTopLeftPosition (dragX + e.getDistanceFromDragStartX(), getY()); }
@@ -463,11 +533,11 @@ void EqPanel::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelD
 void EqPanel::mouseDoubleClick (const juce::MouseEvent& e) { const int n = nodeAt (e.position); if (n >= 0) { auto* pg = ed.proc.apvts.getParameter (kEqG[n]); pg->setValueNotifyingHost (pg->convertTo0to1 (0)); } }
 
 // ======================= editor =======================
-static juce::Rectangle<int> slotRect (int s) { return { 18 + s * 160, 78, 152, 470 }; }
+static juce::Rectangle<int> slotRect (int s) { return { 18 + s * 158, 78, 150, 470 }; }
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
-    for (int m = 0; m < 6; ++m) addAndMakeVisible (modules.add (new Module (*this, m)));
+    for (int m = 0; m < 7; ++m) addAndMakeVisible (modules.add (new Module (*this, m)));
     eq = std::make_unique<EqPanel> (*this); addAndMakeVisible (*eq);
     auto& A = proc.apvts; const auto mc = BC::amber;
     auto add = [this] (juce::RangedAudioParameter* pr, const char* l, juce::Colour c, bool big, std::function<juce::String (float)> f, bool bp = false) { auto* k = master.add (new PKnob (pr, l, c, big, std::move (f))); k->bipolar = bp; addAndMakeVisible (k); };
@@ -485,29 +555,29 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 
 void Editor::layoutModules()
 {
-    modules[0]->setBounds (slotRect (0)); modules[5]->setBounds (slotRect (5));
-    for (int s = 0; s < 4; ++s) modules[proc.dsp.order[s].load()]->setBounds (slotRect (s + 1));
+    modules[0]->setBounds (slotRect (0)); modules[5]->setBounds (slotRect (6));
+    for (int s = 0; s < 5; ++s) modules[proc.dsp.order[s].load()]->setBounds (slotRect (s + 1));
 }
 void Editor::resized()
 {
     layoutModules();
-    eq->setBounds (18, 560, 952, 244);
-    const int mx = 984;
+    eq->setBounds (18, 560, 1098, 244);
+    const int mx = MX;
     for (int i = 0; i < 4; ++i) master[i]->setBounds (mx + 18 + (i % 2) * 104, 120 + (i / 2) * 98, 96, 94);
     clip->setBounds (mx + 30, 318, 120, 22);
     master[4]->setBounds (mx + 39, 352, 160, 186);
     master[5]->setBounds (mx + 18, 560, 96, 94); master[6]->setBounds (mx + 122, 560, 96, 94);
-    presetRect = { 470, 15, 330, 36 }; prevRect = { 432, 15, 36, 36 }; nextRect = { 802, 15, 36, 36 };
+    presetRect = { 500, 15, 340, 36 }; prevRect = { 462, 15, 36, 36 }; nextRect = { 842, 15, 36, 36 }; randRect = { 896, 15, 120, 36 };
 }
 
 void Editor::moduleDropped (Module& m)
 {
     const int cx = m.getBounds().getCentreX();
-    const int slot = juce::jlimit (1, 4, (int) std::round ((cx - 18 - 76) / 160.0));
+    const int slot = juce::jlimit (1, 5, (int) std::round ((cx - 18 - 75) / 158.0));
     std::vector<int> v; for (auto& o : proc.dsp.order) v.push_back (o.load());
     const auto it = std::find (v.begin(), v.end(), m.mod); if (it != v.end()) v.erase (it);
     v.insert (v.begin() + (slot - 1), m.mod);
-    for (int i = 0; i < 4; ++i) proc.dsp.order[i] = v[(size_t) i];
+    for (int i = 0; i < 5; ++i) proc.dsp.order[i] = v[(size_t) i];
     layoutModules(); repaint();
 }
 
@@ -523,18 +593,25 @@ void Editor::paint (juce::Graphics& g)
     g.setColour (BC::magenta.withAlpha (0.8f)); g.fillRect (0.0f, 62.0f, Wf * 0.45f, 2.0f); g.setColour (BC::phos.withAlpha (0.8f)); g.fillRect (Wf * 0.45f, 62.0f, Wf * 0.55f, 2.0f);
     glow (g, "JACKPOT", { 22, 12, 140, 38 }, BC::text, bf (27.0f, true));
     glow (g, "BUTTER RACK", { 158, 12, 240, 38 }, BC::amber, bf (27.0f, true));
-    g.setFont (bf (9.5f, true, true)); g.setColour (BC::dim); g.drawText ("JB-6  DRUM BUS", juce::Rectangle<float> (22, 44, 200, 14), juce::Justification::centredLeft);
+    g.setFont (bf (9.5f, true, true)); g.setColour (BC::dim); g.drawText ("JB-7  DRUM BUS", juce::Rectangle<float> (22, 44, 200, 14), juce::Justification::centredLeft);
     // preset
     inset (g, presetRect.toFloat(), 8);
     glow (g, proc.getProgramName (proc.preset).toUpperCase(), presetRect.toFloat(), BC::amber, bf (12.5f, true, true), juce::Justification::centred);
+    // randomizzatore
+    {
+        auto rr2 = randRect.toFloat(); g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillRoundedRectangle (rr2.translated (0, 2), 7);
+        juce::ColourGradient rg (juce::Colour (0xff2a2d36), 0, rr2.getY(), juce::Colour (0xff16181d), 0, rr2.getBottom(), false); g.setGradientFill (rg); g.fillRoundedRectangle (rr2, 7);
+        g.setColour (BC::magenta.withAlpha (0.8f)); g.drawRoundedRectangle (rr2, 7, 1.3f);
+        glow (g, "RANDOM", rr2, BC::magenta, bf (12.0f, true), juce::Justification::centred);
+    }
     g.setColour (BC::phos); g.setFont (bf (20.0f, true));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
     // griglia di aerazione
     for (int i = 0; i < 12; ++i) { auto r = juce::Rectangle<float> (Wf - 250 + i * 11.0f, 18, 5, 26); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 2.5f); }
     // frecce della catena
-    for (int s = 0; s < 5; ++s) { const float x = (float) slotRect (s).getRight() + 4; juce::Path ar; ar.addArrow ({ x - 2, 96.0f, x + 6, 96.0f }, 1.5f, 6, 6); g.setColour (BC::phos.withAlpha (0.6f)); g.fillPath (ar); }
+    for (int s = 0; s < 6; ++s) { const float x = (float) slotRect (s).getRight() + 4; juce::Path ar; ar.addArrow ({ x - 2, 96.0f, x + 6, 96.0f }, 1.5f, 6, 6); g.setColour (BC::phos.withAlpha (0.6f)); g.fillPath (ar); }
     // master
-    auto mr = juce::Rectangle<float> (984, 78, 238, 726);
+    auto mr = juce::Rectangle<float> ((float) MX, 78, 238, 726);
     g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillRoundedRectangle (mr.translated (0, 4), 12);
     juce::ColourGradient mg (BC::panel1, 0, mr.getY(), BC::panel2, 0, mr.getBottom(), false); g.setGradientFill (mg); g.fillRoundedRectangle (mr, 12);
     g.setColour (BC::magenta.withAlpha (0.5f)); g.drawRoundedRectangle (mr, 12, 1.2f);
@@ -551,16 +628,17 @@ void Editor::paint (juce::Graphics& g)
             for (int k = 0; k < 24; ++k) { const float t2 = k / 24.0f; g.setColour (t2 <= n ? (t2 > 0.9f ? BC::magenta : t2 > 0.75f ? BC::amber : BC::phos) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (b.getX(), b.getBottom() - (k + 1) * b.getHeight() / 24 + 1, b.getWidth(), b.getHeight() / 24 - 1.5f); }
         }
     };
-    meter ({ 1002, 668, 40, 128 }, proc.inL.load(), proc.inR.load(), "IN");
-    meter ({ 1160, 668, 40, 128 }, proc.outL.load(), proc.outR.load(), "OUT");
+    meter ({ MX + 18.0f, 668, 40, 128 }, proc.inL.load(), proc.inR.load(), "IN");
+    meter ({ MX + 176.0f, 668, 40, 128 }, proc.outL.load(), proc.outR.load(), "OUT");
     g.setColour (BC::dim); g.setFont (bf (9.0f));
-    g.drawFittedText ("lucchetto = blocca il modulo nei preset\ntrascina la testata per riordinare", juce::Rectangle<int> (1050, 680, 104, 90), juce::Justification::centred, 6);
+    g.drawFittedText ("lucchetto = blocca il modulo nei preset\ntrascina la testata per riordinare", juce::Rectangle<int> (MX + 66, 680, 104, 90), juce::Justification::centred, 6);
 }
 
 void Editor::mouseDown (const juce::MouseEvent& e)
 {
     const int n = proc.getNumPrograms();
-    if (prevRect.contains (e.getPosition())) proc.loadPreset ((proc.preset - 1 + n) % n);
+    if (randRect.contains (e.getPosition())) proc.randomize();
+    else if (prevRect.contains (e.getPosition())) proc.loadPreset ((proc.preset - 1 + n) % n);
     else if (nextRect.contains (e.getPosition())) proc.loadPreset ((proc.preset + 1) % n);
     else if (presetRect.contains (e.getPosition()))
     {
@@ -584,6 +662,6 @@ void Editor::timerCallback()
     for (auto* m : modules) m->repaint();
     for (auto* k : master) k->repaint();
     clip->repaint();
-    repaint (984, 660, 238, 140); repaint (presetRect);
+    repaint (MX, 660, 238, 140); repaint (presetRect);
 }
 }

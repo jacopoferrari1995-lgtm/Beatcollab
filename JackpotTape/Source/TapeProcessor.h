@@ -53,6 +53,7 @@ public:
     int presetIndex = 0;
     void loadPreset (int i);
     void applyAge (float a);
+    void generate();   // coreografia generata a regole
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     float fxValue (int fx, const char* p) const;
 
@@ -82,7 +83,7 @@ private:
     // catena del nastro
     juce::dsp::IIR::Filter<float> bumpL, bumpR;
     float lpIcL[2] = {}, lpIcR[2] = {}, lpZL = 0, lpZR = 0, cutoffSm = 20000, dgSm = 1, outSm = 1;
-    float speedAcc = 0; int speedN = 0;
+    float speedAcc = 0; int speedN = 0; float volSm = 1, hissLp = 0, stLp[2] = {};
 
     float rd (double pos, int ch) const;
     void activate (int fx, double bf, double beatAtT, juce::int64 t);

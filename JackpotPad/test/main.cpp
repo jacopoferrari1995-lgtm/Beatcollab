@@ -47,6 +47,19 @@ int main()
         }
         std::printf ("kit %-22s picco %.2f nan %d\n", p.kitName.toRawUTF8(), kp, (int) kn);
     }
+    // kit casuali
+    for (int k = 0; k < 9; ++k)
+    {
+        randomKit (p, k % 3); float kp = 0; bool kn = false; int filled = 0;
+        for (int pd = 0; pd < kPads; ++pd)
+        {
+            if (p.getSample (pd)) ++filled;
+            juce::MidiBuffer m; m.addEvent (juce::MidiMessage::noteOn (1, 36 + pd, (juce::uint8) 110), 0);
+            for (int b = 0; b < 20; ++b) { p.processBlock (blk, m); m.clear(); for (int i = 0; i < 512; ++i) { const float x = blk.getSample (0, i); if (! std::isfinite (x)) kn = true; kp = std::max (kp, std::abs (x)); } }
+        }
+        int hitCols = 0; for (int i = 0; i < Processor::kScope; ++i) if (p.scHit[i].load()) ++hitCols;
+        std::printf ("random %-40s pad %d picco %.2f nan %d colonne-transienti %d\n", p.kitName.toRawUTF8(), filled, kp, (int) kn, hitCols);
+    }
     // stretch: loop a 90 bpm suonato a 120 (interno)
     {
         p.loadFactoryKit (0); p.pad[0].v[SBPM] = 90; p.pad[0].v[WARP] = 2; p.pad[0].v[LOOP] = 1; p.pad[0].v[MODE] = 1;

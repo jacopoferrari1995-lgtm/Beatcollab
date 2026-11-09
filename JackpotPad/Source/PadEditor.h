@@ -99,7 +99,7 @@ public:
     };
     std::vector<Hot> hots;
     std::function<void (const juce::MouseEvent&)> drag;
-    Editor& ed; int kitScroll = 0;
+    Editor& ed; int kitScroll = 0, randMode = 0;
     // chop
     int chopMode = 0, chopDiv = 1; bool chopSnap = true; int dragMark = -1; float lastFx = 0;
     std::vector<float> marks, onsets; const SampleData* chopSmp = nullptr;

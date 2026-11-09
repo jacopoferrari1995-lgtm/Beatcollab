@@ -6,9 +6,9 @@ namespace jt
 {
 namespace K
 {
-    const juce::Colour bg { 0xff07080b }, win { 0xff0e1015 }, p1 { 0xff13161d }, p2 { 0xff181c25 }, p3 { 0xff1e2330 };
-    const juce::Colour hair { 0x0fffffff }, hair2 { 0x1affffff }, ink { 0xffe8eaf0 }, dim { 0xff8b92a5 }, faint { 0xff565d6e };
-    const juce::Colour brand1 { 0xff8b5cf6 }, brand2 { 0xff22d3ee };
+    const juce::Colour bg { 0xff0b0c10 }, win { 0xff121419 }, p1 { 0xff1d2027 }, p2 { 0xff16181e }, p3 { 0xff2a2d36 };
+    const juce::Colour hair { 0x14ffffff }, hair2 { 0x24ffffff }, ink { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
+    const juce::Colour brand1 { 0xffff2e88 }, brand2 { 0xff5ef2ff }, amber { 0xffffb000 }, lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
 }
 juce::Font tf (float size, int weight = 0, bool mono = false);   // weight 0 normale, 1 semi, 2 bold
 
@@ -153,9 +153,9 @@ public:
     Meter meter { proc };
     juce::OwnedArray<PadBtn> pads;
     juce::OwnedArray<Knob> tapeKnobs;
-    std::unique_ptr<Seg> modeSeg, qSeg, barsSeg, resSeg;
+    std::unique_ptr<Seg> modeSeg, qSeg, barsSeg, resSeg, genSeg;
     std::unique_ptr<Toggle> seqTog;
-    std::unique_ptr<TextBtn> pPrev, pNext, pName, bpmPill, clearBtn;
+    std::unique_ptr<TextBtn> pPrev, pNext, pName, bpmPill, clearBtn, styleBtn, genBtn;
 
 private:
     void timerCallback() override;

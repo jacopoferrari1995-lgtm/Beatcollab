@@ -30,6 +30,8 @@ void Burro::addParams (AudioProcessorValueTreeState::ParameterLayout& l)
     F ("u_e2g", "EQ LoMid Gain", -15, 15, 0); F ("u_e2f", "EQ LoMid Freq", 120, 2000, 400); F ("u_e2q", "EQ LoMid Q", 0.3f, 6, 1);
     F ("u_e3g", "EQ HiMid Gain", -15, 15, 0); F ("u_e3f", "EQ HiMid Freq", 800, 10000, 3000); F ("u_e3q", "EQ HiMid Q", 0.3f, 6, 1);
     F ("u_e4g", "EQ High Gain", -15, 15, 0); F ("u_e4f", "EQ High Freq", 3000, 18000, 9000);
+    B ("u_xOn", "Extra On", true); C ("u_xType", "Extra Type", StringArray { "DELAY", "BITCRUSH", "WOBBLE" }, 0);
+    F ("u_xAmt", "Extra Amount", 0, 1, 0); F ("u_xP1", "Extra P1", 0, 1, 0.5f); F ("u_xP2", "Extra P2", 0, 1, 0.4f); F ("u_xTgt", "Extra Target", -1, 1, 0);
     F ("u_tone", "Master Tone", -1, 1, 0); F ("u_air", "Master Air", 0, 1, 0); F ("u_att", "Master Attack", -1, 1, 0); F ("u_sus", "Master Sustain", -1, 1, 0); B ("u_clip", "Master Clip", false);
 }
 
@@ -58,7 +60,21 @@ const std::vector<BurroPreset>& burroPresets()
         { "Loop | Vinile Caldo", { { "u_noise", 0.3f }, { "u_nType", 2 }, { "u_sType", 1 }, { "u_sAmt", 0.4f }, { "u_tone", -0.45f }, { "u_cType", 1 }, { "u_cAmt", 0.3f } } },
         { "Loop | Pompa", { { "u_cType", 2 }, { "u_cAmt", 0.75f }, { "u_sus", 0.3f } } },
         { "FX | Ottava Sopra", { { "u_shAmt", 0.5f }, { "u_shPitch", 12 }, { "u_shTgt", 0.6f }, { "u_spType", 1 }, { "u_spAmt", 0.25f } } },
-        { "FX | Bitcrush Totale", { { "u_sType", 4 }, { "u_sAmt", 0.8f }, { "u_sStyle", 0.9f }, { "u_mAmt", 0.5f }, { "u_mStages", 3 } } } };
+        { "FX | Bitcrush Totale", { { "u_sType", 4 }, { "u_sAmt", 0.8f }, { "u_sStyle", 0.9f }, { "u_mAmt", 0.5f }, { "u_mStages", 3 } } },
+        // u_xType: 0 DELAY, 1 BITCRUSH, 2 WOBBLE  -  u_xP1 delay: 0 1/16, .17 1/8T, .33 1/8, .5 3/16, .67 1/4, .83 3/8, 1 1/2
+        { "Extra | Delay 1/8 Snare", { { "u_xType", 0 }, { "u_xAmt", 0.3f }, { "u_xP1", 0.33f }, { "u_xP2", 0.4f }, { "u_xTgt", 0.6f }, { "u_cType", 0 }, { "u_cAmt", 0.3f } } },
+        { "Extra | Dub Delay 3/16", { { "u_xType", 0 }, { "u_xAmt", 0.35f }, { "u_xP1", 0.5f }, { "u_xP2", 0.6f }, { "u_spType", 3 }, { "u_spAmt", 0.2f }, { "u_tone", -0.25f } } },
+        { "Extra | Delay Lungo 1/4", { { "u_xType", 0 }, { "u_xAmt", 0.25f }, { "u_xP1", 0.67f }, { "u_xP2", 0.45f }, { "u_xTgt", -0.3f }, { "u_cType", 2 }, { "u_cAmt", 0.3f } } },
+        { "Extra | Crush 8bit", { { "u_xType", 1 }, { "u_xAmt", 0.6f }, { "u_xP1", 0.55f }, { "u_xP2", 0.35f }, { "u_cType", 4 }, { "u_cAmt", 0.35f } } },
+        { "Extra | SP Grit", { { "u_xType", 1 }, { "u_xAmt", 0.45f }, { "u_xP1", 0.3f }, { "u_xP2", 0.55f }, { "u_sType", 0 }, { "u_sAmt", 0.3f }, { "u_tone", -0.2f }, { "u_cType", 2 }, { "u_cAmt", 0.35f } } },
+        { "Extra | Digital Rotto", { { "u_xType", 1 }, { "u_xAmt", 0.85f }, { "u_xP1", 0.8f }, { "u_xP2", 0.8f }, { "u_xTgt", 0.5f }, { "u_mAmt", 0.2f } } },
+        { "Extra | Wobble Cassetta", { { "u_xType", 2 }, { "u_xAmt", 0.6f }, { "u_xP1", 0.2f }, { "u_xP2", 0.4f }, { "u_noise", 0.15f }, { "u_nType", 3 }, { "u_sType", 2 }, { "u_sAmt", 0.3f }, { "u_tone", -0.3f } } },
+        { "Extra | Seasick", { { "u_xType", 2 }, { "u_xAmt", 0.85f }, { "u_xP1", 0.35f }, { "u_xP2", 0.8f }, { "u_spType", 1 }, { "u_spAmt", 0.2f } } },
+        { "Extra | Chorus Largo", { { "u_xType", 2 }, { "u_xAmt", 0.45f }, { "u_xP1", 0.55f }, { "u_xP2", 0.25f }, { "u_spWidth", 1 }, { "u_air", 0.2f } } },
+        { "Bus | Lo-fi Wobble", { { "u_xType", 2 }, { "u_xAmt", 0.5f }, { "u_xP1", 0.15f }, { "u_xP2", 0.35f }, { "u_noise", 0.2f }, { "u_nType", 2 }, { "u_cType", 1 }, { "u_cAmt", 0.4f }, { "u_sType", 1 }, { "u_sAmt", 0.35f }, { "u_tone", -0.4f } } },
+        { "Bus | Memphis Crush", { { "u_xType", 1 }, { "u_xAmt", 0.4f }, { "u_xP1", 0.45f }, { "u_xP2", 0.5f }, { "u_cType", 4 }, { "u_cAmt", 0.55f }, { "u_mAmt", 0.35f }, { "u_mStages", 2 }, { "u_boom", 0.3f }, { "u_clip", 1 } } },
+        { "Bus | Rage Wide", { { "u_cType", 5 }, { "u_cAmt", 0.45f }, { "u_sType", 4 }, { "u_sAmt", 0.3f }, { "u_xType", 2 }, { "u_xAmt", 0.3f }, { "u_xP1", 0.6f }, { "u_xP2", 0.2f }, { "u_boom", 0.4f }, { "u_bTone", 48 }, { "u_clip", 1 } } },
+        { "Vox | Slap Delay", { { "u_xType", 0 }, { "u_xAmt", 0.22f }, { "u_xP1", 0.0f }, { "u_xP2", 0.15f }, { "u_cType", 3 }, { "u_cAmt", 0.4f }, { "u_spType", 2 }, { "u_spAmt", 0.15f }, { "u_air", 0.25f } } } };
     return P;
 }
 
@@ -78,6 +94,7 @@ void Burro::prepare (double sampleRate, int maxBlock)
     shBuf.setSize (2, 16384); shBuf.clear(); shW = 0;
     preBuf.setSize (2, (int) (sr * 0.25) + 8); preBuf.clear(); preW = 0;
     verb.setSampleRate (sr); verb.reset(); lastSpType = -1;
+    xBuf.setSize (2, (int) (sr * 2.2)); xBuf.clear(); xW = 0;
 }
 
 static inline float onePole (float x, float& z, float a) { z = (1 - a) * x + a * z; return z; }
@@ -108,9 +125,9 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         band = foc == 1 ? lo : foc == 3 ? x - lph : lph - lo; return x - band;
     };
 
-    for (int step = 0; step < 6; ++step)
+    for (int step = 0; step < 7; ++step)
     {
-        const int mod = step == 0 ? 0 : step == 5 ? 5 : juce::jlimit (1, 4, order[step - 1].load());
+        const int mod = step == 0 ? 0 : step == 6 ? 5 : order[step - 1].load();
         switch (mod)
         {
         case 0:
@@ -323,6 +340,62 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         }
     }
 
+        break;
+        }
+        case 6:
+        {
+        // ---- 7. EXTRA: delay a tempo, bitcrush, wobble ----
+        if (v ("u_xOn") > 0.5f && v ("u_xAmt") > 0.001f)
+        {
+            const int type = (int) v ("u_xType"); const float amt = v ("u_xAmt"), p1 = v ("u_xP1"), p2 = v ("u_xP2"), tgt = v ("u_xTgt");
+            const int BL = xBuf.getNumSamples();
+            if (type != lastXType) { xBuf.clear(); xLp[0] = xLp[1] = 0; lastXType = type; }
+            if (type == 0)
+            {
+                static const double beats[] = { 0.25, 1.0 / 3.0, 0.5, 0.75, 1.0, 1.5, 2.0 };
+                const double dt = juce::jlimit (32.0, BL - 4.0, beats[jlimit (0, 6, (int) (p1 * 6.99f))] * 60.0 / jmax (40.0, bpm.load()) * sr);
+                const float fb = p2 * 0.9f, a = coef (5500, sr);
+                for (int i = 0; i < N; ++i)
+                {
+                    const float w = tgtW (tgt, trW[(size_t) i]);
+                    double rp = xW - dt; if (rp < 0) rp += BL; const int i0 = (int) rp, i1 = (i0 + 1) % BL; const float fr = (float) (rp - i0);
+                    const float yl = xBuf.getSample (0, i0) * (1 - fr) + xBuf.getSample (0, i1) * fr, yr = xBuf.getSample (1, i0) * (1 - fr) + xBuf.getSample (1, i1) * fr;
+                    xLp[0] = (1 - a) * yr + a * xLp[0]; xLp[1] = (1 - a) * yl + a * xLp[1];
+                    xBuf.setSample (0, xW, ch[0][i] * w + std::tanh (xLp[0] * fb)); xBuf.setSample (1, xW, ch[1][i] * w + std::tanh (xLp[1] * fb));
+                    if (++xW >= BL) xW = 0;
+                    ch[0][i] += yl * amt; ch[1][i] += yr * amt;
+                }
+            }
+            else if (type == 1)
+            {
+                const float q = std::pow (2.0f, 2.0f + (1.0f - p1) * 13.0f); const double step = 1.0 - p2 * 0.95;
+                for (int i = 0; i < N; ++i)
+                {
+                    const float w = tgtW (tgt, trW[(size_t) i]) * amt;
+                    xPh += step; if (xPh >= 1.0) { xPh -= 1.0; xHold[0] = ch[0][i]; xHold[1] = ch[1][i]; }
+                    for (int c = 0; c < 2; ++c) { const float y = std::round (xHold[c] * q) / q; ch[c][i] += (y - ch[c][i]) * w; }
+                }
+            }
+            else
+            {
+                const double rate = 0.1 + p1 * p1 * 8.0, depth = (0.0005 + p2 * 0.0075) * sr;
+                for (int i = 0; i < N; ++i)
+                {
+                    const float w = tgtW (tgt, trW[(size_t) i]) * amt;
+                    xLfo += rate / sr; if (xLfo > 1) xLfo -= 1;
+                    if (xr.nextFloat() < 2.0f / (float) sr) xDt = xr.nextFloat() * 2 - 1; xDrift += (xDt - xDrift) * 2.0 / sr;
+                    xBuf.setSample (0, xW, ch[0][i]); xBuf.setSample (1, xW, ch[1][i]);
+                    for (int c = 0; c < 2; ++c)
+                    {
+                        const double d = 4 + depth * (1.0 + std::sin (juce::MathConstants<double>::twoPi * (xLfo + c * 0.08)) * 0.8 + xDrift * 0.2);
+                        double rp = xW - d; if (rp < 0) rp += BL; const int i0 = (int) rp, i1 = (i0 + 1) % BL; const float fr = (float) (rp - i0);
+                        const float y = xBuf.getSample (c, i0) * (1 - fr) + xBuf.getSample (c, i1) * fr;
+                        ch[c][i] += (y - ch[c][i]) * w;
+                    }
+                    if (++xW >= BL) xW = 0;
+                }
+            }
+        }
         break;
         }
         default: break;

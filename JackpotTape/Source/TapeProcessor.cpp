@@ -28,7 +28,11 @@ const PSpec kParams[] = {
     { "stut_pitch", "Pitch", STUT, -12, 12, 0, 0, 4 },    { "stut_gate", "Gate", STUT, 0.2f, 1, 0.9f, 0, 0 },
     { "loop_size", "Zona", LOOP, 0, 5, 4, 1, 0 },         { "loop_xf", "Morbido", LOOP, 0, 1, 0.3f, 0, 0 },
     { "glitch_dens", "Densita", GLITCH, 0, 1, 0.6f, 0, 0 }, { "glitch_chaos", "Caos", GLITCH, 0, 1, 0.5f, 0, 0 }, { "glitch_size", "Grana", GLITCH, 0, 5, 2, 2, 0 },
-    { "gate_rate", "Rate", GATE, 0, 4, 2, 3, 0 },         { "gate_depth", "Prof.", GATE, 0, 1, 1, 0, 0 }, { "gate_duty", "Apertura", GATE, 0.1f, 0.9f, 0.5f, 0, 0 } };
+    { "gate_rate", "Rate", GATE, 0, 4, 2, 3, 0 },         { "gate_depth", "Prof.", GATE, 0, 1, 1, 0, 0 }, { "gate_duty", "Apertura", GATE, 0.1f, 0.9f, 0.5f, 0, 0 },
+    { "stut_decay", "Decay", STUT, 0, 1, 0, 0, 0 },       { "stut_filt", "Filtro", STUT, -1, 1, 0, 0, 1 },
+    { "stop_vol", "Volume", STOP, -18, 6, 0, 0, 6 },      { "start_vol", "Volume", START, -18, 6, 0, 0, 6 },   { "spin_vol", "Volume", SPIN, -18, 6, 0, 0, 6 },
+    { "half_vol", "Volume", HALF, -18, 6, 0, 0, 6 },      { "rev_vol", "Volume", REV, -18, 6, 0, 0, 6 },       { "stut_vol", "Volume", STUT, -18, 6, 0, 0, 6 },
+    { "loop_vol", "Volume", LOOP, -18, 6, 0, 0, 6 },      { "glitch_vol", "Volume", GLITCH, -18, 6, 0, 0, 6 }, { "gate_vol", "Volume", GATE, -18, 6, 0, 0, 6 } };
 const int kNumParams = (int) (sizeof (kParams) / sizeof (kParams[0]));
 
 static const juce::StringArray kModes { "HOLD", "ONE-SHOT" }, kQuant { "OFF", "1/16", "1/4", "BAR" }, kBars { "1", "2", "4", "8" };
@@ -65,6 +69,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "seqOn", 1 }, "Coreografia", false));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "bars", 1 }, "Lunghezza", kBars, 1));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "sync", 1 }, "BPM dall'host", true));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "genStyle", 1 }, "Stile coreografia", StringArray { "TRAP", "DRILL", "BOOM BAP", "LO-FI", "GLITCH", "BUILD-UP" }, 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "genAmt", 1 }, "Intensita coreografia", NormalisableRange<float> (0, 1), 0.5f));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bpm", 1 }, "BPM manuale", NormalisableRange<float> (50, 220, 0.1f), 140));
     for (int i = 0; i < kNumFx; ++i) l.add (std::make_unique<AudioParameterBool> (ParameterID { "pad" + String (i + 1), 1 }, String ("Pad ") + kFx[i].name, false));
     return l;
@@ -134,6 +140,7 @@ void Processor::activate (int fx, double bf, double beatAtT, juce::int64 t)
         X.d[0] = (double) t - (beatAtT - zb) * bf; X.d[1] = z * bf;
     }
     if (fx == GLITCH) { X.d[0] = (double) t; X.d[3] = rNow; }
+    if (fx == STUT) { stLp[0] = stLp[1] = 0; }
 }
 
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -170,6 +177,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     const float revSpeed = fxValue (REV, "speed"), stutSize = fxValue (STUT, "size"), stutRoll = fxValue (STUT, "roll"), stutPitch = fxValue (STUT, "pitch"), stutGate = fxValue (STUT, "gate");
     const float loopXf = fxValue (LOOP, "xf"), gDens = fxValue (GLITCH, "dens"), gChaos = fxValue (GLITCH, "chaos"), gSize = fxValue (GLITCH, "size");
     const float gateRate = fxValue (GATE, "rate"), gateDepth = fxValue (GATE, "depth"), gateDuty = fxValue (GATE, "duty");
+    const float stutDecay = fxValue (STUT, "decay"), stutFilt = fxValue (STUT, "filt");
+    float fxVol[kNumFx]; for (int f = 0; f < kNumFx; ++f) fxVol[f] = juce::Decibels::decibelsToGain (fxValue (f, "vol"));
     const float wow = value ("wow"), flut = value ("flut"), tone = value ("tone"), drive = value ("drive"), hiss = value ("hiss"), drop = value ("drop"), mix = value ("mix");
     const float outG = juce::Decibels::decibelsToGain (value ("out"));
     const double dt = 1.0 / sr;
@@ -195,14 +204,16 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         const float base = 6000.0f * std::pow (20000.0f / 6000.0f, tone);
         const float cutT = juce::jlimit (150.0f, 20000.0f, base * std::pow (juce::jmin (1.0f, sc), 1.6f * (0.3f + tone)));
         cutoffSm += (cutT - cutoffSm) * 0.35f;
-        const float dg = 1.0f + drive * 6.0f + drive * 8.0f * (1.0f - juce::jmin (1.0f, sc));
+        // drive: curva progressiva, fino a ~+30 dB di spinta sul nastro
+        const float dg = 1.0f + drive * drive * 30.0f + drive * 4.0f + drive * 6.0f * (1.0f - juce::jmin (1.0f, sc));
         dgSm += (dg - dgSm) * 0.3f; outSm += (outG - outSm) * 0.3f;
-        auto c = juce::dsp::IIR::Coefficients<float>::makePeakFilter (sr, 85.0f, 0.9f, juce::Decibels::decibelsToGain (drive * 4.0f));
+        auto c = juce::dsp::IIR::Coefficients<float>::makePeakFilter (sr, 85.0f, 0.9f, juce::Decibels::decibelsToGain (drive * 2.5f));
         *bumpL.coefficients = *c; *bumpR.coefficients = *c;
         uiSpeed = s;
     }
     const float lpG = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) cutoffSm, sr * 0.45) / sr), lpK = 1.0f / 0.6f;
-    const float shN = 1.0f / std::tanh (1.6f), postG = 1.0f / std::sqrt (dgSm) * 0.95f;
+    // compensazione di loudness: un segnale a -7.5 dB esce allo stesso livello qualunque sia il drive
+    const float postG = 0.42f / std::tanh (0.42f * dgSm), bias = juce::jmin (0.35f, (dgSm - 1.0f) * 0.012f), biasC = std::tanh (bias);
 
     float pkL = 0, pkR = 0; int mask = 0;
     for (int i = 0; i < N; ++i)
@@ -277,9 +288,21 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 while ((double) t - D[1] >= D[2]) { D[1] += D[2]; F[STUT].k++; D[2] = juce::jmax (bf / 8, stutSize * bf * std::pow (1 - stutRoll * 0.22, (double) F[STUT].k)); }
                 const double w = (double) t - D[1], prog = juce::jmin (1.0, ((double) t - F[STUT].t0) / (2 * bf));
                 const double rate = std::pow (2.0, stutPitch * prog / 12.0) * halfF, p = D[0] + w * rate;
-                const double open = D[2] * stutGate, att = juce::jmin (1.0, w / (0.002 * sr)), rel = w < open - 0.004 * sr ? 1.0 : juce::jmax (0.0, (open - w) / (0.004 * sr));
-                const float env = (float) (att * rel);
+                const double open = D[2] * stutGate, fa = 0.003 * sr, fr2 = 0.006 * sr;
+                const double att = w < fa ? 0.5 - 0.5 * std::cos (juce::MathConstants<double>::pi * w / fa) : 1.0;
+                const double rel = w < open - fr2 ? 1.0 : (w >= open ? 0.0 : 0.5 + 0.5 * std::cos (juce::MathConstants<double>::pi * (w - (open - fr2)) / fr2));
+                const float dec = (float) std::pow (1.0 - stutDecay * 0.18, (double) F[STUT].k);
+                const float env = (float) (att * rel) * dec;
                 l = rd (p, 0) * env; r = rd (p, 1) * env; amp = 1; vv = rate * (env > 0.5f ? 1 : 0.15);
+                if (std::abs (stutFilt) > 0.01f)
+                {
+                    // sweep di filtro lungo le ripetizioni: + chiude il passa basso, - apre il passa alto
+                    const float pr = (float) juce::jmin (1.0, prog * 1.3) * std::abs (stutFilt);
+                    const float fc = stutFilt > 0 ? 18000.0f * std::pow (0.015f, pr) : 30.0f * std::pow (80.0f, pr);
+                    const float a = (float) std::exp (-juce::MathConstants<double>::twoPi * fc / sr);
+                    stLp[0] = (1 - a) * l + a * stLp[0]; stLp[1] = (1 - a) * r + a * stLp[1];
+                    if (stutFilt > 0) { l = stLp[0]; r = stLp[1]; } else { l -= stLp[0]; r -= stLp[1]; }
+                }
             }
             else if (F[GLITCH].on)
             {
@@ -325,11 +348,14 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         // dropout
         if (drop > 0) { if (dropT <= 0 && rng.nextFloat() < dt * drop * 1.2) dropT = (int) ((0.03 + rng.nextFloat() * 0.12) * sr); if (dropT > 0) { --dropT; dropG += (0.15f - dropG) * 0.01f; } else dropG += (1 - dropG) * 0.004f; }
         else dropG = 1;
-        const float hs = hiss * 0.012f * (rng.nextFloat() * 2 - 1), g = amp * dropG * (float) gateG;
-        float oL = (l * g + hs) * mix + inL * (1 - mix), oR = (r * g + hs) * mix + inR * (1 - mix);
-        // nastro: bump, saturazione, passa basso, uscita
+        // volume per effetto (prodotto dei volumi degli effetti attivi, smussato)
+        { float vt = 1.0f; for (int f = 0; f < kNumFx; ++f) if (F[f].on) vt *= fxVol[f]; volSm += (vt - volSm) * 0.002f; }
+        const float g = amp * dropG * (float) gateG * volSm;
+        float oL = l * g * mix + inL * (1 - mix), oR = r * g * mix + inR * (1 - mix);
+        // nastro: bump, saturazione (asimmetrica quando spinta), passa basso, uscita
         oL = bumpL.processSample (oL); oR = bumpR.processSample (oR);
-        oL = std::tanh (1.6f * oL * dgSm) * shN * postG; oR = std::tanh (1.6f * oR * dgSm) * shN * postG;
+        oL = (std::tanh (oL * dgSm + bias) - biasC) * postG; oR = (std::tanh (oR * dgSm + bias) - biasC) * postG;
+        { hissLp = hissLp * 0.6f + (rng.nextFloat() * 2 - 1) * 0.4f; const float hs = hiss * 0.0035f * hissLp; oL += hs; oR += hs * 0.9f; }
         auto svf = [lpG, lpK] (float x, float* ic) { const float v3 = x - ic[1], v1 = (ic[0] + lpG * v3) / (1 + lpG * (lpG + lpK)), v2 = ic[1] + lpG * v1; ic[0] = 2 * v1 - ic[0]; ic[1] = 2 * v2 - ic[1]; return v2; };
         if (cutoffSm < 19500.0f) { oL = svf (oL, lpIcL); oR = svf (oR, lpIcR); }
         oL *= outSm; oR *= outSm;
@@ -380,7 +406,22 @@ static const std::vector<Preset>& presets()
         { "Frena giu", "Stutter", 2, { { STUT, E8 (10, 15) } }, { { "stut_size", 0.25f }, { "stut_roll", 0.2f }, { "stut_pitch", -12 }, { "stut_gate", 0.75f } }, 0 },
         { "Fine frase al contrario", "Reverse", 2, { { REV, E8 (14, 15) } }, {}, 0 },
         { "Otto battute: costruzione", "Arrangiamento", 8, { { GATE, Rg (48, 55, 2) }, { STUT, Rg (56, 61, 2) }, { STOP, Rg (62, 63, 2) }, { HALF, Rg (24, 31, 2) }, { LOOP, Rg (40, 47, 2) } },
-          { { "stut_size", 0.25f }, { "stut_roll", 0.6f }, { "stut_pitch", 4 }, { "loop_size", 2 }, { "stop_len", 1 }, { "stop_curve", -0.4f } }, 0 } };
+          { { "stut_size", 0.25f }, { "stut_roll", 0.6f }, { "stut_pitch", 4 }, { "loop_size", 2 }, { "stop_len", 1 }, { "stop_curve", -0.4f } }, 0 },
+        { "Roll con filtro che apre", "Trap", 2, { { STUT, E8 (12, 15) } }, { { "stut_size", 0.5f }, { "stut_roll", 0.9f }, { "stut_pitch", 7 }, { "stut_gate", 0.85f }, { "stut_filt", -0.7f }, { "stut_vol", -2 } }, 0 },
+        { "Stutter che sfuma", "Stutter", 2, { { STUT, E8 (12, 15) } }, { { "stut_size", 0.25f }, { "stut_roll", 0.2f }, { "stut_decay", 0.7f }, { "stut_filt", 0.6f }, { "stut_gate", 0.8f } }, 0 },
+        { "Stutter 1/32 secco", "Stutter", 1, { { STUT, { 14, 15 } } }, { { "stut_size", 0.125f }, { "stut_gate", 0.6f }, { "stut_pitch", 0 } }, 0 },
+        { "Gate terzinato", "Drill", 2, { { GATE, E8 (4, 7) }, { GATE, E8 (12, 15) } }, { { "gate_rate", 1.0f / 6 }, { "gate_depth", 0.85f }, { "gate_duty", 0.45f } }, 0 },
+        { "Slide 808", "Drill", 2, { { HALF, E8 (6, 7) }, { HALF, E8 (14, 15) } }, { { "half_speed", 0.7f }, { "half_glide", 150 } }, 0 },
+        { "Cassetta stanca", "Lo-fi", 2, { { HALF, E8 (14, 15) } }, { { "half_speed", 0.82f }, { "half_glide", 320 }, { "half_vol", -1 } }, 0.5f },
+        { "Freno lento", "Lo-fi", 4, { { STOP, Q4 (14, 15) }, { START, { 0, 1 } } }, { { "stop_len", 2 }, { "stop_curve", 0.4f }, { "start_len", 0.5f } }, 0.4f },
+        { "Chop della frase", "Boom bap", 2, { { LOOP, E8 (6, 7) }, { REV, E8 (15, 15) } }, { { "loop_size", 0.5f }, { "loop_xf", 0.4f } }, 0.3f },
+        { "Vinile al contrario", "Boom bap", 4, { { REV, Q4 (15, 15) } }, { { "rev_speed", 0.9f }, { "rev_vol", -2 } }, 0.45f },
+        { "Phonk spin", "Phonk", 2, { { SPIN, E8 (15, 15) }, { GATE, E8 (12, 13) } }, { { "spin_len", 0.5f }, { "spin_force", 4.5f }, { "gate_rate", 0.125f }, { "gate_depth", 0.7f } }, 0.2f },
+        { "Glitch caos", "Glitch", 2, { { GLITCH, { 4, 5, 6, 7, 20, 21, 22, 23 } }, { STUT, { 14, 15 } }, { REV, { 26, 27 } }, { STOP, { 30, 31 } } },
+          { { "glitch_dens", 0.85f }, { "glitch_chaos", 0.85f }, { "glitch_size", 0.125f }, { "stut_size", 0.125f }, { "stop_len", 0.5f } }, 0 },
+        { "Build-up 4 battute", "Arrangiamento", 4, { { GATE, Q4 (8, 11) }, { STUT, Q4 (12, 14) }, { STOP, Q4 (15, 15) } },
+          { { "gate_rate", 0.5f }, { "gate_depth", 0.7f }, { "stut_size", 1 }, { "stut_roll", 0.9f }, { "stut_pitch", 7 }, { "stut_filt", -0.6f }, { "stop_len", 1 }, { "stop_curve", -0.6f } }, 0 },
+        { "Nastro saturo", "Colore", 2, {}, { { "drive", 0.85f }, { "tone", 0.55f }, { "out", -2 } }, 0 } };
     return P;
 }
 int Processor::getNumPrograms() { return (int) presets().size(); }
@@ -406,8 +447,9 @@ static void setParam (juce::AudioProcessorValueTreeState& a, const char* id, flo
 
 void Processor::applyAge (float a)
 {
-    setParam (apvts, "wow", 0.1f + a * 0.8f); setParam (apvts, "flut", 0.05f + a * 0.7f); setParam (apvts, "tone", juce::jmax (0.0f, 0.7f - a * 0.45f));
-    setParam (apvts, "drive", 0.2f + a * 0.6f); setParam (apvts, "hiss", a * 0.6f); setParam (apvts, "drop", a * 0.5f);
+    // invecchiamento misurato: piu wow e tono scuro, poco fruscio e pochi dropout
+    setParam (apvts, "wow", 0.1f + a * 0.55f); setParam (apvts, "flut", 0.05f + a * 0.4f); setParam (apvts, "tone", juce::jmax (0.15f, 0.7f - a * 0.4f));
+    setParam (apvts, "drive", 0.2f + a * 0.3f); setParam (apvts, "hiss", a * a * 0.35f); setParam (apvts, "drop", a > 0.5f ? (a - 0.5f) * 0.3f : 0.0f);
 }
 
 void Processor::loadPreset (int i)
@@ -423,6 +465,101 @@ void Processor::loadPreset (int i)
     setParam (apvts, "bars", (float) bi);
     if (P.age > 0) { setParam (apvts, "age", P.age); applyAge (P.age); }
     setParam (apvts, "seqOn", P.seq.empty() ? 0.0f : 1.0f);
+}
+
+
+// ======================= coreografia generata =======================
+// Regole: un solo effetto "di movimento" per volta (il gate puo sovrapporsi), i fill vanno a fine frase,
+// stop seguito da start sul primo ottavo, eventi a meta frase solo con intensita sufficiente.
+void Processor::generate()
+{
+    juce::Random r;
+    const int style = juce::jlimit (0, 5, (int) value ("genStyle")); const float amt = value ("genAmt");
+    const int bars = style == 5 ? 4 : (amt > 0.65f ? 4 : 2), S = bars * 16;
+    for (int k = 0; k < kNumParams; ++k) { auto* pr = apvts.getParameter (kParams[k].id); pr->setValueNotifyingHost (pr->getDefaultValue()); }
+    for (auto& row : seq) for (auto& st : row) st = false;
+    std::vector<bool> busy ((size_t) S, false);
+    auto put = [&] (int fx, int a, int len)
+    {
+        if (a < 0 || a + len > S) return false;
+        if (fx != GATE) for (int k = a; k < a + len; ++k) if (busy[(size_t) k]) return false;
+        for (int k = a; k < a + len; ++k) { seq[fx][k] = true; if (fx != GATE) busy[(size_t) k] = true; }
+        return true;
+    };
+    auto P = [this] (const char* id, float v) { setParam (apvts, id, v); };
+    auto pick = [&r] (std::initializer_list<int> w) { int tot = 0; for (int x : w) tot += x; int k = r.nextInt (juce::jmax (1, tot)), i = 0; for (int x : w) { if (k < x) return i; k -= x; ++i; } return 0; };
+    const int end = S;                      // fine frase
+    const int fillLen = amt < 0.5f ? 4 : 8;   // passi da 1/16
+    const bool mid = amt > 0.3f, mid2 = amt > 0.6f;
+
+    switch (style)
+    {
+        case 0: // TRAP
+        {
+            const int f = pick ({ 5, 3, 2 });
+            if (f == 0) { put (STUT, end - fillLen, fillLen); P ("stut_size", 0.5f); P ("stut_roll", 0.75f + r.nextFloat() * 0.2f); P ("stut_pitch", r.nextBool() ? 5.0f : 7.0f); P ("stut_gate", 0.85f); P ("stut_decay", 0.15f); P ("stut_filt", -0.35f); }
+            else if (f == 1) { put (STOP, end - 4, 4); P ("stop_len", 1); P ("stop_curve", -0.5f); }
+            else { put (SPIN, end - 2, 2); P ("spin_len", 0.5f); P ("spin_force", 3.5f); }
+            if (mid) { put (GATE, 12, 4); P ("gate_rate", 1.0f / 6); P ("gate_depth", 0.75f); P ("gate_duty", 0.55f); }
+            if (mid2) { put (REV, 30, 2); }
+            if (bars == 4 && mid2) { put (HALF, 40, 8); P ("half_speed", 0.5f); P ("half_glide", 80); }
+            break;
+        }
+        case 1: // DRILL
+        {
+            const int f = pick ({ 4, 4, 2 });
+            if (f == 0) { put (STUT, end - fillLen, fillLen); P ("stut_size", 0.25f); P ("stut_roll", 0.3f); P ("stut_pitch", -5); P ("stut_gate", 0.75f); P ("stut_decay", 0.3f); P ("stut_filt", 0.4f); }
+            else if (f == 1) { put (STOP, end - 4, 4); put (START, 0, 2); P ("stop_len", 1); P ("stop_curve", 0.25f); P ("start_len", 0.5f); P ("start_curve", 0.4f); }
+            else { put (REV, end - 4, 4); P ("rev_speed", 1.0f); }
+            if (mid) { put (HALF, 8, 8); P ("half_speed", 0.5f); P ("half_glide", 90); }
+            if (mid2) { put (GATE, bars == 4 ? 44 : 24, 4); P ("gate_rate", 1.0f / 6); P ("gate_depth", 0.8f); P ("gate_duty", 0.5f); }
+            break;
+        }
+        case 2: // BOOM BAP
+        {
+            const int f = pick ({ 5, 3, 2 });
+            if (f == 0) { put (STOP, end - 2, 2); put (START, 0, 1); P ("stop_len", 0.5f); P ("stop_curve", 0.3f); P ("start_len", 0.25f); P ("start_curve", 0.5f); }
+            else if (f == 1) { put (REV, end - 4, 4); }
+            else { put (LOOP, end - 4, 4); P ("loop_size", 0.5f); P ("loop_xf", 0.3f); }
+            if (mid) { put (LOOP, 12, 4); P ("loop_size", 1); P ("loop_xf", 0.35f); }
+            if (mid2 && bars == 4) { put (STUT, 30, 2); P ("stut_size", 0.25f); P ("stut_gate", 0.8f); }
+            break;
+        }
+        case 3: // LO-FI
+        {
+            put (HALF, end - 8, 8); P ("half_speed", 0.75f + r.nextFloat() * 0.08f); P ("half_glide", 260); P ("half_vol", -1);
+            if (mid) { put (STOP, 12, 4); put (START, 16, 2); P ("stop_len", 1); P ("stop_curve", -0.3f); P ("start_len", 0.5f); P ("start_curve", 0.2f); }
+            if (mid2 && bars == 4) { put (REV, 28, 4); P ("rev_speed", 0.8f); }
+            break;
+        }
+        case 4: // GLITCH
+        {
+            P ("glitch_dens", 0.5f + amt * 0.4f); P ("glitch_chaos", 0.3f + amt * 0.5f); P ("glitch_size", 0.25f);
+            P ("stut_size", 0.125f); P ("stut_roll", 0.4f); P ("stut_pitch", -3); P ("stut_gate", 0.7f);
+            P ("gate_rate", 0.25f); P ("gate_depth", 0.9f); P ("gate_duty", 0.4f);
+            put (STOP, end - 2, 2); P ("stop_len", 0.5f); P ("stop_curve", -0.4f);
+            put (GLITCH, 4, 4);
+            const int nEv = 1 + juce::roundToInt (amt * 4) * bars / 2;
+            for (int e = 0, tries = 0; e < nEv && tries < 60; ++tries)
+            {
+                const int beatPos = r.nextInt (S / 4) * 4 + (r.nextBool() ? 0 : 2);   // ottavi, mai sul battere della battuta
+                if (beatPos % 16 == 0) continue;
+                const int fx = pick ({ 5, 3, 2, 2 }); const int fxs[] = { GLITCH, STUT, REV, GATE }; const int len = fxs[fx] == GLITCH ? 4 : 2;
+                if (put (fxs[fx], beatPos, len)) ++e;
+            }
+            break;
+        }
+        default: // BUILD-UP su 4 battute
+        {
+            put (GATE, 32, 16); P ("gate_rate", 0.5f); P ("gate_depth", 0.55f + amt * 0.3f); P ("gate_duty", 0.6f);
+            put (STUT, 48, 12); P ("stut_size", 1); P ("stut_roll", 0.9f); P ("stut_pitch", 7); P ("stut_gate", 0.85f); P ("stut_decay", 0.0f); P ("stut_filt", -0.6f);
+            put (STOP, 60, 4); P ("stop_len", 1); P ("stop_curve", -0.6f);
+            if (mid2) { put (HALF, 24, 8); P ("half_speed", 0.5f); P ("half_glide", 120); }
+            break;
+        }
+    }
+    setParam (apvts, "bars", bars == 2 ? 1.0f : 2.0f);
+    setParam (apvts, "seqOn", 1.0f);
 }
 
 void Processor::getStateInformation (juce::MemoryBlock& dest)

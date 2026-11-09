@@ -65,8 +65,11 @@ private:
     float tLp[2] = {}, aLp[2] = {}, mEnvF = 0, mEnvS = 0;
     int lastSpType = -1;
     Biq eq[4]; float lastEq[11] = { 99 };
+    // modulo EXTRA
+    juce::AudioBuffer<float> xBuf; int xW = 0; float xLp[2] = {}, xHold[2] = {}; double xPh = 0, xLfo = 0, xDrift = 0, xDt = 0; juce::Random xr; int lastXType = -1;
     float accIn = 0, accOut = 0, accGr = 0, accTr = 0; int accN = 0;
 public:
-    std::atomic<int> order[4] { 1, 2, 3, 4 };   // moduli centrali riordinabili (1 shift, 2 comp, 3 sat, 4 space)
+    std::atomic<int> order[5] { 1, 2, 3, 4, 6 };   // moduli centrali riordinabili (1 shift, 2 comp, 3 sat, 4 space, 6 extra)
+    std::atomic<double> bpm { 120.0 };
 };
 }

@@ -124,6 +124,7 @@ Processor::Processor()
 {
     formats.registerBasicFormats();
     for (int i = 0; i < kPads; ++i) { padGlow[i] = 0; padMeter[i] = 0; padGr[i] = 0; lastVel[i] = 0; hits[i] = 0; pad[i].colour = i; }
+    for (int i = 0; i < kScope; ++i) { scPk[i] = 0; scHit[i] = 0; scVel[i] = 0; }
     trigs.reserve (1024); events.reserve (1024); pend.reserve (512);
     loadFactoryKit (0);
     loadPattern (0);
@@ -169,7 +170,7 @@ void Processor::uiNoteOff (int p)
 void Processor::startVoice (int p, int vel)
 {
     auto s = getSample (p);
-    hits[p] = hits[p].load() + 1; lastVel[p] = vel;
+    hits[p] = hits[p].load() + 1; lastVel[p] = vel; colHits |= 1 << p; colVel = juce::jmax (colVel, vel);
     if (s == nullptr || s->buf.getNumSamples() < 8) return;
     auto& P = pad[p];
     const int choke = juce::roundToInt (P.get (CHOKE));
@@ -584,6 +585,12 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             float l = cl[i] * og, r = cr[i] * og;
             if (clip) { auto sc = [] (float x) { const float a = std::abs (x); return a > 0.85f ? std::copysign (0.85f + 0.15f * std::tanh ((a - 0.85f) / 0.15f), x) : x; }; l = sc (l); r = sc (r); }
             cl[i] = l; cr[i] = r; pk[0] = juce::jmax (pk[0], std::abs (l)); pk[1] = juce::jmax (pk[1], std::abs (r));
+            colPk = juce::jmax (colPk, juce::jmax (std::abs (l), std::abs (r)));
+            if (++colN >= (int) (sr * 3.0 / kScope))
+            {
+                const int w = scW.load(); scPk[w] = colPk; scHit[w] = colHits; scVel[w] = colVel; scW = (w + 1) % kScope;
+                colPk = 0; colN = 0; colHits = 0; colVel = 0;
+            }
         }
         meterL = juce::jmax (pk[0], meterL.load() * 0.85f); meterR = juce::jmax (pk[1], meterR.load() * 0.85f);
     }

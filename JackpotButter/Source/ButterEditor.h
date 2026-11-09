@@ -8,7 +8,7 @@ namespace BC
 {
     const juce::Colour bg { 0xff0b0c10 }, panel1 { 0xff1d2027 }, panel2 { 0xff121419 }, lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
     const juce::Colour text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff474d59 }, phos { 0xff5ef2ff }, amber { 0xffffb000 }, magenta { 0xffff2e88 };
-    const juce::Colour mod[6] = { juce::Colour (0xffff6a3d), juce::Colour (0xffa66bff), juce::Colour (0xffffd23f), juce::Colour (0xffff3b5c), juce::Colour (0xff2de2e6), juce::Colour (0xff7dff5a) };
+    const juce::Colour mod[7] = { juce::Colour (0xffff6a3d), juce::Colour (0xffa66bff), juce::Colour (0xffffd23f), juce::Colour (0xffff3b5c), juce::Colour (0xff2de2e6), juce::Colour (0xff7dff5a), juce::Colour (0xffff4fd8) };
 }
 juce::Font bf (float size, bool bold = false, bool mono = false);
 
@@ -112,13 +112,13 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void layoutModules();
     void moduleDropped (Module& m);
-    static constexpr int W = 1240, H = 820;
+    static constexpr int W = 1386, H = 820, MX = 1130;
     Processor& proc;
     juce::OwnedArray<Module> modules;
     juce::OwnedArray<PKnob> master;
     std::unique_ptr<Switch> clip;
     std::unique_ptr<EqPanel> eq;
-    juce::Rectangle<int> presetRect, prevRect, nextRect;
+    juce::Rectangle<int> presetRect, prevRect, nextRect, randRect;
 private:
     void timerCallback() override;
 };

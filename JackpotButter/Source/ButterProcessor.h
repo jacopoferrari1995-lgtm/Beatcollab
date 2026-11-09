@@ -31,7 +31,8 @@ public:
     static juce::StringArray moduleParams (int m);
     juce::AudioProcessorValueTreeState apvts;
     Burro dsp;
-    std::atomic<bool> locked[6];
+    std::atomic<bool> locked[7];
+    void randomize();
     int preset = 0;
     std::atomic<float> inL { 0 }, inR { 0 }, outL { 0 }, outR { 0 };
 private:

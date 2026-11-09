@@ -362,7 +362,14 @@ void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
     };
     hots.push_back ({ arrowL, [loadItem, cur, n = (int) items.size()] (const juce::MouseEvent&) { loadItem ((cur - 1 + n) % n); }, nullptr, nullptr, nullptr });
     hots.push_back ({ arrowR, [loadItem, cur, n = (int) items.size()] (const juce::MouseEvent&) { loadItem ((cur + 1) % n); }, nullptr, nullptr, nullptr });
-    auto btnRow = left.removeFromBottom (30); left.removeFromBottom (6);
+    auto btnRow = left.removeFromBottom (30); left.removeFromBottom (5);
+    auto rndRow = left.removeFromBottom (26); left.removeFromBottom (6);
+    {
+        const float rw = (rndRow.getWidth() - 4) * 0.5f;
+        chip (g, rndRow.removeFromLeft (rw), "", "RANDOM KIT", true, [this] (const juce::MouseEvent&) { randomKit (ed.proc, randMode); ed.kitChanged(); ed.playPad (0, 100); }, Col::amber);
+        rndRow.removeFromLeft (4);
+        chip (g, rndRow, "", kRandModes[randMode], false, [this] (const juce::MouseEvent&) { randMode = (randMode + 1) % 3; repaint(); }, Col::amber);
+    }
     const float bw = (btnRow.getWidth() - 8) / 3;
     chip (g, btnRow.removeFromLeft (bw), "", "SALVA", true, [this] (const juce::MouseEvent&) { ed.saveKit (false); }, Col::magenta); btnRow.removeFromLeft (4);
     chip (g, btnRow.removeFromLeft (bw), "", "SALVA COME", false, [this] (const juce::MouseEvent&) { ed.saveKit (true); }, Col::magenta); btnRow.removeFromLeft (4);
@@ -382,24 +389,58 @@ void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
         g.drawText (items[(size_t) i].style, r.reduced (6, 0), juce::Justification::centredRight);
         hots.push_back ({ r, [loadItem, i] (const juce::MouseEvent&) { loadItem (i); }, nullptr, [this] (float d) { kitScroll += d > 0 ? -1 : 1; repaint(); }, nullptr });
     }
-    // griglia dei pad
-    const float cw = c.getWidth() / 4, ch = c.getHeight() / 4;
+    // ---- vista dinamica: transienti in uscita + pad colpiti (ultimi 3 secondi) ----
+    const int NS = Processor::kScope, w0 = P.scW.load();
+    auto at = [&P, w0, NS] (int k) { return (w0 + k) % NS; };     // k = 0 piu vecchio, NS-1 piu recente
+    g.setColour (Col::phos.withAlpha (0.05f)); g.fillRoundedRectangle (c, 4);
+    auto lanes = c.removeFromBottom (c.getHeight() * 0.42f); c.removeFromBottom (4);
+    auto wave = c.reduced (4, 2);
+    auto lab = wave.removeFromTop (14);
+    glowText (g, "TRANSIENTI  OUT", lab, Col::phos.withAlpha (0.7f), ft (9.0f, true, true));
+    float pk = 0; int nHits = 0; for (int k = NS - 100; k < NS; ++k) { pk = juce::jmax (pk, P.scPk[at (k)].load()); nHits += juce::countNumberOfBits ((juce::uint32) P.scHit[at (k)].load()); }
+    glowText (g, "PICCO " + juce::String (juce::Decibels::gainToDecibels (pk, -60.0f), 1) + " dB   COLPI " + juce::String (nHits), lab, pk > 0.95f ? Col::magenta : Col::phos.withAlpha (0.8f), ft (9.0f, true, true), juce::Justification::centredRight);
+    // griglia ogni mezzo secondo
+    for (int q = 1; q < 6; ++q) { const float x = wave.getX() + wave.getWidth() * q / 6.0f; g.setColour (Col::phos.withAlpha (0.07f)); g.drawVerticalLine ((int) x, wave.getY(), lanes.getBottom()); }
+    const float cy = wave.getCentreY(), hh = wave.getHeight() * 0.48f, dx = wave.getWidth() / NS;
+    for (int lvl : { -6, -12, -24 }) { const float y = hh * juce::Decibels::decibelsToGain ((float) lvl); g.setColour (Col::phos.withAlpha (0.06f)); g.drawHorizontalLine ((int) (cy - y), wave.getX(), wave.getRight()); g.drawHorizontalLine ((int) (cy + y), wave.getX(), wave.getRight()); }
+    juce::Path env; env.startNewSubPath (wave.getX(), cy);
+    for (int k = 0; k < NS; ++k) { const float v = juce::jmin (1.0f, std::sqrt (P.scPk[at (k)].load())); env.lineTo (wave.getX() + k * dx, cy - v * hh); }
+    for (int k = NS - 1; k >= 0; --k) { const float v = juce::jmin (1.0f, std::sqrt (P.scPk[at (k)].load())); env.lineTo (wave.getX() + k * dx, cy + v * hh); }
+    env.closeSubPath();
+    juce::ColourGradient eg (Col::phos.withAlpha (0.1f), wave.getX(), 0, Col::phos.withAlpha (0.55f), wave.getRight(), 0, false); g.setGradientFill (eg); g.fillPath (env);
+    g.setColour (Col::phos.withAlpha (0.8f)); g.strokePath (env, juce::PathStrokeType (1.0f));
+    // marcatori di transiente: linea colorata del pad, altezza = velocity
+    for (int k = 0; k < NS; ++k)
+    {
+        const int m = P.scHit[at (k)].load(); if (m == 0) continue;
+        const float x = wave.getX() + k * dx, age = (float) k / NS, vel = P.scVel[at (k)].load() / 127.0f;
+        int first = 0; while (first < kPads && ! ((m >> first) & 1)) ++first;
+        const auto pc = padColour (P.pad[juce::jlimit (0, kPads - 1, first)].colour.load());
+        g.setColour (pc.withAlpha (0.15f + 0.5f * age)); g.fillRect (x - 1.5f, wave.getY(), 3.0f, wave.getHeight());
+        g.setColour (pc.withAlpha (0.4f + 0.6f * age)); g.drawVerticalLine ((int) x, cy - hh * vel, cy + hh * vel);
+        g.fillEllipse (x - 2.5f, cy - hh * vel - 2.5f, 5, 5);
+        if (k > NS - 220) { g.setFont (ft (8.0f, true, true)); g.drawText (juce::String (first + 1), juce::Rectangle<float> (x - 10, wave.getY(), 20, 10), juce::Justification::centred); }
+    }
+    // testina "adesso"
+    g.setColour (Col::magenta.withAlpha (0.25f)); g.fillRect (wave.getRight() - 6, wave.getY(), 6.0f, lanes.getBottom() - wave.getY());
+    g.setColour (Col::magenta); g.drawVerticalLine ((int) wave.getRight(), wave.getY(), lanes.getBottom());
+    // corsie dei 16 pad
+    auto names = lanes.removeFromLeft (34); const float lh2 = lanes.getHeight() / kPads;
     for (int p = 0; p < kPads; ++p)
     {
-        const int row = 3 - p / 4, col = p % 4;
-        auto r = juce::Rectangle<float> (c.getX() + col * cw, c.getY() + row * ch, cw, ch).reduced (3);
-        const auto pc = padColour (P.pad[p].colour.load()); const float lum = juce::jlimit (0.0f, 1.0f, ed.pads[p]->glow);
-        g.setColour (pc.withAlpha (0.07f + 0.5f * lum)); g.fillRoundedRectangle (r, 4);
-        g.setColour (p == ed.sel ? pc : pc.withAlpha (0.35f)); g.drawRoundedRectangle (r, 4, p == ed.sel ? 1.6f : 1.0f);
-        auto smp = P.getSample (p);
-        g.setFont (ft (9.0f, true, true)); g.setColour (pc); g.drawText (juce::String (p + 1).paddedLeft ('0', 2), r.reduced (5, 3), juce::Justification::topLeft);
-        g.setColour (Col::phos.withAlpha (0.5f)); g.setFont (ft (8.5f, false, true)); g.drawText (noteName (P.rootNote() + p), r.reduced (5, 3), juce::Justification::topRight);
-        g.setFont (ft (10.0f, true, true)); g.setColour (Col::phos); g.drawFittedText (smp ? smp->name.toUpperCase() : juce::String ("--"), r.reduced (5, 3).withTrimmedTop (12).toNearestInt(), juce::Justification::centredLeft, 2);
-        // volume
-        const float lv = Editor::toNorm (LEVEL, P.pad[p].get (LEVEL));
-        auto vb = juce::Rectangle<float> (r.getX() + 5, r.getBottom() - 6, (r.getWidth() - 10) * lv, 2.5f);
-        g.setColour (pc.withAlpha (0.8f)); g.fillRect (vb);
-        hots.push_back ({ r, [this, p] (const juce::MouseEvent& e) { ed.selectPad (p); if (e.mods.isPopupMenu()) ed.openBrowser (p); else { ed.playPad (p, 100); ed.setPage (PG_SAMPLE); } }, nullptr, nullptr, nullptr });
+        const int row = kPads - 1 - p; const float y = lanes.getY() + row * lh2;
+        const auto pc = padColour (P.pad[p].colour.load()); const float gl = juce::jlimit (0.0f, 1.0f, ed.pads[p]->glow);
+        if (p == ed.sel) { g.setColour (pc.withAlpha (0.12f)); g.fillRect (lanes.getX(), y, lanes.getWidth(), lh2); }
+        g.setColour (pc.withAlpha (0.5f + 0.5f * gl)); g.setFont (ft (7.5f, true, true));
+        g.drawText (juce::String (p + 1).paddedLeft ('0', 2), juce::Rectangle<float> (names.getX() + 2, y, 16, lh2), juce::Justification::centredLeft);
+        g.setColour (pc.withAlpha (0.15f + 0.85f * gl)); g.fillRect (names.getX() + 18, y + 1, 14 * juce::jmin (1.0f, P.padMeter[p].load() * 1.5f) + 1, lh2 - 2);
+        for (int k = 0; k < NS; ++k)
+            if ((P.scHit[at (k)].load() >> p) & 1)
+            {
+                const float x = lanes.getX() + k * (lanes.getWidth() / NS), age = (float) k / NS, vel = P.scVel[at (k)].load() / 127.0f;
+                g.setColour (pc.withAlpha (0.25f + 0.75f * age)); g.fillRoundedRectangle (x - 1, y + 0.5f, 3.0f + vel * 3.0f, lh2 - 1, 1);
+            }
+        hots.push_back ({ juce::Rectangle<float> (names.getX(), y, names.getWidth() + lanes.getWidth(), lh2), [this, p] (const juce::MouseEvent& e) { ed.selectPad (p); if (e.mods.isPopupMenu()) ed.openBrowser (p); else ed.playPad (p, 100); }, nullptr, nullptr, nullptr });
     }
 }
 
