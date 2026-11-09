@@ -328,64 +328,114 @@ void FxEditor::paint (juce::Graphics& g)
 }
 
 // ======================= Coreografia =======================
-juce::Rectangle<float> Timeline::grid() const { return getLocalBounds().toFloat().reduced (10, 10).withTrimmedLeft (170); }
+juce::Rectangle<float> Timeline::grid() const { return getLocalBounds().toFloat().reduced (12, 0).withTrimmedTop (22).withTrimmedBottom (10).withTrimmedLeft (150); }
+int Timeline::span() const { return ed.res == 0 ? 1 : ed.res == 1 ? 2 : 4; }
 bool Timeline::cellAt (juce::Point<float> p, int& lane, int& step) const
 {
     auto gr = grid(); if (! gr.contains (p)) return false;
     lane = juce::jlimit (0, kNumFx - 1, (int) ((p.y - gr.getY()) / (gr.getHeight() / kNumFx)));
     step = juce::jlimit (0, ed.steps() - 1, (int) ((p.x - gr.getX()) / (gr.getWidth() / ed.steps())));
+    step = step / span() * span();
     return true;
 }
 void Timeline::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
     inset (g, b, 8);
-    auto gr = grid(); const int S = ed.steps(); const float cw = gr.getWidth() / S, lh = gr.getHeight() / kNumFx;
+    auto gr = grid(); const int S = ed.steps(), sp = span(); const float cw = gr.getWidth() / S, lh = gr.getHeight() / kNumFx;
     const int cur = ed.proc.uiStep.load(); const bool on = ed.proc.value ("seqOn") > 0.5f;
+    // intestazione con numeri di battuta e movimenti
+    for (int s = 0; s < S; s += 4)
+    {
+        const float x = gr.getX() + s * cw;
+        if (s % 16 == 0) { g.setColour (K::amber.withAlpha (0.9f)); g.setFont (tf (10.0f, 2, true)); g.drawText ("BAR " + juce::String (s / 16 + 1), juce::Rectangle<float> (x + 3, 4, 60, 14), juce::Justification::centredLeft); }
+        else { g.setColour (K::dim); g.setFont (tf (9.0f, 1, true)); g.drawText (juce::String (s / 16 + 1) + "." + juce::String ((s % 16) / 4 + 1), juce::Rectangle<float> (x + 3, 4, 40, 14), juce::Justification::centredLeft); }
+    }
+    g.setColour (K::faint); g.setFont (tf (8.5f, 1));
+    g.drawText ("clic disegna, tasto dx cancella", juce::Rectangle<float> (14, 0, 134, 11), juce::Justification::centredLeft);
+    g.drawText ("doppio clic sul nome svuota", juce::Rectangle<float> (14, 10, 134, 11), juce::Justification::centredLeft);
     for (int f = 0; f < kNumFx; ++f)
     {
         const float y = gr.getY() + f * lh; const auto c = fxCol (f);
-        g.setColour (c.withAlpha (0.3f)); g.fillEllipse (14, y + lh * 0.5f - 6, 12, 12); g.setColour (c); g.fillEllipse (17, y + lh * 0.5f - 3, 6, 6);
-        g.setColour (K::ink.withAlpha (0.85f)); g.setFont (tf (10.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase(), juce::Rectangle<float> (32, y, 130, lh), juce::Justification::centredLeft);
-        if (f % 2 == 0) { g.setColour (K::brand2.withAlpha (0.025f)); g.fillRect (gr.getX(), y, gr.getWidth(), lh); }
+        const bool selL = f == ed.sel, hovL = f == hLane;
+        if (selL || hovL) { g.setColour (c.withAlpha (selL ? 0.08f : 0.05f)); g.fillRect (12.0f, y, b.getWidth() - 24, lh); }
+        g.setColour (c.withAlpha (0.3f)); g.fillEllipse (16, y + lh * 0.5f - 7, 14, 14); g.setColour (c); g.fillEllipse (19.5f, y + lh * 0.5f - 3.5f, 7, 7);
+        g.setColour (selL ? c : K::ink.withAlpha (0.85f)); g.setFont (tf (11.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase(), juce::Rectangle<float> (36, y, 110, lh), juce::Justification::centredLeft);
+        // celle vuote alla risoluzione scelta
+        for (int s = 0; s < S; s += sp)
+        {
+            auto r = juce::Rectangle<float> (gr.getX() + s * cw + 1.5f, y + 2.5f, sp * cw - 3, lh - 5);
+            const bool beat = (s / 4) % 2 == 0;
+            g.setColour (juce::Colours::white.withAlpha (beat ? 0.045f : 0.025f)); g.fillRoundedRectangle (r, 3);
+            g.setColour (juce::Colours::white.withAlpha (0.05f)); g.drawRoundedRectangle (r, 3, 1.0f);
+        }
+        // blocchi attivi
         int s = 0;
         while (s < S)
         {
             if (! ed.proc.seq[f][s].load()) { ++s; continue; }
             int e = s; while (e < S && ed.proc.seq[f][e].load()) ++e;
-            auto r = juce::Rectangle<float> (gr.getX() + s * cw + 1, y + 3, (e - s) * cw - 2, lh - 6);
+            auto r = juce::Rectangle<float> (gr.getX() + s * cw + 1.5f, y + 2.5f, (e - s) * cw - 3, lh - 5);
             const bool playing = on && cur >= s && cur < e;
-            if (playing) { g.setColour (c.withAlpha (0.45f)); g.fillRoundedRectangle (r.expanded (3), 6); }
-            else { g.setColour (c.withAlpha (0.15f)); g.fillRoundedRectangle (r.expanded (2), 5); }
-            juce::ColourGradient cg (playing ? c.brighter (0.5f) : c.brighter (0.1f), 0, r.getY(), c.darker (0.35f), 0, r.getBottom(), false); g.setGradientFill (cg);
+            g.setColour (c.withAlpha (playing ? 0.5f : 0.2f)); g.fillRoundedRectangle (r.expanded (playing ? 3.0f : 1.5f), 5);
+            juce::ColourGradient cg (playing ? c.brighter (0.5f) : c.brighter (0.15f), 0, r.getY(), c.darker (0.3f), 0, r.getBottom(), false); g.setGradientFill (cg);
             g.fillRoundedRectangle (r, 4);
-            g.setColour (juce::Colours::white.withAlpha (0.35f)); g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + 3, r.getRight() - 3);
-            if (r.getWidth() > 60) { g.setColour (juce::Colour (0xff0a0c10).withAlpha (0.85f)); g.setFont (tf (10.0f, 2)); g.drawText (kFx[f].name, r.reduced (7, 0).toNearestInt(), juce::Justification::centredLeft); }
+            g.setColour (juce::Colours::white.withAlpha (0.4f)); g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + 3, r.getRight() - 3);
+            for (int k = s + 1; k < e; ++k) { g.setColour (juce::Colours::black.withAlpha (0.12f)); g.drawVerticalLine ((int) (gr.getX() + k * cw), r.getY() + 3, r.getBottom() - 3); }
+            if (r.getWidth() > 70) { g.setColour (juce::Colour (0xff0a0c10).withAlpha (0.85f)); g.setFont (tf (10.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase(), r.reduced (7, 0).toNearestInt(), juce::Justification::centredLeft); }
             s = e;
         }
     }
-    for (int s = 0; s <= S; ++s)
+    // linee di battuta e di movimento
+    for (int s = 0; s <= S; s += 4)
     {
         const float x = gr.getX() + s * cw;
-        g.setColour (K::brand2.withAlpha (s % 16 == 0 ? 0.22f : s % 4 == 0 ? 0.09f : 0.03f)); g.drawVerticalLine ((int) x, gr.getY(), gr.getBottom());
-        if (s % 16 == 0 && s < S) { g.setColour (K::brand2.withAlpha (0.7f)); g.setFont (tf (9.0f, 2, true)); g.drawText ("BAR " + juce::String (s / 16 + 1), juce::Rectangle<float> (x + 4, gr.getY() - 10, 60, 10), juce::Justification::centredLeft); }
+        g.setColour (s % 16 == 0 ? K::amber.withAlpha (0.45f) : K::brand2.withAlpha (0.14f)); g.fillRect (x - (s % 16 == 0 ? 1.0f : 0.5f), gr.getY(), s % 16 == 0 ? 2.0f : 1.0f, gr.getHeight());
     }
-    if (on && cur >= 0 && cur < S) { g.setColour (K::amber.withAlpha (0.18f)); g.fillRect (gr.getX() + cur * cw, gr.getY(), cw, gr.getHeight()); g.setColour (K::amber); g.drawVerticalLine ((int) (gr.getX() + cur * cw), gr.getY(), gr.getBottom()); }
+    for (int f = 1; f < kNumFx; ++f) { g.setColour (juce::Colours::white.withAlpha (0.04f)); g.drawHorizontalLine ((int) (gr.getY() + f * lh), 12.0f, gr.getRight()); }
+    // cella sotto il mouse
+    if (hLane >= 0 && hStep >= 0)
+    {
+        auto r = juce::Rectangle<float> (gr.getX() + hStep * cw + 1.5f, gr.getY() + hLane * lh + 2.5f, sp * cw - 3, lh - 5);
+        g.setColour (fxCol (hLane).withAlpha (0.9f)); g.drawRoundedRectangle (r, 4, 1.6f);
+    }
+    if (on && cur >= 0 && cur < S) { g.setColour (K::amber.withAlpha (0.16f)); g.fillRect (gr.getX() + cur * cw, gr.getY(), cw, gr.getHeight()); g.setColour (K::amber); g.fillRect (gr.getX() + cur * cw - 1, gr.getY(), 2.0f, gr.getHeight()); }
     scan (g, b.reduced (2));
+}
+void Timeline::mouseMove (const juce::MouseEvent& e)
+{
+    int l = -1, s = -1;
+    if (! cellAt (e.position, l, s)) { l = -1; s = -1; }
+    if (l != hLane || s != hStep) { hLane = l; hStep = s; repaint(); }
+    setMouseCursor (l >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 void Timeline::mouseDown (const juce::MouseEvent& e)
 {
+    auto gr = grid();
+    if (e.position.x < gr.getX() && e.position.y >= gr.getY())   // clic sul nome della corsia: seleziona l'effetto
+    {
+        const int l = juce::jlimit (0, kNumFx - 1, (int) ((e.position.y - gr.getY()) / (gr.getHeight() / kNumFx)));
+        ed.select (l); repaint(); return;
+    }
     int l, s; if (! cellAt (e.position, l, s)) return;
-    const int span = ed.res == 0 ? 1 : ed.res == 1 ? 2 : 4; s = s / span * span;
-    paintLane = l; paintVal = ! ed.proc.seq[l][s].load();
-    for (int k = 0; k < span; ++k) ed.proc.seq[l][s + k] = paintVal;
+    const bool erase = e.mods.isPopupMenu() || e.mods.isAltDown();
+    paintLane = l; paintVal = erase ? false : ! ed.proc.seq[l][s].load();
+    for (int k = 0; k < span() && s + k < kMaxSteps; ++k) ed.proc.seq[l][s + k] = paintVal;
     ed.select (l); repaint();
 }
 void Timeline::mouseDrag (const juce::MouseEvent& e)
 {
     int l, s; if (paintLane < 0 || ! cellAt (e.position, l, s)) return;
-    const int span = ed.res == 0 ? 1 : ed.res == 1 ? 2 : 4; s = s / span * span;
-    for (int k = 0; k < span && s + k < kMaxSteps; ++k) ed.proc.seq[paintLane][s + k] = paintVal;
+    hLane = paintLane; hStep = s;
+    for (int k = 0; k < span() && s + k < kMaxSteps; ++k) ed.proc.seq[paintLane][s + k] = paintVal;
+    repaint();
+}
+void Timeline::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    auto gr = grid();
+    if (e.position.x >= gr.getX() || e.position.y < gr.getY()) return;
+    const int l = juce::jlimit (0, kNumFx - 1, (int) ((e.position.y - gr.getY()) / (gr.getHeight() / kNumFx)));
+    for (int s = 0; s < kMaxSteps; ++s) ed.proc.seq[l][s] = false;
     repaint();
 }
 
@@ -413,25 +463,25 @@ void Root::paint (juce::Graphics& g)
     jlook::header (g, { 0, 0, Wf, 58 }, "TAPE", K::amber, "JT-9  TAPE MOTION", K::brand1, K::brand2);
     for (auto* c : { (juce::Component*) &ed.disp, (juce::Component*) &ed.fxEd }) jlook::softShadow (g, c->getBounds().toFloat(), 12);
     // colonne
-    for (auto r : { ed.sidePanel.toFloat().reduced (6, 8), ed.rightPanel.toFloat().reduced (6, 8), juce::Rectangle<float> (8, 598, Wf - 16, Hf - 32 - 604) }) jlook::softShadow (g, r, 12);
+    for (auto r : { ed.sidePanel.toFloat().reduced (6, 8), ed.rightPanel.toFloat().reduced (6, 8), juce::Rectangle<float> (8, 552, Wf - 16, Hf - 32 - 558) }) jlook::softShadow (g, r, 12);
     jlook::card (g, ed.sidePanel.toFloat().reduced (6, 8), 12, K::brand2, true, false, false);
     jlook::card (g, ed.rightPanel.toFloat().reduced (6, 8), 12, K::amber, true, false, false);
     auto right = ed.rightPanel;
     glow (g, "MACRO", juce::Rectangle<float> ((float) right.getX() + 18, 72, 120, 16), K::ink, tf (11.0f, 2));
     g.setColour (K::amber); g.fillRoundedRectangle ((float) right.getX() + 18, 90, (float) right.getWidth() - 36, 2.0f, 1.0f);
-    g.setColour (juce::Colours::white.withAlpha (0.08f)); g.drawHorizontalLine (322, (float) right.getX() + 18, (float) right.getRight() - 18); g.drawHorizontalLine (506, (float) right.getX() + 18, (float) right.getRight() - 18);
-    caps (g, "Nastro", { right.getX() + 18, 332, 120, 16 }, K::amber);
-    caps (g, "Uscita", { right.getX() + 18, 516, 120, 16 }, K::amber);
+    g.setColour (juce::Colours::white.withAlpha (0.08f)); g.drawHorizontalLine (290, (float) right.getX() + 18, (float) right.getRight() - 18); g.drawHorizontalLine (458, (float) right.getX() + 18, (float) right.getRight() - 18);
+    caps (g, "Nastro", { right.getX() + 18, 296, 120, 16 }, K::amber);
+    caps (g, "Uscita", { right.getX() + 18, 464, 120, 16 }, K::amber);
     // riga sotto il display
-    caps (g, "Pad", { 226, 316, 40, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
-    caps (g, "Quantizza", { 404, 316, 80, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
-    g.setColour (K::faint); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-9 \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 316, 366, 28), juce::Justification::centredRight);
+    caps (g, "Pad", { 226, 264, 40, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
+    caps (g, "Quantizza", { 404, 264, 80, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
+    g.setColour (K::faint); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-9 \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 264, 366, 28), juce::Justification::centredRight);
     // coreografia
-    jlook::card (g, juce::Rectangle<float> (8, 598, Wf - 16, Hf - 32 - 604), 12, K::brand1, true, false, false);
-    glow (g, "COREOGRAFIA", juce::Rectangle<float> (20, 606, 110, 30), K::ink, tf (10.5f, 2));
-    caps (g, "Battute", { 172, 606, 60, 30 }, K::dim, juce::Justification::centredLeft, 9.5f);
-    caps (g, "Griglia", { 432, 606, 50, 30 }, K::dim, juce::Justification::centredLeft, 9.5f);
-    caps (g, "Stile", { 652, 606, 46, 30 }, K::brand1, juce::Justification::centredLeft, 9.5f);
+    jlook::card (g, juce::Rectangle<float> (8, 552, Wf - 16, Hf - 32 - 558), 12, K::brand1, true, false, false);
+    glow (g, "COREOGRAFIA", juce::Rectangle<float> (20, 560, 110, 30), K::ink, tf (10.5f, 2));
+    caps (g, "Battute", { 172, 560, 60, 30 }, K::dim, juce::Justification::centredLeft, 9.5f);
+    caps (g, "Griglia", { 432, 560, 50, 30 }, K::dim, juce::Justification::centredLeft, 9.5f);
+    caps (g, "Stile", { 652, 560, 46, 30 }, K::brand1, juce::Justification::centredLeft, 9.5f);
     // piede
     g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawHorizontalLine (H - 30, 0, Wf);
     g.setColour (K::faint); g.setFont (tf (9.5f, 2, true));
@@ -446,7 +496,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
     setLookAndFeel (&lnf);
     addAndMakeVisible (root);
-    sidePanel = { 0, 59, 210, 537 }; rightPanel = { 1020, 59, 220, 537 };
+    sidePanel = { 0, 59, 210, 489 }; rightPanel = { 1020, 59, 220, 489 };
     root.addAndMakeVisible (list); root.addAndMakeVisible (disp); root.addAndMakeVisible (fxEd); root.addAndMakeVisible (tl); root.addAndMakeVisible (meter);
     for (int f = 0; f < kNumFx; ++f) root.addAndMakeVisible (pads.add (new PadBtn (*this, f)));
     auto choice = [this] (const char* id) { return [this, id] { return (int) proc.value (id); }; };
@@ -521,33 +571,33 @@ void Editor::resized()
     const float s = getWidth() / (float) W;
     root.setBounds (0, 0, W, H); root.setTransform (juce::AffineTransform::scale (s));
     list.setBounds (20, 74, 172, 400);
-    disp.setBounds (224, 72, 782, 232);
-    modeSeg->setBounds (256, 316, modeSeg->preferredWidth(), 28);
-    qSeg->setBounds (484, 316, qSeg->preferredWidth(), 28);
+    disp.setBounds (224, 72, 782, 182);
+    modeSeg->setBounds (256, 264, modeSeg->preferredWidth(), 28);
+    qSeg->setBounds (484, 264, qSeg->preferredWidth(), 28);
     const int pw = (782 - 8 * 6) / 9;
-    for (int f = 0; f < kNumFx; ++f) pads[f]->setBounds (224 + f * (pw + 6), 354, pw, 60);
-    fxEd.setBounds (224, 424, 782, 160);
+    for (int f = 0; f < kNumFx; ++f) pads[f]->setBounds (224 + f * (pw + 6), 300, pw, 56);
+    fxEd.setBounds (224, 366, 782, 168);
     // destra
     const int rx = rightPanel.getX();
-    tapeKnobs[0]->setBounds (rx + 55, 90, 110, 128);
-    tapeKnobs[1]->setBounds (rx + 30, 228, 66, 84); tapeKnobs[2]->setBounds (rx + 124, 228, 66, 84);
-    for (int i = 0; i < 6; ++i) tapeKnobs[3 + i]->setBounds (rx + 14 + (i % 3) * 66, 352 + (i / 3) * 76, 60, 76);
-    tapeKnobs[9]->setBounds (rx + 14, 536, 54, 54);
+    tapeKnobs[0]->setBounds (rx + 64, 96, 92, 106);
+    tapeKnobs[1]->setBounds (rx + 30, 204, 66, 84); tapeKnobs[2]->setBounds (rx + 124, 204, 66, 84);
+    for (int i = 0; i < 6; ++i) tapeKnobs[3 + i]->setBounds (rx + 14 + (i % 3) * 66, 314 + (i / 3) * 72, 60, 72);
+    tapeKnobs[9]->setBounds (rx + 14, 482, 54, 54);
     tapeKnobs[9]->setVisible (proc.value ("sync") < 0.5f);
-    meter.setBounds (rx + (tapeKnobs[9]->isVisible() ? 80 : 18), 544, tapeKnobs[9]->isVisible() ? 124 : 186, 30);
+    meter.setBounds (rx + (tapeKnobs[9]->isVisible() ? 80 : 18), 490, tapeKnobs[9]->isVisible() ? 124 : 186, 30);
     // intestazione
     pPrev->setBounds (420, 11, 34, 36); pName->setBounds (454, 11, 332, 36); pNext->setBounds (786, 11, 34, 36);
     bpmPill->setBounds (1060, 11, 164, 36);
     abBtn->setBounds (850, 11, 92, 36);
     // coreografia
-    seqTog->setBounds (124, 611, 38, 20);
-    barsSeg->setBounds (232, 607, barsSeg->preferredWidth(), 28);
-    resSeg->setBounds (484, 607, resSeg->preferredWidth(), 28);
-    styleBtn->setBounds (700, 607, 120, 28);
-    genSeg->setBounds (828, 607, genSeg->preferredWidth(), 28);
-    genBtn->setBounds (828 + genSeg->preferredWidth() + 8, 607, 100, 28);
-    clearBtn->setBounds (W - 104, 607, 84, 28);
-    tl.setBounds (18, 644, W - 36, H - 32 - 644 - 14);
+    seqTog->setBounds (124, 565, 38, 20);
+    barsSeg->setBounds (232, 561, barsSeg->preferredWidth(), 28);
+    resSeg->setBounds (484, 561, resSeg->preferredWidth(), 28);
+    styleBtn->setBounds (700, 561, 120, 28);
+    genSeg->setBounds (828, 561, genSeg->preferredWidth(), 28);
+    genBtn->setBounds (828 + genSeg->preferredWidth() + 8, 561, 100, 28);
+    clearBtn->setBounds (W - 104, 561, 84, 28);
+    tl.setBounds (18, 598, W - 36, H - 32 - 598 - 12);
 }
 
 void Editor::timerCallback()

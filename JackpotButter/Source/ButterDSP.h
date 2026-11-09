@@ -23,6 +23,22 @@ struct Biq
     static float magDb (int type, double sr, double f, double gDb, double q, double hz);
 };
 
+// riverbero a rete di ritardi (FDN 8 linee) con diffusione in ingresso e modulazione lenta
+class Fdn
+{
+public:
+    void prepare (double sr);
+    void reset();
+    void setup (int type, float decay);
+    void process (const float* inL, const float* inR, float* outL, float* outR, int N);
+private:
+    static constexpr int NL = 8, NA = 4;
+    double sr = 44100;
+    std::vector<float> line[NL], ap[NA]; int lw[NL] = {}, aw[NA] = {}, len[NL] = {}, alen[NA] = {};
+    float g[NL] = {}, lp[NL] = {}, damp = 0.3f, diff = 0.7f, lfo = 0, lfoInc = 0, modDepth = 0;
+    int curType = -1; float curDecay = -1;
+};
+
 struct BurroPreset { const char* name; std::vector<std::pair<const char*, float>> p; };
 const std::vector<BurroPreset>& burroPresets();
 
@@ -38,7 +54,8 @@ public:
     Scope scIn, scOut, scGr, scTr;      // inviluppo in/out, riduzione, peso dei transienti
     // analizzatore: ultimi campioni mono prima e dopo
     static constexpr int AN = 4096;
-    float anIn[AN] = {}, anOut[AN] = {}; std::atomic<int> anW { 0 };
+    float anIn[AN] = {}, anOut[AN] = {}, anL[AN] = {}, anR[AN] = {}; std::atomic<int> anW { 0 };
+    std::atomic<float> corr { 1 }; double cLL = 0, cRR = 0, cLR = 0;
 private:
     double sr = 44100;
     std::vector<float> dryL, dryR, trW;
@@ -58,7 +75,9 @@ private:
     // saturazione
     float satLp[2] = {}, holdV[2] = {}; double holdPh = 0;
     // spazio
-    juce::Reverb verb; juce::AudioBuffer<float> preBuf; int preW = 0; std::vector<float> wetL, wetR; float apZ[2][4] = {};
+    Fdn verb; Biq spF[2], xF[2], fF[4]; float spLast[2] = { -1, -1 }, xLast[2] = { -1, -1 }, fLast[4] = { -1, -1, -1, -1 };
+    float imLp[2] = {}; Biq imB; float imLast = -1;
+    juce::AudioBuffer<float> preBuf; int preW = 0; std::vector<float> wetL, wetR; float apZ[2][4] = {};
     // clip
     float mLp[2] = {};
     // master

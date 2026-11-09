@@ -111,9 +111,14 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override { paintLane = -1; }
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { hLane = hStep = -1; repaint(); }
+    void mouseDoubleClick (const juce::MouseEvent&) override;
     bool cellAt (juce::Point<float>, int& lane, int& step) const;
     juce::Rectangle<float> grid() const;
-    Editor& ed; bool paintVal = true; int paintLane = -1;
+    int span() const;
+    Editor& ed; bool paintVal = true; int paintLane = -1, hLane = -1, hStep = -1;
 };
 
 class Meter : public juce::Component
@@ -148,7 +153,7 @@ public:
     void select (int f);
     int steps() const;
     juce::Rectangle<int> rightPanel, sidePanel;
-    static constexpr int W = 1240, H = 900;
+    static constexpr int W = 1240, H = 940;
 
     Root root { *this };
     FxList list { *this };

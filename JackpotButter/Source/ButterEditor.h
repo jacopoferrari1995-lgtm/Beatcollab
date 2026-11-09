@@ -28,6 +28,7 @@ public:
     void mouseDoubleClick (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getDefaultValue()); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + (w.deltaY > 0 ? 0.01f : -0.01f))); }
     juce::RangedAudioParameter* param; juce::String label; juce::Colour col; bool isBig; std::function<juce::String (float)> fmt; float start = 0; bool active = false, hover = false; bool bipolar = false;
+    std::function<float()> activity; float actSm = 0;
 };
 
 class Pill : public juce::Component
@@ -87,6 +88,24 @@ public:
 };
 
 // EQ grafico con analizzatore di spettro
+// filtro passa alto / passa basso risonante e imager stereo, sotto i moduli
+class FilterPanel : public juce::Component
+{
+public:
+    explicit FilterPanel (Editor& e);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    Editor& ed; std::unique_ptr<Switch> on, slope; std::unique_ptr<PKnob> hp, lp, res;
+};
+class ImagerPanel : public juce::Component
+{
+public:
+    explicit ImagerPanel (Editor& e);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    Editor& ed; std::unique_ptr<Switch> on; std::unique_ptr<PKnob> width, mono;
+};
+
 class EqPanel : public juce::Component
 {
 public:
@@ -122,6 +141,7 @@ public:
     juce::OwnedArray<PKnob> master;
     std::unique_ptr<Switch> clip;
     std::unique_ptr<EqPanel> eq;
+    std::unique_ptr<FilterPanel> filt; std::unique_ptr<ImagerPanel> imager;
     juce::Rectangle<int> presetRect, prevRect, nextRect, randRect, abRect; bool randHover = false, abHover = false;
     void mouseMove (const juce::MouseEvent&) override;
 private:

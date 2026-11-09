@@ -1,7 +1,55 @@
 #include "../Source/ButterProcessor.h"
+#include "../Source/ButterEditor.h"
 using namespace jb;
-int main()
+int main (int argc, char** argv)
 {
+    if (argc > 2 && juce::String (argv[1]) == "snap")
+    {
+        juce::ScopedJuceInitialiser_GUI gui3;
+        jb::Processor p; p.prepareToPlay (48000, 480);
+        for (int i = 0; i < p.getNumPrograms(); ++i) if (p.getProgramName (i).contains ("Punch Moderno")) p.setCurrentProgram (i);
+        auto set = [&p] (const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
+        set ("u_spAmt", 0.3f); set ("u_xAmt", 0.2f); set ("u_fLp", 9000); set ("u_fHp", 60); set ("u_e2g", -3); set ("u_e4g", 3);
+        jb::Editor ed (p);
+        juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer m; juce::Random r (5);
+        for (int k = 0; k < 100 * 6; ++k)
+        {
+            for (int i = 0; i < 480; ++i)
+            {
+                const long n = (long) k * 480 + i; const double t = n / 48000.0, bt = std::fmod (t * 2.2, 1.0), st = std::fmod (t * 2.2 + 0.5, 1.0);
+                const float kick = (float) (std::sin (2 * 3.14159 * (50 + 120 * std::exp (-bt * 30)) * bt) * std::exp (-bt * 6)) * 0.6f;
+                const float sn = (r.nextFloat() * 2 - 1) * (float) std::exp (-st * 18) * 0.35f;
+                const float hat = (r.nextFloat() * 2 - 1) * (float) std::exp (-std::fmod (t * 8.8, 1.0) * 40) * 0.12f;
+                b.setSample (0, i, kick + sn + hat); b.setSample (1, i, kick + sn * 0.8f + hat * 1.2f);
+            }
+            p.processBlock (b, m);
+            if (k % 3 == 0) ed.eq->updateSpectrum();
+        }
+        auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+        juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "verb")
+    {
+        juce::ScopedJuceInitialiser_GUI gui2;
+        for (int t = 0; t < 4; ++t) for (float d : { 0.0f, 0.5f, 1.0f })
+        {
+            jb::Processor p; p.prepareToPlay (48000, 512);
+            auto set = [&p] (const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
+            set ("u_spType", (float) t); set ("u_spAmt", 1); set ("u_spDecay", d); set ("u_spPre", 0);
+            juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; double e0 = 0; int t60 = -1; bool nan = false; double first = -1;
+            for (int k = 0; k < 94 * 8; ++k)
+            {
+                b.clear(); if (k == 0) { b.setSample (0, 0, 1); b.setSample (1, 0, 1); }
+                p.processBlock (b, m);
+                double e = 0; for (int i = 0; i < 512; ++i) { const float x = b.getSample (0, i), y = b.getSample (1, i); if (! std::isfinite (x)) nan = true; e += x * x + y * y; }
+                if (e > first) first = e;
+                if (k > 10 && t60 < 0 && e < first * 1e-6) t60 = k;
+            }
+            std::printf ("tipo %d decay %.1f: RT60 ~ %.2f s nan %d\n", t, d, t60 < 0 ? -1.0 : t60 * 512 / 48000.0, (int) nan);
+        }
+        return 0;
+    }
     juce::ScopedJuceInitialiser_GUI gui;
     Processor p; const double sr = 44100; p.prepareToPlay (sr, 512);
     juce::AudioBuffer<float> blk (2, 512); juce::MidiBuffer m;

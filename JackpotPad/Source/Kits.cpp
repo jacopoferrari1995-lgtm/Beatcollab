@@ -14,6 +14,7 @@ enum { MAG = 0, ORA = 1, AMB = 2, YEL = 3, LIM = 4, MIN = 5, CYA = 6, BLU = 7, V
 const std::vector<FactoryKit>& factoryKits()
 {
     static const std::vector<FactoryKit> kits = {
+    { "Kit Vuoto", "pad vuoti, parametri di default", {} },
     { "Boom Bap Classico", "Hip Hop 85-95", {
         K (S_KICK, 120, 52, 0.45f, 0.5f, 0.35f, "Kick Dusty", MAG, { { LOWG, 3 }, { LOWF, 70 }, { CMODE, 2 }, { CAMT, 0.35f }, { BITS, 0.15f } }),
         K (S_SNARE, 195, 0.22f, 0.12f, 0.6f, 0.6f, "Snare Crack", ORA, { { CMODE, 3 }, { CAMT, 0.3f }, { MIDG, 2 }, { MIDF, 2200 }, { SREV, 0.12f } }),

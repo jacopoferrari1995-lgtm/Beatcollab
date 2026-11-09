@@ -111,7 +111,7 @@ const char* kRandModes[3] = { "MIX KIT", "LIBRERIA", "SOLO MIEI" };
 void randomKit (Processor& P, int mode)
 {
     juce::Random r;
-    const auto& kits = factoryKits(); const int base = r.nextInt ((int) kits.size());
+    const auto& kits = factoryKits(); const int base = 1 + r.nextInt ((int) kits.size() - 1);   // 0 = kit vuoto
     const auto& B = kits[(size_t) base];
     for (int p = 0; p < kPads; ++p)
     {

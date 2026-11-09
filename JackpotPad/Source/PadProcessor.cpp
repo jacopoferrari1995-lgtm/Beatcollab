@@ -126,7 +126,7 @@ Processor::Processor()
     for (int i = 0; i < kPads; ++i) { padGlow[i] = 0; padMeter[i] = 0; padGr[i] = 0; lastVel[i] = 0; hits[i] = 0; pad[i].colour = i; }
     for (int i = 0; i < kScope; ++i) { scPk[i] = 0; scHit[i] = 0; scVel[i] = 0; }
     trigs.reserve (1024); events.reserve (1024); pend.reserve (512);
-    loadFactoryKit (0);
+    loadFactoryKit (1);
     loadPattern (0);
 }
 
@@ -721,6 +721,9 @@ void Processor::loadFactoryKit (int k)
         }
         else setSample (p, nullptr);
     }
+    if (K.pads.empty())   // kit vuoto: anche la sezione master torna ai valori di partenza
+        for (auto id : { "revSize", "revDamp", "revRet", "dlyTime", "dlyFb", "dlyTone", "dlyRet", "busMode", "busAmt", "clip", "out" })
+            if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->getDefaultValue());
     kitName = K.name; kitFile = juce::File();
 }
 bool Processor::saveKit (const juce::File& f, const juce::String& name)
