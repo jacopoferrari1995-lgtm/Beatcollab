@@ -17,26 +17,24 @@ juce::Font ft (float size, bool bold = false, bool mono = false);
 
 class Editor;
 
-// manopola 3D con anello di LED
 class Knob : public juce::Component
 {
 public:
     Knob (juce::String l, juce::Colour c) : label (std::move (l)), col (c) {}
-    std::function<float()> get;                 // normalizzato 0..1
+    std::function<float()> get;
     std::function<void (float)> set;
     std::function<juce::String()> text;
     std::function<void()> reset;
     bool bipolar = false;
     void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override { start = get(); dragging = true; }
+    void mouseDown (const juce::MouseEvent&) override { if (! get) return; start = get(); dragging = true; }
     void mouseUp (const juce::MouseEvent&) override { dragging = false; repaint(); }
-    void mouseDrag (const juce::MouseEvent& e) override { set (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 170.0f))); repaint(); }
+    void mouseDrag (const juce::MouseEvent& e) override { if (set) set (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 170.0f))); repaint(); }
     void mouseDoubleClick (const juce::MouseEvent&) override { if (reset) reset(); repaint(); }
-    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { set (juce::jlimit (0.0f, 1.0f, get() + (w.deltaY > 0 ? 0.01f : -0.01f))); repaint(); }
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { if (set) set (juce::jlimit (0.0f, 1.0f, get() + (w.deltaY > 0 ? 0.01f : -0.01f))); repaint(); }
     juce::String label; juce::Colour col; float start = 0; bool dragging = false;
 };
 
-// selettore LCD (clic avanza, clic destro torna, rotella)
 class Selector : public juce::Component
 {
 public:
@@ -48,7 +46,6 @@ public:
     juce::String label; juce::Colour col { Col::cyan };
 };
 
-// tasto in gomma con LED
 class Btn : public juce::Component
 {
 public:
@@ -75,15 +72,47 @@ public:
     Editor& ed; int pad; bool held = false, dragOver = false; float glow = 0, flash = 0; juce::uint32 lastHit = 0;
 };
 
-class Lcd : public juce::Component
+enum Page { PG_KIT, PG_MIX, PG_SAMPLE, PG_VEL, PG_EQ, PG_FILTER, PG_COMP, PG_FX, PG_MASTER, kNumPages };
+
+// schermo a pagine
+class Screen : public juce::Component, public juce::FileDragAndDropTarget
 {
 public:
-    explicit Lcd (Editor& e) : ed (e) {}
+    explicit Screen (Editor& e) : ed (e) {}
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
-    juce::Rectangle<float> wave() const;
-    Editor& ed; int marker = -1;
+    void mouseUp (const juce::MouseEvent&) override { drag = nullptr; }
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    bool isInterestedInFileDrag (const juce::StringArray&) override { return true; }
+    void filesDropped (const juce::StringArray&, int, int) override;
+
+    struct Hot
+    {
+        juce::Rectangle<float> r;
+        std::function<void (const juce::MouseEvent&)> down;
+        std::function<void (const juce::MouseEvent&)> drag;
+        std::function<void (float)> wheel;
+        std::function<void()> dbl;
+    };
+    std::vector<Hot> hots;
+    std::function<void (const juce::MouseEvent&)> drag;
+    Editor& ed; int kitScroll = 0;
+    juce::Rectangle<float> content() const { return getLocalBounds().toFloat().reduced (12).withTrimmedTop (56); }
+
+private:
+    void chip (juce::Graphics&, juce::Rectangle<float>, const juce::String& label, const juce::String& value, bool on, std::function<void (const juce::MouseEvent&)> click, juce::Colour c);
+    void padHeader (juce::Graphics&, juce::Rectangle<float>);
+    void pageKit (juce::Graphics&, juce::Rectangle<float>);
+    void pageMix (juce::Graphics&, juce::Rectangle<float>);
+    void pageSample (juce::Graphics&, juce::Rectangle<float>);
+    void pageVel (juce::Graphics&, juce::Rectangle<float>);
+    void pageEq (juce::Graphics&, juce::Rectangle<float>);
+    void pageFilter (juce::Graphics&, juce::Rectangle<float>);
+    void pageComp (juce::Graphics&, juce::Rectangle<float>);
+    void pageFx (juce::Graphics&, juce::Rectangle<float>);
+    void pageMaster (juce::Graphics&, juce::Rectangle<float>);
 };
 
 class PatternView : public juce::Component
@@ -92,17 +121,6 @@ public:
     explicit PatternView (Editor& e) : ed (e) {}
     void paint (juce::Graphics&) override;
     Editor& ed;
-};
-
-class Keys : public juce::Component
-{
-public:
-    explicit Keys (Editor& e) : ed (e) {}
-    void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override;
-    int noteAt (juce::Point<float>) const;
-    Editor& ed; int mouseNote = -1;
 };
 
 class DragMidi : public juce::Component
@@ -132,33 +150,39 @@ public:
     bool keyPressed (const juce::KeyPress&) override;
     bool keyStateChanged (bool) override;
     void selectPad (int p);
-    void playPad (int p, int vel);
-    void stopPad (int p);
-    int keyNote (int keyCode) const;        // nota dalla tastiera del computer, -1 se non mappata
-    static constexpr int W = 1240, H = 840;
+    void setPage (int pg);
+    void playPad (int p, int vel) { proc.uiNoteOn (p, vel); }
+    void stopPad (int p) { proc.uiNoteOff (p); }
+    static constexpr int W = 1240, H = 736;
 
     Processor& proc;
-    int sel = 0, octave = 1, kbVel = 100;   // ottava: C1 = nota 36
-    std::set<int> heldNotes;
+    int sel = 0, page = PG_KIT, octave = 1, kbVel = 100;
+    bool fullLevel = false;
     std::set<int> keysDown;
     std::unique_ptr<juce::FileChooser> chooser;
     void loadDialog (int p);
     void padMenu (int p);
+    void saveKit (bool askName);
+    void loadKitDialog();
+    void kitChanged();
+
+    // valori normalizzati dei parametri dei pad (per manopole e grafici)
+    static float toNorm (int i, float v);
+    static float fromNorm (int i, float n);
+    void setPadParam (int i, float v);
 
     Root root { *this };
-    Lcd lcd { *this };
+    Screen screen { *this };
     PatternView pattern { *this };
-    Keys keys { *this };
     DragMidi drag { *this };
     juce::OwnedArray<PadComp> pads;
-    juce::OwnedArray<Knob> padKnobs, globalKnobs;
+    juce::OwnedArray<Knob> qlinks, globalKnobs;
     juce::OwnedArray<Selector> selectors;
     juce::OwnedArray<Btn> btns;
-    std::map<int, juce::Component*> padCtl;   // indice parametro -> controllo
-    bool fullLevel = false;
 
 private:
     void timerCallback() override;
+    void bindQlinks();
     Knob* paramKnob (const char* id, const juce::String& label, juce::Colour c, std::function<juce::String (float)> fmt);
 };
 }
