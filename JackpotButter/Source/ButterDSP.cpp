@@ -1,4 +1,5 @@
 #include "ButterDSP.h"
+#include <complex>
 
 namespace jb
 {
@@ -24,6 +25,11 @@ void Burro::addParams (AudioProcessorValueTreeState::ParameterLayout& l)
     B ("u_spOn", "Space On", true); C ("u_spType", "Space Type", kSpace, 0); F ("u_spAmt", "Space Amount", 0, 1, 0); F ("u_spDecay", "Space Decay", 0, 1, 0.5f);
     F ("u_spPre", "Space Predelay", 0, 120, 10); F ("u_spDuck", "Space Duck", 0, 1, 0); F ("u_spWidth", "Space Width", 0, 1, 0.8f);
     B ("u_mOn", "Clip On", true); F ("u_mAmt", "Clip Drive", 0, 1, 0); C ("u_mStages", "Clip Stages", kStages, 1); F ("u_mTone", "Clip Tone", -1, 1, 0); F ("u_mTgt", "Clip Target", -1, 1, 0); C ("u_mFoc", "Clip Focus", kFocus, 0);
+    B ("u_eqOn", "EQ On", true);
+    F ("u_e1g", "EQ Low Gain", -15, 15, 0); F ("u_e1f", "EQ Low Freq", 30, 400, 90);
+    F ("u_e2g", "EQ LoMid Gain", -15, 15, 0); F ("u_e2f", "EQ LoMid Freq", 120, 2000, 400); F ("u_e2q", "EQ LoMid Q", 0.3f, 6, 1);
+    F ("u_e3g", "EQ HiMid Gain", -15, 15, 0); F ("u_e3f", "EQ HiMid Freq", 800, 10000, 3000); F ("u_e3q", "EQ HiMid Q", 0.3f, 6, 1);
+    F ("u_e4g", "EQ High Gain", -15, 15, 0); F ("u_e4f", "EQ High Freq", 3000, 18000, 9000);
     F ("u_tone", "Master Tone", -1, 1, 0); F ("u_air", "Master Air", 0, 1, 0); F ("u_att", "Master Attack", -1, 1, 0); F ("u_sus", "Master Sustain", -1, 1, 0); B ("u_clip", "Master Clip", false);
 }
 
@@ -326,6 +332,15 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
     {
         const float tone = v ("u_tone"), air = v ("u_air"), att = v ("u_att"), sus = v ("u_sus"); const bool clip = v ("u_clip") > 0.5f;
         const float tA = coef (900, sr), aA = coef (9000, sr);
+        const bool eqOn = v ("u_eqOn") > 0.5f;
+        {
+            const float pv[11] = { v ("u_e1g"), v ("u_e1f"), v ("u_e2g"), v ("u_e2f"), v ("u_e2q"), v ("u_e3g"), v ("u_e3f"), v ("u_e3q"), v ("u_e4g"), v ("u_e4f"), 0 };
+            if (std::memcmp (pv, lastEq, sizeof (pv)) != 0)
+            {
+                eq[0].set (0, sr, pv[1], pv[0], 0.707); eq[1].set (1, sr, pv[3], pv[2], pv[4]); eq[2].set (1, sr, pv[6], pv[5], pv[7]); eq[3].set (2, sr, pv[9], pv[8], 0.707);
+                std::memcpy (lastEq, pv, sizeof (pv));
+            }
+        }
         for (int i = 0; i < N; ++i)
         {
             const float x = 0.5f * (std::abs (ch[0][i]) + std::abs (ch[1][i]));
@@ -339,11 +354,45 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
                 if (tone != 0) { const float lp = onePole (y, tLp[c], tA); y = lp * (1 - tone * 0.5f) + (y - lp) * (1 + tone * 0.5f); }
                 if (air > 0) { const float lp = onePole (y, aLp[c], aA); y += (y - lp) * air * 2.0f; }
                 y *= g;
+                if (eqOn) for (int k = 0; k < 4; ++k) if (std::abs (lastEq[k == 0 ? 0 : k == 1 ? 2 : k == 2 ? 5 : 8]) > 0.05f) y = eq[k].run (y, c);
                 if (clip) { const float ay = std::abs (y); if (ay > 0.8f) y = std::copysign (0.8f + 0.2f * std::tanh ((ay - 0.8f) / 0.2f), y); }
                 const float dry = c == 0 ? dryL[(size_t) i] : dryR[(size_t) i];
                 ch[c][i] = dry + (y - dry) * mag;
             }
+            // dati per i display
+            const float in = 0.5f * (std::abs (dryL[(size_t) i]) + std::abs (dryR[(size_t) i])), out = 0.5f * (std::abs (ch[0][i]) + std::abs (ch[1][i]));
+            accIn = jmax (accIn, in); accOut = jmax (accOut, out); accTr = jmax (accTr, trW[(size_t) i]);
+            const int aw = anW.load (std::memory_order_relaxed);
+            anIn[aw] = 0.5f * (dryL[(size_t) i] + dryR[(size_t) i]); anOut[aw] = 0.5f * (ch[0][i] + ch[1][i]); anW.store ((aw + 1) % AN, std::memory_order_relaxed);
+            if (++accN >= (int) (sr / 120))
+            {
+                scIn.push (accIn); scOut.push (accOut); scGr.push (grMeter.load()); scTr.push (accTr);
+                accIn = accOut = accTr = 0; accN = 0;
+            }
         }
     }
+}
+}
+
+namespace jb
+{
+static void rbj (int type, double sr, double f, double gDb, double q, double& b0, double& b1, double& b2, double& a0, double& a1, double& a2)
+{
+    const double A = std::pow (10.0, gDb / 40.0), w = juce::MathConstants<double>::twoPi * juce::jlimit (10.0, sr * 0.45, f) / sr, cs = std::cos (w), sn = std::sin (w);
+    if (type == 1) { const double al = sn / (2 * q); b0 = 1 + al * A; b1 = -2 * cs; b2 = 1 - al * A; a0 = 1 + al / A; a1 = -2 * cs; a2 = 1 - al / A; return; }
+    const double sA = std::sqrt (A) * sn / std::sqrt (2.0);
+    if (type == 0) { b0 = A * ((A + 1) - (A - 1) * cs + sA); b1 = 2 * A * ((A - 1) - (A + 1) * cs); b2 = A * ((A + 1) - (A - 1) * cs - sA); a0 = (A + 1) + (A - 1) * cs + sA; a1 = -2 * ((A - 1) + (A + 1) * cs); a2 = (A + 1) + (A - 1) * cs - sA; }
+    else { b0 = A * ((A + 1) + (A - 1) * cs + sA); b1 = -2 * A * ((A - 1) + (A + 1) * cs); b2 = A * ((A + 1) + (A - 1) * cs - sA); a0 = (A + 1) - (A - 1) * cs + sA; a1 = 2 * ((A - 1) - (A + 1) * cs); a2 = (A + 1) - (A - 1) * cs - sA; }
+}
+void Biq::set (int type, double sr, double f, double gDb, double q)
+{
+    double B0, B1, B2, A0, A1, A2; rbj (type, sr, f, gDb, q, B0, B1, B2, A0, A1, A2);
+    b0 = (float) (B0 / A0); b1 = (float) (B1 / A0); b2 = (float) (B2 / A0); a1 = (float) (A1 / A0); a2 = (float) (A2 / A0);
+}
+float Biq::magDb (int type, double sr, double f, double gDb, double q, double hz)
+{
+    double B0, B1, B2, A0, A1, A2; rbj (type, sr, f, gDb, q, B0, B1, B2, A0, A1, A2);
+    const std::complex<double> z = std::polar (1.0, -juce::MathConstants<double>::twoPi * hz / sr), z2 = z * z;
+    return (float) (20.0 * std::log10 (std::abs ((B0 + B1 * z + B2 * z2) / (A0 + A1 * z + A2 * z2)) + 1e-12));
 }
 }
