@@ -1,0 +1,37 @@
+juce_add_plugin(JackpotPad
+  COMPANY_NAME "Jackpot.wav"
+  BUNDLE_ID "com.jackpotwav.jackpotpad"
+  IS_SYNTH TRUE
+  NEEDS_MIDI_INPUT TRUE
+  NEEDS_MIDI_OUTPUT FALSE
+  IS_MIDI_EFFECT FALSE
+  EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+  COPY_PLUGIN_AFTER_BUILD FALSE
+  PLUGIN_MANUFACTURER_CODE Jkpt
+  PLUGIN_CODE Jpad
+  AU_MAIN_TYPE kAudioUnitType_MusicDevice
+  FORMATS ${JP_FORMATS}
+  PRODUCT_NAME "Jackpot Pad")
+
+target_sources(JackpotPad PRIVATE
+  Source/PadProcessor.cpp
+  Source/PadEditor.cpp
+  Source/KitGen.cpp)
+
+target_compile_definitions(JackpotPad PUBLIC
+  JUCE_WEB_BROWSER=0
+  JUCE_USE_CURL=0
+  JUCE_VST3_CAN_REPLACE_VST2=0
+  JUCE_DISPLAY_SPLASH_SCREEN=0)
+
+target_link_libraries(JackpotPad
+  PRIVATE juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp
+  PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
+
+if(J60_TEST)
+  juce_add_console_app(PadTest PRODUCT_NAME "PadTest")
+  target_sources(PadTest PRIVATE test/main.cpp Source/PadProcessor.cpp Source/PadEditor.cpp Source/KitGen.cpp)
+  target_compile_definitions(PadTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotPad")
+  target_link_libraries(PadTest PRIVATE juce::juce_audio_utils juce::juce_dsp)
+endif()

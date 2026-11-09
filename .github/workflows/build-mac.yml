@@ -18,10 +18,11 @@ jobs:
         run: |
           cmake --build build --config Release --target Jackpot60_AU -- -quiet
           cmake --build build --config Release --target JackpotTape_AU -- -quiet
+          cmake --build build --config Release --target JackpotPad_AU -- -quiet
       - name: Firma, validazione, zip
         run: |
           mkdir -p out ~/Library/Audio/Plug-Ins/Components
-          for NAME in "Jackpot 60" "Jackpot Tape"; do
+          for NAME in "Jackpot 60" "Jackpot Tape" "Jackpot Pad"; do
             C="$(find build -name "$NAME.component" -type d | head -1)"
             echo "trovato: $C"
             codesign --force --deep -s - "$C"
@@ -31,9 +32,11 @@ jobs:
           killall -9 AudioComponentRegistrar || true
           auval -v aumu Jk60 Jkpt | tail -5 || true
           auval -v aufx Jtap Jkpt | tail -5 || true
+          auval -v aumu Jpad Jkpt | tail -5 || true
           cd out
           ditto -c -k --keepParent "Jackpot 60.component" "Jackpot60-AU.zip"
           ditto -c -k --keepParent "Jackpot Tape.component" "JackpotTape-AU.zip"
+          ditto -c -k --keepParent "Jackpot Pad.component" "JackpotPad-AU.zip"
           ditto -c -k --sequesterRsrc . "../Jackpot-Plugins-AU.zip"
       - uses: actions/upload-artifact@v4
         with:
@@ -44,6 +47,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="plugins-v1.0.${{ github.run_number }}"
-          gh release create "$TAG" out/Jackpot60-AU.zip out/JackpotTape-AU.zip \
-            --target "${{ github.sha }}" --title "Jackpot 60 + Jackpot Tape (AU) $TAG" \
+          gh release create "$TAG" out/Jackpot60-AU.zip out/JackpotTape-AU.zip out/JackpotPad-AU.zip \
+            --target "${{ github.sha }}" --title "Jackpot Pad + Jackpot 60 + Jackpot Tape (AU) $TAG" \
             --notes "Plugin Audio Unit per macOS (Apple Silicon e Intel). Scompatta, copia i .component in ~/Library/Audio/Plug-Ins/Components, poi: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Jackpot*.component"
