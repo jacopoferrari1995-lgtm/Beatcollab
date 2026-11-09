@@ -194,64 +194,76 @@ struct ABCompare
     template <class P> void copyToOther (P& proc) { proc.getStateInformation (slot[cur ^ 1]); }
     juce::String label() const { return cur == 0 ? "A" : "B"; }
 };
-// manopola 3D della serie: incavo con arco luminoso, gonna zigrinata, cappello metallico spazzolato
+// manopola della serie: corpo ottagonale sfaccettato che ruota, anello di LED a segmenti, punta al neon
 struct KnobLook { bool big = false, bipolar = false; float hover = 0, active = 0, activity = 0; bool enabled = true; };
 inline void drawKnob (juce::Graphics& g, juce::Rectangle<float> area, float v, juce::Colour col, const KnobLook& k)
 {
     using namespace juce;
     const float size = jmin (area.getWidth(), area.getHeight());
     const float cx = area.getCentreX(), cy = area.getY() + size * 0.5f;
-    const float R = size * 0.5f - (k.big ? 5.0f : 3.5f), tw = k.big ? 5.0f : 3.4f;
-    const float a0 = -2.36f, a1 = 2.36f, av = a0 + jlimit (0.0f, 1.0f, v) * (a1 - a0);
+    const float R = size * 0.5f - (k.big ? 4.0f : 3.0f);
+    const float a0 = -2.36f, a1 = 2.36f, vv = jlimit (0.0f, 1.0f, v), av = a0 + vv * (a1 - a0);
     const auto c = k.enabled ? col : Colour (0xff4f5562);
     const float live = jlimit (0.0f, 1.0f, jmax (k.hover * 0.6f, k.active, k.activity * 0.8f));
+    auto P = [cx, cy] (float a, float r) { return Point<float> (cx + std::sin (a) * r, cy - std::cos (a) * r); };
     // alone
-    if (live > 0.01f) { ColourGradient hg (c.withAlpha (0.2f * live), cx, cy, c.withAlpha (0.0f), cx + R * 1.3f, cy, true); g.setGradientFill (hg); g.fillEllipse (cx - R * 1.3f, cy - R * 1.3f, R * 2.6f, R * 2.6f); }
-    // incavo
-    { ColourGradient gr (Colour (0xff050608), cx, cy - R, Colour (0xff1c1f26), cx, cy + R, false); g.setGradientFill (gr); g.fillEllipse (cx - R - tw * 0.6f, cy - R - tw * 0.6f, (R + tw * 0.6f) * 2, (R + tw * 0.6f) * 2); }
-    g.setColour (Colours::white.withAlpha (0.06f)); { Path lip; lip.addCentredArc (cx, cy, R + tw * 0.6f, R + tw * 0.6f, 0, 1.9f, 4.4f, true); g.strokePath (lip, PathStrokeType (1.0f)); }
-    // tacche
-    for (int i = 0; i <= 10; ++i)
+    if (live > 0.01f) { ColourGradient hg (c.withAlpha (0.22f * live), cx, cy, c.withAlpha (0.0f), cx + R * 1.3f, cy, true); g.setGradientFill (hg); g.fillEllipse (cx - R * 1.3f, cy - R * 1.3f, R * 2.6f, R * 2.6f); }
+    // anello di LED a segmenti trapezoidali
+    const int nSeg = k.big ? 27 : 19; const float rO = R, rI = R - (k.big ? 7.0f : 5.0f);
+    const float span = (a1 - a0) / nSeg, gap = span * 0.28f;
+    const float mid = k.bipolar ? 0.5f : 0.0f;
+    for (int i = 0; i < nSeg; ++i)
     {
-        const float a = a0 + i / 10.0f * (a1 - a0), r1 = R + tw * 0.9f, r2 = R + tw * 0.9f + (i % 5 == 0 ? 3.5f : 2.0f);
-        g.setColour (Colours::white.withAlpha (i % 5 == 0 ? 0.28f : 0.14f)); g.drawLine (cx + std::sin (a) * r1, cy - std::cos (a) * r1, cx + std::sin (a) * r2, cy - std::cos (a) * r2, 1.0f);
+        const float s0 = a0 + i * span + gap * 0.5f, s1 = s0 + span - gap, t = (i + 0.5f) / nSeg;
+        const bool lit = k.enabled && (k.bipolar ? ((vv >= mid && t >= mid && t <= vv + 0.5f / nSeg) || (vv < mid && t <= mid && t >= vv - 0.5f / nSeg)) && std::abs (vv - mid) > 0.01f : t <= vv + 0.5f / nSeg && vv > 0.005f);
+        Path seg; seg.startNewSubPath (P (s0, rI)); seg.lineTo (P (s0, rO)); seg.lineTo (P (s1, rO)); seg.lineTo (P (s1, rI)); seg.closeSubPath();
+        if (lit)
+        {
+            const float hot = 0.55f + 0.45f * t;   // piu caldi verso la fine
+            g.setColour (c.withAlpha (0.22f + 0.2f * live)); g.strokePath (seg, PathStrokeType (3.0f, PathStrokeType::mitered));
+            g.setColour (c.interpolatedWith (Colours::white, 0.12f * hot + 0.2f * live)); g.fillPath (seg);
+        }
+        else { g.setColour (Colour (0xff1a1d24)); g.fillPath (seg); g.setColour (Colours::white.withAlpha (0.04f)); g.strokePath (seg, PathStrokeType (0.6f)); }
     }
-    // pista e arco del valore
-    Path track; track.addCentredArc (cx, cy, R, R, 0, a0, a1, true);
-    g.setColour (Colour (0xff0b0c10)); g.strokePath (track, PathStrokeType (tw, PathStrokeType::curved, PathStrokeType::rounded));
-    g.setColour (Colours::white.withAlpha (0.035f)); g.strokePath (track, PathStrokeType (tw * 0.4f, PathStrokeType::curved, PathStrokeType::rounded));
-    const float from = k.bipolar ? 0.0f : a0;
-    if (k.enabled && std::abs (av - from) > 0.015f)
+    // corpo ottagonale che ruota con il valore
+    const float rb = rI - (k.big ? 5.0f : 3.5f), rf = rb * 0.72f; const int NS = 8;
+    auto poly = [&] (float r, float rot) { Path p; for (int i = 0; i < NS; ++i) { const auto q = P (rot + i * MathConstants<float>::twoPi / NS + MathConstants<float>::pi / NS, r); if (i == 0) p.startNewSubPath (q); else p.lineTo (q); } p.closeSubPath(); return p; };
+    const float rot = av;
+    { auto body = poly (rb, rot); DropShadow (Colours::black.withAlpha (0.8f), (int) (rb * 0.5f), { 0, (int) (rb * 0.22f) }).drawForPath (g, body); }
+    // smussi: ogni faccia ha una luce in base alla sua direzione (luce dall'alto a sinistra)
+    for (int i = 0; i < NS; ++i)
     {
-        Path val; val.addCentredArc (cx, cy, R, R, 0, jmin (from, av), jmax (from, av), true);
-        g.setColour (c.withAlpha (0.14f + 0.28f * live)); g.strokePath (val, PathStrokeType (tw * 3.0f, PathStrokeType::curved, PathStrokeType::rounded));
-        ColourGradient vg (c.darker (0.35f), cx - R, cy + R, c.brighter (0.3f + 0.4f * live), cx + std::sin (av) * R, cy - std::cos (av) * R, false);
-        g.setGradientFill (vg); g.strokePath (val, PathStrokeType (tw, PathStrokeType::curved, PathStrokeType::rounded));
-        g.setColour (Colours::white.withAlpha (0.35f)); g.strokePath (val, PathStrokeType (tw * 0.28f, PathStrokeType::curved, PathStrokeType::rounded));
+        const float fa0 = rot + i * MathConstants<float>::twoPi / NS + MathConstants<float>::pi / NS, fa1 = fa0 + MathConstants<float>::twoPi / NS, fm = 0.5f * (fa0 + fa1);
+        const float lit = 0.5f + 0.5f * std::cos (fm + 0.7f);   // 1 = verso la luce
+        Path f; f.startNewSubPath (P (fa0, rb)); f.lineTo (P (fa1, rb)); f.lineTo (P (fa1, rf)); f.lineTo (P (fa0, rf)); f.closeSubPath();
+        g.setColour (Colour (0xff15171c).interpolatedWith (Colour (0xff5d6370), lit * 0.85f)); g.fillPath (f);
+        g.setColour (Colours::black.withAlpha (0.35f)); g.drawLine (Line<float> (P (fa0, rb), P (fa0, rf)), 0.8f);
     }
-    // corpo
-    const float rb = R - tw - (k.big ? 5.0f : 3.5f), rc = rb * 0.76f;
-    { Path body; body.addEllipse (cx - rb, cy - rb, rb * 2, rb * 2); DropShadow (Colours::black.withAlpha (0.75f), (int) (rb * 0.55f), { 0, (int) (rb * 0.22f) }).drawForPath (g, body); }
-    { ColourGradient sk (Colour (0xff545a66), cx, cy - rb, Colour (0xff0c0d11), cx, cy + rb, false); sk.addColour (0.45, Colour (0xff2a2e36)); g.setGradientFill (sk); g.fillEllipse (cx - rb, cy - rb, rb * 2, rb * 2); }
-    // zigrinatura della gonna
-    const int nk = k.big ? 60 : 40;
-    for (int i = 0; i < nk; ++i)
+    g.setColour (Colours::black.withAlpha (0.7f)); g.strokePath (poly (rb, rot), PathStrokeType (1.0f));
+    // faccia superiore spazzolata
     {
-        const float a = i * MathConstants<float>::twoPi / nk, lit = 0.5f + 0.5f * -std::cos (a);   // piu chiara in alto
-        g.setColour ((i % 2 ? Colours::black : Colours::white).withAlpha (i % 2 ? 0.28f : 0.05f + 0.08f * lit));
-        g.drawLine (cx + std::sin (a) * rc * 1.02f, cy - std::cos (a) * rc * 1.02f, cx + std::sin (a) * rb * 0.98f, cy - std::cos (a) * rb * 0.98f, 1.0f);
+        auto face = poly (rf, rot);
+        ColourGradient fg (Colour (0xff3a3f4a), cx - rf * 0.5f, cy - rf, Colour (0xff121419), cx + rf * 0.5f, cy + rf, false); g.setGradientFill (fg); g.fillPath (face);
+        g.saveState(); g.reduceClipRegion (face);
+        for (float yy = -rf; yy < rf; yy += 1.7f) { const float ca = std::cos (rot), sa = std::sin (rot); g.setColour (Colours::white.withAlpha (0.025f)); g.drawLine (cx + (-rf) * ca - yy * sa, cy + (-rf) * sa + yy * ca, cx + rf * ca - yy * sa, cy + rf * sa + yy * ca, 0.6f); }
+        ColourGradient sp (Colours::white.withAlpha (0.16f), cx - rf * 0.4f, cy - rf * 0.8f, Colours::transparentWhite, cx, cy + rf * 0.2f, false); g.setGradientFill (sp); g.fillPath (face);
+        g.restoreState();
+        g.setColour (Colours::white.withAlpha (0.12f)); g.strokePath (face, PathStrokeType (0.8f));
+        // viti agli angoli alterni
+        for (int i = 0; i < NS; i += 2) { const auto q = P (rot + i * MathConstants<float>::twoPi / NS + MathConstants<float>::pi / NS, rf * 0.78f); g.setColour (Colours::black.withAlpha (0.6f)); g.fillEllipse (q.x - 1.6f, q.y - 1.6f, 3.2f, 3.2f); g.setColour (Colours::white.withAlpha (0.18f)); g.fillEllipse (q.x - 1.0f, q.y - 1.3f, 1.6f, 1.2f); }
     }
-    { Path rim; rim.addCentredArc (cx, cy, rb - 0.5f, rb - 0.5f, 0, -1.2f, 1.2f, true); g.setColour (Colours::white.withAlpha (0.22f)); g.strokePath (rim, PathStrokeType (1.0f)); }
-    // cappello spazzolato
-    { ColourGradient cg (Colour (0xff3e434e), cx - rc * 0.35f, cy - rc * 0.6f, Colour (0xff121419), cx + rc * 0.5f, cy + rc, true); g.setGradientFill (cg); g.fillEllipse (cx - rc, cy - rc, rc * 2, rc * 2); }
-    for (float rr = rc * 0.95f; rr > 2; rr -= 1.6f) { g.setColour (Colours::white.withAlpha (0.018f)); g.drawEllipse (cx - rr, cy - rr, rr * 2, rr * 2, 0.6f); }
-    { ColourGradient sp (Colours::white.withAlpha (0.22f), cx - rc * 0.25f, cy - rc * 0.75f, Colours::transparentWhite, cx - rc * 0.25f, cy, true); g.setGradientFill (sp); g.fillEllipse (cx - rc, cy - rc, rc * 2, rc * 2); }
-    g.setColour (Colours::black.withAlpha (0.5f)); g.drawEllipse (cx - rc, cy - rc, rc * 2, rc * 2, 1.0f);
-    g.setColour (Colours::white.withAlpha (0.08f)); { Path cr; cr.addCentredArc (cx, cy, rc - 1, rc - 1, 0, -1.4f, 1.4f, true); g.strokePath (cr, PathStrokeType (1.0f)); }
-    // indicatore
-    const float sx = std::sin (av), sy = -std::cos (av);
-    g.setColour (c.withAlpha (k.enabled ? 0.35f : 0.1f)); g.drawLine (cx + sx * rc * 0.3f, cy + sy * rc * 0.3f, cx + sx * rc * 0.9f, cy + sy * rc * 0.9f, k.big ? 6.0f : 4.5f);
-    g.setColour (k.enabled ? c.brighter (0.7f) : Colour (0xff6b7180)); g.drawLine (cx + sx * rc * 0.34f, cy + sy * rc * 0.34f, cx + sx * rc * 0.88f, cy + sy * rc * 0.88f, k.big ? 2.4f : 1.8f);
-    g.setColour (c.brighter (0.4f).withAlpha (k.enabled ? 0.9f : 0.2f)); g.fillEllipse (cx + sx * (rb - 3) - 1.6f, cy + sy * (rb - 3) - 1.6f, 3.2f, 3.2f);
+    // indicatore: scanalatura con luce al neon e punta a freccia
+    const float sx = std::sin (av), sy = -std::cos (av), px = std::cos (av), py = std::sin (av);
+    g.setColour (Colours::black.withAlpha (0.7f)); g.drawLine (cx + sx * rf * 0.15f, cy + sy * rf * 0.15f, cx + sx * rf * 0.95f, cy + sy * rf * 0.95f, k.big ? 4.5f : 3.4f);
+    g.setColour (c.withAlpha (k.enabled ? 0.4f : 0.1f)); g.drawLine (cx + sx * rf * 0.2f, cy + sy * rf * 0.2f, cx + sx * rf * 0.92f, cy + sy * rf * 0.92f, k.big ? 4.0f : 3.0f);
+    g.setColour (k.enabled ? c.brighter (0.8f) : Colour (0xff6b7180)); g.drawLine (cx + sx * rf * 0.22f, cy + sy * rf * 0.22f, cx + sx * rf * 0.9f, cy + sy * rf * 0.9f, k.big ? 1.8f : 1.3f);
+    {
+        const float tip = rb + 1.0f, w = k.big ? 4.0f : 3.0f;
+        Path ch; ch.startNewSubPath (cx + sx * tip, cy + sy * tip); ch.lineTo (cx + sx * (tip - w * 1.6f) + px * w, cy + sy * (tip - w * 1.6f) + py * w); ch.lineTo (cx + sx * (tip - w * 1.6f) - px * w, cy + sy * (tip - w * 1.6f) - py * w); ch.closeSubPath();
+        g.setColour (c.withAlpha (k.enabled ? 0.35f : 0.1f)); g.strokePath (ch, PathStrokeType (2.5f));
+        g.setColour (k.enabled ? c.brighter (0.5f) : Colour (0xff6b7180)); g.fillPath (ch);
+    }
+    // centro: piccolo esagono incassato
+    { Path hx; for (int i = 0; i < 6; ++i) { const auto q = P (rot + i * MathConstants<float>::twoPi / 6, rf * 0.16f); if (i == 0) hx.startNewSubPath (q); else hx.lineTo (q); } hx.closeSubPath(); g.setColour (Colours::black.withAlpha (0.65f)); g.fillPath (hx); g.setColour (c.withAlpha (0.35f + 0.4f * live)); g.strokePath (hx, PathStrokeType (0.8f)); }
 }
 }
