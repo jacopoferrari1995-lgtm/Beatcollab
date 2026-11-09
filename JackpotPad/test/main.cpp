@@ -12,22 +12,29 @@ int main()
         float pk = 0; for (int b = 0; b < 20; ++b) { p.processBlock (blk, m); m.clear(); for (int i = 0; i < 512; ++i) pk = std::max (pk, std::abs (blk.getSample (0, i))); }
         std::printf ("kick vel %3d -> picco %.3f (%.1f dB)\n", vel, pk, juce::Decibels::gainToDecibels (pk));
     }
-    // registrazione: nota suonata in ritardo di 7 tick sul secondo sedicesimo, swing 66
+    // swing sulle note MIDI: nota sul secondo sedicesimo, swing 66, trasporto interno
     p.apvts.getParameter ("swing")->setValueNotifyingHost (p.apvts.getParameter ("swing")->convertTo0to1 (66));
-    p.requestPlay (true); p.recording = true;
-    const double tps = 120.0 / 60 * PPQ / sr; int hitsPlayed = 0; std::vector<int> onsets;
-    for (int b = 0; b < 400; ++b)
+    p.requestPlay (true);
+    { juce::MidiBuffer m; p.processBlock (blk, m); }
     {
-        juce::MidiBuffer m;
-        const double t0 = b * 512 * tps, t1 = t0 + 512 * tps;
-        for (double target : { 0.0 + 3, 24.0 + 7, 48.0 - 4 }) if (target >= t0 && target < t1 && b < 50) m.addEvent (juce::MidiMessage::noteOn (1, 37, (juce::uint8) 90), (int) ((target - t0) / tps));
-        p.processBlock (blk, m);
-        for (int c = 0; c < 2; ++c) for (int i = 0; i < 512; ++i) { const float x = blk.getSample (c, i); if (! std::isfinite (x)) nan = true; peak = std::max (peak, std::abs (x)); }
-        if (b == 60) p.recording = false;
+        const double tps = 120.0 / 60 * PPQ / sr; double t = 512 * tps; int onsetBlock = -1, onsetPos = -1;
+        // nota a tick 24 (secondo sedicesimo): attesa a 24 + 0.32*24 = 31.7 tick
+        const int b0 = (int) (24.0 / tps) / 512, off = (int) (24.0 / tps) % 512;
+        for (int b = 1; b < 24; ++b)
+        {
+            juce::MidiBuffer m; if (b == b0) m.addEvent (juce::MidiMessage::noteOn (1, 37, (juce::uint8) 100), off);
+            const auto before = p.hits[1].load(); p.processBlock (blk, m);
+            if (p.hits[1].load() != before && onsetBlock < 0) { onsetBlock = b; for (int i = 0; i < 512; ++i) if (std::abs (blk.getSample (0, i)) > 1e-4f) { onsetPos = i; break; } }
+            t += 512 * tps;
+        }
+        const double got = (onsetBlock * 512 + onsetPos) * tps;
+        std::printf ("swing MIDI: nota a 24 tick suonata a %.1f tick (atteso ~31.7)\n", got);
     }
-    std::printf ("eventi registrati %d, quantizzati:", (int) p.events.size());
-    for (auto& e : p.events) std::printf (" %.1f->%.1f", e.tick, p.quantize (e.tick));
-    std::printf ("\npeak %.3f nan %d\n", peak, (int) nan);
+    // banca loop
+    for (int i = 0; i < (int) patternBank().size(); ++i)
+        for (auto& [pd, str] : patternBank()[(size_t) i].lanes) if (std::strlen (str) != 32) std::printf ("PATTERN ERRATO %s %s pad %d len %d\n", patternBank()[(size_t) i].genre, patternBank()[(size_t) i].name, pd, (int) std::strlen (str));
+    p.loadPattern (4); p.loopOn = true; p.varyPattern();
+    std::printf ("pattern caricato: %d note\n", (int) p.events.size());
     // ogni kit, ogni pad, con catena attiva
     for (int k = 0; k < (int) factoryKits().size(); ++k)
     {

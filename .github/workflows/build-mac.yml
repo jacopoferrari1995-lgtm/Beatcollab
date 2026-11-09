@@ -19,6 +19,7 @@ jobs:
           cmake --build build --config Release --target Jackpot60_AU -- -quiet
           cmake --build build --config Release --target JackpotTape_AU -- -quiet
           cmake --build build --config Release --target JackpotPad_AU -- -quiet
+          cmake --build build --config Release --target JackpotPad_VST3 -- -quiet
       - name: Firma, validazione, zip
         run: |
           mkdir -p out ~/Library/Audio/Plug-Ins/Components
@@ -29,6 +30,9 @@ jobs:
             cp -R "$C" ~/Library/Audio/Plug-Ins/Components/
             cp -R "$C" out/
           done
+          V="$(find build -name 'Jackpot Pad.vst3' -type d | head -1)"
+          codesign --force --deep -s - "$V"
+          cp -R "$V" out/
           killall -9 AudioComponentRegistrar || true
           auval -v aumu Jk60 Jkpt | tail -5 || true
           auval -v aufx Jtap Jkpt | tail -5 || true
@@ -37,6 +41,7 @@ jobs:
           ditto -c -k --keepParent "Jackpot 60.component" "Jackpot60-AU.zip"
           ditto -c -k --keepParent "Jackpot Tape.component" "JackpotTape-AU.zip"
           ditto -c -k --keepParent "Jackpot Pad.component" "JackpotPad-AU.zip"
+          ditto -c -k --keepParent "Jackpot Pad.vst3" "JackpotPad-VST3.zip"
           ditto -c -k --sequesterRsrc . "../Jackpot-Plugins-AU.zip"
       - uses: actions/upload-artifact@v4
         with:
@@ -47,6 +52,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="plugins-v1.0.${{ github.run_number }}"
-          gh release create "$TAG" out/Jackpot60-AU.zip out/JackpotTape-AU.zip out/JackpotPad-AU.zip \
+          gh release create "$TAG" out/Jackpot60-AU.zip out/JackpotTape-AU.zip out/JackpotPad-AU.zip out/JackpotPad-VST3.zip \
             --target "${{ github.sha }}" --title "Jackpot Pad + Jackpot 60 + Jackpot Tape (AU) $TAG" \
             --notes "Plugin Audio Unit per macOS (Apple Silicon e Intel). Scompatta, copia i .component in ~/Library/Audio/Plug-Ins/Components, poi: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Jackpot*.component"

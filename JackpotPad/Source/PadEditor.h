@@ -99,6 +99,12 @@ public:
     std::vector<Hot> hots;
     std::function<void (const juce::MouseEvent&)> drag;
     Editor& ed; int kitScroll = 0;
+    // chop
+    int chopMode = 0, chopDiv = 1; bool chopSnap = true; int dragMark = -1; float lastFx = 0;
+    std::vector<float> marks, onsets; const SampleData* chopSmp = nullptr;
+    void buildChop();
+    float snapPos (float fx) const;
+    std::vector<float> gridLines() const;
     juce::Rectangle<float> content() const { return getLocalBounds().toFloat().reduced (12).withTrimmedTop (56); }
 
 private:
@@ -156,8 +162,8 @@ public:
     static constexpr int W = 1240, H = 736;
 
     Processor& proc;
-    int sel = 0, page = PG_KIT, octave = 1, kbVel = 100;
-    bool fullLevel = false;
+    int sel = 0, page = PG_KIT, octave = 1, kbVel = 100, genre = 0;
+    bool fullLevel = false, kbOn = false, exportSwing = false;
     std::set<int> keysDown;
     std::unique_ptr<juce::FileChooser> chooser;
     void loadDialog (int p);

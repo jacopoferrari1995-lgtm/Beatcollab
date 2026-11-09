@@ -21,7 +21,7 @@ const PInfo kPInfo[kNumPadParams] = {
     { "cmode",  "COMP",      0, 3, 0, 6 },          { "camt",  "AMOUNT",    0, 1, 0.4f, 0 },       { "cmake", "MAKEUP",    0, 18, 0, 11 },   { "cmix",  "MIX",       0, 1, 1, 0 },
     { "drive",  "DRIVE",     0, 1, 0, 0 },          { "bits",  "BIT",       0, 1, 0, 0 },          { "rate",  "RATE",      0, 1, 0, 0 },
     { "srev",   "REVERB",    0, 1, 0, 0 },          { "sdly",  "DELAY",     0, 1, 0, 0 },
-    { "mute",   "MUTE",      0, 1, 0, 8 },          { "solo",  "SOLO",      0, 1, 0, 8 } };
+    { "mute",   "MUTE",      0, 1, 0, 8 },          { "solo",  "SOLO",      0, 1, 0, 8 },          { "slice", "SLICE",     0, 64, 0, 7 } };
 
 int choiceCount (int i) { return i == FTYPE ? 3 : i == WARP ? 3 : i == CMODE ? 4 : i == CHOKE ? 9 : 2; }
 
@@ -89,10 +89,7 @@ float Biquad::magDb (int type, double sr, double f, double gDb, double q, double
 
 // ---------------- parametri globali ----------------
 static const juce::StringArray kCurves { "LINEARE", "MORBIDA", "DURA", "S", "FISSA 127" };
-static const juce::StringArray kGrid { "1/8", "1/8T", "1/16", "1/16T", "1/32" };
-static const double kGridTicks[] = { 48, 32, 24, 16, 12 };
-static const juce::StringArray kLen { "1 BAR", "2 BAR", "4 BAR", "8 BAR" };
-static const int kLenBars[] = { 1, 2, 4, 8 };
+static const juce::StringArray kSwGrid { "1/8", "1/16" };
 static const juce::StringArray kDly { "1/16", "1/8T", "1/8", "1/8D", "1/4", "1/4D", "1/2" };
 static const double kDlyBeats[] = { 0.25, 1.0 / 3.0, 0.5, 0.75, 1.0, 1.5, 2.0 };
 static const juce::StringArray kBus { "OFF", "GLUE", "PUNCH", "SMASH" };
@@ -105,13 +102,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     auto C = [&l] (const char* id, const char* n, const StringArray& c, int d) { l.add (std::make_unique<AudioParameterChoice> (ParameterID { id, 1 }, n, c, d)); };
     F ("out", "Output", -30, 6, 0);
     C ("curve", "Velocity Curve", kCurves, 0);
-    C ("grid", "Quantize Grid", kGrid, 2);
     F ("swing", "Swing", 50, 75, 50);
-    F ("strength", "Quantize Strength", 0, 100, 100);
-    C ("len", "Loop Length", kLen, 1);
+    C ("swGrid", "Swing Grid", kSwGrid, 1);
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "swMidi", 1 }, "Swing sulle note MIDI", true));
+    F ("human", "Humanize", 0, 1, 0);
     F ("bpm", "BPM interno", 50, 220, 120);
     l.add (std::make_unique<AudioParameterInt> (ParameterID { "root", 1 }, "Nota del pad 1", 0, 112, 36));
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "click", 1 }, "Metronomo", false));
+
     F ("revSize", "Reverb Size", 0, 1, 0.5f); F ("revDamp", "Reverb Damp", 0, 1, 0.5f); F ("revRet", "Reverb Return", 0, 1, 0.7f);
     C ("dlyTime", "Delay Time", kDly, 3); F ("dlyFb", "Delay Feedback", 0, 0.95f, 0.35f); F ("dlyTone", "Delay Tone", 0, 1, 0.5f); F ("dlyRet", "Delay Return", 0, 1, 0.6f);
     C ("busMode", "Bus Comp", kBus, 0); F ("busAmt", "Bus Comp Amount", 0, 1, 0.4f);
@@ -125,8 +122,9 @@ Processor::Processor()
 {
     formats.registerBasicFormats();
     for (int i = 0; i < kPads; ++i) { padGlow[i] = 0; padMeter[i] = 0; padGr[i] = 0; lastVel[i] = 0; hits[i] = 0; pad[i].colour = i; }
-    trigs.reserve (1024); events.reserve (4096);
+    trigs.reserve (1024); events.reserve (1024); pend.reserve (512);
     loadFactoryKit (0);
+    loadPattern (0);
 }
 
 void Processor::prepareToPlay (double s, int block)
@@ -276,29 +274,54 @@ void Processor::render (Voice& v, float* L, float* R, int i)
     L[i] += out[0] * g; R[i] += out[1] * g;
 }
 
-int Processor::loopTicks() const { return kLenBars[juce::jlimit (0, 3, (int) apvts.getRawParameterValue ("len")->load())] * kBar; }
-
-double Processor::quantize (double t) const
+double Processor::swingTick (double t) const
 {
-    const int gi = juce::jlimit (0, 4, (int) apvts.getRawParameterValue ("grid")->load());
-    const double g = kGridTicks[gi], sw = apvts.getRawParameterValue ("swing")->load(), st = apvts.getRawParameterValue ("strength")->load() / 100.0;
-    const double n = std::round (t / g); double q = n * g;
-    const bool straight = gi == 0 || gi == 2 || gi == 4;
-    if (straight && ((juce::int64) n % 2 != 0)) q += (sw - 50.0) / 50.0 * g;
-    const double L = loopTicks(); double r = t + (q - t) * st;
-    r = std::fmod (r, L); if (r < 0) r += L;
-    return r;
+    const double g = apvts.getRawParameterValue ("swGrid")->load() > 0.5f ? 24.0 : 48.0;
+    const double sw = apvts.getRawParameterValue ("swing")->load();
+    const double n = std::round (t / g);
+    if (((juce::int64) n % 2 != 0) && std::abs (t - n * g) < g * 0.3) return n * g + (sw - 50.0) / 50.0 * g + (t - n * g);
+    return t;
 }
 
-void Processor::record (int p, int vel, double tick, double absTick)
+void Processor::loadPattern (int index)
 {
-    const juce::SpinLock::ScopedTryLockType l (recLock);
-    if (l.isLocked() && events.size() < 8000) events.push_back ({ std::fmod (tick, (double) loopTicks()), p, vel, absTick });
+    const auto& bank = patternBank(); index = juce::jlimit (0, (int) bank.size() - 1, index);
+    std::vector<PatEv> ev;
+    for (auto& [pd, str] : bank[(size_t) index].lanes)
+    {
+        const juce::String s (str);
+        for (int i = 0; i < juce::jmin (32, s.length()); ++i)
+        {
+            const auto c = s[i]; const int vel = c == 'X' ? 127 : c == 'x' ? 100 : c == 'o' ? 72 : c == '-' ? 48 : 0;
+            if (vel > 0 && pd >= 1 && pd <= kPads) ev.push_back ({ i * 24.0, pd - 1, vel });
+        }
+    }
+    const juce::SpinLock::ScopedLockType l (recLock); events = std::move (ev); patternIndex = index;
 }
-void Processor::erasePad (int p)
+void Processor::randomPattern (const juce::String& genre)
 {
-    const juce::SpinLock::ScopedLockType l (recLock);
-    events.erase (std::remove_if (events.begin(), events.end(), [p] (const RecEv& e) { return e.pad == p; }), events.end());
+    juce::Array<int> idx; const auto& bank = patternBank();
+    for (int i = 0; i < (int) bank.size(); ++i) if (genre.isEmpty() || genre == bank[(size_t) i].genre) idx.add (i);
+    if (idx.isEmpty()) return;
+    juce::Random r; int pick = idx[r.nextInt (idx.size())];
+    if (idx.size() > 1) while (pick == patternIndex) pick = idx[r.nextInt (idx.size())];
+    loadPattern (pick); varyPattern();
+}
+void Processor::varyPattern()
+{
+    juce::Random r; const juce::SpinLock::ScopedLockType l (recLock);
+    std::vector<PatEv> out;
+    bool hasHat = false; for (auto& e : events) if (e.pad == 3) hasHat = true;
+    for (auto e : events)
+    {
+        if (e.pad == 0 && e.tick > 0 && r.nextFloat() < 0.12f) continue;             // toglie qualche cassa
+        if (e.pad == 3 && r.nextFloat() < 0.15f) { out.push_back ({ e.tick + 12, 3, juce::jmax (40, e.vel - 40) }); }   // terzina/32esimo sugli hat
+        e.vel = juce::jlimit (30, 127, e.vel + r.nextInt ({ -14, 8 }));
+        out.push_back (e);
+    }
+    for (int k = 0; k < 2; ++k) if (r.nextFloat() < 0.6f) out.push_back ({ (double) (r.nextInt (32) * 24), 0, 90 });   // cassa in più
+    if (hasHat && r.nextFloat() < 0.5f) { const int st = 24 + r.nextInt (6); for (int q = 0; q < 4; ++q) out.push_back ({ (st + q * 0.5) * 24.0, 3, 70 + q * 10 }); }   // roll
+    events = std::move (out);
 }
 
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -320,47 +343,67 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     curBpm = bpm;
     const int req = transportReq.exchange (0);
     if (req == 1) { intPlay = true; intTick = 0; }
-    if (req == 2) { intPlay = false; recording = false; }
+    if (req == 2) intPlay = false;
     const bool running = hostPlay || intPlay.load();
     const double tps = bpm / 60.0 * PPQ / sr;
     const double t0 = hostPlay ? ppq * PPQ : intTick, t1 = t0 + N * tps;
     uiHost = hostPlay; uiRunning = running; uiBpm = bpm;
-    if (running && ! wasRunning) for (auto& e : events) e.recAbs = -1e9;
-    if (! running && wasRunning) for (auto& v : voices) if (v.active && v.loop) v.rel = true;   // stop: i loop si fermano
+    if (! running && wasRunning) for (auto& v : voices) if (v.active && v.loop) v.rel = true;
     wasRunning = running;
 
     const int root = rootNote();
-    const bool rec = recording.load() && running;
-    auto noteOn = [&] (int off, int p, int vel) { trigs.push_back ({ off, p, vel, true }); if (rec) { const double t = t0 + off * tps; record (p, vel, t, t); } };
+    const bool swMidi = par ("swMidi") > 0.5f && par ("swing") > 50.05f && running;
+    juce::MidiBuffer out;
+    // interfaccia: suona subito e manda le note in uscita (VST3: registrabili in Ableton)
     {
         int s1, n1, s2, n2; fifo.prepareToRead (fifo.getNumReady(), s1, n1, s2, n2);
-        for (int k = 0; k < n1 + n2; ++k) { const auto& e = fifoBuf[k < n1 ? s1 + k : s2 + k - n1]; if (e.on) noteOn (0, e.pad, e.vel); else trigs.push_back ({ 0, e.pad, 0, false }); }
+        for (int k = 0; k < n1 + n2; ++k)
+        {
+            const auto& e = fifoBuf[k < n1 ? s1 + k : s2 + k - n1];
+            trigs.push_back ({ 0, e.pad, e.vel, e.on });
+            out.addEvent (e.on ? juce::MidiMessage::noteOn (1, root + e.pad, (juce::uint8) juce::jlimit (1, 127, e.vel)) : juce::MidiMessage::noteOff (1, root + e.pad), 0);
+        }
         fifo.finishedRead (n1 + n2);
     }
+    // MIDI da Ableton, con swing in tempo reale sulle note in levare
     for (const auto m : midi)
     {
         const auto msg = m.getMessage(); if (! msg.isNoteOnOrOff()) continue;
         const int p = msg.getNoteNumber() - root; if (p < 0 || p >= kPads) continue;
-        if (msg.isNoteOn()) noteOn (m.samplePosition, p, msg.getVelocity()); else trigs.push_back ({ m.samplePosition, p, 0, false });
+        juce::int64 delay = 0;
+        if (msg.isNoteOn())
+        {
+            if (swMidi) { const double t = t0 + m.samplePosition * tps, st = swingTick (t); if (st > t) delay = (juce::int64) ((st - t) / tps); }
+            padDelay[p] = delay;
+        }
+        else delay = padDelay[p];
+        if (delay <= 0) trigs.push_back ({ m.samplePosition, p, msg.isNoteOn() ? (int) msg.getVelocity() : 0, msg.isNoteOn() });
+        else if (pend.size() < 500) pend.push_back ({ absSample + m.samplePosition + delay, p, msg.isNoteOn() ? (int) msg.getVelocity() : 0, msg.isNoteOn() });
     }
-    if (running)
+    midi.swapWith (out);
+    // note con swing in attesa
+    for (size_t k = 0; k < pend.size();)
     {
-        const double L = loopTicks();
+        if (pend[k].at < absSample + N) { trigs.push_back ({ (int) juce::jmax ((juce::int64) 0, pend[k].at - absSample), pend[k].pad, pend[k].vel, pend[k].on }); pend.erase (pend.begin() + (long) k); }
+        else ++k;
+    }
+    absSample += N;
+    // loop della banca, sincronizzato
+    if (running && loopOn.load())
+    {
+        const double L = loopTicks(); const float hum = par ("human");
         const juce::SpinLock::ScopedTryLockType l (recLock);
         if (l.isLocked())
             for (auto& e : events)
             {
-                const double q = quantize (e.tick), base = std::floor (t0 / L) * L;
+                const double q = swingTick (e.tick), base = std::floor (t0 / L) * L;
                 for (double b = base; b <= t1; b += L)
                 {
                     const double a = b + q; if (a < t0 || a >= t1) continue;
-                    if (e.recAbs > -1e8 && a >= e.recAbs - 1 && a - e.recAbs < L * 0.5) { e.recAbs = -1e9; continue; }
-                    trigs.push_back ({ juce::jlimit (0, N - 1, (int) ((a - t0) / tps)), e.pad, e.vel, true });
+                    int vel = e.vel; if (hum > 0) vel = juce::jlimit (1, 127, vel + juce::roundToInt ((rng.nextFloat() - 0.5f) * 40 * hum));
+                    trigs.push_back ({ juce::jlimit (0, N - 1, (int) ((a - t0) / tps)), e.pad, vel, true });
                 }
             }
-        if (par ("click") > 0.5f || recording.load())
-            for (double b = std::ceil (t0 / PPQ) * PPQ; b < t1; b += PPQ)
-                trigs.push_back ({ juce::jlimit (0, N - 1, (int) ((b - t0) / tps)), std::fmod (b, (double) kBar) < 1 ? -2 : -1, 0, true });
     }
     std::stable_sort (trigs.begin(), trigs.end(), [] (const Trig& a, const Trig& b) { return a.off < b.off; });
     if (! hostPlay && intPlay.load()) intTick += N * tps;
@@ -375,8 +418,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         while (ti < trigs.size() && trigs[ti].off <= i)
         {
             const auto& t = trigs[ti++];
-            if (t.pad < 0) { clickEnv = 0.3f; clickPh = 0; clickF = t.pad == -2 ? 2000.0f : 1400.0f; }
-            else if (t.on)
+            if (t.on)
             {
                 if (chain[t.pad].active <= 0) { padBuf.clear (t.pad * 2, 0, N); padBuf.clear (t.pad * 2 + 1, 0, N); }
                 startVoice (t.pad, t.vel);
@@ -384,7 +426,6 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             else releasePad (t.pad);
         }
         for (auto& v : voices) if (v.active) render (v, padBuf.getWritePointer (v.pad * 2), padBuf.getWritePointer (v.pad * 2 + 1), i);
-        if (clickEnv > 0.0005f) { const float c = std::sin (clickPh) * clickEnv; clickPh += (float) (juce::MathConstants<double>::twoPi * clickF / sr); clickEnv *= 0.997f; cl[i] += c; cr[i] += c; }
     }
     // 2) catena di ogni pad, fader, mandate
     std::fill (revL.begin(), revL.begin() + N, 0.0f); std::fill (revR.begin(), revR.begin() + N, 0.0f);
@@ -654,14 +695,15 @@ bool Processor::loadKit (const juce::File& f)
     return true;
 }
 
-juce::File Processor::writeMidi()
+juce::File Processor::writeMidi (bool withSwing)
 {
     juce::MidiMessageSequence seq; const int root = rootNote();
     { const juce::SpinLock::ScopedLockType l (recLock);
-      for (auto& e : events) { const double q = quantize (e.tick); seq.addEvent (juce::MidiMessage::noteOn (1, root + e.pad, (juce::uint8) e.vel), q); seq.addEvent (juce::MidiMessage::noteOff (1, root + e.pad), q + 12); } }
+      for (auto& e : events) { const double q = withSwing ? swingTick (e.tick) : e.tick; seq.addEvent (juce::MidiMessage::noteOn (1, root + e.pad, (juce::uint8) e.vel), q); seq.addEvent (juce::MidiMessage::noteOff (1, root + e.pad), q + 12); } }
     seq.updateMatchedPairs(); seq.sort();
     juce::MidiFile mf; mf.setTicksPerQuarterNote (PPQ); mf.addTrack (seq);
-    auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("Jackpot Pad pattern.mid");
+    const auto& pb = patternBank()[(size_t) juce::jlimit (0, (int) patternBank().size() - 1, patternIndex)];
+    auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile (juce::File::createLegalFileName (juce::String ("JPad ") + pb.genre + " " + pb.name) + ".mid");
     f.deleteFile(); juce::FileOutputStream os (f); if (os.openedOk()) mf.writeTo (os);
     return f;
 }
@@ -673,6 +715,7 @@ void Processor::getStateInformation (juce::MemoryBlock& dest)
     x.addChildElement (padsToXml().release());
     juce::String ev; { const juce::SpinLock::ScopedLockType l (recLock); for (auto& e : events) ev << juce::String (e.tick, 2) << "," << e.pad << "," << e.vel << ";"; }
     x.createNewChildElement ("PATTERN")->addTextElement (ev);
+    x.setAttribute ("pattern", patternIndex); x.setAttribute ("loopOn", loopOn.load() ? 1 : 0);
     copyXmlToBinary (x, dest);
 }
 void Processor::setStateInformation (const void* data, int size)
@@ -681,6 +724,7 @@ void Processor::setStateInformation (const void* data, int size)
     if (auto* ps = x->getChildByName (apvts.state.getType())) apvts.replaceState (juce::ValueTree::fromXml (*ps));
     if (auto* pads = x->getChildByName ("PADS")) padsFromXml (*pads);
     kitName = x->getStringAttribute ("kit", kitName);
+    patternIndex = x->getIntAttribute ("pattern", 0); loopOn = x->getIntAttribute ("loopOn", 0) != 0;
     const auto kf = x->getStringAttribute ("kitFile"); kitFile = kf.isNotEmpty() ? juce::File (kf) : juce::File();
     if (auto* pt = x->getChildByName ("PATTERN"))
     {
@@ -688,7 +732,7 @@ void Processor::setStateInformation (const void* data, int size)
         for (auto& t : juce::StringArray::fromTokens (pt->getAllSubText(), ";", ""))
         {
             auto f = juce::StringArray::fromTokens (t, ",", ""); if (f.size() < 3) continue;
-            events.push_back ({ f[0].getDoubleValue(), f[1].getIntValue(), f[2].getIntValue(), -1e9 });
+            events.push_back ({ f[0].getDoubleValue(), f[1].getIntValue(), f[2].getIntValue() });
         }
     }
 }
@@ -697,3 +741,19 @@ juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new jp::Processor(); }
+
+namespace jp
+{
+void Processor::chopToPads (int src, const std::vector<float>& pts)
+{
+    auto s = getSample (src); if (s == nullptr || pts.size() < 2) return;
+    const int col = pad[src].colour.load(); const float gain = pad[src].get (GAIN);
+    for (size_t k = 0; k + 1 < pts.size(); ++k)
+    {
+        const int p = src + (int) k; if (p >= kPads) break;
+        pad[p].reset(); pad[p].colour = col; pad[p].v[GAIN] = gain;
+        pad[p].v[START] = pts[k]; pad[p].v[END] = pts[k + 1]; pad[p].v[SLICE] = (float) (k + 1); pad[p].v[DECAY] = 4000;
+        setSample (p, s);
+    }
+}
+}

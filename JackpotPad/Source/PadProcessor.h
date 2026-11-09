@@ -18,7 +18,7 @@ enum PadParam { GAIN, LEVEL, PAN, TUNE, FINE, START, END, ATTACK, DECAY, RELEASE
                 FTYPE, CUTOFF, RESO, FENV, FDECAY,
                 EQON, LOWG, LOWF, MIDG, MIDF, MIDQ, HIGHG, HIGHF,
                 CMODE, CAMT, CMAKEUP, CMIX,
-                DRIVE, BITS, RATE, SREV, SDLY, MUTE, SOLO, kNumPadParams };
+                DRIVE, BITS, RATE, SREV, SDLY, MUTE, SOLO, SLICE, kNumPadParams };
 struct PInfo { const char* id; const char* label; float min, max, def; int kind; };
 // kind: 0 %, 1 ±, 2 st, 3 ct, 4 ms, 5 Hz, 6 scelta, 7 int, 8 on/off, 9 pan, 10 bpm, 11 dB, 12 Q, 13 fader
 extern const PInfo kPInfo[kNumPadParams];
@@ -34,7 +34,10 @@ struct Pad
     float get (int i) const { return v[i].load(); }
 };
 
-struct RecEv { double tick; int pad; int vel; double recAbs; };
+struct PatEv { double tick; int pad; int vel; };
+struct PatternDef { const char* genre; const char* name; std::vector<std::pair<int, const char*>> lanes; };
+const std::vector<PatternDef>& patternBank();
+juce::StringArray patternGenres();
 
 // biquad RBJ
 struct Biquad
@@ -62,7 +65,7 @@ public:
     bool hasEditor() const override { return true; }
     const juce::String getName() const override { return "Jackpot Pad"; }
     bool acceptsMidi() const override { return true; }
-    bool producesMidi() const override { return false; }
+    bool producesMidi() const override { return true; }
     double getTailLengthSeconds() const override { return 3.0; }
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -77,6 +80,7 @@ public:
     SamplePtr getSample (int p) const { const juce::SpinLock::ScopedLockType l (sLock); return smp[p]; }
     void setSample (int p, SamplePtr s) { const juce::SpinLock::ScopedLockType l (sLock); smp[p] = std::move (s); }
     bool loadFile (const juce::File&, int p);
+    void chopToPads (int src, const std::vector<float>& points);   // punti normalizzati, inizio e fine inclusi
     void clearPad (int p) { setSample (p, nullptr); }
     void detectBpm (int p);
     static float estimateBpm (const juce::String& name, double seconds, bool& confident);
@@ -95,16 +99,18 @@ public:
     // interfaccia -> audio
     void uiNoteOn (int p, int vel);
     void uiNoteOff (int p);
-    // registratore
+    // loop dalla banca e swing
     juce::SpinLock recLock;
-    std::vector<RecEv> events;
-    std::atomic<bool> recording { false }, intPlay { false }, erase { false };
+    std::vector<PatEv> events;
+    std::atomic<bool> intPlay { false }, loopOn { false };
+    int patternIndex = 0;
     void requestPlay (bool start) { transportReq = start ? 1 : 2; }
-    void clearPattern() { const juce::SpinLock::ScopedLockType l (recLock); events.clear(); }
-    void erasePad (int p);
-    double quantize (double tick) const;
-    juce::File writeMidi();
-    int loopTicks() const;
+    void loadPattern (int index);
+    void randomPattern (const juce::String& genre);
+    void varyPattern();
+    double swingTick (double tick) const;      // posizione con swing applicato
+    juce::File writeMidi (bool withSwing);
+    int loopTicks() const { return 2 * kBar; }
 
     // per la UI
     std::atomic<float> padGlow[kPads], padMeter[kPads], padGr[kPads];
@@ -141,18 +147,20 @@ private:
     juce::AbstractFifo fifo { 512 }; UiEv fifoBuf[512];
     std::atomic<int> transportReq { 0 };
     double intTick = 0; bool wasRunning = false;
-    float clickPh = 0, clickEnv = 0, clickF = 1500;
+    struct Pend { juce::int64 at; int pad, vel; bool on; };
+    std::vector<Pend> pend; juce::int64 absSample = 0; juce::int64 padDelay[kPads] = {};
     struct Trig { int off, pad, vel; bool on; };
     std::vector<Trig> trigs;
     juce::AudioBuffer<float> padBuf;
     std::vector<float> revL, revR, dlyInL, dlyInR;
     juce::AudioBuffer<float> dlyBuf; int dlyW = 0; float dlyLpL = 0, dlyLpR = 0;
     juce::Reverb reverb;
+    juce::Random rng;
     float busEnv = 0;
     void startVoice (int p, int vel);
     void releasePad (int p);
     void render (Voice& v, float* L, float* R, int i);
-    void record (int pad, int vel, double tick, double absTick);
+
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
 };
 }

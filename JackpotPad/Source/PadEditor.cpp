@@ -149,14 +149,14 @@ void PadComp::paint (juce::Graphics& g)
     g.setFont (ft (9.5f, false, true)); g.setColour (c.withAlpha (0.85f)); g.drawText (noteName (root + pad), tb, juce::Justification::topRight);
     auto s = P.getSample (pad);
     g.setFont (ft (10.0f)); g.setColour (lum > 0.4f ? juce::Colours::white : Col::dim);
-    g.drawFittedText (s ? s->name : juce::String ("vuoto"), tb.withTrimmedBottom (4).toNearestInt(), juce::Justification::bottomLeft, 1);
+    const int sl = juce::roundToInt (P.pad[pad].get (SLICE));
+    g.drawFittedText (s ? s->name + (sl > 0 ? " #" + juce::String (sl) : juce::String()) : juce::String ("vuoto"), tb.withTrimmedBottom (4).toNearestInt(), juce::Justification::bottomLeft, 1);
     if (flash > 0.05f) { g.setFont (ft (9.0f, true, true)); g.setColour (juce::Colours::white.withAlpha (flash)); g.drawText (juce::String (P.lastVel[pad].load()), tb.withTrimmedBottom (4), juce::Justification::bottomRight); }
 }
 void PadComp::mouseDown (const juce::MouseEvent& e)
 {
     ed.selectPad (pad);
     if (e.mods.isPopupMenu()) { ed.padMenu (pad); return; }
-    if (ed.proc.erase.load()) { ed.proc.erasePad (pad); return; }
     auto b = body();
     // velocity: in alto forte, in basso piano; curva quadratica per avere più controllo sui colpi deboli
     const float y = juce::jlimit (0.0f, 1.0f, (e.position.y - b.getY()) / b.getHeight());
@@ -447,17 +447,80 @@ void Screen::pageSample (juce::Graphics& g, juce::Rectangle<float> c)
         for (int i = 1; i <= 40; ++i) { const float t = i / 40.0f, ms = (len - atk) * t; const float lv = dec >= 3990 ? 1.0f : std::exp (-ms / (dec / 4.6f)); env.lineTo (ax + (x0 + xw - ax) * t, w.getBottom() - (w.getHeight() - 4) * lv); }
         g.setColour (Col::amber.withAlpha (0.18f)); g.strokePath (env, juce::PathStrokeType (5.0f)); g.setColour (Col::amber.withAlpha (0.85f)); g.strokePath (env, juce::PathStrokeType (1.4f));
         glowText (g, juce::String (n / smp->sr, 2) + " s  " + juce::String (smp->sr / 1000.0, 1) + " kHz", w.withHeight (12), Col::phos.withAlpha (0.6f), ft (9.5f, false, true), juce::Justification::centredRight);
-        auto markerDrag = [this, w] (const juce::MouseEvent& e)
+        if (chopMode == 0)
         {
-            auto& PP = ed.proc.pad[ed.sel]; const float fx = juce::jlimit (0.0f, 1.0f, (e.position.x - w.getX()) / w.getWidth());
-            const bool endM = e.mods.isRightButtonDown() || std::abs (fx - PP.get (END)) < std::abs (fx - PP.get (START));
-            if (! endM) PP.v[START] = juce::jmin (fx, PP.get (END) - 0.002f); else PP.v[END] = juce::jmax (fx, PP.get (START) + 0.002f);
-        };
-        hots.push_back ({ w.expanded (6, 10), markerDrag, markerDrag, nullptr, nullptr });
+            auto markerDrag = [this, w] (const juce::MouseEvent& e)
+            {
+                auto& PP = ed.proc.pad[ed.sel]; const float fx = juce::jlimit (0.0f, 1.0f, (e.position.x - w.getX()) / w.getWidth());
+                const bool endM = e.mods.isRightButtonDown() || std::abs (fx - PP.get (END)) < std::abs (fx - PP.get (START));
+                if (! endM) PP.v[START] = juce::jmin (fx, PP.get (END) - 0.002f); else PP.v[END] = juce::jmax (fx, PP.get (START) + 0.002f);
+            };
+            hots.push_back ({ w.expanded (6, 10), markerDrag, markerDrag, nullptr, nullptr });
+        }
+        else
+        {
+            if (chopSmp != smp.get()) buildChop();
+            // griglia o transienti di riferimento
+            if (chopMode == 2) for (float o : onsets) { g.setColour (Col::amber.withAlpha (0.25f)); g.drawVerticalLine ((int) (w.getX() + o * w.getWidth()), w.getBottom() - 10, w.getBottom()); }
+            else for (float l : gridLines()) { g.setColour (Col::magenta.withAlpha (0.15f)); g.drawVerticalLine ((int) (w.getX() + l * w.getWidth()), w.getY(), w.getBottom()); }
+            std::vector<float> pts { s0 }; for (float m : marks) pts.push_back (m); pts.push_back (s1);
+            for (size_t k = 0; k + 1 < pts.size(); ++k)
+            {
+                const float xa = w.getX() + pts[k] * w.getWidth(), xb = w.getX() + pts[k + 1] * w.getWidth();
+                g.setColour ((k % 2 ? Col::magenta : Col::cyan).withAlpha (0.08f)); g.fillRect (juce::Rectangle<float> (xa, w.getY(), xb - xa, w.getHeight()));
+                const int target = ed.sel + (int) k;
+                glowText (g, juce::String ((int) k + 1) + (target < kPads ? " > P" + juce::String (target + 1) : juce::String (" X")), juce::Rectangle<float> (xa + 3, w.getY() + 2, juce::jmax (30.0f, xb - xa - 4), 12),
+                          target < kPads ? Col::phos : Col::red, ft (8.5f, true, true));
+            }
+            for (size_t k = 0; k < marks.size(); ++k)
+            {
+                const float x = w.getX() + marks[k] * w.getWidth();
+                g.setColour ((int) k == dragMark ? Col::amber : Col::magenta); g.drawLine (x, w.getY(), x, w.getBottom(), 1.6f);
+                juce::Path t; t.addTriangle (x - 5, w.getBottom() + 6, x + 5, w.getBottom() + 6, x, w.getBottom() - 2); g.fillPath (t);
+            }
+            auto toFx = [w] (const juce::MouseEvent& e) { return juce::jlimit (0.0f, 1.0f, (e.position.x - w.getX()) / w.getWidth()); };
+            hots.push_back ({ w.expanded (6, 10),
+                [this, w, toFx] (const juce::MouseEvent& e)
+                {
+                    dragMark = -1; const float fx = toFx (e); lastFx = fx;
+                    for (size_t k = 0; k < marks.size(); ++k) if (std::abs (marks[k] - fx) * w.getWidth() < 7) dragMark = (int) k;
+                    if (dragMark >= 0 && e.mods.isPopupMenu()) { marks.erase (marks.begin() + dragMark); dragMark = -1; }
+                },
+                [this, toFx] (const juce::MouseEvent& e)
+                {
+                    if (dragMark < 0 || dragMark >= (int) marks.size()) return;
+                    auto& PP = ed.proc.pad[ed.sel];
+                    marks[(size_t) dragMark] = juce::jlimit (PP.get (START) + 0.001f, PP.get (END) - 0.001f, snapPos (toFx (e)));
+                    std::sort (marks.begin(), marks.end());
+                }, nullptr, nullptr });
+            hots.back().dbl = [this]
+            {
+                auto& PP = ed.proc.pad[ed.sel]; const float fx = snapPos (lastFx);
+                if (fx > PP.get (START) + 0.002f && fx < PP.get (END) - 0.002f && marks.size() < 15) { marks.push_back (fx); std::sort (marks.begin(), marks.end()); }
+            };
+        }
     }
     else glowText (g, "TRASCINA UN CAMPIONE QUI O SUL PAD", w, Col::phos.withAlpha (0.6f), ft (13.0f, true, true), juce::Justification::centred);
     // campi
-    const float cw = (chips.getWidth() - 25) / 6;
+    if (chopMode > 0 && smp)
+    {
+        const float cw2 = (chips.getWidth() - 20) / 5;
+        static const char* modes[] = { "", "GRIGLIA BPM", "TRANSIENTI", "UGUALI" };
+        static const char* divG[] = { "1/4", "1/8", "1/16" }; static const char* divE[] = { "4", "8", "16" };
+        chip (g, chips.removeFromLeft (cw2), "CHOP", modes[chopMode], true, [this] (const juce::MouseEvent& e) { chopMode = chopMode % 3 + 1; juce::ignoreUnused (e); buildChop(); }, Col::magenta); chips.removeFromLeft (5);
+        chip (g, chips.removeFromLeft (cw2), chopMode == 2 ? "SENSIBILITA" : "DIVISIONE", chopMode == 3 ? divE[chopDiv] : chopMode == 2 ? juce::String (divE[chopDiv]) + " MAX" : divG[chopDiv], true,
+              [this] (const juce::MouseEvent&) { chopDiv = (chopDiv + 1) % 3; buildChop(); }, Col::magenta); chips.removeFromLeft (5);
+        chip (g, chips.removeFromLeft (cw2), "SNAP", chopSnap ? "ON" : "OFF", chopSnap, [this] (const juce::MouseEvent&) { chopSnap = ! chopSnap; }, Col::amber); chips.removeFromLeft (5);
+        chip (g, chips.removeFromLeft (cw2), "", juce::String::fromUTF8 ("SPARGI SUI PAD \xe2\x96\xb6"), true, [this] (const juce::MouseEvent&)
+        {
+            auto& PP = ed.proc.pad[ed.sel]; std::vector<float> pts { PP.get (START) }; for (float m : marks) pts.push_back (m); pts.push_back (PP.get (END));
+            ed.proc.chopToPads (ed.sel, pts); chopMode = 0; ed.kitChanged();
+        }, Col::green); chips.removeFromLeft (5);
+        chip (g, chips, "", "ESCI", false, [this] (const juce::MouseEvent&) { chopMode = 0; }, Col::phos);
+        glowText (g, juce::String::fromUTF8 ("TRASCINA I MARKER  \xc2\xb7  DOPPIO CLIC AGGIUNGE  \xc2\xb7  CLIC DESTRO TOGLIE"), juce::Rectangle<float> (c.getX() + 6, c.getY() - 2, 400, 12), Col::phos.withAlpha (0.45f), ft (8.5f, false, true));
+        return;
+    }
+    const float cw = (chips.getWidth() - 30) / 7;
     auto cycle = [this] (int i) { return [this, i] (const juce::MouseEvent& e) { auto& PP = ed.proc.pad[ed.sel]; const int n = choiceCount (i);
                                                                                PP.v[i] = (float) ((juce::roundToInt (PP.get (i)) + (e.mods.isPopupMenu() ? n - 1 : 1)) % n); }; };
     chip (g, chips.removeFromLeft (cw), "MODE", formatPadParam (MODE, pd.get (MODE)), pd.get (MODE) > 0.5f, cycle (MODE), Col::amber); chips.removeFromLeft (5);
@@ -465,14 +528,56 @@ void Screen::pageSample (juce::Graphics& g, juce::Rectangle<float> c)
     chip (g, chips.removeFromLeft (cw), "CHOKE", formatPadParam (CHOKE, pd.get (CHOKE)), pd.get (CHOKE) > 0.5f, cycle (CHOKE), Col::amber); chips.removeFromLeft (5);
     chip (g, chips.removeFromLeft (cw), "LOOP", formatPadParam (LOOP, pd.get (LOOP)), pd.get (LOOP) > 0.5f, cycle (LOOP), Col::amber); chips.removeFromLeft (5);
     chip (g, chips.removeFromLeft (cw), "SYNC BPM", formatPadParam (WARP, pd.get (WARP)), pd.get (WARP) > 0.5f, cycle (WARP), Col::magenta); chips.removeFromLeft (5);
-    auto bpmR = chips;
+    auto bpmR = chips.removeFromLeft (cw * 1.25f); chips.removeFromLeft (5);
     juce::String bv = formatPadParam (SBPM, pd.get (SBPM));
-    if (pd.get (SBPM) > 40 && smp) bv << "  " << juce::String (smp->buf.getNumSamples() / smp->sr * pd.get (SBPM) / 240.0, 1) << " BAR";
+    if (pd.get (SBPM) > 40 && smp) bv << " " << juce::String (smp->buf.getNumSamples() / smp->sr * pd.get (SBPM) / 240.0, 1) << "B";
     chip (g, bpmR, "BPM CAMPIONE", bv, pd.get (WARP) > 0.5f, nullptr, Col::magenta);
     hots.push_back ({ bpmR, [] (const juce::MouseEvent&) {}, [this, start = pd.get (SBPM)] (const juce::MouseEvent& e) mutable
                       { ed.proc.pad[ed.sel].v[SBPM] = juce::jlimit (0.0f, 240.0f, std::round ((juce::jmax (start, 60.0f) - e.getDistanceFromDragStartY() * (e.mods.isShiftDown() ? 0.05f : 0.5f)) * 10) / 10); },
                       [this] (float d) { auto& v = ed.proc.pad[ed.sel].v[SBPM]; v = juce::jlimit (0.0f, 240.0f, juce::jmax (v.load(), 59.0f) + (d > 0 ? 1.0f : -1.0f)); },
                       [this] { ed.proc.detectBpm (ed.sel); } });
+    if (smp) chip (g, chips, "", "CHOP", false, [this] (const juce::MouseEvent&) { chopMode = 1; buildChop(); }, Col::green);
+}
+
+std::vector<float> Screen::gridLines() const
+{
+    std::vector<float> out; auto s = ed.proc.getSample (ed.sel); if (! s) return out;
+    auto& PP = ed.proc.pad[ed.sel]; const float s0 = PP.get (START), s1 = PP.get (END);
+    const double dur = s->buf.getNumSamples() / s->sr; float bpm = PP.get (SBPM);
+    if (bpm < 40) { bool c = false; bpm = Processor::estimateBpm (s->name, dur * (s1 - s0), c); }
+    const double beat = bpm >= 40 ? 60.0 / bpm : dur * (s1 - s0) / 4.0;
+    static const double div[] = { 1.0, 0.5, 0.25 };
+    const double step = (chopMode == 3) ? (s1 - s0) / (chopDiv == 0 ? 4 : chopDiv == 1 ? 8 : 16) : beat * div[chopDiv] / dur;
+    if (step <= 0) return out;
+    for (double x = s0 + step; x < s1 - step * 0.25; x += step) out.push_back ((float) x);
+    return out;
+}
+
+float Screen::snapPos (float fx) const
+{
+    if (! chopSnap) return fx;
+    const auto& ref = chopMode == 2 ? onsets : gridLines();
+    float best = fx, bd = 1e9f;
+    for (float r : ref) if (std::abs (r - fx) < bd) { bd = std::abs (r - fx); best = r; }
+    return bd < 0.05f ? best : fx;
+}
+
+void Screen::buildChop()
+{
+    auto s = ed.proc.getSample (ed.sel); chopSmp = s.get(); marks.clear(); onsets.clear(); dragMark = -1;
+    if (! s) return;
+    // transienti: flusso di energia
+    const int n = s->buf.getNumSamples(), hop = 256; const float* d = s->buf.getReadPointer (0);
+    std::vector<float> en; for (int i = 0; i + hop < n; i += hop) { float e = 0; for (int k = 0; k < hop; ++k) e += d[i + k] * d[i + k]; en.push_back (std::sqrt (e / hop)); }
+    std::vector<float> fl (en.size(), 0); double mean = 0;
+    for (size_t i = 1; i < en.size(); ++i) { fl[i] = juce::jmax (0.0f, en[i] - en[i - 1]); mean += fl[i]; }
+    mean /= juce::jmax ((size_t) 1, en.size()); double var = 0; for (float f : fl) var += (f - mean) * (f - mean); const double sd = std::sqrt (var / juce::jmax ((size_t) 1, fl.size()));
+    const int gap = (int) (0.06 * s->sr / hop); int last = -gap;
+    for (size_t i = 1; i < fl.size(); ++i) if (fl[i] > mean + 1.4 * sd && (int) i - last >= gap) { onsets.push_back ((float) (i * hop) / n); last = (int) i; }
+    auto& PP = ed.proc.pad[ed.sel]; const float s0 = PP.get (START), s1 = PP.get (END);
+    const int maxSl = chopDiv == 0 ? 4 : chopDiv == 1 ? 8 : 16;
+    if (chopMode == 2) { for (float o : onsets) if (o > s0 + 0.002f && o < s1 - 0.002f && (int) marks.size() < maxSl - 1) marks.push_back (o); }
+    else { for (float l : gridLines()) if ((int) marks.size() < 15) marks.push_back (l); }
 }
 
 // ---------- VELOCITY ----------
@@ -788,7 +893,7 @@ void PatternView::paint (juce::Graphics& g)
     { const juce::SpinLock::ScopedLockType l (P.recLock);
       for (auto& e : P.events)
       {
-          const double q = P.quantize (e.tick); const float x = a.getX() + a.getWidth() * (float) (q / L), y = a.getBottom() - (e.pad + 1) * rh;
+          const double q = P.swingTick (e.tick); const float x = a.getX() + a.getWidth() * (float) (q / L), y = a.getBottom() - (e.pad + 1) * rh;
           const auto c = padColour (P.pad[e.pad].colour.load());
           g.setColour (c.withAlpha (0.3f + 0.7f * e.vel / 127.0f)); g.fillRoundedRectangle (x - 1, y + 0.5f, 4, juce::jmax (1.5f, rh - 1), 1);
       } }
@@ -798,7 +903,8 @@ void PatternView::paint (juce::Graphics& g)
         g.setColour (Col::magenta.withAlpha (0.3f)); g.fillRect (x - 3, a.getY(), 6.0f, a.getHeight());
         g.setColour (Col::magenta); g.drawVerticalLine ((int) x, a.getY(), a.getBottom());
     }
-    if (P.events.empty()) glowText (g, "PREMI REC E SUONA: IL PATTERN SI QUANTIZZA DA SOLO", a, Col::phos.withAlpha (0.35f), ft (10.0f, true, true), juce::Justification::centred);
+    const auto& pb = patternBank()[(size_t) juce::jlimit (0, (int) patternBank().size() - 1, P.patternIndex)];
+    glowText (g, juce::String (pb.genre).toUpperCase() + " / " + juce::String (pb.name).toUpperCase(), juce::Rectangle<float> (s.getRight() - 230, s.getY() + 2, 222, 11), P.loopOn.load() ? Col::magenta : Col::phos.withAlpha (0.4f), ft (8.5f, true, true), juce::Justification::centredRight);
 }
 
 // ======================= Drag MIDI =======================
@@ -815,7 +921,7 @@ void DragMidi::mouseDrag (const juce::MouseEvent& e)
 {
     if (dragging || e.getDistanceFromDragStart() < 5) return;
     dragging = true; repaint();
-    const auto f = ed.proc.writeMidi();
+    const auto f = ed.proc.writeMidi (ed.exportSwing);
     juce::DragAndDropContainer::performExternalDragDropOfFiles ({ f.getFullPathName() }, false, this, [this] { dragging = false; repaint(); });
 }
 
@@ -852,19 +958,19 @@ void Root::paint (juce::Graphics& g)
     // sequencer
     g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (24, 524, 680, 198, 10);
     g.setColour (juce::Colours::white.withAlpha (0.03f)); g.drawRoundedRectangle (24, 524, 680, 198, 10, 1.0f);
-    glowText (g, "SEQUENCER", { 36, 528, 160, 18 }, Col::cyan, ft (10.0f, true));
+    glowText (g, juce::String::fromUTF8 ("LOOP & SWING  \xc2\xb7  sincronizzati con Ableton"), { 36, 528, 400, 18 }, Col::cyan, ft (10.0f, true));
     // info tastiera
     g.setFont (ft (10.0f, true, true)); g.setColour (Col::text);
-    g.drawText ("TASTIERA  OCT " + noteName (12 * (ed.octave + 2)) + "  VEL " + juce::String (ed.fullLevel ? 127 : ed.kbVel), juce::Rectangle<float> (726, 690, 260, 16), juce::Justification::centredLeft);
-    g.setColour (Col::dim); g.setFont (ft (9.5f));
-    g.drawText ("A W S E D ... = note   Z / X ottava   C / V velocity   spazio play", juce::Rectangle<float> (726, 706, 494, 14), juce::Justification::centredLeft);
+    if (ed.kbOn) g.drawText ("OCT " + noteName (12 * (ed.octave + 2)) + "  VEL " + juce::String (ed.fullLevel ? 127 : ed.kbVel) + "   Z/X  C/V", juce::Rectangle<float> (862, 686, 200, 14), juce::Justification::centredLeft);
+    g.setColour (Col::dim); g.setFont (ft (9.0f));
+    g.drawText (ed.kbOn ? "la tastiera suona il plugin (Ableton non registra)" : "tastiera ad Ableton: premi M e registra", juce::Rectangle<float> (862, 700, 250, 14), juce::Justification::centredLeft);
     // meter master
     const float m[2] = { ed.proc.meterL.load(), ed.proc.meterR.load() };
     for (int c = 0; c < 2; ++c)
     {
-        auto mb = juce::Rectangle<float> (990, 690.0f + c * 9, 228, 6);
+        auto mb = juce::Rectangle<float> (1100, 690.0f + c * 9, 118, 6);
         const float db = juce::Decibels::gainToDecibels (m[c], -48.0f), n = juce::jlimit (0.0f, 1.0f, (db + 48) / 51);
-        for (int k = 0; k < 38; ++k) { const float t = k / 38.0f; g.setColour (t <= n ? (t > 0.9f ? Col::red : t > 0.75f ? Col::amber : Col::green) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (mb.getX() + k * 6.0f, mb.getY(), 4.5f, mb.getHeight()); }
+        for (int k = 0; k < 19; ++k) { const float t = k / 19.0f; g.setColour (t <= n ? (t > 0.9f ? Col::red : t > 0.75f ? Col::amber : Col::green) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (mb.getX() + k * 6.0f, mb.getY(), 4.5f, mb.getHeight()); }
     }
 }
 
@@ -923,8 +1029,24 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
         s->setName (id); root.addAndMakeVisible (s); return s;
     };
     choice ("curve", "CURVA VELOCITY", Col::magenta);
-    choice ("len", "LUNGHEZZA", Col::cyan);
-    choice ("grid", "QUANTIZZA", Col::cyan);
+    choice ("swGrid", "SWING SU", Col::magenta);
+    {
+        auto* s = selectors.add (new Selector ("GENERE")); s->setName ("genre"); s->col = Col::magenta;
+        s->get = [this] { return genre; };
+        s->set = [this] (int v) { genre = v; const auto g = patternGenres()[v]; for (int i = 0; i < (int) patternBank().size(); ++i) if (g == patternBank()[(size_t) i].genre) { proc.loadPattern (i); break; } };
+        s->count = [] { return patternGenres().size(); };
+        s->name = [] (int v) { return patternGenres()[v].toUpperCase(); };
+        root.addAndMakeVisible (s);
+    }
+    {
+        auto* s = selectors.add (new Selector ("LOOP")); s->setName ("pattern"); s->col = Col::cyan;
+        auto list = [this] { juce::Array<int> a; const auto g = patternGenres()[genre]; for (int i = 0; i < (int) patternBank().size(); ++i) if (g == patternBank()[(size_t) i].genre) a.add (i); return a; };
+        s->get = [this, list] { return juce::jmax (0, list().indexOf (proc.patternIndex)); };
+        s->set = [this, list] (int v) { proc.loadPattern (list()[v]); };
+        s->count = [list] { return juce::jmax (1, list().size()); };
+        s->name = [list] (int v) { const int i = list()[v]; return juce::String (patternBank()[(size_t) i].name).toUpperCase(); };
+        root.addAndMakeVisible (s);
+    }
     {
         auto* pr = proc.apvts.getParameter ("root");
         auto* s = selectors.add (new Selector ("NOTA PAD 1")); s->setName ("root");
@@ -935,25 +1057,25 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
         root.addAndMakeVisible (s);
     }
     paramKnob ("swing", "SWING", Col::magenta, [] (float v) { return juce::String (v, 1) + "%"; });
-    paramKnob ("strength", "STRENGTH", Col::cyan, [] (float v) { return juce::String (juce::roundToInt (v)) + "%"; });
+    paramKnob ("human", "HUMANIZE", Col::cyan, [] (float v) { return juce::String (juce::roundToInt (v * 100)) + "%"; });
     paramKnob ("bpm", "BPM INT", Col::amber, [] (float v) { return juce::String (v, 1); });
     paramKnob ("out", "OUTPUT", Col::cyan, [] (float v) { return juce::String (v, 1) + " dB"; });
 
     auto btn = [this] (const juce::String& t, juce::Colour c, std::function<bool()> lit, std::function<void()> click)
     { auto* b = btns.add (new Btn (t, c)); b->lit = std::move (lit); b->click = std::move (click); root.addAndMakeVisible (b); return b; };
-    btn ("REC", Col::red, [this] { return proc.recording.load() && ((juce::Time::getMillisecondCounter() / 300) % 2 == 0 || proc.uiRunning.load()); },
-         [this] { const bool r = ! proc.recording.load(); proc.recording = r; if (r && ! proc.uiRunning.load()) proc.requestPlay (true); })->setName ("rec");
-    btn ("PLAY", Col::green, [this] { return proc.uiRunning.load(); }, [this] { proc.requestPlay (true); })->setName ("play");
-    btn ("STOP", Col::text, [] { return false; }, [this] { proc.requestPlay (false); })->setName ("stop");
-    btn ("CLEAR", Col::amber, [] { return false; }, [this] { proc.clearPattern(); })->setName ("clear");
-    btn ("ERASE", Col::red, [this] { return proc.erase.load(); }, [this] { proc.erase = ! proc.erase.load(); })->setName ("erase");
-    btn ("CLICK", Col::cyan, [this] { return proc.apvts.getRawParameterValue ("click")->load() > 0.5f; },
-         [this] { auto* pr = proc.apvts.getParameter ("click"); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); })->setName ("click");
+    btn ("LOOP", Col::magenta, [this] { return proc.loopOn.load(); }, [this] { proc.loopOn = ! proc.loopOn.load(); })->setName ("loop");
+    btn ("RANDOM", Col::amber, [] { return false; }, [this] { proc.randomPattern (patternGenres()[genre]); proc.loopOn = true; })->setName ("random");
+    btn ("VARIA", Col::amber, [] { return false; }, [this] { proc.varyPattern(); })->setName ("vary");
+    btn ("PLAY", Col::green, [this] { return proc.uiRunning.load(); }, [this] { proc.requestPlay (! proc.intPlay.load()); })->setName ("play");
+    btn ("SWING MIDI", Col::magenta, [this] { return proc.apvts.getRawParameterValue ("swMidi")->load() > 0.5f; },
+         [this] { auto* pr = proc.apvts.getParameter ("swMidi"); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); })->setName ("swmidi");
+    btn ("+SWING", Col::cyan, [this] { return exportSwing; }, [this] { exportSwing = ! exportSwing; })->setName ("expsw");
+    btn ("TASTIERA PLUGIN", Col::cyan, [this] { return kbOn; }, [this] { kbOn = ! kbOn; setWantsKeyboardFocus (kbOn); if (kbOn) grabKeyboardFocus(); else giveAwayKeyboardFocus(); root.repaint(); })->setName ("kb");
     btn ("FULL LEVEL", Col::magenta, [this] { return fullLevel; }, [this] { fullLevel = ! fullLevel; root.repaint(); })->setName ("full");
     btn ("LOAD", Col::cyan, [] { return false; }, [this] { loadDialog (sel); })->setName ("load");
 
     bindQlinks();
-    setWantsKeyboardFocus (true);
+    setWantsKeyboardFocus (false);
     setResizable (true, true);
     setResizeLimits (W / 2, H / 2, W * 3 / 2, H * 3 / 2);
     if (auto* c = getConstrainer()) c->setFixedAspectRatio ((double) W / H);
@@ -975,13 +1097,17 @@ void Editor::resized()
     named (root, "load")->setBounds (990, 600, 70, 30);
     globalKnobs[3]->setBounds (1066, 580, 70, 68);
     named (root, "root")->setBounds (1140, 588, 80, 40);
-    const char* tb[] = { "rec", "play", "stop", "clear", "erase", "click" };
-    for (int i = 0; i < 6; ++i) named (root, tb[i])->setBounds (36 + i * 70, 552, 66, 40);
-    named (root, "len")->setBounds (460, 548, 100, 44);
-    named (root, "grid")->setBounds (568, 548, 100, 44);
-    pattern.setBounds (36, 600, 470, 114);
-    globalKnobs[0]->setBounds (512, 600, 64, 78); globalKnobs[1]->setBounds (578, 600, 64, 78); globalKnobs[2]->setBounds (638, 600, 64, 78);
-    drag.setBounds (514, 682, 186, 32);
+    named (root, "genre")->setBounds (36, 548, 120, 44);
+    named (root, "pattern")->setBounds (162, 548, 150, 44);
+    const char* tb[] = { "loop", "random", "vary", "play" };
+    for (int i = 0; i < 4; ++i) named (root, tb[i])->setBounds (318 + i * 64, 552, 61, 40);
+    named (root, "swGrid")->setBounds (578, 548, 54, 44);
+    named (root, "swmidi")->setBounds (636, 552, 64, 40);
+    pattern.setBounds (36, 600, 400, 114);
+    globalKnobs[0]->setBounds (442, 598, 64, 80); globalKnobs[1]->setBounds (508, 598, 64, 80); globalKnobs[2]->setBounds (574, 598, 64, 80);
+    named (root, "expsw")->setBounds (640, 608, 62, 34);
+    drag.setBounds (442, 682, 260, 32);
+    named (root, "kb")->setBounds (726, 686, 130, 30);
 }
 
 // le 8 manopole Q-link cambiano con la pagina, come sulle MPC
@@ -1065,7 +1191,6 @@ void Editor::padMenu (int p)
     juce::PopupMenu m, cm;
     m.addItem (1, "Carica campione...");
     m.addItem (2, "Svuota pad");
-    m.addItem (3, "Cancella le note di questo pad dal pattern");
     m.addItem (4, "Ripristina parametri del pad");
     m.addItem (6, "Rileva BPM del campione");
     static const char* names[] = { "Magenta", "Arancio", "Ambra", "Giallo", "Lime", "Menta", "Ciano", "Blu", "Viola", "Fucsia", "Rosa", "Mandarino", "Acqua", "Acido", "Rosso", "Lavanda" };
@@ -1075,7 +1200,6 @@ void Editor::padMenu (int p)
     {
         if (r == 1) loadDialog (p);
         else if (r == 2) proc.clearPad (p);
-        else if (r == 3) proc.erasePad (p);
         else if (r == 4) { const int c = proc.pad[p].colour.load(); proc.pad[p].reset(); proc.pad[p].colour = c; }
         else if (r == 6) { proc.detectBpm (p); setPage (PG_SAMPLE); }
         else if (r >= 100) proc.pad[p].colour = r - 100;
@@ -1099,7 +1223,7 @@ void Editor::timerCallback()
     for (auto* k : qlinks) k->repaint();
     for (auto* k : globalKnobs) k->repaint();
     for (auto* s : selectors) s->repaint();
-    root.repaint (980, 686, 240, 22);
+    root.repaint (1096, 686, 124, 22);
 }
 
 static int keyNoteOffset (juce::juce_wchar c)
@@ -1110,6 +1234,7 @@ static int keyNoteOffset (juce::juce_wchar c)
 }
 bool Editor::keyPressed (const juce::KeyPress& k)
 {
+    if (! kbOn) return false;
     const auto c = juce::CharacterFunctions::toLowerCase ((juce::juce_wchar) k.getKeyCode());
     static const int vels[] = { 1, 20, 40, 60, 80, 100, 120, 127 };
     auto velStep = [this] (int d) { int i = 0; while (i < 7 && vels[i] < kbVel) ++i; kbVel = vels[juce::jlimit (0, 7, i + d)]; root.repaint(); };
@@ -1122,6 +1247,7 @@ bool Editor::keyPressed (const juce::KeyPress& k)
 }
 bool Editor::keyStateChanged (bool)
 {
+    if (! kbOn) return false;
     static const char* letters = "awsedftgyhujkolp;";
     bool used = false; const int root0 = proc.rootNote();
     for (int i = 0; letters[i]; ++i)
