@@ -440,7 +440,15 @@ EqPage::EqPage (Editor& e) : ModPage (e, DYNEQ, "eq_on", "eq_delta"), view (e)
         for (juce::Component* x : std::initializer_list<juce::Component*> { type[b].get(), ch[b].get(), bon[b].get(), dyn[b].get() }) addChildComponent (x);
     }
     addAndMakeVisible (view);
+    solo = std::make_unique<ActBtn> ("SOLO BANDA 1", C::amber, [this] { toggleSolo (band); });
+    addAndMakeVisible (*solo);
     selectBand (0);
+}
+void EqPage::toggleSolo (int b)
+{
+    auto& P = ed.proc; P.eqSolo = P.eqSolo.load() == b ? -1 : b;
+    if (P.eqSolo.load() >= 0 && P.value ("eq_on") < 0.5f) { auto* p = ed.P ("eq_on"); p->setValueNotifyingHost (1.0f); }
+    repaint();
 }
 void EqPage::selectBand (int b)
 {
@@ -459,11 +467,19 @@ void EqPage::resized()
         fk[b]->setBounds (16, 428, 92, 92 + 27); gk[b]->setBounds (116, 428, 92, 92 + 27); qk[b]->setBounds (216, 428, 92, 92 + 27);
         dyn[b]->setBounds (330, 430, 120, 22); tk[b]->setBounds (330, 458, 76, 76 + 27); rk[b]->setBounds (414, 458, 76, 76 + 27);
     }
+    solo->setBounds (16, 552, 292, 28);
 }
-void EqPage::mouseDown (const juce::MouseEvent& e) { for (int b = 0; b < kEqBands; ++b) if (chip (b).contains (e.position)) { selectBand (b); return; } }
+void EqPage::mouseDown (const juce::MouseEvent& e)
+{
+    for (int b = 0; b < kEqBands; ++b)
+    {
+        if (soloBox (b).contains (e.position)) { selectBand (b); toggleSolo (b); return; }
+        if (chip (b).contains (e.position)) { selectBand (b); return; }
+    }
+}
 void EqPage::paint (juce::Graphics& g)
 {
-    paintHeader (g, "Trascina i punti: sinistra/destra frequenza, su/giu guadagno, rotella = Q, doppio clic accende o spegne la banda. "
+    paintHeader (g, "Trascina i punti: sinistra/destra frequenza, su/giu guadagno, rotella = Q, doppio clic accende o spegne la banda, S (o ALT+clic sul punto) = ascolta solo quella banda. "
                     "DINAMICA: la banda interviene solo quando il segnale supera la SOGLIA, fino a RANGE (negativo = taglia, positivo = alza). MID/SIDE: lavora solo sul centro o sui lati.");
     auto& P = ed.proc;
     for (int b = 0; b < kEqBands; ++b)
@@ -475,7 +491,15 @@ void EqPage::paint (juce::Graphics& g)
         juce::String t = juce::String (b + 1) + "  " + hzT (P.value (eqId (b, "f")));
         const float gg = P.value (eqId (b, "g")); if (std::abs (gg) > 0.05f) t << "  " << dbS (gg);
         if (P.value (eqId (b, "dyn")) > 0.5f) t << "  D";
-        glowText (g, t, chip (b).withTrimmedLeft (24), sel ? C::text : C::dim, uf (10.5f));
+        glowText (g, t, chip (b).withTrimmedLeft (24).withTrimmedRight (28), sel ? C::text : C::dim, uf (10.5f));
+        const bool so = P.eqSolo.load() == b; auto sb = soloBox (b);
+        g.setColour (so ? C::amber : juce::Colours::white.withAlpha (0.06f)); g.fillRoundedRectangle (sb, 3);
+        g.setColour (so ? juce::Colours::black : C::dim); g.setFont (mf (10.0f)); g.drawText ("S", sb, juce::Justification::centred);
+    }
+    {
+        const int so = P.eqSolo.load();
+        solo->text = so == band ? "SOLO BANDA " + juce::String (band + 1) + ": IN ASCOLTO" : "SOLO BANDA " + juce::String (band + 1); solo->down = so == band;
+        if (so >= 0) glowText (g, "ASCOLTI SOLO LA BANDA " + juce::String (so + 1) + " (S per tornare)", { 530, 540, 300, 16 }, C::amber, mf (10.0f));
     }
     // misuratore della banda selezionata rispetto alla soglia
     auto m = juce::Rectangle<float> (520, 428, 318, 132); lcd (g, m, 8);
@@ -550,6 +574,8 @@ void EqView::paint (juce::Graphics& g)
 }
 void EqView::mouseDown (const juce::MouseEvent& e)
 {
+    if (e.mods.isAltDown())   // ALT + clic su un punto = solo della banda
+        for (int b = 0; b < kEqBands; ++b) if (node (b).getDistanceFrom (e.position) < 14) { ed.proc.eqSolo = ed.proc.eqSolo.load() == b ? -1 : b; if (auto* pg = getParentComponent()) pg->repaint(); return; }
     drag = -1; float best = 20;
     for (int k = 0; k < kEqBands; ++k) { const float d = node (k).getDistanceFrom (e.position); if (d < best) { best = d; drag = k; } }
     if (auto* page = dynamic_cast<EqPage*> (getParentComponent())) { if (drag >= 0) page->selectBand (drag); page->touch(); }
@@ -1396,6 +1422,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 void Editor::select (int m)
 {
     sel = m;
+    if (m != DYNEQ) proc.eqSolo = -1;   // il solo dell'EQ vale solo mentre sei sulla pagina EQ
     maxPage.setVisible (m == MAXIM); limPage.setVisible (m == LIMIT); bassPage.setVisible (m == BASS); eqPage.setVisible (m == DYNEQ); imPage.setVisible (m == IMAGER);
     dsPage.setVisible (m == DEESS); busPage.setVisible (m == BUSCOMP); mbPage.setVisible (m == MULTI); tpPage.setVisible (m == TAPE); exPage.setVisible (m == EXCITER); balPage.setVisible (m == TOOL_BAL); refPage.setVisible (m == TOOL_REF);
     soon.setVisible (m < kNumMods && ! modInfo (m).ready); soon.mod = m < kNumMods ? m : 0;

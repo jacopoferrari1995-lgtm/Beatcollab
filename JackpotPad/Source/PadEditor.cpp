@@ -1339,49 +1339,22 @@ void ChopView::paintChrome (juce::Graphics& g)
     g.setColour (Col::dim); g.setFont (ft (9.5f, false, true));
     g.drawText (juce::String::fromUTF8 ("rotella = zoom \xc2\xb7 doppio clic = nuovo taglio \xc2\xb7 tasto destro sul taglio = togli \xc2\xb7 trascina un taglio o una fetta intera per spostarli \xc2\xb7 MAIUSC = senza snap \xc2\xb7 cmd+Z annulla"),
                 juce::Rectangle<float> (w.getX(), w.getY() - 14, w.getWidth(), 12), juce::Justification::centredLeft);
-    // fette e pad
+    // fette e pad (i pad si disegnano vivi in paint)
     const float yA = 476;
     glowText (g, "ASSEGNA AI PAD", { 34, yA, 200, 22 }, Col::text, ft (13.0f, true));
     g.setColour (Col::dim); g.setFont (ft (10.5f));
-    g.drawText (juce::String::fromUTF8 ("1. clicca una fetta sull'onda   2. clicca il pad dove metterla   oppure SPARGI per riempire i pad in ordine"), juce::Rectangle<float> (200, yA, 700, 22), juce::Justification::centredLeft);
+    g.drawText (juce::String::fromUTF8 ("trascina una fetta GI\xc3\x99 su un pad  \xc2\xb7  oppure clicca la fetta e poi il pad  \xc2\xb7  oppure SPARGI per riempire i pad in ordine"), juce::Rectangle<float> (200, yA, 800, 22), juce::Justification::centredLeft);
     const auto pts = points();
     const int nSl = (int) pts.size() - 1;
-    const float pw = 82, ph = 50;
-    for (int p = 0; p < kPads; ++p)
-    {
-        const int row = p / 8, col = p % 8;
-        auto r = juce::Rectangle<float> (34 + col * (pw + 6), yA + 30 + row * (ph + 6), pw, ph);
-        auto ps = ed.proc.getSample (p); const auto c2 = padColour (ed.proc.pad[p].colour.load());
-        const bool fromHere = assigned.count (p) > 0;
-        jlook::softShadow (g, r, 6, 6, 0.5f, 2);
-        juce::ColourGradient pg (fromHere ? c2.withAlpha (0.5f) : juce::Colour (0xff2a2d35), 0, r.getY(), fromHere ? c2.withAlpha (0.2f) : juce::Colour (0xff17191e), 0, r.getBottom(), false);
-        g.setGradientFill (pg); g.fillRoundedRectangle (r, 6);
-        g.setColour (p == src ? Col::green : (selSlice >= 0 ? Col::amber.withAlpha (0.6f) : juce::Colours::white.withAlpha (0.12f))); g.drawRoundedRectangle (r, 6, p == src ? 1.6f : 1.0f);
-        g.setColour (Col::text); g.setFont (ft (10.0f, true, true)); g.drawText (juce::String (p + 1).paddedLeft ('0', 2), r.reduced (6, 4), juce::Justification::topLeft);
-        g.setColour (Col::dim); g.setFont (ft (9.0f)); g.drawText (ps ? ps->name : juce::String ("vuoto"), r.reduced (6, 4), juce::Justification::bottomLeft);
-        if (fromHere) glowText (g, "F" + juce::String (assigned[p] + 1), r.reduced (6, 4), Col::amber, ft (11.0f, true, true), juce::Justification::topRight);
-        hots.push_back ({ r, [this, p] (const juce::MouseEvent&)
-        {
-            const auto pts2 = points();
-            if (selSlice >= 0 && selSlice + 1 < (int) pts2.size())
-            {
-                auto& D = ed.proc.pad[p]; D.reset(); D.colour = colour; D.v[GAIN] = gain; D.v[SBPM] = bpm; D.v[WARP] = (float) warp;
-                D.v[START] = pts2[(size_t) selSlice]; D.v[END] = pts2[(size_t) selSlice + 1]; D.v[SLICE] = (float) (selSlice + 1); D.v[DECAY] = 4000;
-                ed.proc.setSample (p, smp); assigned[p] = selSlice;
-                selSlice = juce::jmin (selSlice + 1, (int) pts2.size() - 2);   // passa alla fetta dopo
-            }
-            ed.playPad (p, 110);
-        }, nullptr });
-    }
-    // azioni a destra
-    auto ax = juce::Rectangle<float> (34 + 8 * (pw + 6) + 14, yA + 30, card.getRight() - (34 + 8 * (pw + 6) + 14) - 20, ph * 2 + 6);
+    // azioni sotto i pad
+    auto ax = juce::Rectangle<float> (34, padRect (8).getBottom() + 12, card.getRight() - 54, 40);
     g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (ax, 8);
-    glowText (g, juce::String (nSl) + (nSl == 1 ? " FETTA" : " FETTE"), { ax.getX() + 12, ax.getY() + 6, 120, 20 }, Col::phos, ft (12.0f, true, true));
-    g.setColour (Col::dim); g.setFont (ft (10.0f)); g.drawText ("dal pad", juce::Rectangle<float> (ax.getX() + 130, ax.getY() + 6, 50, 20), juce::Justification::centredLeft);
-    btn ({ ax.getX() + 182, ax.getY() + 4, 26, 24 }, "-", Col::cyan, false, [this] (const juce::MouseEvent&) { firstPad = juce::jmax (0, firstPad - 1); });
-    glowText (g, juce::String (firstPad + 1), { ax.getX() + 210, ax.getY() + 4, 30, 24 }, Col::amber, ft (13.0f, true, true), juce::Justification::centred);
-    btn ({ ax.getX() + 242, ax.getY() + 4, 26, 24 }, "+", Col::cyan, false, [this] (const juce::MouseEvent&) { firstPad = juce::jmin (kPads - 1, firstPad + 1); });
-    btn ({ ax.getX() + 12, ax.getY() + 38, ax.getWidth() - 24, 34 }, juce::String::fromUTF8 ("SPARGI LE FETTE SUI PAD \xe2\x96\xb6"), Col::green, true, [this] (const juce::MouseEvent&)
+    glowText (g, juce::String (nSl) + (nSl == 1 ? " FETTA" : " FETTE"), { ax.getX() + 12, ax.getY() + 10, 110, 20 }, Col::phos, ft (12.0f, true, true));
+    g.setColour (Col::dim); g.setFont (ft (10.0f)); g.drawText ("dal pad", juce::Rectangle<float> (ax.getX() + 118, ax.getY() + 10, 50, 20), juce::Justification::centredLeft);
+    btn ({ ax.getX() + 168, ax.getY() + 8, 26, 24 }, "-", Col::cyan, false, [this] (const juce::MouseEvent&) { firstPad = juce::jmax (0, firstPad - 1); });
+    glowText (g, juce::String (firstPad + 1), { ax.getX() + 196, ax.getY() + 8, 30, 24 }, Col::amber, ft (13.0f, true, true), juce::Justification::centred);
+    btn ({ ax.getX() + 228, ax.getY() + 8, 26, 24 }, "+", Col::cyan, false, [this] (const juce::MouseEvent&) { firstPad = juce::jmin (kPads - 1, firstPad + 1); });
+    btn ({ ax.getX() + 270, ax.getY() + 4, 330, 32 }, juce::String::fromUTF8 ("SPARGI LE FETTE SUI PAD \xe2\x96\xb6"), Col::green, true, [this] (const juce::MouseEvent&)
     {
         const auto pts2 = points();
         for (size_t k = 0; k + 1 < pts2.size(); ++k)
@@ -1389,15 +1362,16 @@ void ChopView::paintChrome (juce::Graphics& g)
             const int p = firstPad + (int) k; if (p >= kPads) break;
             auto& D = ed.proc.pad[p]; D.reset(); D.colour = colour; D.v[GAIN] = gain; D.v[SBPM] = bpm; D.v[WARP] = (float) warp;
             D.v[START] = pts2[k]; D.v[END] = pts2[k + 1]; D.v[SLICE] = (float) (k + 1); D.v[DECAY] = 4000;
+            D.v[SKEY] = ed.proc.pad[src].get (SKEY); D.v[TUNE] = ed.proc.pad[src].get (TUNE);
             ed.proc.setSample (p, smp); assigned[p] = (int) k;
         }
     });
-    btn ({ ax.getX() + 12, ax.getY() + 78, (ax.getWidth() - 30) / 2, 26 }, "SALVA REGIONE", Col::cyan, false, [this] (const juce::MouseEvent&)
+    btn ({ ax.getX() + 612, ax.getY() + 4, 170, 32 }, "SALVA REGIONE", Col::cyan, false, [this] (const juce::MouseEvent&)
     {   // aggiorna solo il pad sorgente con regione, BPM e sync
         auto& D = ed.proc.pad[src]; D.v[START] = r0; D.v[END] = r1; D.v[SBPM] = bpm; D.v[WARP] = (float) warp;
     });
-    btn ({ ax.getX() + 18 + (ax.getWidth() - 30) / 2, ax.getY() + 78, (ax.getWidth() - 30) / 2, 26 }, "ANNULLA ZOOM", Col::cyan, false, [this] (const juce::MouseEvent&) { v0 = 0; v1 = 1; });
-    if (nSl > kPads - firstPad) { g.setColour (Col::red); g.setFont (ft (9.5f, true)); g.drawText ("fette oltre il pad 16 non verranno assegnate", juce::Rectangle<float> (ax.getX() + 12, ax.getBottom() + 2, ax.getWidth(), 14), juce::Justification::centredLeft); }
+    btn ({ ax.getX() + 790, ax.getY() + 4, 170, 32 }, "ANNULLA ZOOM", Col::cyan, false, [this] (const juce::MouseEvent&) { v0 = 0; v1 = 1; });
+    if (nSl > kPads - firstPad) { g.setColour (Col::red); g.setFont (ft (9.5f, true)); g.drawText ("fette oltre il pad 16 non verranno assegnate", juce::Rectangle<float> (ax.getX() + 970, ax.getY() + 4, 220, 32), juce::Justification::centredLeft); }
     // la sorgente salva sempre BPM e sync scelti qui
     { auto& D = ed.proc.pad[src]; if (ed.proc.getSample (src) == smp) { D.v[SBPM] = bpm; D.v[WARP] = (float) warp; } }
 }
@@ -1485,7 +1459,7 @@ void ChopView::paint (juce::Graphics& g)
         g.setColour (juce::Colours::black); g.setFont (ft (9.5f, true, true)); g.drawText (k ? "FINE" : "INIZIO", hr, juce::Justification::centred);
     }
     // posizione mentre trascini
-    if (drag != 0 && drag != -3)
+    if (drag != 0 && drag != -3 && ! toPad)
     {
         const float xx = juce::jlimit (w.getX() + 60, w.getRight() - 60, xOf (drag == -4 ? (selSlice >= 0 && (size_t) selSlice < pts.size() ? pts[(size_t) selSlice] : lastFx) : lastFx));
         auto tag = juce::Rectangle<float> (xx - 60, w.getY() + 36, 120, 18);
@@ -1505,6 +1479,65 @@ void ChopView::paint (juce::Graphics& g)
     auto vr = juce::Rectangle<float> (ov.getX() + v0 * ov.getWidth(), ov.getY(), (v1 - v0) * ov.getWidth(), ov.getHeight());
     g.setColour (Col::phos.withAlpha (0.18f)); g.fillRoundedRectangle (vr, 3); g.setColour (Col::phos); g.drawRoundedRectangle (vr, 3, 1.2f);
     glowText (g, "ZOOM " + juce::String (1.0 / (v1 - v0), 1) + juce::String::fromUTF8 ("\xc3\x97"), { ov.getRight() - 100, ov.getY() - 1, 96, ov.getHeight() }, Col::phos, ft (9.5f, true, true), juce::Justification::centredRight);
+    // pad: colore del suono, si accendono quando suonano, si evidenziano al passaggio o come destinazione
+    int sliceOn = -1; for (auto& [pp, k] : assigned) if (k == selSlice) sliceOn = pp;
+    for (int p = 0; p < kPads; ++p)
+    {
+        auto r = padRect (p); auto ps = ed.proc.getSample (p); const auto c2 = padColour (ed.proc.pad[p].colour.load());
+        const bool fromHere = assigned.count (p) > 0, hov = p == hovPad, target = (toPad || selSlice >= 0) && hov;
+        const float lum = juce::jlimit (0.0f, 1.0f, pGlow[p]);
+        g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillRoundedRectangle (r.translated (0, 2), 7);
+        juce::ColourGradient pg (fromHere ? c2.withAlpha (0.45f) : juce::Colour (0xff2a2d35), 0, r.getY(), fromHere ? c2.withAlpha (0.18f) : juce::Colour (0xff17191e), 0, r.getBottom(), false);
+        g.setGradientFill (pg); g.fillRoundedRectangle (r, 7);
+        if (lum > 0.01f) { juce::ColourGradient bl (c2.withAlpha (0.95f * lum), r.getCentreX(), r.getCentreY(), c2.withAlpha (0.15f * lum), r.getX(), r.getY(), true); g.setGradientFill (bl); g.fillRoundedRectangle (r, 7); }
+        if (target) { g.setColour (Col::amber.withAlpha (0.25f)); g.fillRoundedRectangle (r, 7); }
+        g.setColour (target ? Col::amber : p == sliceOn ? Col::amber.withAlpha (0.8f) : p == src ? Col::green : hov ? juce::Colours::white.withAlpha (0.5f) : juce::Colours::white.withAlpha (0.12f));
+        g.drawRoundedRectangle (r, 7, target ? 2.5f : (p == src || p == sliceOn) ? 1.8f : 1.0f);
+        g.setColour (lum > 0.4f ? juce::Colours::white : Col::text); g.setFont (ft (11.0f, true, true)); g.drawText (juce::String (p + 1).paddedLeft ('0', 2), r.reduced (8, 5), juce::Justification::topLeft);
+        g.setColour (lum > 0.4f ? juce::Colours::white : Col::dim); g.setFont (ft (9.5f));
+        const int sl = juce::roundToInt (ed.proc.pad[p].get (SLICE));
+        g.drawText (ps ? ps->name + (sl > 0 ? " #" + juce::String (sl) : juce::String()) : juce::String ("vuoto"), r.reduced (8, 5), juce::Justification::bottomLeft);
+        if (fromHere) glowText (g, "F" + juce::String (assigned[p] + 1), r.reduced (8, 3), Col::amber, ft (16.0f, true, true), juce::Justification::topRight);
+        if (target && selSlice >= 0) glowText (g, juce::String::fromUTF8 ("METTI F") + juce::String (selSlice + 1) + " QUI", r, Col::amber, ft (11.0f, true, true), juce::Justification::centred);
+    }
+    // fetta trascinata verso i pad
+    if (toPad && selSlice >= 0)
+    {
+        auto tag = juce::Rectangle<float> (dragPos.x - 34, dragPos.y - 14, 68, 28);
+        g.setColour (padColour (colour).withAlpha (0.9f)); g.fillRoundedRectangle (tag, 6); g.setColour (juce::Colours::white); g.drawRoundedRectangle (tag, 6, 1.2f);
+        g.setFont (ft (13.0f, true, true)); g.drawText ("F" + juce::String (selSlice + 1), tag, juce::Justification::centred);
+    }
+    else if (selSlice >= 0)
+    {
+        glowText (g, juce::String::fromUTF8 ("F") + juce::String (selSlice + 1) + (sliceOn >= 0 ? juce::String::fromUTF8 (" \xc3\xa8 sul pad ") + juce::String (sliceOn + 1) : juce::String::fromUTF8 (" scelta: clicca un pad o trascinala gi\xc3\xb9")),
+                  { 760, 476, 440, 22 }, Col::amber, ft (11.5f, true, true), juce::Justification::centredRight);
+    }
+}
+
+void ChopView::assignTo (int p)
+{
+    const auto pts2 = points();
+    if (p < 0 || p >= kPads || selSlice < 0 || selSlice + 1 >= (int) pts2.size()) return;
+    auto& D = ed.proc.pad[p]; const float sk = ed.proc.pad[src].get (SKEY), tu = ed.proc.pad[src].get (TUNE);
+    D.reset(); D.colour = colour; D.v[GAIN] = gain; D.v[SBPM] = bpm; D.v[WARP] = (float) warp; D.v[SKEY] = sk; D.v[TUNE] = tu;
+    D.v[START] = pts2[(size_t) selSlice]; D.v[END] = pts2[(size_t) selSlice + 1]; D.v[SLICE] = (float) (selSlice + 1); D.v[DECAY] = 4000;
+    ed.proc.setSample (p, smp);
+    for (auto it = assigned.begin(); it != assigned.end();) { if (it->first == p) it = assigned.erase (it); else ++it; }
+    assigned[p] = selSlice;
+    pGlow[p] = 1.0f;
+    selSlice = juce::jmin (selSlice + 1, (int) pts2.size() - 2);   // passa alla fetta dopo
+    chromeDirty = true;
+}
+void ChopView::tickPads()
+{
+    bool any = false;
+    for (int p = 0; p < kPads; ++p)
+    {
+        const auto h = ed.proc.hits[p].load();
+        if (h != pHits[p]) { pHits[p] = h; pGlow[p] = 1.0f; any = true; }
+        else if (pGlow[p] > 0.01f) { pGlow[p] *= 0.82f; any = true; } else pGlow[p] = 0;
+    }
+    if (any) repaint (padRect (0).getUnion (padRect (15)).expanded (6).toNearestInt());
 }
 
 int ChopView::markAt (float x, float tol) const
@@ -1535,14 +1568,16 @@ void ChopView::mouseMove (const juce::MouseEvent& e)
     int h = -1;
     if (wave().contains (e.position)) { const auto pts = points(); const float fx = fxOf (e.position.x); for (size_t k = 0; k + 1 < pts.size(); ++k) if (fx >= pts[k] && fx < pts[k + 1]) h = (int) k; }
     const int hm = wave().expanded (0, 8).contains (e.position) ? markAt (e.position.x, 10) : 0;
-    if (h != hovSlice || hm != hovMark) { hovSlice = h; hovMark = hm; repaint(); }
-    bool hand = false; for (auto& h2 : hots) if (h2.r.contains (e.position)) hand = true;
+    const int hp2 = padAt (e.position);
+    if (h != hovSlice || hm != hovMark || hp2 != hovPad) { hovSlice = h; hovMark = hm; hovPad = hp2; repaint(); }
+    bool hand = hp2 >= 0; for (auto& h2 : hots) if (h2.r.contains (e.position)) hand = true;
     setMouseCursor (hand ? juce::MouseCursor::PointingHandCursor : hm != 0 ? juce::MouseCursor::LeftRightResizeCursor
                     : wave().contains (e.position) ? (e.mods.isCommandDown() ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::PointingHandCursor) : juce::MouseCursor::NormalCursor);
 }
 void ChopView::mouseDown (const juce::MouseEvent& e)
 {
-    drag = 0; moved = false; chromeDirty = true;
+    drag = 0; moved = false; toPad = false; chromeDirty = true;
+    if (const int pp = padAt (e.position); pp >= 0) { if (selSlice >= 0) assignTo (pp); ed.playPad (pp, 110); repaint(); return; }
     for (auto it = hots.rbegin(); it != hots.rend(); ++it) if (it->r.contains (e.position) && it->fn) { it->fn (e); repaint(); return; }
     auto w = wave(), ov = overview();
     if (ov.expanded (0, 4).contains (e.position)) { drag = -3; dragOff = (e.position.x - ov.getX()) / ov.getWidth() - v0; mouseDrag (e); return; }
@@ -1587,6 +1622,13 @@ void ChopView::mouseDrag (const juce::MouseEvent& e)
     }
     else if (drag == -4)
     {
+        // trascinata in basso, fuori dall'onda: la fetta va su un pad
+        if (e.position.y > w.getBottom() + 30 || toPad)
+        {
+            if (! toPad && moved) { marks = dragMarks0; r0 = dragR00; r1 = dragR10; }
+            toPad = e.position.y > w.getBottom() + 10; dragPos = e.position; hovPad = padAt (e.position);
+            repaint(); return;
+        }
         if (! moved && std::abs (e.getDistanceFromDragStartX()) < 5) return;
         if (! moved) { undoE.push_back ({ dragMarks0, dragR00, dragR10 }); redoE.clear(); moved = true; }
         // sposta la fetta scelta: i suoi due bordi insieme, dentro i vicini
@@ -1604,8 +1646,9 @@ void ChopView::mouseDrag (const juce::MouseEvent& e)
     }
     repaint();
 }
-void ChopView::mouseUp (const juce::MouseEvent&)
+void ChopView::mouseUp (const juce::MouseEvent& e)
 {
+    if (toPad) { toPad = false; drag = 0; moved = false; const int pp = padAt (e.position); if (pp >= 0) { assignTo (pp); ed.playPad (pp, 110); } chromeDirty = true; repaint(); return; }
     if (drag == -4 && moved && selSlice >= 0) { const auto pts = points(); if ((size_t) selSlice + 1 < pts.size()) ed.proc.audition (src, pts[(size_t) selSlice], pts[(size_t) selSlice + 1]); }
     drag = 0; moved = false; chromeDirty = true; repaint();
 }
@@ -1959,7 +2002,7 @@ void Editor::timerCallback()
 {
     // istantanea per annulla/ripeti quando non si sta trascinando
     if (++undoTick % 8 == 0 && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown() && ! chop.isVisible()) proc.commitIfChanged();
-    if (chop.isVisible()) return;   // l'editor grande copre tutto: niente ridisegni sotto
+    if (chop.isVisible()) { chop.tickPads(); return; }   // l'editor grande copre tutto: niente ridisegni sotto
     for (int i = 0; i < kPads; ++i)
     {
         auto* pc = pads[i]; const auto h = proc.hits[i].load();

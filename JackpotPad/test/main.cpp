@@ -149,7 +149,7 @@ int main (int argc, char** argv)
         Editor ed (p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         if (auto* pg = std::getenv ("JPAGE")) { ed.selectPad (0); ed.setPage (std::atoi (pg)); for (int i = 0; i < 3; ++i) ed.screen.repaint(); }
-        else ed.openChop (0);
+        else { ed.openChop (0); ed.chop.selSlice = 2; ed.chop.hovPad = 5; ed.chop.assigned[3] = 1; ed.chop.pGlow[6] = 1.0f; ed.chop.pGlow[3] = 0.5f; }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

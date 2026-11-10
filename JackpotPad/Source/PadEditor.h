@@ -207,6 +207,12 @@ public:
     void pushUndo() { undoE.push_back ({ marks, r0, r1 }); if (undoE.size() > 60) undoE.erase (undoE.begin()); redoE.clear(); }
     int markAt (float x, float tol) const;
     juce::String posText (float fx) const;
+    // pad di destinazione: si illuminano, si evidenziano al passaggio, ci si trascina sopra una fetta
+    juce::Rectangle<float> padRect (int p) const { const float pw = 140, ph = 64; return { 34 + (p % 8) * (pw + 6) - (p % 8 >= 0 ? 0 : 0), 506.0f + (p / 8) * (ph + 6), pw - 0, ph }; }
+    int padAt (juce::Point<float> pt) const { for (int p = 0; p < kPads; ++p) if (padRect (p).contains (pt)) return p; return -1; }
+    void assignTo (int p);
+    void tickPads();
+    int hovPad = -1; bool toPad = false; juce::Point<float> dragPos; float pGlow[kPads] {}; juce::uint32 pHits[kPads] {};
 };
 
 class Editor : public juce::AudioProcessorEditor, public juce::DragAndDropContainer, private juce::Timer

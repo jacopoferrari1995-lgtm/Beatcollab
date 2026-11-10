@@ -136,6 +136,18 @@ public:
     BassView view;
 };
 
+class ActBtn : public juce::Component
+{
+public:
+    ActBtn (juce::String t, juce::Colour c, std::function<void()> f) : text (std::move (t)), col (c), fn (std::move (f)) {}
+    void paint (juce::Graphics& g) override { jlook::button (g, getLocalBounds().toFloat(), col, down, hover, text, jlook::ui (11.0f, 2)); }
+    void mouseDown (const juce::MouseEvent&) override { down = true; repaint(); if (fn) fn(); }
+    void mouseUp (const juce::MouseEvent&) override { down = false; repaint(); }
+    void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::PointingHandCursor); repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
+    juce::String text; juce::Colour col; std::function<void()> fn; bool down = false, hover = false;
+};
+
 class EqView : public juce::Component
 {
 public:
@@ -162,7 +174,9 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void selectBand (int b);
     juce::Rectangle<float> chip (int b) const { return { 16 + b * 138.0f, 356, 130, 28 }; }
-    EqView view; int band = 0;
+    EqView view; int band = 0; std::unique_ptr<ActBtn> solo;
+    juce::Rectangle<float> soloBox (int b) const { return chip (b).removeFromRight (28).reduced (3, 4); }
+    void toggleSolo (int b);
     std::unique_ptr<Segs> type[kEqBands], ch[kEqBands]; std::unique_ptr<Switch> bon[kEqBands], dyn[kEqBands];
     Knob* fk[kEqBands] {}; Knob* gk[kEqBands] {}; Knob* qk[kEqBands] {}; Knob* tk[kEqBands] {}; Knob* rk[kEqBands] {};
 };
@@ -198,17 +212,6 @@ public:
 };
 
 // pulsante d'azione
-class ActBtn : public juce::Component
-{
-public:
-    ActBtn (juce::String t, juce::Colour c, std::function<void()> f) : text (std::move (t)), col (c), fn (std::move (f)) {}
-    void paint (juce::Graphics& g) override { jlook::button (g, getLocalBounds().toFloat(), col, down, hover, text, jlook::ui (11.0f, 2)); }
-    void mouseDown (const juce::MouseEvent&) override { down = true; repaint(); if (fn) fn(); }
-    void mouseUp (const juce::MouseEvent&) override { down = false; repaint(); }
-    void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::PointingHandCursor); repaint(); }
-    void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
-    juce::String text; juce::Colour col; std::function<void()> fn; bool down = false, hover = false;
-};
 
 class DsView : public juce::Component
 {

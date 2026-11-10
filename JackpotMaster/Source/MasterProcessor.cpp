@@ -241,6 +241,28 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                     if (d) copyIn();
                     deq.process (L, R, n, B);
                     if (d) subIn();
+                    // SOLO di una banda: si sente solo la zona di frequenze che la banda tocca, sul canale che lavora
+                    const int sb = eqSolo.load();
+                    if (sb >= 0 && sb < kEqBands && ! d)
+                    {
+                        const auto& E = B[sb];
+                        const int ft = E.type == Biquad::LSHELF || E.type == Biquad::HCUT ? (E.type == Biquad::LSHELF ? Biquad::HCUT : Biquad::LCUT)
+                                     : E.type == Biquad::HSHELF || E.type == Biquad::LCUT ? (E.type == Biquad::HSHELF ? Biquad::LCUT : Biquad::HCUT) : Biquad::BPASS;
+                        const float q = ft == Biquad::BPASS ? juce::jmax (0.7f, E.q) : 0.707f;
+                        if (solKey[0] != (float) ft || solKey[1] != E.f || solKey[2] != q)
+                        {
+                            solKey[0] = (float) ft; solKey[1] = E.f; solKey[2] = q;
+                            for (auto& ch : solF) for (auto& f : ch) f.set (ft, E.f, 0, q, sr);
+                        }
+                        for (int i = 0; i < n; ++i)
+                        {
+                            float l = solF[0][1] (solF[0][0] (L[i])), r = solF[1][1] (solF[1][0] (R[i]));
+                            if (E.ch == 1) { const float m = 0.5f * (l + r); l = r = m; }
+                            else if (E.ch == 2) { const float sd = 0.5f * (l - r); l = sd; r = -sd; }
+                            L[i] = l; R[i] = r;
+                        }
+                        deltaFrom = id;   // il resto della catena si salta, come per il delta
+                    }
                 }
                 break;
             case DEESS:

@@ -80,6 +80,8 @@ public:
     std::atomic<float> lufsM { -100 }, lufsS { -100 }, lufsI { -100 }, lra { 0 }, tpMax { -100 }, inS { -100 }, matchDb { 0 }, normDb { 0 };
     std::atomic<float> grMax { 0 }, grLim { 0 }, inPk[2] {}, outPk[2] {};
     std::atomic<float> bassGain { 0 }, bassLow { 0 }, eqDyn[kEqBands] {}, eqLvl[kEqBands] {}, imCorr[kImBands] {}, corrAll { 1 };
+    std::atomic<int> eqSolo { -1 };   // banda dell'EQ in ascolto da sola (solo interfaccia)
+    Biquad solF[2][2]; float solKey[4] { -1, -1, -1, -1 };
     std::atomic<int> order[kNumMods];
     void setOrder (const std::array<int, kNumMods>&);
     std::array<int, kNumMods> getOrder() const;
