@@ -167,7 +167,12 @@ static float maxDur (const juce::String& c)
 void randomKit (Processor& P, int mode)
 {
     juce::Random r;
-    const bool weird = r.nextFloat() < 0.2f;
+    // pad 1-8: 70% classico, 15% variato (tom/perc e piatto diventano altri one shot), 15% sperimentale
+    // pad 9-16: 70% almeno 4 campioni (uno e sempre 808/basso) + altri one shot, 30% inventato
+    const float r0 = r.nextFloat();
+    const int first = r0 < 0.70f ? 0 : r0 < 0.85f ? 1 : 2;
+    const bool invent = r.nextFloat() < 0.30f;
+    const bool weird = first == 2;
     std::map<juce::String, std::vector<LibItem>> pools;
     auto pool = [&] (const juce::String& cat) -> std::vector<LibItem>&
     {
@@ -182,24 +187,29 @@ void randomKit (Processor& P, int mode)
     };
     // ruoli: categorie possibili in ordine di preferenza
     std::vector<juce::StringArray> roles = {
-        { "KICK" }, { "SNARE" }, { "CLAP / SNAP", "SNARE" }, { "HAT" }, { "OPEN HAT", "HAT" }, { "808", "KICK" }, { "PERC" }, { "PERC", "TOM", "CLAP / SNAP" },
-        { "CYMBAL", "FX" }, { "FX", "TEXTURE", "PERC" }, { "FX", "TEXTURE", "CYMBAL" }, { "VOCI", "FX", "MELODICI" },
-        { "MELODICI" }, { "MELODICI", "VOCI" }, { "LOOP", "MELODICI" }, { "LOOP", "TEXTURE", "VOCI", "MELODICI" } };
-    {   // il pad 8 cambia da kit a kit
-        static const char* alt[] = { "PERC", "TOM", "KICK", "SNARE", "HAT", "CLAP / SNAP" };
-        roles[7] = { alt[r.nextInt (6)], "PERC" };
-    }
-    if (weird)
+        { "KICK" }, { "SNARE" }, { "HAT" }, { "OPEN HAT", "HAT" }, { "CLAP / SNAP", "PERC", "SNARE" }, { "TOM", "PERC" }, { "PERC", "TOM" }, { "CYMBAL", "OPEN HAT" },
+        { "808", "KICK" }, { "MELODICI" }, { "MELODICI" }, { "MELODICI" }, { "PERC" }, { "FX" }, { "PERC" }, { "FX" } };
+    auto pick = [&r] (std::initializer_list<const char*> l) { std::vector<const char*> v (l); return juce::String (v[(size_t) r.nextInt ((int) v.size())]); };
+    if (first == 1)
+        for (int q = 5; q < 8; ++q) roles[(size_t) q] = { pick ({ "VOCI", "FX", "PERC", "TEXTURE", "CLAP / SNAP", "VOCI" }), "PERC", "FX" };
+    if (first == 2)
     {
-        static const char* odd[] = { "PERC", "TOM", "FX", "TEXTURE", "VOCI", "CYMBAL", "CLAP / SNAP" };
-        static const char* top[] = { "FX", "TEXTURE", "VOCI", "MELODICI", "LOOP", "PERC", "CYMBAL", "TOM" };
-        for (int p = 1; p < 8; ++p) if (p != 5 && r.nextFloat() < 0.4f) roles[(size_t) p] = { odd[r.nextInt (7)], roles[(size_t) p][0] };
-        for (int p = 8; p < 16; ++p) roles[(size_t) p] = { top[r.nextInt (8)], roles[(size_t) p][0] };
+        roles[0] = { pick ({ "KICK", "808", "KICK", "FX" }), "KICK" }; roles[1] = { pick ({ "SNARE", "CLAP / SNAP", "FX", "PERC" }), "SNARE" };
+        roles[2] = { pick ({ "HAT", "PERC", "TEXTURE" }), "HAT" };
+        for (int q = 3; q < 8; ++q) roles[(size_t) q] = { pick ({ "FX", "TEXTURE", "VOCI", "PERC", "TOM", "CYMBAL", "808", "MELODICI", "CLAP / SNAP" }), "PERC" };
     }
+    if (! invent)
+    {   // 808 + tre campioni (melodie, loop, voci, texture) + quattro one shot
+        roles[8] = { "808", "KICK" };
+        for (int q = 9; q < 12; ++q) roles[(size_t) q] = { pick ({ "MELODICI", "LOOP", "VOCI", "TEXTURE", "MELODICI", "LOOP" }), "MELODICI", "TEXTURE" };
+        for (int q = 12; q < 16; ++q) roles[(size_t) q] = { pick ({ "FX", "PERC", "TOM", "CLAP / SNAP", "VOCI", "CYMBAL", "KICK", "SNARE", "HAT" }), "PERC", "FX" };
+    }
+    else
+        for (int q = 8; q < 16; ++q) roles[(size_t) q] = { pick ({ "FX", "TEXTURE", "VOCI", "MELODICI", "LOOP", "PERC", "CYMBAL", "TOM", "808", "KICK", "SNARE", "CLAP / SNAP" }), "PERC", "FX" };
     juce::StringArray used;
     // tonalita del kit: la decide la prima parte tonale con tonalita nota (melodie per prime)
     int kitKey = -1;
-    const int order[] = { 12, 13, 14, 15, 11, 9, 10, 8, 5, 0, 1, 2, 3, 4, 6, 7 };
+    const int order[] = { 9, 10, 11, 8, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7 };
     for (int p : order)
     {
         auto& pd = P.pad[p]; pd.reset();
@@ -227,7 +237,7 @@ void randomKit (Processor& P, int mode)
         }
         if (! done) { P.setSample (p, nullptr); continue; }
         pd.colour = catColour (cat);
-        if (cat == "HAT" || cat == "OPEN HAT") pd.v[CHOKE] = 1;
+        if ((cat == "HAT" || cat == "OPEN HAT") && p < 8) pd.v[CHOKE] = 1;
         if (cat == "OPEN HAT" || cat == "CYMBAL") pd.v[DECAY] = 4000;
         const bool tonal = cat == "MELODICI" || cat == "808" || cat == "LOOP" || cat == "VOCI";
         if (tonal)
@@ -247,11 +257,11 @@ void randomKit (Processor& P, int mode)
             if (! tonal && r.nextFloat() < 0.3f) pd.v[TUNE] = (float) (r.nextInt (15) - 7);
             if (p >= 8 && r.nextFloat() < 0.25f) pd.v[REVERSE] = 1;
             if (r.nextFloat() < 0.2f) { pd.v[BITS] = 0.3f + r.nextFloat() * 0.4f; pd.v[RATE] = r.nextFloat() * 0.5f; }
-            if (r.nextFloat() < 0.2f) pd.v[DRIVE] = 0.2f + r.nextFloat() * 0.5f;
+            if (r.nextFloat() < 0.3f) { pd.v[DRIVE] = 0.2f + r.nextFloat() * 0.5f; pd.v[DTYPE] = (float) (4 + r.nextInt (3)); }   // overdrive, distorsione, fuzz
             if (p >= 8 && r.nextFloat() < 0.3f) pd.v[SREV] = 0.2f + r.nextFloat() * 0.4f;
         }
     }
-    P.kitName = juce::String ("Random ") + (weird ? "Sperimentale" : "Classico") + " / " + kRandModes[juce::jlimit (0, 2, mode)] + (kitKey >= 0 ? " in " + keyName (kitKey) : juce::String());
+    P.kitName = juce::String ("Random ") + (first == 0 ? "Classico" : first == 1 ? "Variato" : "Sperimentale") + (invent ? "+" : "") + " / " + kRandModes[juce::jlimit (0, 2, mode)] + (kitKey >= 0 ? " in " + keyName (kitKey) : juce::String());
     P.kitFile = juce::File();
 }
 }

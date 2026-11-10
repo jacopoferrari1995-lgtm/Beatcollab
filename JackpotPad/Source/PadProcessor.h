@@ -17,9 +17,20 @@ struct SampleData { juce::AudioBuffer<float> buf; double sr = 44100; juce::Strin
 enum PadParam { GAIN, LEVEL, PAN, TUNE, FINE, START, END, ATTACK, DECAY, RELEASE, MODE, REVERSE, CHOKE, LOOP, WARP, SBPM,
                 VLEVEL, VFILTER, VSTART, VPITCH,
                 FTYPE, CUTOFF, RESO, FENV, FDECAY,
-                EQON, LOWG, LOWF, MIDG, MIDF, MIDQ, HIGHG, HIGHF,
+                EQON, B1ON, B1T, B1F, B1G, B1Q, B2ON, B2T, B2F, B2G, B2Q, B3ON, B3T, B3F, B3G, B3Q,
+                B4ON, B4T, B4F, B4G, B4Q, B5ON, B5T, B5F, B5G, B5Q, B6ON, B6T, B6F, B6G, B6Q,
                 CMODE, CAMT, CMAKEUP, CMIX,
-                DRIVE, BITS, RATE, SREV, SDLY, MUTE, SOLO, SLICE, SKEY, kNumPadParams };
+                DRIVE, BITS, RATE, SREV, SDLY, MUTE, SOLO, SLICE, SKEY, DTYPE, kNumPadParams,
+                // nomi storici dell'EQ a 3 bande (kit e progetti vecchi): banda 2 = bassi, 3 = medi, 5 = alti
+                LOWG = B2G, LOWF = B2F, MIDG = B3G, MIDF = B3F, MIDQ = B3Q, HIGHG = B5G, HIGHF = B5F };
+// EQ a 6 bande per pad: parametro k (0 on, 1 tipo, 2 freq, 3 gain, 4 Q) della banda b
+inline int bandP (int b, int k) { return B1ON + b * 5 + k; }
+enum EqType { EQ_LC12, EQ_LC24, EQ_LSHELF, EQ_BELL, EQ_NOTCH, EQ_HSHELF, EQ_HC12, EQ_HC24, kEqTypes };
+const char* eqTypeName (int t);
+constexpr int kDriveTypes = 7;
+const char* driveTypeName (int t);
+const char* driveTypeDesc (int t);
+float driveShape (int t, float x);
 struct PInfo { const char* id; const char* label; float min, max, def; int kind; };
 // kind: 0 %, 1 ±, 2 st, 3 ct, 4 ms, 5 Hz, 6 scelta, 7 int, 8 on/off, 9 pan, 10 bpm, 11 dB, 12 Q, 13 fader
 extern const PInfo kPInfo[kNumPadParams];
@@ -44,7 +55,8 @@ juce::StringArray patternGenres();
 struct Biquad
 {
     float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1[2] = {}, z2[2] = {};
-    void set (int type, double sr, double f, double gDb, double q);   // 0 low shelf, 1 peak, 2 high shelf
+    void set (int type, double sr, double f, double gDb, double q);   // 0 low shelf, 1 peak, 2 high shelf, 3 passa basso, 4 passa alto, 5 notch, 6 passa banda
+    void reset() { z1[0] = z1[1] = z2[0] = z2[1] = 0; }
     inline float run (float x, int c) { const float y = b0 * x + z1[c]; z1[c] = b1 * x - a1 * y + z2[c]; z2[c] = b2 * x - a2 * y; return y; }
     static float magDb (int type, double sr, double f, double gDb, double q, double atHz);
 };
@@ -85,7 +97,8 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     Pad pad[kPads];
     juce::RangedAudioParameter* hostParam (int p, int i) const { const int a = autoIndex (i); return a < 0 ? nullptr : hp[p][a]; }
-    void setPadValue (int p, int i, float v);   // dall'interfaccia: aggiorna anche il parametro di Ableton
+    void setPadValue (int p, int i, float v);
+    std::atomic<int> eqSoloPad { -1 }, eqSoloBand { -1 };   // ascolto di una sola banda dell'EQ di un pad   // dall'interfaccia: aggiorna anche il parametro di Ableton
     SamplePtr getSample (int p) const { const juce::SpinLock::ScopedLockType l (sLock); return smp[p]; }
     void setSample (int p, SamplePtr s) { const juce::SpinLock::ScopedLockType l (sLock); smp[p] = std::move (s); }
     bool loadFile (const juce::File&, int p, bool analyse = true);
@@ -172,8 +185,10 @@ private:
     };
     struct PadChain
     {
-        Biquad eq[3]; float cEnv = 0; float holdL = 0, holdR = 0; double holdPh = 0; int active = 0;
-        float lastEq[7] = { 99, 99, 99, 99, 99, 99, 99 };
+        Biquad eq[6][2], sol[2]; float cEnv = 0; float holdL = 0, holdR = 0; double holdPh = 0; int active = 0;
+        float lastBand[6][5]; float solKey[3] { -1, -1, -1 };
+        float lastDrv = -1, drvNorm = 1; int lastDType = -1; float dHp[2] {}, dHpX[2] {}, dLp[2] {};
+        PadChain() { for (auto& b : lastBand) for (auto& v : b) v = -999; }
     };
     Voice voices[kVoices];
     PadChain chain[kPads];
@@ -195,6 +210,7 @@ private:
     std::vector<float> revL, revR, dlyInL, dlyInR;
     juce::AudioBuffer<float> dlyBuf; int dlyW = 0; float dlyLpL = 0, dlyLpR = 0;
     juce::Reverb reverb; float satZ = 0;
+    std::vector<float> preBuf; int preW = 0; float rvHpZ[2] {}, rvHpX[2] {}; Biquad rvLp; float dlHp[2] {}, dlHpX[2] {}, dlLp[2] {};
     juce::Random rng;
     float busEnv = 0;
     void startVoice (int p, int vel, float r0 = -1, float r1 = -1);

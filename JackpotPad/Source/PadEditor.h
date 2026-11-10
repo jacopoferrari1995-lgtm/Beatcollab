@@ -78,7 +78,7 @@ public:
     Editor& ed; int pad; bool held = false, dragOver = false; float glow = 0, flash = 0; juce::uint32 lastHit = 0; juce::Path dots;
 };
 
-enum Page { PG_KIT, PG_BROWSE, PG_MIX, PG_SAMPLE, PG_VEL, PG_EQ, PG_FILTER, PG_COMP, PG_FX, PG_MASTER, kNumPages };
+enum Page { PG_KIT, PG_BROWSE, PG_MIX, PG_SAMPLE, PG_VEL, PG_EQ, PG_COMP, PG_FX, PG_MASTER, kNumPages };
 
 // schermo a pagine
 class Screen : public juce::Component, public juce::FileDragAndDropTarget
@@ -102,6 +102,7 @@ public:
         std::function<void (const juce::MouseEvent&)> drag;
         std::function<void (float)> wheel;
         std::function<void()> dbl;
+        juce::String tip;
     };
     std::vector<Hot> hots;
     std::function<void (const juce::MouseEvent&)> drag;
@@ -122,7 +123,6 @@ private:
     void pageSample (juce::Graphics&, juce::Rectangle<float>);
     void pageVel (juce::Graphics&, juce::Rectangle<float>);
     void pageEq (juce::Graphics&, juce::Rectangle<float>);
-    void pageFilter (juce::Graphics&, juce::Rectangle<float>);
     void pageComp (juce::Graphics&, juce::Rectangle<float>);
     void pageFx (juce::Graphics&, juce::Rectangle<float>);
     void pageMaster (juce::Graphics&, juce::Rectangle<float>);
@@ -135,6 +135,10 @@ public:
     void itemMenu (int i);
     juce::Image bgImg, ovImg; float imgScale = 0;   // fondo e vetro dello schermo in cache
     juce::uint64 sig = 0;
+    int eqBand = 2; bool searchAll = false;
+    juce::String hint;                 // spiegazione del controllo sotto il mouse
+    void mouseMove (const juce::MouseEvent&) override;
+    void padSlider (juce::Graphics&, juce::Rectangle<float>&, const juce::String& label, int param, juce::Colour);
     juce::String pendKey;              // suono scelto nella banca: si sente subito, si carica al secondo clic
     // pagina SAMPLE: trascinamento (1 inizio, 2 fine, 3 volume sull'onda) e cache dei picchi
     int sDrag = 0; float sGain0 = 0;
@@ -247,6 +251,7 @@ public:
     void addToLibraryDialog();
     void scanMenu();
     void doUndo (bool redo);
+    void bindQlinks();
 
     // valori normalizzati dei parametri dei pad (per manopole e grafici)
     static float toNorm (int i, float v);
@@ -266,7 +271,6 @@ public:
 
 private:
     void timerCallback() override;
-    void bindQlinks();
     Knob* paramKnob (const char* id, const juce::String& label, juce::Colour c, std::function<juce::String (float)> fmt);
 };
 }

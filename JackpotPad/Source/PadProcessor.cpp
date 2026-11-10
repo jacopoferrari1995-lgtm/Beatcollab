@@ -2,6 +2,7 @@
 #include "PadEditor.h"
 #include <complex>
 #include "KeyDetect.h"
+#include "Library.h"
 
 namespace jp
 {
@@ -16,19 +17,50 @@ const PInfo kPInfo[kNumPadParams] = {
     { "ftype",  "TIPO",      0, 2, 0, 6 },          { "cutoff","CUTOFF",    40, 20000, 20000, 5 }, { "reso",  "RESO",      0, 1, 0.1f, 0 },
     { "fenv",   "ENV AMT",   -1, 1, 0, 1 },         { "fdecay","ENV DECAY", 5, 2000, 200, 4 },
     { "eqon",   "EQ",        0, 1, 1, 8 },
-    { "lowg",   "LOW",       -18, 18, 0, 11 },      { "lowf",  "LOW FREQ",  30, 500, 100, 5 },
-    { "midg",   "MID",       -18, 18, 0, 11 },      { "midf",  "MID FREQ",  150, 8000, 1000, 5 },  { "midq",  "MID Q",     0.3f, 6, 1, 12 },
-    { "highg",  "HIGH",      -18, 18, 0, 11 },      { "highf", "HIGH FREQ", 2000, 16000, 8000, 5 },
+    { "e1on", "B1", 0, 1, 0, 8 }, { "e1t", "TIPO 1", 0, 7, EQ_LC12, 6 },  { "e1f", "FREQ 1", 20, 20000, 40, 5 },     { "e1g", "GAIN 1", -18, 18, 0, 11 },   { "e1q", "Q 1", 0.3f, 8, 0.71f, 12 },
+    { "e2on", "B2", 0, 1, 1, 8 }, { "e2t", "TIPO 2", 0, 7, EQ_LSHELF, 6 }, { "lowf", "FREQ 2", 20, 20000, 100, 5 },  { "lowg", "GAIN 2", -18, 18, 0, 11 },  { "e2q", "Q 2", 0.3f, 8, 0.71f, 12 },
+    { "e3on", "B3", 0, 1, 1, 8 }, { "e3t", "TIPO 3", 0, 7, EQ_BELL, 6 },   { "midf", "FREQ 3", 20, 20000, 1000, 5 }, { "midg", "GAIN 3", -18, 18, 0, 11 },  { "midq", "Q 3", 0.3f, 8, 1, 12 },
+    { "e4on", "B4", 0, 1, 1, 8 }, { "e4t", "TIPO 4", 0, 7, EQ_BELL, 6 },   { "e4f", "FREQ 4", 20, 20000, 3500, 5 },  { "e4g", "GAIN 4", -18, 18, 0, 11 },   { "e4q", "Q 4", 0.3f, 8, 1, 12 },
+    { "e5on", "B5", 0, 1, 1, 8 }, { "e5t", "TIPO 5", 0, 7, EQ_HSHELF, 6 }, { "highf", "FREQ 5", 20, 20000, 8000, 5 }, { "highg", "GAIN 5", -18, 18, 0, 11 }, { "e5q", "Q 5", 0.3f, 8, 0.71f, 12 },
+    { "e6on", "B6", 0, 1, 0, 8 }, { "e6t", "TIPO 6", 0, 7, EQ_HC12, 6 },  { "e6f", "FREQ 6", 20, 20000, 16000, 5 }, { "e6g", "GAIN 6", -18, 18, 0, 11 },   { "e6q", "Q 6", 0.3f, 8, 0.71f, 12 },
     { "cmode",  "COMP",      0, 3, 0, 6 },          { "camt",  "AMOUNT",    0, 1, 0.4f, 0 },       { "cmake", "MAKEUP",    0, 18, 0, 11 },   { "cmix",  "MIX",       0, 1, 1, 0 },
     { "drive",  "DRIVE",     0, 1, 0, 0 },          { "bits",  "BIT",       0, 1, 0, 0 },          { "rate",  "RATE",      0, 1, 0, 0 },
     { "srev",   "REVERB",    0, 1, 0, 0 },          { "sdly",  "DELAY",     0, 1, 0, 0 },
     { "mute",   "MUTE",      0, 1, 0, 8 },          { "solo",  "SOLO",      0, 1, 0, 8 },          { "slice", "SLICE",     0, 64, 0, 7 },
-    { "skey",   "TONALITA",  -2, 35, -1, 7 } };
+    { "skey",   "TONALITA",  -2, 35, -1, 7 },
+    { "dtype",  "SATURAZIONE", 0, kDriveTypes - 1, 0, 6 } };
+
+const char* eqTypeName (int t) { static const char* n[] = { "TAGLIO BASSI 12", "TAGLIO BASSI 24", "SHELF BASSI", "CAMPANA", "NOTCH", "SHELF ALTI", "TAGLIO ALTI 12", "TAGLIO ALTI 24" }; return n[juce::jlimit (0, kEqTypes - 1, t)]; }
+const char* driveTypeName (int t) { static const char* n[] = { "MORBIDA", "NASTRO", "VALVOLA", "CONSOLE", "OVERDRIVE", "DISTORSIONE", "FUZZ" }; return n[juce::jlimit (0, kDriveTypes - 1, t)]; }
+const char* driveTypeDesc (int t)
+{
+    static const char* d[] = { "Saturazione pulita e simmetrica: arrotonda i picchi senza cambiare il colore.",
+                               "Nastro: comprime dolce e scurisce un filo gli alti.",
+                               "Valvola: asimmetrica, armoniche pari, gonfia il corpo.",
+                               "Console: trasformatore, un po' di peso e medie presenti.",
+                               "Overdrive da pedale: taglia i bassi prima, spinge le medie, suono crunchy.",
+                               "Distorsione: clip deciso e scuro, ringhio da amplificatore.",
+                               "Fuzz: squadra il suono, asimmetrico e sporco, sustain infinito." };
+    return d[juce::jlimit (0, kDriveTypes - 1, t)];
+}
+float driveShape (int t, float x)
+{
+    switch (t)
+    {
+        case 1: return std::tanh (x + 0.05f * x * x) - 0.0f;
+        case 2: { const float b = 0.2f; return std::tanh (x + b) - std::tanh (b) + 0.06f * x / (1 + std::abs (x)); }
+        case 3: { const float y = x / std::sqrt (1 + 0.6f * x * x); return std::tanh (1.15f * y) / std::tanh (1.15f); }
+        case 4: { const float a = std::abs (x); return std::copysign (a < 1.0f / 3 ? 2 * a : (a < 2.0f / 3 ? (3 - (2 - 3 * a) * (2 - 3 * a)) / 3 : 1.0f), x); }
+        case 5: { const float a = std::abs (x); return std::copysign (a < 0.4f ? a * 1.6f : juce::jmin (1.0f, 0.64f + (a - 0.4f) * 0.35f), x); }
+        case 6: { const float y = x + 0.35f * std::abs (x); return std::tanh (3.0f * y) * 0.9f; }
+        default: return std::tanh (x);
+    }
+}
 
 const int kAutoParams[kAutoN] = { GAIN, LEVEL, PAN, TUNE, FINE, START, DECAY, CUTOFF, RESO, DRIVE, SREV, SDLY };
 int autoIndex (int i) { for (int k = 0; k < kAutoN; ++k) if (kAutoParams[k] == i) return k; return -1; }
 
-int choiceCount (int i) { return i == FTYPE ? 3 : i == WARP ? 3 : i == CMODE ? 4 : i == CHOKE ? 9 : 2; }
+int choiceCount (int i) { if (i >= B1ON && i <= B6Q && (i - B1ON) % 5 == 1) return kEqTypes; return i == FTYPE ? 3 : i == WARP ? 3 : i == CMODE ? 4 : i == CHOKE ? 9 : i == DTYPE ? kDriveTypes : 2; }
 
 juce::String formatPadParam (int i, float v)
 {
@@ -47,6 +79,8 @@ juce::String formatPadParam (int i, float v)
             if (i == FTYPE) { const char* t[] = { "LOW PASS", "HIGH PASS", "BAND PASS" }; return t[juce::jlimit (0, 2, k)]; }
             if (i == WARP) { const char* t[] = { "OFF", "REPITCH", "STRETCH" }; return t[juce::jlimit (0, 2, k)]; }
             if (i == CMODE) { const char* t[] = { "OFF", "SOFT", "MEDIUM", "HARD" }; return t[juce::jlimit (0, 3, k)]; }
+            if (i == DTYPE) return driveTypeName (k);
+            if (i >= B1ON && i <= B6Q) return eqTypeName (k);
             return k ? "GATE" : "ONE SHOT";
         }
         case 7: return v < 0.5f ? juce::String ("OFF") : juce::String (juce::roundToInt (v));
@@ -64,7 +98,16 @@ juce::String formatPadParam (int i, float v)
 static void rbj (int type, double sr, double f, double gDb, double q, double& b0, double& b1, double& b2, double& a0, double& a1, double& a2)
 {
     const double A = std::pow (10.0, gDb / 40.0), w = juce::MathConstants<double>::twoPi * juce::jlimit (10.0, sr * 0.45, f) / sr, cs = std::cos (w), sn = std::sin (w);
-    if (type == 1)
+    if (type >= 3)
+    {
+        const double al = sn / (2 * q);
+        if (type == 3) { b0 = (1 - cs) / 2; b1 = 1 - cs; b2 = b0; }
+        else if (type == 4) { b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = b0; }
+        else if (type == 5) { b0 = 1; b1 = -2 * cs; b2 = 1; }
+        else { b0 = al; b1 = 0; b2 = -al; }
+        a0 = 1 + al; a1 = -2 * cs; a2 = 1 - al;
+    }
+    else if (type == 1)
     {
         const double al = sn / (2 * q);
         b0 = 1 + al * A; b1 = -2 * cs; b2 = 1 - al * A; a0 = 1 + al / A; a1 = -2 * cs; a2 = 1 - al / A;
@@ -95,8 +138,8 @@ float Biquad::magDb (int type, double sr, double f, double gDb, double q, double
 // ---------------- parametri globali ----------------
 static const juce::StringArray kCurves { "LINEARE", "MORBIDA", "DURA", "S", "FISSA 127" };
 static const juce::StringArray kSwGrid { "1/8", "1/16" };
-static const juce::StringArray kDly { "1/16", "1/8T", "1/8", "1/8D", "1/4", "1/4D", "1/2" };
-static const double kDlyBeats[] = { 0.25, 1.0 / 3.0, 0.5, 0.75, 1.0, 1.5, 2.0 };
+static const juce::StringArray kDly { "1/32", "1/16T", "1/16", "1/16D", "1/8T", "1/8", "1/8D", "1/4T", "1/4", "1/4D", "1/2", "1/1", "LIBERO" };
+static const double kDlyBeats[] = { 0.125, 1.0 / 6.0, 0.25, 0.375, 1.0 / 3.0, 0.5, 0.75, 2.0 / 3.0, 1.0, 1.5, 2.0, 4.0, 0 };
 static const juce::StringArray kBus { "OFF", "GLUE", "PUNCH", "SMASH" };
 
 juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
@@ -109,13 +152,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     C ("curve", "Velocity Curve", kCurves, 0);
     F ("swing", "Swing", 50, 75, 50);
     C ("swGrid", "Swing Grid", kSwGrid, 1);
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "swMidi", 1 }, "Swing sulle note MIDI", true));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "swMidi", 1 }, "Swing sulle note MIDI", false));
     F ("human", "Humanize", 0, 1, 0);
     F ("bpm", "BPM interno", 50, 220, 120);
     l.add (std::make_unique<AudioParameterInt> (ParameterID { "root", 1 }, "Nota del pad 1", 0, 112, 36));
 
-    F ("revSize", "Reverb Size", 0, 1, 0.5f); F ("revDamp", "Reverb Damp", 0, 1, 0.5f); F ("revRet", "Reverb Return", 0, 1, 0.7f);
-    C ("dlyTime", "Delay Time", kDly, 3); F ("dlyFb", "Delay Feedback", 0, 0.95f, 0.35f); F ("dlyTone", "Delay Tone", 0, 1, 0.5f); F ("dlyRet", "Delay Return", 0, 1, 0.6f);
+    F ("revSize", "Reverb Decay", 0, 1, 0.5f); F ("revDamp", "Reverb Damp", 0, 1, 0.5f); F ("revRet", "Reverb Return", 0, 1, 0.7f);
+    { NormalisableRange<float> r (20, 1000); r.setSkewForCentre (150); l.add (std::make_unique<AudioParameterFloat> (ParameterID { "revLo", 1 }, "Reverb taglio bassi", r, 120)); }
+    { NormalisableRange<float> r (1000, 20000); r.setSkewForCentre (6000); l.add (std::make_unique<AudioParameterFloat> (ParameterID { "revHi", 1 }, "Reverb taglio alti", r, 9000)); }
+    F ("revPre", "Reverb pre-delay ms", 0, 120, 10);
+    C ("dlyDiv", "Delay Time", kDly, 5); F ("dlyFb", "Delay Feedback", 0, 0.95f, 0.35f); F ("dlyRet", "Delay Return", 0, 1, 0.6f);
+    { NormalisableRange<float> r (10, 2000); r.setSkewForCentre (300); l.add (std::make_unique<AudioParameterFloat> (ParameterID { "dlyMs", 1 }, "Delay ms (libero)", r, 250)); }
+    { NormalisableRange<float> r (20, 2000); r.setSkewForCentre (200); l.add (std::make_unique<AudioParameterFloat> (ParameterID { "dlyLo", 1 }, "Delay taglio bassi", r, 150)); }
+    { NormalisableRange<float> r (500, 20000); r.setSkewForCentre (4000); l.add (std::make_unique<AudioParameterFloat> (ParameterID { "dlyHi", 1 }, "Delay taglio alti", r, 6000)); }
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "nrOn", 1 }, "Note Repeat", false));
     C ("nrRate", "Note Repeat Rate", StringArray { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T" }, 3);
     C ("busMode", "Bus Comp", kBus, 0); F ("busAmt", "Bus Comp Amount", 0, 1, 0.4f);
@@ -182,6 +231,7 @@ void Processor::prepareToPlay (double s, int block)
     revL.assign ((size_t) juce::jmax (block, 2048), 0); revR = revL; dlyInL = revL; dlyInR = revL;
     dlyBuf.setSize (2, (int) (sr * 4.5)); dlyBuf.clear(); dlyW = 0;
     reverb.setSampleRate (sr); reverb.reset();
+    preBuf.assign ((size_t) (2 * ((int) (sr * 0.15) + 8)), 0.0f); preW = 0; rvLp.reset();
     for (auto& c : chain) c = PadChain();
 }
 
@@ -550,20 +600,36 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         float pk = 0; for (int i = 0; i < N; ++i) pk = juce::jmax (pk, std::abs (L[i]) + std::abs (R[i]));
         if (pk > padGlow[p].load()) padGlow[p] = pk;
         if (pk > 1e-5f) C.active = juce::jmax (C.active, (int) (sr * 0.5));
-        // EQ
+        // EQ a 6 bande (i tagli 24 dB usano due stadi)
         if (P.get (EQON) > 0.5f)
         {
-            const float pv[7] = { P.get (LOWG), P.get (LOWF), P.get (MIDG), P.get (MIDF), P.get (MIDQ), P.get (HIGHG), P.get (HIGHF) };
-            if (std::memcmp (pv, C.lastEq, sizeof (pv)) != 0)
+            for (int bd = 0; bd < 6; ++bd)
             {
-                C.eq[0].set (0, sr, pv[1], pv[0], 0.707); C.eq[1].set (1, sr, pv[3], pv[2], pv[4]); C.eq[2].set (2, sr, pv[6], pv[5], 0.707);
-                std::memcpy (C.lastEq, pv, sizeof (pv));
+                if (P.get (bandP (bd, 0)) < 0.5f) continue;
+                const int t = juce::roundToInt (P.get (bandP (bd, 1)));
+                const float f = P.get (bandP (bd, 2)), gdb = P.get (bandP (bd, 3)), q = P.get (bandP (bd, 4));
+                const bool isCut = t == EQ_LC12 || t == EQ_LC24 || t == EQ_HC12 || t == EQ_HC24;
+                if (! isCut && t != EQ_NOTCH && std::abs (gdb) < 0.05f) continue;
+                auto& lb = C.lastBand[bd];
+                if (lb[0] != (float) t || lb[1] != f || lb[2] != gdb || lb[3] != q)
+                {
+                    lb[0] = (float) t; lb[1] = f; lb[2] = gdb; lb[3] = q;
+                    const int rt = t == EQ_LSHELF ? 0 : t == EQ_BELL ? 1 : t == EQ_HSHELF ? 2 : t == EQ_NOTCH ? 5 : (t == EQ_LC12 || t == EQ_LC24) ? 4 : 3;
+                    C.eq[bd][0].set (rt, sr, f, gdb, isCut ? q : (t == EQ_NOTCH ? juce::jmax (q, 0.5f) * 2 : q));
+                    C.eq[bd][1].set (rt, sr, f, gdb, 0.54);
+                }
+                const int st = (t == EQ_LC24 || t == EQ_HC24) ? 2 : 1;
+                for (int k = 0; k < st; ++k) for (int i = 0; i < N; ++i) { L[i] = C.eq[bd][k].run (L[i], 0); R[i] = C.eq[bd][k].run (R[i], 1); }
             }
-            for (int k = 0; k < 3; ++k)
-            {
-                if (std::abs (C.lastEq[k == 0 ? 0 : k == 1 ? 2 : 5]) < 0.05f) continue;
-                for (int i = 0; i < N; ++i) { L[i] = C.eq[k].run (L[i], 0); R[i] = C.eq[k].run (R[i], 1); }
-            }
+        }
+        // SOLO di una banda: si sente solo la zona che la banda tocca
+        if (eqSoloPad.load() == p && eqSoloBand.load() >= 0)
+        {
+            const int bd = eqSoloBand.load(), t = juce::roundToInt (P.get (bandP (bd, 1))); const float f = P.get (bandP (bd, 2));
+            const int ft = (t == EQ_LSHELF || t == EQ_HC12 || t == EQ_HC24) ? 3 : (t == EQ_HSHELF || t == EQ_LC12 || t == EQ_LC24) ? 4 : 6;
+            const float q = ft == 6 ? juce::jmax (0.8f, P.get (bandP (bd, 4))) : 0.707f;
+            if (C.solKey[0] != (float) ft || C.solKey[1] != f || C.solKey[2] != q) { C.solKey[0] = (float) ft; C.solKey[1] = f; C.solKey[2] = q; for (auto& bq : C.sol) bq.set (ft, sr, f, 0, q); }
+            for (int i = 0; i < N; ++i) { L[i] = C.sol[1].run (C.sol[0].run (L[i], 0), 0); R[i] = C.sol[1].run (C.sol[0].run (R[i], 1), 1); }
         }
         // compressore
         const int cm = juce::roundToInt (P.get (CMODE));
@@ -592,7 +658,29 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         else padGr[p] = 0;
         // drive e lo-fi
         const float dr = P.get (DRIVE), bits = P.get (BITS), rate = P.get (RATE);
-        if (dr > 0.001f) { const float k = 1 + dr * 14; const float nrm = (1.0f + (k - 1.0f) * 0.15f) / k; for (int i = 0; i < N; ++i) { L[i] = std::tanh (L[i] * k) * nrm; R[i] = std::tanh (R[i] * k) * nrm; } }
+        if (dr > 0.001f)
+        {
+            const int dt = juce::roundToInt (P.get (DTYPE)); const float k = 1 + dr * dr * 30;
+            if (dr != C.lastDrv || dt != C.lastDType)
+            {   // stesso volume di una sinusoide a -6 dBFS prima e dopo
+                C.lastDrv = dr; C.lastDType = dt; double e = 0;
+                for (int j = 0; j < 64; ++j) { const float y = driveShape (dt, k * 0.5f * std::sin (6.2831853f * j / 64)); e += y * y; }
+                C.drvNorm = 0.3536f / (float) std::sqrt (e / 64 + 1e-12);
+            }
+            // overdrive, distorsione e fuzz: bassi tagliati prima, alti ammorbiditi dopo (come un pedale)
+            const float hpA = dt == 4 ? (float) std::exp (-6.2831853 * 350 / sr) : dt >= 5 ? (float) std::exp (-6.2831853 * 120 / sr) : 1.0f;
+            const float lpA = dt == 1 ? (float) std::exp (-6.2831853 * 11000 / sr) : dt == 4 ? (float) std::exp (-6.2831853 * 6000 / sr) : dt == 5 ? (float) std::exp (-6.2831853 * 4500 / sr) : dt == 6 ? (float) std::exp (-6.2831853 * 3800 / sr) : 0.0f;
+            float* io[2] = { L, R };
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < N; ++i)
+                {
+                    float x = io[c][i];
+                    if (hpA < 1.0f) { const float y = hpA * (C.dHp[c] + x - C.dHpX[c]); C.dHpX[c] = x; C.dHp[c] = y; x = y; }
+                    float y = driveShape (dt, x * k) * C.drvNorm;
+                    if (lpA > 0) { C.dLp[c] = y + lpA * (C.dLp[c] - y); y = C.dLp[c]; }
+                    io[c][i] = y;
+                }
+        }
         if (bits > 0.001f || rate > 0.001f)
         {
             const float q = std::pow (2.0f, 15.0f - bits * 11.0f); const double step = 1.0 - rate * 0.88;
@@ -603,7 +691,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             }
         }
         // fader, pan, mute/solo
-        const bool audible = P.get (MUTE) < 0.5f && (! anySolo || P.get (SOLO) > 0.5f);
+        const bool audible = P.get (MUTE) < 0.5f && (! anySolo || P.get (SOLO) > 0.5f) && (eqSoloPad.load() < 0 || eqSoloBand.load() < 0 || eqSoloPad.load() == p);
         const float lv = audible ? P.get (LEVEL) : 0.0f, pan = P.get (PAN);
         const float gl = lv * std::cos ((pan + 1) * juce::MathConstants<float>::pi * 0.25f) * 1.41421f, gr2 = lv * std::sin ((pan + 1) * juce::MathConstants<float>::pi * 0.25f) * 1.41421f;
         const float sRev = P.get (SREV), sDly = P.get (SDLY);
@@ -625,17 +713,44 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 for (int i = 0; i < N; ++i) { revL[(size_t) i] += cl[i] * rk; revR[(size_t) i] += cr[i] * rk; dlyInL[(size_t) i] += cl[i] * dk; dlyInR[(size_t) i] += cr[i] * dk; }
         }
         const int len = dlyBuf.getNumSamples();
-        const double dT = juce::jlimit (16.0, (double) len - 4, kDlyBeats[juce::jlimit (0, 6, (int) par ("dlyTime"))] * 60.0 / bpm * sr);
-        const float fb = par ("dlyFb"), ret = par ("dlyRet"), a = (float) std::exp (-juce::MathConstants<double>::twoPi * (700.0 * std::pow (10.0, par ("dlyTone") * 1.4)) / sr);
+        const int dv = juce::jlimit (0, kDly.size() - 1, (int) par ("dlyDiv"));
+        const double dT = juce::jlimit (16.0, (double) len - 4, dv == kDly.size() - 1 ? par ("dlyMs") * 0.001 * sr : kDlyBeats[dv] * 60.0 / bpm * sr);
+        const float dHpA = (float) std::exp (-juce::MathConstants<double>::twoPi * par ("dlyLo") / sr), dLpA = (float) std::exp (-juce::MathConstants<double>::twoPi * par ("dlyHi") / sr);
+        const float fb = par ("dlyFb"), ret = par ("dlyRet");
         for (int i = 0; i < N; ++i)
         {
             double rp = dlyW - dT; if (rp < 0) rp += len;
             const int i0 = (int) rp; const float fr = (float) (rp - i0); const int i1 = (i0 + 1) % len;
             const float yL = dlyBuf.getSample (0, i0) * (1 - fr) + dlyBuf.getSample (0, i1) * fr, yR = dlyBuf.getSample (1, i0) * (1 - fr) + dlyBuf.getSample (1, i1) * fr;
-            dlyLpL = (1 - a) * yR + a * dlyLpL; dlyLpR = (1 - a) * yL + a * dlyLpR;
+            // ripetizioni a ping pong, filtrate: taglio bassi e taglio alti nel giro di feedback
+            const float in2[2] = { yR, yL }; float o[2];
+            for (int c = 0; c < 2; ++c)
+            {
+                const float h = dHpA * (dlHp[c] + in2[c] - dlHpX[c]); dlHpX[c] = in2[c]; dlHp[c] = h;
+                dlLp[c] = h + dLpA * (dlLp[c] - h); o[c] = dlLp[c];
+            }
+            dlyLpL = o[0]; dlyLpR = o[1];
             dlyBuf.setSample (0, dlyW, dlyInL[(size_t) i] + std::tanh (dlyLpL * fb)); dlyBuf.setSample (1, dlyW, dlyInR[(size_t) i] + std::tanh (dlyLpR * fb));
             if (++dlyW >= len) dlyW = 0;
             cl[i] += yL * ret; cr[i] += yR * ret;
+        }
+        // riverbero: pre-delay, taglio bassi e alti sull'ingresso, coda in secondi
+        {
+            const int pre = juce::jlimit (0, (int) preBuf.size() / 2 - 2, (int) (par ("revPre") * 0.001 * sr)); const int pn = (int) preBuf.size() / 2;
+            const float hA = (float) std::exp (-juce::MathConstants<double>::twoPi * par ("revLo") / sr);
+            rvLp.set (3, sr, par ("revHi"), 0, 0.707);
+            for (int i = 0; i < N; ++i)
+            {
+                float io2[2] = { revL[(size_t) i], revR[(size_t) i] };
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float h = hA * (rvHpZ[c] + io2[c] - rvHpX[c]); rvHpX[c] = io2[c]; rvHpZ[c] = h;
+                    preBuf[(size_t) (c * pn + preW)] = rvLp.run (h, c);
+                    io2[c] = preBuf[(size_t) (c * pn + (preW - pre + pn) % pn)];
+                }
+                if (++preW >= pn) preW = 0;
+                revL[(size_t) i] = io2[0]; revR[(size_t) i] = io2[1];
+            }
         }
         juce::Reverb::Parameters rp; rp.roomSize = 0.3f + 0.68f * par ("revSize"); rp.damping = par ("revDamp"); rp.wetLevel = 1; rp.dryLevel = 0; rp.width = 1;
         reverb.setParameters (rp); reverb.processStereo (revL.data(), revR.data(), N);
@@ -940,22 +1055,48 @@ void Processor::padsFromXml (const juce::XmlElement& pads)
         ++p;
     }
 }
+// disposizione fissa dei pad 1-8: cassa, rullante, hat, hat aperto, clap/rim, tom/perc, tom/perc, piatto; poi il resto
+static std::vector<const KitPad*> arrangeKit (const std::vector<KitPad>& src)
+{
+    std::vector<const KitPad*> out (kPads, nullptr); std::vector<bool> used (src.size(), false);
+    auto take = [&] (std::function<bool (const KitPad&)> ok) -> const KitPad*
+    { for (size_t i = 0; i < src.size(); ++i) if (! used[i] && ok (src[i])) { used[i] = true; return &src[i]; } return nullptr; };
+    auto cat = [] (const KitPad& k) { return categoryOf (k.d); };
+    auto is = [&] (std::initializer_list<const char*> cs) { return [&cat, cs] (const KitPad& k) { const auto c = cat (k); for (auto* x : cs) if (c == x) return true; return false; }; };
+    auto rim = [] (const KitPad& k) { return k.d.name.toLowerCase().contains ("rim"); };
+    out[0] = take (is ({ "KICK" }));
+    out[1] = take (is ({ "SNARE" }));
+    out[2] = take (is ({ "HAT" }));
+    out[3] = take (is ({ "OPEN HAT" })); if (! out[3]) out[3] = take (is ({ "HAT", "CYMBAL" }));
+    out[4] = take (is ({ "CLAP / SNAP" })); if (! out[4]) out[4] = take (rim); if (! out[4]) out[4] = take (is ({ "SNARE" }));
+    out[5] = take (is ({ "TOM", "PERC" }));
+    out[6] = take (is ({ "TOM", "PERC" }));
+    out[7] = take (is ({ "CYMBAL" }));
+    // seconda meta: prima 808 e melodici, poi tutto il resto nell'ordine del kit
+    int w = 8;
+    for (auto c : { "808", "MELODICI" }) while (w < kPads) { auto* k = take (is ({ c })); if (! k) break; out[(size_t) w++] = k; }
+    for (int p = 0; p < 8; ++p) if (! out[(size_t) p]) out[(size_t) p] = take ([] (const KitPad&) { return true; });
+    while (w < kPads) { auto* k = take ([] (const KitPad&) { return true; }); if (! k) break; out[(size_t) w++] = k; }
+    return out;
+}
+
 void Processor::loadFactoryKit (int k)
 {
     const auto& K = factoryKits()[(size_t) juce::jlimit (0, (int) factoryKits().size() - 1, k)];
+    const auto lay = arrangeKit (K.pads);
     for (int p = 0; p < kPads; ++p)
     {
         pad[p].reset();
-        if (p < (int) K.pads.size())
+        if (lay[(size_t) p] != nullptr)
         {
-            const auto& kp = K.pads[(size_t) p];
+            const auto& kp = *lay[(size_t) p];
             setSample (p, makeDrum (kp.d)); pad[p].colour = kp.colour;
             for (auto& [i, v] : kp.p) pad[p].v[i] = v;
         }
         else setSample (p, nullptr);
     }
     if (K.pads.empty())   // kit vuoto: anche la sezione master torna ai valori di partenza
-        for (auto id : { "revSize", "revDamp", "revRet", "dlyTime", "dlyFb", "dlyTone", "dlyRet", "busMode", "busAmt", "clip", "out" })
+        for (auto id : { "revSize", "revDamp", "revRet", "revLo", "revHi", "revPre", "dlyDiv", "dlyMs", "dlyFb", "dlyLo", "dlyHi", "dlyRet", "busMode", "busAmt", "clip", "out", "revKit", "dlyKit", "satAmt" })
             if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->getDefaultValue());
     kitName = K.name; kitFile = juce::File();
 }
@@ -964,7 +1105,7 @@ bool Processor::saveKit (const juce::File& f, const juce::String& name)
     juce::XmlElement x ("JPKIT"); x.setAttribute ("name", name); x.setAttribute ("version", 2);
     x.addChildElement (padsToXml().release());
     auto* m = x.createNewChildElement ("MASTER");
-    for (auto id : { "revSize", "revDamp", "revRet", "dlyTime", "dlyFb", "dlyTone", "dlyRet", "busMode", "busAmt", "clip" }) m->setAttribute (id, (double) apvts.getParameter (id)->getValue());
+    for (auto id : { "revSize", "revDamp", "revRet", "revLo", "revHi", "revPre", "dlyDiv", "dlyMs", "dlyFb", "dlyLo", "dlyHi", "dlyRet", "busMode", "busAmt", "clip", "revKit", "dlyKit", "satAmt" }) m->setAttribute (id, (double) apvts.getParameter (id)->getValue());
     if (! x.writeTo (f)) return false;
     kitName = name; kitFile = f; return true;
 }
@@ -973,7 +1114,7 @@ bool Processor::loadKit (const juce::File& f)
     auto x = juce::XmlDocument::parse (f); if (x == nullptr || ! x->hasTagName ("JPKIT")) return false;
     if (auto* pads = x->getChildByName ("PADS")) padsFromXml (*pads);
     if (auto* m = x->getChildByName ("MASTER"))
-        for (auto id : { "revSize", "revDamp", "revRet", "dlyTime", "dlyFb", "dlyTone", "dlyRet", "busMode", "busAmt", "clip" })
+        for (auto id : { "revSize", "revDamp", "revRet", "revLo", "revHi", "revPre", "dlyDiv", "dlyMs", "dlyFb", "dlyLo", "dlyHi", "dlyRet", "busMode", "busAmt", "clip", "revKit", "dlyKit", "satAmt" })
             if (m->hasAttribute (id)) apvts.getParameter (id)->setValueNotifyingHost ((float) m->getDoubleAttribute (id));
     kitName = x->getStringAttribute ("name", f.getFileNameWithoutExtension()); kitFile = f;
     return true;
