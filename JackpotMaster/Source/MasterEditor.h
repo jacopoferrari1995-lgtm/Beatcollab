@@ -17,6 +17,13 @@ void lcd (juce::Graphics&, juce::Rectangle<float>, float rad);
 
 class Editor;
 
+// analizzatore di spettro (FFT 8192, scala log, inclinazione 4.5 dB/ott)
+struct Analyzer
+{
+    std::unique_ptr<juce::dsp::FFT> fft; std::vector<float> a, b;
+    void run (const StereoRing& rg, float* out, int nPts, float f0, float f1, double sr, float smooth = 0.7f);
+};
+
 class Knob : public juce::Component
 {
 public:
@@ -30,7 +37,7 @@ public:
     void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::UpDownResizeCursor); repaint(); }
     void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
     juce::RangedAudioParameter* param; juce::Colour col; juce::String label;
-    std::function<juce::String()> text;
+    std::function<juce::String()> text; std::function<void()> onTouch;
     bool big = false, bipolar = false; float activity = 0;
 private:
     float start = 0; bool drag = false, hover = false;
@@ -99,6 +106,93 @@ public:
     History hist;
 };
 
+// pagina base per i moduli a latenza zero
+class ModPage : public juce::Component
+{
+public:
+    ModPage (Editor& e, int id, const char* onP, const char* deltaP);
+    void paintHeader (juce::Graphics&, const juce::String& help);
+    Knob* knob (const char* pid, juce::Colour c, const juce::String& label, std::function<juce::String()> txt, bool bip = false);
+    void touch();
+    Editor& ed; int mod; const char* onId; std::unique_ptr<Switch> on, delta; juce::OwnedArray<Knob> knobs;
+};
+
+class BassView : public juce::Component
+{
+public:
+    BassView (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    Editor& ed; float spIn[200] {}, spOut[200] {}; float hist[160] {}; int hw = 0; Analyzer anIn, anOut;
+};
+class BassPage : public ModPage
+{
+public:
+    BassPage (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    BassView view;
+};
+
+class EqView : public juce::Component
+{
+public:
+    EqView (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    float xOf (float f) const { return (float) (std::log (f / 20.0) / std::log (1000.0) * getWidth()); }
+    float fOf (float x) const { return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, x / (float) getWidth())); }
+    float yOf (float db) const { return getHeight() * 0.5f - db / 20.0f * getHeight() * 0.5f; }
+    float dbOf (float y) const { return (getHeight() * 0.5f - y) / (getHeight() * 0.5f) * 20.0f; }
+    juce::Point<float> node (int b) const;
+    Editor& ed; int drag = -1; float sp[240] {}; Analyzer an;
+};
+class EqPage : public ModPage
+{
+public:
+    EqPage (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void selectBand (int b);
+    juce::Rectangle<float> chip (int b) const { return { 16 + b * 138.0f, 356, 130, 28 }; }
+    EqView view; int band = 0;
+    std::unique_ptr<Segs> type[kEqBands], ch[kEqBands]; std::unique_ptr<Switch> bon[kEqBands], dyn[kEqBands];
+    Knob* fk[kEqBands] {}; Knob* gk[kEqBands] {}; Knob* qk[kEqBands] {}; Knob* tk[kEqBands] {}; Knob* rk[kEqBands] {};
+};
+
+class ImView : public juce::Component
+{
+public:
+    ImView (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    float xOf (float f) const { return (float) (std::log (f / 20.0) / std::log (1000.0) * getWidth()); }
+    float fOf (float x) const { return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, x / (float) getWidth())); }
+    float xb (int k) const;
+    Editor& ed; int drag = -1;   // 0..2 tagli, 10..13 larghezze
+};
+class Gonio : public juce::Component
+{
+public:
+    Gonio (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    Editor& ed;
+};
+class ImagerPage : public ModPage
+{
+public:
+    ImagerPage (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    ImView view; Gonio gonio; std::unique_ptr<Switch> mono;
+};
+
 class SoonPage : public juce::Component
 {
 public:
@@ -138,6 +232,9 @@ public:
     int sel = MAXIM;
     Chain chain { *this };
     MaxPage maxPage { *this };
+    BassPage bassPage { *this };
+    EqPage eqPage { *this };
+    ImagerPage imPage { *this };
     LimPage limPage { *this };
     SoonPage soon { *this };
     LoudPanel loud { *this };

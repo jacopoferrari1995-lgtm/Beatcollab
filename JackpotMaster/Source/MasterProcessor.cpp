@@ -10,6 +10,46 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     StringArray st; for (int s = 0; s < kNumStyles; ++s) st.add (styleInfo (s).name);
     StringArray tg; for (int t = 0; t < kNumTargets; ++t) tg.add (String (target (t).name) + " " + String ((int) target (t).lufs));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "trim", 1 }, "Input Trim", NormalisableRange<float> (-12, 12, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
+    // bass control
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "bc_on", 1 }, "Bass On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "bc_delta", 1 }, "Bass Delta", false));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_freq", 1 }, "Bass Freq", NormalisableRange<float> (40, 300, 0, 0.6f), 120, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_mono", 1 }, "Bass Mono Below", NormalisableRange<float> (0, 300, 0, 0.7f), 0, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_punch", 1 }, "Bass Punch", NormalisableRange<float> (-1, 1), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_tail", 1 }, "Bass Tail", NormalisableRange<float> (-1, 1), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_harm", 1 }, "Bass Harmonics", NormalisableRange<float> (0, 1), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_level", 1 }, "Bass Level", NormalisableRange<float> (-6, 6, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_ctrl", 1 }, "Bass Stabilize", NormalisableRange<float> (0, 1), 0));
+    // eq dinamico
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "eq_on", 1 }, "EQ On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "eq_delta", 1 }, "EQ Delta", false));
+    {
+        static const float df[kEqBands] = { 45, 150, 500, 2000, 6000, 12000 };
+        static const int dt[kEqBands] = { Biquad::LSHELF, Biquad::BELL, Biquad::BELL, Biquad::BELL, Biquad::BELL, Biquad::HSHELF };
+        for (int b = 0; b < kEqBands; ++b)
+        {
+            const String P = "EQ " + String (b + 1) + " ";
+            l.add (std::make_unique<AudioParameterBool> (ParameterID { eqId (b, "on"), 1 }, P + "On", true));
+            l.add (std::make_unique<AudioParameterChoice> (ParameterID { eqId (b, "type"), 1 }, P + "Type", StringArray { "CAMPANA", "SHELF BASSI", "SHELF ALTI", "TAGLIO BASSI", "TAGLIO ALTI" }, dt[b]));
+            l.add (std::make_unique<AudioParameterChoice> (ParameterID { eqId (b, "ch"), 1 }, P + "Channel", StringArray { "STEREO", "MID", "SIDE" }, 0));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "f"), 1 }, P + "Freq", NormalisableRange<float> (20, 20000, 0, 0.25f), df[b], AudioParameterFloatAttributes().withLabel ("Hz")));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "g"), 1 }, P + "Gain", NormalisableRange<float> (-18, 18, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "q"), 1 }, P + "Q", NormalisableRange<float> (0.3f, 8, 0, 0.45f), 0.9f));
+            l.add (std::make_unique<AudioParameterBool> (ParameterID { eqId (b, "dyn"), 1 }, P + "Dynamic", false));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "thr"), 1 }, P + "Threshold", NormalisableRange<float> (-60, 0, 0.1f), -30, AudioParameterFloatAttributes().withLabel ("dB")));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "rng"), 1 }, P + "Range", NormalisableRange<float> (-18, 18, 0.1f), -6, AudioParameterFloatAttributes().withLabel ("dB")));
+        }
+    }
+    // imager
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "im_on", 1 }, "Imager On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "im_delta", 1 }, "Imager Delta", false));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "im_x1", 1 }, "Imager X1", NormalisableRange<float> (40, 500, 0, 0.5f), 120, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "im_x2", 1 }, "Imager X2", NormalisableRange<float> (300, 4000, 0, 0.5f), 900, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "im_x3", 1 }, "Imager X3", NormalisableRange<float> (2000, 16000, 0, 0.5f), 5000, AudioParameterFloatAttributes().withLabel ("Hz")));
+    for (int b = 0; b < kImBands; ++b)
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { "im_w" + String (b + 1), 1 }, "Imager Width " + String (b + 1), NormalisableRange<float> (0, 2), 1));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "im_stz", 1 }, "Stereoize", NormalisableRange<float> (0, 1), 0));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "im_mono", 1 }, "Mono Check", false));
     // maximizer
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "mx_on", 1 }, "Maximizer On", true));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "mx_delta", 1 }, "Maximizer Delta", false));
@@ -52,6 +92,8 @@ void Processor::prepareToPlay (double s, int maxBlock)
     sr = s;
     const int mb = juce::jmax (64, maxBlock);
     mx.prepare (s, mb); lim.prepare (s);
+    bass.prepare (s); deq.prepare (s); img.prepare (s);
+    for (auto& d : preDelta) d.prepare (mx.latency() + lim.latency());
     for (auto& d : mxBy) d.prepare (mx.latency());
     for (auto& d : limBy) d.prepare (lim.latency());
     for (auto& d : mxIn) d.prepare (mx.latency());
@@ -84,11 +126,58 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     float* kL = keep.getWritePointer (0); float* kR = keep.getWritePointer (1);
     for (int i = 0; i < n; ++i) { kL[i] = dry[0] (L[i]); kR[i] = dry[1] (R[i]); }
 
+    ringIn.push (L, R, n);
+    // ---- moduli a latenza zero: BASS CONTROL, EQ DINAMICO, IMAGER
+    float* tL = tmp.getWritePointer (0); float* tR = tmp.getWritePointer (1);
+    int deltaFrom = -1;
+    auto runMod = [&] (int id, const char* on, const char* delta, auto&& fn)
+    {
+        if (deltaFrom >= 0 || value (on) < 0.5f) return;
+        const bool d = value (delta) > 0.5f;
+        if (d) for (int i = 0; i < n; ++i) { tL[i] = L[i]; tR[i] = R[i]; }
+        fn();
+        if (d) { for (int i = 0; i < n; ++i) { L[i] -= tL[i]; R[i] -= tR[i]; } deltaFrom = id; }
+    };
+    runMod (BASS, "bc_on", "bc_delta", [&]
+    {
+        BassSettings b; b.freq = value ("bc_freq"); b.monoBelow = value ("bc_mono"); b.punch = value ("bc_punch"); b.tail = value ("bc_tail");
+        b.harm = value ("bc_harm"); b.levelDb = value ("bc_level"); b.control = value ("bc_ctrl");
+        bass.process (L, R, n, b);
+    });
+    if (value ("bc_on") < 0.5f) bass.gainDb = 0;
+    runMod (DYNEQ, "eq_on", "eq_delta", [&]
+    {
+        EqBand B[kEqBands];
+        for (int b = 0; b < kEqBands; ++b)
+        {
+            B[b].on = value (eqId (b, "on")) > 0.5f; B[b].type = (int) value (eqId (b, "type")); B[b].ch = (int) value (eqId (b, "ch"));
+            B[b].f = value (eqId (b, "f")); B[b].g = value (eqId (b, "g")); B[b].q = value (eqId (b, "q"));
+            B[b].dyn = value (eqId (b, "dyn")) > 0.5f; B[b].thr = value (eqId (b, "thr")); B[b].rng = value (eqId (b, "rng"));
+        }
+        deq.process (L, R, n, B);
+    });
+    runMod (IMAGER, "im_on", "im_delta", [&]
+    {
+        ImagerSettings S; S.x[0] = value ("im_x1"); S.x[1] = juce::jmax (value ("im_x2"), S.x[0] * 1.5f); S.x[2] = juce::jmax (value ("im_x3"), S.x[1] * 1.5f);
+        for (int b = 0; b < kImBands; ++b) S.w[b] = value (("im_w" + juce::String (b + 1)).toRawUTF8());
+        S.stereoize = value ("im_stz");
+        img.process (L, R, n, S);
+    });
+    bassGain = bass.gainDb; bassLow = bass.lowRms;
+    for (int b = 0; b < kEqBands; ++b) { eqDyn[b] = value ("eq_on") > 0.5f ? deq.dynNow[b] : 0.0f; eqLvl[b] = deq.levelDb[b]; }
+    for (int b = 0; b < kImBands; ++b) imCorr[b] = img.corr (b);
+
+    if (deltaFrom >= 0)
+    {   // delta di un modulo: si sente solo cosa cambia, ritardato quanto il resto della catena
+        for (int i = 0; i < n; ++i) { L[i] = preDelta[0] (L[i]); R[i] = preDelta[1] (R[i]); }
+        mx.gr = 0; lim.gr = 0;
+    }
+    else
+    {
     // ---- MAXIMIZER
     MaxSettings ms; ms.gainDb = value ("mx_gain"); ms.style = (int) value ("mx_style"); ms.clip = value ("mx_clip"); ms.character = value ("mx_char");
     ms.link = value ("mx_link"); ms.ceilDb = value ("lm_ceil");
     const bool mxOn = value ("mx_on") > 0.5f, mxDelta = mxOn && value ("mx_delta") > 0.5f;
-    float* tL = tmp.getWritePointer (0); float* tR = tmp.getWritePointer (1);
     for (int i = 0; i < n; ++i) { tL[i] = L[i]; tR[i] = R[i]; }
     if (mxOn) mx.process (L, R, n, ms);
     else { for (int i = 0; i < n; ++i) { L[i] = mxBy[0] (L[i]); R[i] = mxBy[1] (R[i]); } mx.gr = 0; }
@@ -111,6 +200,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         if (lmDelta) for (int i = 0; i < n; ++i) { L[i] = L[i] - deltaPad[0] (tL[i]); R[i] = R[i] - deltaPad[1] (tR[i]); }
         else for (int i = 0; i < n; ++i) { deltaPad[0] (tL[i]); deltaPad[1] (tR[i]); }
     }
+    for (int i = 0; i < n; ++i) { preDelta[0] (0.0f); preDelta[1] (0.0f); }
+    }
 
     // ---- misure d'uscita (prima di confronto e ascolto normalizzato)
     float po[2] = { 0, 0 }; float tpb = 0;
@@ -121,6 +212,10 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         tpb = juce::jmax (tpb, juce::jmax (tpOut[0].push (L[i]), tpOut[1].push (R[i])));
     }
     tpHold = juce::jmax (tpHold, gToDb (tpb));
+    ringOut.push (L, R, n);
+    { double lr = 0, ll = 0, rr = 0; for (int i = 0; i < n; ++i) { lr += L[i] * R[i]; ll += L[i] * L[i]; rr += R[i] * R[i]; }
+      const double k = std::exp (-(double) n / (0.3 * sr)); cLR = k * cLR + (1 - k) * lr; cLL = k * cLL + (1 - k) * ll; cRR = k * cRR + (1 - k) * rr;
+      corrAll = (float) (cLR / std::sqrt (juce::jmax (1e-12, cLL * cRR))); }
 
     // ---- confronto a volume uguale: il pulito alzato/abbassato alla loudness del master
     const bool compare = value ("compare") > 0.5f;
@@ -145,6 +240,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
     else normSm = dbToG (ndb);
 
+    // ---- ascolto in mono (controllo)
+    if (value ("im_mono") > 0.5f) for (int i = 0; i < n; ++i) { const float m = 0.5f * (L[i] + R[i]); L[i] = R[i] = m; }
     // ---- dither (sempre l'ultimo)
     dith.process (L, R, n, (int) value ("dither"));
 
@@ -180,12 +277,18 @@ const std::vector<Preset>& presets()
         { "Init", "Maximizer pulito +4 dB, limiter a -1 dBTP.", {} },
         { "Streaming | Pulito -14", "Per Spotify e YouTube: trasparente, niente schiacciamento inutile.", { { "mx_gain", 3 }, { "mx_style", PULITO }, { "mx_clip", 0.1f }, { "target", 0 } } },
         { "Streaming | Apple -16", "Ancora piu dinamico per Apple Music.", { { "mx_gain", 1.5f }, { "mx_style", PULITO }, { "mx_clip", 0.0f }, { "target", 1 } } },
-        { "Trap | Forte e pulito", "Volume da trap senza perdere il colpo della cassa.", { { "mx_gain", 8 }, { "mx_style", PUNCH }, { "mx_clip", 0.45f }, { "mx_char", 0.55f }, { "lm_ceil", -0.5f }, { "target", 5 } } },
+        { "Trap | Forte e pulito", "Volume da trap senza perdere il colpo della cassa.", { { "mx_gain", 8 }, { "mx_style", PUNCH }, { "mx_clip", 0.45f }, { "mx_char", 0.55f }, { "lm_ceil", -0.5f }, { "target", 5 },
+                                                                                       { "bc_on", 1 }, { "bc_mono", 120 }, { "bc_punch", 0.25f }, { "bc_ctrl", 0.3f }, { "im_on", 1 }, { "im_w1", 0.4f }, { "im_w4", 1.2f } } },
         { "Trap | Muro", "Clipper e rilascio rapido: massimo volume, grinta voluta.", { { "mx_gain", 11 }, { "mx_style", AGGRESSIVO }, { "mx_clip", 0.7f }, { "mx_char", 0.7f }, { "lm_ceil", -0.3f }, { "target", 5 } } },
-        { "Drill | Punch", "Rullante e cassa in faccia, 808 fermo.", { { "mx_gain", 9 }, { "mx_style", PUNCH }, { "mx_clip", 0.55f }, { "mx_char", 0.6f }, { "lm_ceil", -0.5f }, { "target", 4 } } },
+        { "Drill | Punch", "Rullante e cassa in faccia, 808 stretto e fermo.", { { "mx_gain", 9 }, { "mx_style", PUNCH }, { "mx_clip", 0.55f }, { "mx_char", 0.6f }, { "lm_ceil", -0.5f }, { "target", 4 },
+                                                                                       { "bc_on", 1 }, { "bc_mono", 110 }, { "bc_tail", -0.3f }, { "bc_ctrl", 0.4f }, { "bc_harm", 0.2f } } },
         { "Boom Bap | Morbido", "Saturazione leggera, rilascio lento: caldo e rotondo.", { { "mx_gain", 6 }, { "mx_style", MORBIDO }, { "mx_clip", 0.3f }, { "mx_char", 0.35f }, { "target", 3 } } },
         { "R&B | Arioso", "Volume medio, dinamica preservata, molto trasparente.", { { "mx_gain", 4 }, { "mx_style", PULITO }, { "mx_clip", 0.15f }, { "mx_char", 0.3f }, { "target", 0 } } },
-        { "Lo-fi | Vintage", "Morbido e scuro, niente volume eccessivo.", { { "mx_gain", 4 }, { "mx_style", MORBIDO }, { "mx_clip", 0.4f }, { "mx_char", 0.25f }, { "target", 0 } } },
+        { "Lo-fi | Vintage", "Morbido e scuro, niente volume eccessivo.", { { "mx_gain", 4 }, { "mx_style", MORBIDO }, { "mx_clip", 0.4f }, { "mx_char", 0.25f }, { "target", 0 },
+                                                                                       { "eq_on", 1 }, { "eq6_g", -3.5f }, { "eq6_f", 9000 }, { "eq2_g", 1.5f }, { "im_on", 1 }, { "im_w4", 0.8f } } },
+        { "Streaming | Pulito + bassi in mono", "Bassi mono sotto 120 Hz, sibilanti domate dall'EQ dinamico, alti un filo piu larghi.",
+          { { "mx_gain", 3.5f }, { "mx_style", PULITO }, { "mx_clip", 0.15f }, { "target", 0 }, { "bc_on", 1 }, { "bc_mono", 120 }, { "bc_ctrl", 0.25f },
+            { "eq_on", 1 }, { "eq5_f", 7000 }, { "eq5_dyn", 1 }, { "eq5_thr", -32 }, { "eq5_rng", -4 }, { "eq5_q", 2.0f }, { "im_on", 1 }, { "im_w1", 0.5f }, { "im_w4", 1.2f } } },
         { "Club | Impatto", "Per la cassa: forte, con transienti vivi e ceiling quasi a zero.", { { "mx_gain", 9 }, { "mx_style", PUNCH }, { "mx_clip", 0.5f }, { "lm_ceil", -0.3f }, { "target", 4 } } } };
     return P;
 }

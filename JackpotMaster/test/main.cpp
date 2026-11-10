@@ -92,15 +92,53 @@ int main (int argc, char** argv)
     if (argc > 1 && juce::String (argv[1]) == "snap")
     {
         auto p = fresh(); setP (*p, "mx_gain", 8); setP (*p, "mx_style", PUNCH); setP (*p, "mx_clip", 0.4f);
+        setP (*p, "bc_on", 1); setP (*p, "bc_punch", 0.4f); setP (*p, "bc_mono", 110); setP (*p, "bc_harm", 0.3f);
+        setP (*p, "eq_on", 1); setP (*p, eqId (2, "g"), -3); setP (*p, eqId (4, "dyn"), 1); setP (*p, eqId (4, "f"), 7000); setP (*p, eqId (4, "thr"), -40); setP (*p, eqId (5, "g"), 2.5f);
+        setP (*p, "im_on", 1); setP (*p, "im_w1", 0.3f); setP (*p, "im_w3", 1.4f); setP (*p, "im_w4", 1.6f); setP (*p, "im_stz", 0.3f);
         std::vector<float> a, b; run (*p, beat, (int) sr * 12, a, b);
         Editor ed (*p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
+        if (auto* pg = std::getenv ("JPAGE")) ed.select (std::atoi (pg));
         ed.tickForTest();
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argc > 2 ? argv[2] : "/tmp/master.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;
     }
 
+    // fase 2: moduli neutri = somma piatta (risposta all'impulso, spettro)
+    {
+        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "bc_on", 1); setP (*p, "eq_on", 1); setP (*p, "im_on", 1);
+        std::vector<float> a, b; run (*p, [] (int i, float& l, float& r) { l = i == 100 ? 1.0f : 0.0f; r = i == 100 ? 0.5f : 0.0f; }, 65536, a, b);
+        juce::dsp::FFT f (16); std::vector<float> d (131072, 0); for (int i = 0; i < 65536; ++i) d[(size_t) i] = a[(size_t) i];
+        f.performFrequencyOnlyForwardTransform (d.data(), true);
+        float mn = 100, mx2 = -100; for (int k = 3; k < 30000; ++k) { const float db = gToDb (d[(size_t) k]); mn = juce::jmin (mn, db); mx2 = juce::jmax (mx2, db); }
+        std::printf ("bass+eq+imager neutri: risposta %.2f .. %.2f dB (deve essere piatta)\n", mn, mx2);
+    }
+    {   // mono sotto 120 Hz: un 50 Hz in controfase sparisce, un 1 kHz in controfase resta
+        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "bc_on", 1); setP (*p, "bc_mono", 120);
+        std::vector<float> a, b; run (*p, [&] (int i, float& l, float& r) { const float x = 0.3f * (float) std::sin (2 * 3.14159265 * 50 * i / sr) + 0.3f * (float) std::sin (2 * 3.14159265 * 1000 * i / sr); l = x; r = -x; }, 96000, a, b);
+        // il canale S residuo a 50 Hz e a 1 kHz
+        std::vector<float> s2; for (size_t i = 48000; i < a.size(); ++i) s2.push_back (0.5f * (a[i] - b[i]));
+        juce::dsp::FFT f (15); std::vector<float> d (65536, 0); for (int i = 0; i < 32768; ++i) d[(size_t) i] = s2[(size_t) i] * (0.5f - 0.5f * std::cos (6.2831853f * i / 32768));
+        f.performFrequencyOnlyForwardTransform (d.data(), true);
+        auto at = [&] (float hz) { const int k = juce::roundToInt (hz * 32768 / sr); float m = 0; for (int j = k - 2; j <= k + 2; ++j) m = juce::jmax (m, d[(size_t) j]); return gToDb (m / 8192.0f); };
+        std::printf ("mono sotto 120 Hz: lato a 50 Hz %.1f dB, a 1 kHz %.1f dB (ingresso -10.5)\n", at (50), at (1000));
+    }
+    {   // EQ dinamico: banda a 1 kHz, soglia -30, range -9: un tono forte viene abbassato, uno debole no
+        for (float amp : { 0.5f, 0.01f })
+        {
+            auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "eq_on", 1); setP (*p, eqId (2, "f"), 1000); setP (*p, eqId (2, "dyn"), 1); setP (*p, eqId (2, "thr"), -30); setP (*p, eqId (2, "rng"), -9); setP (*p, eqId (2, "q"), 1.5f);
+            std::vector<float> a, b; run (*p, [&] (int i, float& l, float& r) { l = r = amp * (float) std::sin (2 * 3.14159265 * 1000 * i / sr); }, 48000, a, b);
+            float pk = 0; for (size_t i = 30000; i < a.size(); ++i) pk = juce::jmax (pk, std::abs (a[i]));
+            std::printf ("EQ dinamico, tono %.2f: uscita %.1f dB rispetto all'ingresso (dinamica %.1f dB)\n", amp, gToDb (pk / amp), p->eqDyn[2].load());
+        }
+    }
+    {   // imager: larghezza 0 su tutte le bande = mono
+        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "im_on", 1); for (auto id : { "im_w1", "im_w2", "im_w3", "im_w4" }) setP (*p, id, 0);
+        juce::Random r2 (5); std::vector<float> a, b; run (*p, [&] (int, float& l, float& r) { l = r2.nextFloat() - 0.5f; r = r2.nextFloat() - 0.5f; }, 48000, a, b);
+        double es = 0, em = 0; for (size_t i = 10000; i < a.size(); ++i) { es += (a[i] - b[i]) * (a[i] - b[i]); em += (a[i] + b[i]) * (a[i] + b[i]); }
+        std::printf ("imager larghezza 0: lato/medio %.1f dB (deve essere molto basso)\n", 10 * std::log10 (es / em + 1e-20));
+    }
     // 1) latenza
     {
         auto p = fresh(); setP (*p, "mx_gain", 0);

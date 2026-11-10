@@ -1,7 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "JackpotLook.h"
-#include "MasterDSP.h"
+#include "MasterModules.h"
 
 namespace jms
 {
@@ -11,9 +11,9 @@ struct ModInfo { const char* name; const char* sub; bool ready; juce::uint32 col
 inline const ModInfo& modInfo (int m)
 {
     static const ModInfo I[kNumMods] = {
-        { "BASS CONTROL", "sub e punch", false, 0xffffb000 }, { "EQ DINAMICO", "bande che reagiscono", false, 0xff5ef2ff }, { "DE-ESSER", "sibilanti e piatti", false, 0xff7dff5a },
+        { "BASS CONTROL", "sub e punch", true, 0xffffb000 }, { "EQ DINAMICO", "bande che reagiscono", true, 0xff5ef2ff }, { "DE-ESSER", "sibilanti e piatti", false, 0xff7dff5a },
         { "BUS COMP", "colla da console", false, 0xffa66bff }, { "MULTIBANDA", "dinamica + OTT", false, 0xffff7a3d }, { "TAPE", "nastro analogico", false, 0xffffd23d },
-        { "IMAGER", "stereo per banda", false, 0xff3dffd2 }, { "MAXIMIZER", "volume e carattere", true, 0xffff2e88 }, { "LIMITER", "true peak finale", true, 0xffff3b5c } };
+        { "IMAGER", "stereo per banda", true, 0xff3dffd2 }, { "MAXIMIZER", "volume e carattere", true, 0xffff2e88 }, { "LIMITER", "true peak finale", true, 0xffff3b5c } };
     return I[juce::jlimit (0, kNumMods - 1, m)];
 }
 
@@ -24,6 +24,17 @@ inline const Target& target (int i)
     return T[juce::jlimit (0, 5, i)];
 }
 constexpr int kNumTargets = 6;
+
+// anello stereo senza lock per l'interfaccia
+struct StereoRing
+{
+    static constexpr int kSize = 8192;
+    float l[kSize] {}, r[kSize] {}; std::atomic<int> w { 0 };
+    void push (const float* a, const float* b, int n) { int p = w.load(); for (int i = 0; i < n; ++i) { l[p] = a[i]; r[p] = b[i]; p = (p + 1) & (kSize - 1); } w = p; }
+    void read (float* a, float* b, int n) const { int p = (w.load() - n) & (kSize - 1); for (int i = 0; i < n; ++i) { a[i] = l[p]; if (b) b[i] = r[p]; p = (p + 1) & (kSize - 1); } }
+};
+
+inline const char* eqId (int b, const char* k) { static thread_local char buf[24]; std::snprintf (buf, sizeof (buf), "eq%d_%s", b + 1, k); return buf; }
 
 struct Preset { const char* name; const char* note; std::vector<std::pair<const char*, float>> v; };
 const std::vector<Preset>& presets();
@@ -62,6 +73,9 @@ public:
     // misure per l'interfaccia
     std::atomic<float> lufsM { -100 }, lufsS { -100 }, lufsI { -100 }, lra { 0 }, tpMax { -100 }, inS { -100 }, matchDb { 0 }, normDb { 0 };
     std::atomic<float> grMax { 0 }, grLim { 0 }, inPk[2] {}, outPk[2] {};
+    std::atomic<float> bassGain { 0 }, bassLow { 0 }, eqDyn[kEqBands] {}, eqLvl[kEqBands] {}, imCorr[kImBands] {}, corrAll { 1 };
+    StereoRing ringOut, ringIn;
+    double eqRate() const { return sr; }
     std::atomic<bool> resetReq { false };
     static constexpr int kHist = 480;
     std::atomic<float> hIn[kHist], hOut[kHist], hGrM[kHist], hGrL[kHist], hS[kHist]; std::atomic<int> hW { 0 };
@@ -70,10 +84,11 @@ private:
     void timerCallback() override;
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100;
+    BassControl bass; DynEq deq; Imager img; Delay preDelta[2];
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2];
     juce::AudioBuffer<float> tmp, keep;
     float matchSm = 1, normSm = 1, colIn = 0, colOut = 0, colM = 0, colL = 0; int colN = 0;
-    float tpHold = -100;
+    float tpHold = -100; double cLR = 0, cLL = 1e-9, cRR = 1e-9;
 };
 }
