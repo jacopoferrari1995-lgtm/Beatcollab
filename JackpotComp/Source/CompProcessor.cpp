@@ -12,7 +12,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     for (int st = 0; st < kStages; ++st)
     {
         const String p = String (stagePfx (st)).dropLastCharacters (1), P = "Stadio " + String (st + 1) + " ";
-        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "_on", 1 }, P + "On", p == "a"));
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "_on", 1 }, P + "On", false));
         static const int defM[kStages] = { FET76, OPTO2A, VCABUS, RMS160, VARIMU, OTT };
         l.add (std::make_unique<AudioParameterChoice> (ParameterID { p + "_model", 1 }, P + "Model", modelNames(), defM[st]));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "_solo", 1 }, P + "Solo", false));
@@ -180,7 +180,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 const std::vector<Preset>& presets()
 {
     static const std::vector<Preset> P = {
-        { "Init", "Punto di partenza: FET 76 sullo stadio A.", 0, {} },
+        { "Init", "Tutto spento: accendi uno stadio dalla fila in alto.", 0, {} },
         { "Voce | Rap davanti (76 > 2A)", "Il FET prende i picchi (3-5 dB), l'OPTO livella (3-4 dB). Voce sempre davanti senza sentirsi compressa.", 1,
           { { "a_model", FET76 }, { "a_drive", 0.3f }, { "a_ratio", 0 }, { "a_att", 0.55f }, { "a_rel", 0.3f }, { "a_color", 0.35f },
             { "b_on", 1 }, { "b_model", OPTO2A }, { "b_drive", 0.35f }, { "b_ratio", 0 }, { "b_color", 0.3f }, { "auto", 1 } } },
@@ -245,6 +245,7 @@ void Processor::loadPreset (int i)
     for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) rp->setValueNotifyingHost (rp->getDefaultValue());
     const auto& P = presets()[(size_t) i];
     if (auto* rp = apvts.getParameter ("route")) rp->setValueNotifyingHost (rp->convertTo0to1 ((float) P.route));
+    if (i > 0) if (auto* rp = apvts.getParameter ("a_on")) rp->setValueNotifyingHost (1.0f);   // i preset partono dallo stadio A acceso
     for (auto& [id, v] : P.v) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
 }
 

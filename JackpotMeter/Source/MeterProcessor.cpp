@@ -26,7 +26,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "spec", 1 }, "Spettro", StringArray { "MID + SIDE", "L + R" }, 0));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "out", 1 }, "Output", NormalisableRange<float> (-12, 12), 0));
     // imager
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "imOn", 1 }, "Imager On", true));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "imOn", 1 }, "Imager On", false));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "imWidth", 1 }, "Imager Width", NormalisableRange<float> (0, 2), 1));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "imLow", 1 }, "Imager Low Width", NormalisableRange<float> (0, 2), 1));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "imMid", 1 }, "Imager Mid Width", NormalisableRange<float> (0, 2), 1));

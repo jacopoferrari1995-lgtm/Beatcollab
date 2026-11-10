@@ -4,112 +4,113 @@
 // Jackpot Master, fase 3: DE-ESSER, BUS COMP, MULTIBANDA (con OTT). Latenza zero.
 namespace jms
 {
-// guadagno con ginocchio morbido (dB): riduzione per compressione verso il basso
-inline float downGain (float lvl, float thr, float ratio, float knee)
-{
-    const float over = lvl - thr;
-    if (over <= -knee * 0.5f) return 0.0f;
-    if (over < knee * 0.5f) { const float x = over + knee * 0.5f; return -(1 - 1 / ratio) * x * x / (2 * knee); }
-    return -(1 - 1 / ratio) * over;
-}
-
-// --------------------------------------------------------------------------- DE-ESSER (relativo: guarda quanto le sibilanti superano il resto)
-struct DeEssSettings { float freq = 6500, thr = -12, range = 6; int ch = 0; };
+// --------------------------------------------------------------------------- DE-ESSER (relativo, su un intervallo scelto)
+// Abbassa solo l'intervallo DA..A (o da DA in su) quando sporge rispetto al resto del mix.
+struct DeEssSettings { float lo = 5000, hi = 20000, thr = -12, amount = 0.5f, soft = 0.5f; int ch = 0; bool delta = false; };
 class DeEsser
 {
 public:
     void prepare (double s)
     {
         sr = s; juce::dsp::ProcessSpec sp { sr, 512, 2 };
-        xo.prepare (sp); xo.setType (juce::dsp::LinkwitzRileyFilterType::lowpass);
-        eH.set (sr, 0.8, 70); eF.set (sr, 0.8, 70); lastF = -1; grSm = 0;
-        rk = (float) std::exp (-1.0 / (0.06 * sr)); ak = (float) std::exp (-1.0 / (0.0008 * sr));
+        for (auto* x : { &x1, &x2 }) { x->prepare (sp); x->setType (juce::dsp::LinkwitzRileyFilterType::lowpass); }
+        apLo.prepare (sp); apLo.setType (juce::dsp::LinkwitzRileyFilterType::allpass);
+        eF.set (sr, 1.0, 80); lastLo = lastHi = -1; grSm = 0; bm = bs = 0;
     }
     void process (float* L, float* R, int n, const DeEssSettings& S)
     {
-        if (std::abs (S.freq - lastF) > 1)
-        {
-            lastF = S.freq; xo.setCutoffFrequency (S.freq * 0.8f);
-            for (auto& d : det) d.set (Biquad::BPASS, S.freq, 0, 1.2, sr);
-        }
-        float grMaxB = 0; float relMax = -60;
+        const bool open = S.hi >= 19000;
+        if (std::abs (S.lo - lastLo) > 1) { lastLo = S.lo; x1.setCutoffFrequency (S.lo); }
+        if (! open && std::abs (S.hi - lastHi) > 1) { lastHi = S.hi; x2.setCutoffFrequency (S.hi); apLo.setCutoffFrequency (S.hi); }
+        const float ratio = 1.0f + S.amount * 5.0f, maxRed = 2.0f + S.amount * 8.0f, knee = 2.0f + S.soft * 10.0f;
+        const float ak = (float) std::exp (-1.0 / ((0.0005 + 0.002 * S.soft) * sr)), rk = (float) std::exp (-1.0 / ((0.04 + 0.16 * S.soft) * sr));
+        const float bk = (float) std::exp (-1.0 / (0.004 * sr));
+        float grMaxB = 0, relMax = -60;
         for (int i = 0; i < n; ++i)
         {
             const float M = 0.5f * (L[i] + R[i]), Sd = 0.5f * (L[i] - R[i]);
-            const float bm = std::abs (det[0] (M)), bs = std::abs (det[1] (Sd));
-            const float h = eH (S.ch == 1 ? bm : S.ch == 2 ? bs : juce::jmax (bm, bs));
-            const float f = eF (S.ch == 1 ? std::abs (M) : S.ch == 2 ? std::abs (Sd) : juce::jmax (std::abs (M), std::abs (Sd)));
-            const float rel = gToDb (h + 1e-7f) - gToDb (f + 1e-6f);
+            float lo[2], band[2], top[2]; const float in[2] = { M, Sd };
+            for (int c = 0; c < 2; ++c)
+            {
+                float l, h; x1.processSample (c, in[c], l, h);
+                if (open) { lo[c] = l; band[c] = h; top[c] = 0; }
+                else { float b2, t2; x2.processSample (c, h, b2, t2); band[c] = b2; top[c] = t2; lo[c] = apLo.processSample (c, l); }
+            }
+            // livello dell'intervallo rispetto al mix, sul canale scelto
+            const float ab = S.ch == 1 ? std::abs (band[0]) : S.ch == 2 ? std::abs (band[1]) : juce::jmax (std::abs (band[0]), std::abs (band[1]));
+            const float af = S.ch == 1 ? std::abs (M) : S.ch == 2 ? std::abs (Sd) : juce::jmax (std::abs (M), std::abs (Sd));
+            bm = ab > bm ? ab : bk * bm + (1 - bk) * ab;
+            const float f = eF (af);
+            const float rel = gToDb (bm + 1e-7f) - gToDb (f + 1e-6f);
             relMax = juce::jmax (relMax, rel);
-            float gr = juce::jlimit (-S.range, 0.0f, downGain (rel, S.thr, 4.0f, 4.0f));
-            if (gToDb (h) < -60) gr = 0;
+            float gr = gToDb (bm) < -60 ? 0.0f : juce::jmax (-maxRed, downGain (rel, S.thr, ratio, knee));
             grSm = gr < grSm ? ak * grSm + (1 - ak) * gr : rk * grSm + (1 - rk) * gr;
             grMaxB = juce::jmin (grMaxB, grSm);
             const float g = dbToG (grSm);
-            // si abbassa solo la banda sopra la frequenza, sul canale scelto
-            float mlo, mhi, slo, shi;
-            xo.processSample (0, M, mlo, mhi); xo.processSample (1, Sd, slo, shi);
-            const float Mo = mlo + mhi * (S.ch != 2 ? g : 1.0f), So = slo + shi * (S.ch != 1 ? g : 1.0f);
+            const float gM = S.ch != 2 ? g : 1.0f, gS = S.ch != 1 ? g : 1.0f;
+            float Mo, So;
+            if (S.delta) { Mo = band[0] * (gM - 1); So = band[1] * (gS - 1); }
+            else { Mo = lo[0] + band[0] * gM + top[0]; So = lo[1] + band[1] * gS + top[1]; }
             L[i] = Mo + So; R[i] = Mo - So;
         }
         gr = -grMaxB; relNow = relMax;
     }
     float gr = 0, relNow = -60;
 private:
-    double sr = 48000; float lastF = -1, grSm = 0, ak = 0.9f, rk = 0.999f;
-    juce::dsp::LinkwitzRileyFilter<float> xo; Biquad det[2]; Env eH, eF;
+    double sr = 48000; float lastLo = -1, lastHi = -1, grSm = 0, bm = 0, bs = 0;
+    juce::dsp::LinkwitzRileyFilter<float> x1, x2, apLo; Env eF;
 };
 
-// --------------------------------------------------------------------------- BUS COMP (VCA da console, collegato in stereo)
-struct BusSettings { float thr = -10, makeup = 0, mix = 1, scHpf = 0; int ratio = 1, att = 3, rel = 4; bool autoMakeup = true; };
+// --------------------------------------------------------------------------- BUS COMP (stile console, morbido come i "glue" migliori)
+// Rivelatore RMS (non di picco), ginocchio largo, RANGE che limita la riduzione massima. Collegato in stereo.
+struct BusSettings { float thr = 0, makeup = 0, mix = 1, scHpf = 0, range = 12; int ratio = 1, att = 4, rel = 4; bool autoMakeup = true; };
 inline float busRatio (int i) { static const float r[] = { 1.5f, 2, 4, 10 }; return r[juce::jlimit (0, 3, i)]; }
 inline float busAtt (int i) { static const float a[] = { 0.1f, 0.3f, 1, 3, 10, 30 }; return a[juce::jlimit (0, 5, i)]; }
 inline float busRel (int i) { static const float r[] = { 100, 300, 600, 1200, -1 }; return r[juce::jlimit (0, 4, i)]; }
 class BusComp
 {
 public:
-    void prepare (double s) { sr = s; for (auto& h : hp) h.reset(); lastHp = -1; env = 0; gdb = 0; slow = 0; colour[0] = colour[1] = 0; }
+    void prepare (double s) { sr = s; for (auto& h : hp) h.reset(); lastHp = -1; ms = 0; gdb = 0; slow = 0; }
     void process (float* L, float* R, int n, const BusSettings& S)
     {
         if (std::abs (S.scHpf - lastHp) > 0.5f) { lastHp = S.scHpf; for (auto& h : hp) { h.set (Biquad::LCUT, juce::jmax (20.0f, S.scHpf), 0, 0.7, sr); h.reset(); } }
         const float ratio = busRatio (S.ratio), attMs = busAtt (S.att), relMs = busRel (S.rel);
-        const float aK = (float) std::exp (-1.0 / (attMs * 0.001 * sr));
-        const float rFast = (float) std::exp (-1.0 / ((relMs > 0 ? relMs : 120.0f) * 0.001 * sr)), rSlow = (float) std::exp (-1.0 / (1.5 * sr));
-        const float dK = (float) std::exp (-1.0 / (0.002 * sr));   // rivelatore: picco smussato 2 ms
-        // compensazione automatica: meta della riduzione alla soglia scelta (come fanno le console)
-        const float mk = dbToG (S.makeup + (S.autoMakeup ? -downGain (0.0f, S.thr, ratio, 6.0f) * 0.5f : 0.0f));
+        const float aK = (float) std::exp (-1.0 / (juce::jmax (0.3f, attMs) * 0.001 * sr));
+        const float rFast = (float) std::exp (-1.0 / ((relMs > 0 ? relMs : 150.0f) * 0.001 * sr)), rSlow = (float) std::exp (-1.0 / (1.2 * sr));
+        const float msK = (float) std::exp (-1.0 / (0.012 * sr));                 // finestra RMS 12 ms
+        const float knee = 10.0f;
+        const float mk = dbToG (S.makeup + (S.autoMakeup ? juce::jmin (S.range, -downGain (-6.0f, S.thr, ratio, knee)) * 0.6f : 0.0f));
         float grMaxB = 0;
         for (int i = 0; i < n; ++i)
         {
             float dl = L[i], dr = R[i];
             if (S.scHpf >= 21) { dl = hp[0] (dl); dr = hp[1] (dr); }
-            const float a = juce::jmax (std::abs (dl), std::abs (dr));
-            env = a > env ? a : dK * env + (1 - dK) * a;
-            const float target = downGain (gToDb (env + 1e-9f), S.thr, ratio, 6.0f);
+            ms = msK * ms + (1 - msK) * 0.5f * (dl * dl + dr * dr);
+            const float lvl = 10.0f * std::log10 (ms * 2.0f + 1e-12f);              // RMS, riferito al picco di una sinusoide
+            const float target = juce::jmax (-S.range, downGain (lvl, S.thr, ratio, knee));
             if (target < gdb) gdb = aK * gdb + (1 - aK) * target;
             else if (relMs > 0) gdb = rFast * gdb + (1 - rFast) * target;
             else
-            {   // AUTO: doppio rilascio, veloce sui picchi e lento sulla riduzione media
+            {   // AUTO: veloce sui colpi isolati, lento quando la compressione e costante
                 slow = rSlow * slow + (1 - rSlow) * gdb;
-                const float k = gdb < slow - 2.0f ? rFast : (float) std::exp (-1.0 / (0.6 * sr));
+                const float k = gdb < slow - 1.5f ? rFast : (float) std::exp (-1.0 / (0.7 * sr));
                 gdb = k * gdb + (1 - k) * target;
             }
             grMaxB = juce::jmin (grMaxB, gdb);
             const float g = dbToG (gdb) * mk;
-            const float xl = L[i] * g, xr = R[i] * g;
-            L[i] = L[i] + (xl - L[i]) * S.mix; R[i] = R[i] + (xr - R[i]) * S.mix;
+            L[i] = L[i] + (L[i] * g - L[i]) * S.mix; R[i] = R[i] + (R[i] * g - R[i]) * S.mix;
         }
-        gr = -grMaxB; grNow = -gdb;
+        gr = -grMaxB;
     }
-    float gr = 0, grNow = 0;
+    float gr = 0;
 private:
-    double sr = 48000; Biquad hp[2]; float lastHp = -1, env = 0, gdb = 0, slow = 0, colour[2] {};
+    double sr = 48000; Biquad hp[2]; float lastHp = -1, ms = 0, gdb = 0, slow = 0;
 };
 
 // --------------------------------------------------------------------------- MULTIBANDA (3 bande, giu + su, stile OTT)
 constexpr int kMbBands = 3;
 struct MbBand { float thr = -18, ratio = 3, up = 0, gain = 0; bool solo = false; };
-struct MbSettings { float x1 = 120, x2 = 2500, speed = 0.5f, mix = 1; MbBand b[kMbBands]; };
+struct MbSettings { float x1 = 120, x2 = 2500, speed = 0.5f, mix = 1; MbBand b[kMbBands]; bool delta = false; };
 class Multiband
 {
 public:
@@ -158,7 +159,8 @@ public:
             }
             // MIX: parallelo col segnale gia passato dagli allpass (somma piatta)
             const float dl = bl[0] + bl[1] + bl[2], dr = br[0] + br[1] + br[2];
-            L[i] = anySolo ? ol : dl + (ol - dl) * S.mix; R[i] = anySolo ? orr : dr + (orr - dr) * S.mix;
+            if (S.delta) { L[i] = (ol - dl) * S.mix; R[i] = (orr - dr) * S.mix; }
+            else { L[i] = anySolo ? ol : dl + (ol - dl) * S.mix; R[i] = anySolo ? orr : dr + (orr - dr) * S.mix; }
         }
         for (int b = 0; b < kMbBands; ++b) { level[b] = lvlMax[b]; down[b] = -gMin[b]; up[b] = gMaxB[b]; }
     }

@@ -36,6 +36,10 @@ struct StereoRing
 
 inline const char* eqId (int b, const char* k) { static thread_local char buf[24]; std::snprintf (buf, sizeof (buf), "eq%d_%s", b + 1, k); return buf; }
 
+const char* onParam (int m);
+const char* deltaParam (int m);
+struct VarDelay { std::vector<float> b { 0.0f }; int w = 0; };
+
 struct Preset { const char* name; const char* note; std::vector<std::pair<const char*, float>> v; };
 const std::vector<Preset>& presets();
 
@@ -74,6 +78,10 @@ public:
     std::atomic<float> lufsM { -100 }, lufsS { -100 }, lufsI { -100 }, lra { 0 }, tpMax { -100 }, inS { -100 }, matchDb { 0 }, normDb { 0 };
     std::atomic<float> grMax { 0 }, grLim { 0 }, inPk[2] {}, outPk[2] {};
     std::atomic<float> bassGain { 0 }, bassLow { 0 }, eqDyn[kEqBands] {}, eqLvl[kEqBands] {}, imCorr[kImBands] {}, corrAll { 1 };
+    std::atomic<int> order[kNumMods];
+    void setOrder (const std::array<int, kNumMods>&);
+    std::array<int, kNumMods> getOrder() const;
+    std::atomic<float> bassPeak { 0 };
     std::atomic<float> dsGr { 0 }, dsRel { -60 }, busGr { 0 }, mbLevel[kMbBands] {}, mbDown[kMbBands] {}, mbUp[kMbBands] {};
     StereoRing ringOut, ringIn;
     double eqRate() const { return sr; }
@@ -85,7 +93,7 @@ private:
     void timerCallback() override;
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100;
-    BassControl bass; DynEq deq; Imager img; DeEsser dess; BusComp bus; Multiband mband; Delay preDelta[2];
+    BassControl bass; DynEq deq; Imager img; DeEsser dess; BusComp bus; Multiband mband; VarDelay deltaVar[2];
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2];
     juce::AudioBuffer<float> tmp, keep;

@@ -44,8 +44,19 @@ struct Env
     inline float operator() (float x) { v = x > v ? a * v + (1 - a) * x : r * v + (1 - r) * x; return v; }
 };
 
+// guadagno con ginocchio morbido (dB): riduzione per compressione verso il basso
+inline float downGain (float lvl, float thr, float ratio, float knee)
+{
+    const float over = lvl - thr;
+    if (over <= -knee * 0.5f) return 0.0f;
+    if (over < knee * 0.5f) { const float x = over + knee * 0.5f; return -(1 - 1 / ratio) * x * x / (2 * knee); }
+    return -(1 - 1 / ratio) * over;
+}
+
 // --------------------------------------------------------------------------- BASS CONTROL
-struct BassSettings { float freq = 120, monoBelow = 0, punch = 0, tail = 0, harm = 0, levelDb = 0, control = 0; };
+// Tutto lavora SOLO sotto FREQUENZA: carattere PUNCH <-> WARM, coda, controllo dei picchi con soglia
+// (pulito <-> sporco), armoniche, bilancio, mono sotto. In DELTA esce solo cio che cambia nella banda bassa.
+struct BassSettings { float freq = 120, monoBelow = 0, punch = 0, tail = 0, harm = 0, balance = 0, thr = 0, dirty = 0; bool delta = false; };
 class BassControl
 {
 public:
@@ -53,33 +64,48 @@ public:
     {
         sr = s; juce::dsp::ProcessSpec sp { sr, 512, 2 };
         for (auto* x : { &xo, &mxM, &mxS }) { x->prepare (sp); x->setType (juce::dsp::LinkwitzRileyFilterType::lowpass); }
-        eAf.set (sr, 0.4, 35); eAs.set (sr, 18, 35); eSf.set (sr, 1, 45); eSs.set (sr, 1, 320);
-        eC.set (sr, 8, 140); eLong.set (sr, 1500, 2500);
+        eAf.set (sr, 0.4, 40); eAs.set (sr, 20, 40); eSf.set (sr, 1, 45); eSs.set (sr, 1, 350);
         hHp.set (Biquad::LCUT, 90, 0, 0.7, sr); hHp2.set (Biquad::LCUT, 90, 0, 0.7, sr); hLp.set (Biquad::HCUT, 450, 0, 0.7, sr);
-        lastF = lastM = -1;
+        lastF = lastM = -1; pEnv = 0; pGr = 0; balLo = balAll = 1e-6f;
     }
     void process (float* L, float* R, int n, const BassSettings& S)
     {
         if (std::abs (S.freq - lastF) > 0.5f) { xo.setCutoffFrequency (S.freq); lastF = S.freq; }
         const bool mono = S.monoBelow >= 20;
         if (mono && std::abs (S.monoBelow - lastM) > 0.5f) { mxM.setCutoffFrequency (S.monoBelow); mxS.setCutoffFrequency (S.monoBelow); lastM = S.monoBelow; }
-        const float lvl = dbToG (S.levelDb), kP = S.punch * 1.6f, kT = S.tail * 1.4f, kC = S.control * 0.75f;
-        float gMin = 1, gMax = 1; double eLo = 0;
+        const float lvl = dbToG (S.balance);
+        // PUNCH (+) piu attacco; WARM (-) attacco morbido e piu sustain
+        const float kP = S.punch * 1.6f, kT = S.tail * 1.4f + (S.punch < 0 ? -S.punch * 0.9f : 0.0f);
+        // controllo picchi: pulito = morbido e lento, sporco = rapido + saturazione
+        const bool peak = S.thr < -0.05f;
+        const float pAtt = (float) std::exp (-1.0 / ((0.004 - 0.0035 * S.dirty) * sr)), pRel = (float) std::exp (-1.0 / ((0.16 - 0.12 * S.dirty) * sr));
+        const float ratio = 4.0f + 16.0f * S.dirty, sat = S.dirty;
+        float gMin = 1, gMax = 1; double eLo = 0, eAll = 0; float prMax = 0;
         for (int i = 0; i < n; ++i)
         {
             float lo0, hi0, lo1, hi1;
             xo.processSample (0, L[i], lo0, hi0); xo.processSample (1, R[i], lo1, hi1);
+            const float d0 = lo0, d1 = lo1;          // banda bassa originale (per il delta)
             const float lm = 0.5f * (lo0 + lo1), a = std::abs (lm);
-            // forma del transiente sulla sola banda bassa (collegata in stereo)
             float g = 1;
-            if (std::abs (kP) > 1e-3f) { const float f = eAf (a), s = eAs (a); g *= std::pow (juce::jlimit (0.25f, 8.0f, (f + 1e-6f) / (s + 1e-6f)), kP); }
-            if (std::abs (kT) > 1e-3f) { const float f = eSf (a), s = eSs (a); g *= std::pow (juce::jlimit (0.25f, 8.0f, (s + 1e-6f) / (f + 1e-6f)), kT); }
-            // stabilizza: abbassa i colpi di basso che superano la media lunga
-            if (kC > 1e-3f) { const float e = eC (a), lg = eLong (a); if (e > lg * 1.05f && lg > 1e-5f) g *= std::pow (lg * 1.05f / e, kC); }
+            if (std::abs (kP) > 1e-3f) { const float f = eAf (a), sl = eAs (a); g *= std::pow (juce::jlimit (0.25f, 8.0f, (f + 1e-6f) / (sl + 1e-6f)), kP); }
+            if (std::abs (kT) > 1e-3f) { const float f = eSf (a), sl = eSs (a); g *= std::pow (juce::jlimit (0.25f, 8.0f, (sl + 1e-6f) / (f + 1e-6f)), kT); }
             g = juce::jlimit (0.125f, 4.0f, g) * lvl;
             lo0 *= g; lo1 *= g;
+            if (peak)
+            {
+                const float pa = juce::jmax (std::abs (lo0), std::abs (lo1));
+                pEnv = pa > pEnv ? pAtt * pEnv + (1 - pAtt) * pa : pRel * pEnv + (1 - pRel) * pa;
+                const float gr = downGain (gToDb (pEnv + 1e-9f), S.thr, ratio, 3.0f);
+                const float pg = dbToG (gr); lo0 *= pg; lo1 *= pg; prMax = juce::jmax (prMax, -gr);
+                if (sat > 0.01f)
+                {
+                    const float c = dbToG (S.thr) * 1.2f;
+                    lo0 = lo0 + (c * std::tanh (lo0 / c) - lo0) * sat; lo1 = lo1 + (c * std::tanh (lo1 / c) - lo1) * sat;
+                }
+                g *= pg;
+            }
             gMin = juce::jmin (gMin, g); gMax = juce::jmax (gMax, g);
-            // armoniche: raddrizzatore + saturazione sul basso mono, filtrate 90-450 Hz
             float h = 0;
             if (S.harm > 1e-3f)
             {
@@ -87,26 +113,35 @@ public:
                 h = std::tanh (4.0f * std::abs (m)) * 0.5f + std::tanh (3.0f * m) * 0.5f;
                 h = hLp (hHp2 (hHp (h))) * S.harm * 0.9f;
             }
-            float l = lo0 + hi0 + h, r = lo1 + hi1 + h;
-            eLo += (double) (lo0 * lo0 + lo1 * lo1);
-            // mono sotto la frequenza scelta: si toglie il lato (S) sotto, il medio passa per lo stesso allpass
+            eLo += (double) (d0 * d0 + d1 * d1); eAll += (double) (L[i] * L[i] + R[i] * R[i]);
+            float l, r;
+            if (S.delta) { l = (lo0 - d0) + h; r = (lo1 - d1) + h; }        // solo la variazione sotto FREQUENZA
+            else { l = lo0 + hi0 + h; r = lo1 + hi1 + h; }
             if (mono)
             {
                 const float M = 0.5f * (l + r), Sd = 0.5f * (l - r);
                 float mlo, mhi, slo, shi;
                 mxM.processSample (0, M, mlo, mhi); mxS.processSample (0, Sd, slo, shi);
-                l = mlo + mhi + shi; r = mlo + mhi - shi;
+                if (S.delta)
+                {   // nel delta si aggiunge il lato tolto sotto MONO (invertito)
+                    const float So = 0.5f * (L[i] - R[i]); float a2, b2; mxS.processSample (1, So, a2, b2);
+                    l = mlo + mhi + shi - a2; r = mlo + mhi - shi + a2;
+                }
+                else { l = mlo + mhi + shi; r = mlo + mhi - shi; }
             }
             L[i] = l; R[i] = r;
         }
         gainDb = gToDb (std::abs (gMin - 1) > std::abs (gMax - 1) ? gMin : gMax);
-        lowRms = (float) std::sqrt (eLo / juce::jmax (1, 2 * n));
+        peakGr = prMax;
+        const float k = std::exp (-(float) n / (1.5f * (float) sr));
+        balLo = k * balLo + (1 - k) * (float) eLo; balAll = k * balAll + (1 - k) * (float) eAll;
+        lowShare = 10.0f * std::log10 (juce::jmax (1e-12f, balLo) / juce::jmax (1e-12f, balAll));   // quanta energia sta sotto FREQUENZA (dB)
     }
-    float gainDb = 0, lowRms = 0;
+    float gainDb = 0, peakGr = 0, lowShare = -20;
 private:
-    double sr = 48000; float lastF = -1, lastM = -1;
+    double sr = 48000; float lastF = -1, lastM = -1, pEnv = 0, pGr = 0, balLo = 1e-6f, balAll = 1e-6f;
     juce::dsp::LinkwitzRileyFilter<float> xo, mxM, mxS;
-    Env eAf, eAs, eSf, eSs, eC, eLong; Biquad hHp, hHp2, hLp;
+    Env eAf, eAs, eSf, eSs; Biquad hHp, hHp2, hLp;
 };
 
 // --------------------------------------------------------------------------- EQ DINAMICO (6 bande, stereo / mid / side)
@@ -178,8 +213,10 @@ private:
 };
 
 // --------------------------------------------------------------------------- IMAGER (4 bande, M/S)
+// Larghezza per banda, STEREOIZE per banda (MODO I: ritardo corto tipo Haas sul lato; MODO II: decorrelatore
+// ad allpass), solo per banda e delta. Lo stereoize vive solo nel lato: in mono sparisce.
 constexpr int kImBands = 4;
-struct ImagerSettings { float x[3] { 120, 900, 5000 }; float w[kImBands] { 1, 1, 1, 1 }; float stereoize = 0; };
+struct ImagerSettings { float x[3] { 120, 900, 5000 }; float w[kImBands] { 1, 1, 1, 1 }; float stz[kImBands] {}; int mode = 0; bool solo[kImBands] {}; bool delta = false; };
 class Imager
 {
 public:
@@ -188,10 +225,12 @@ public:
         sr = s; juce::dsp::ProcessSpec sp { sr, 512, 2 };
         for (auto& f : xs) { f.prepare (sp); f.setType (juce::dsp::LinkwitzRileyFilterType::lowpass); }
         for (auto& f : ap) { f.prepare (sp); f.setType (juce::dsp::LinkwitzRileyFilterType::allpass); }
-        // decorrelatore: catena di allpass di Schroeder
         static const float d[4] = { 3.1f, 4.7f, 7.3f, 11.1f };
-        for (int k = 0; k < 4; ++k) { dl[k].assign ((size_t) juce::jmax (2, (int) (d[k] * 0.001 * sr)), 0.0f); dp[k] = 0; }
-        dHp.set (Biquad::LCUT, 300, 0, 0.7, sr);
+        for (int b = 0; b < kImBands; ++b)
+        {
+            for (int k = 0; k < 4; ++k) { dl[b][k].assign ((size_t) juce::jmax (2, (int) (d[k] * (1.0f + 0.13f * b) * 0.001 * sr)), 0.0f); dp[b][k] = 0; }
+            hz[b].assign ((size_t) juce::jmax (2, (int) ((7.0 + 3.0 * b) * 0.001 * sr)), 0.0f); hp[b] = 0;
+        }
         for (auto& v : eM) v = 0; for (auto& v : eS) v = 0;
         for (auto& v : last) v = -1;
     }
@@ -201,47 +240,54 @@ public:
             if (std::abs (S.x[k] - last[k]) > 0.5f)
             {
                 last[k] = S.x[k]; xs[k].setCutoffFrequency (S.x[k]);
-                // allpass di compensazione: banda 1 passa per gli allpass dei tagli 2 e 3, banda 2 per il 3
                 ap[0].setCutoffFrequency (S.x[1]); ap[1].setCutoffFrequency (S.x[2]); ap[2].setCutoffFrequency (S.x[2]);
             }
+        bool anySolo = false; for (bool b : S.solo) anySolo |= b;
         double em[kImBands] {}, es[kImBands] {};
         for (int i = 0; i < n; ++i)
         {
             const float M = 0.5f * (L[i] + R[i]), Sd = 0.5f * (L[i] - R[i]);
             float sb[kImBands], mb[kImBands];
             split (M, Sd, sb, mb);
-            float so = 0, mo = 0;
-            for (int b = 0; b < kImBands; ++b) { sb[b] *= S.w[b]; so += sb[b]; mo += mb[b]; em[b] += mb[b] * mb[b]; es[b] += sb[b] * sb[b]; }
-            // stereoize: aggiunge al lato una versione decorrelata del medio sopra 300 Hz (sparisce in mono)
-            if (S.stereoize > 1e-3f) so += decor (dHp (mo)) * S.stereoize * 0.6f;
-            L[i] = mo + so; R[i] = mo - so;
+            float so = 0, mo = 0, sDry = 0, mDry = 0;
+            for (int b = 0; b < kImBands; ++b)
+            {
+                float s2 = sb[b] * S.w[b];
+                if (S.stz[b] > 1e-3f && b > 0) s2 += stereoize (b, mb[b], S.mode) * S.stz[b] * 0.7f;
+                em[b] += mb[b] * mb[b]; es[b] += s2 * s2;
+                if (anySolo && ! S.solo[b]) continue;
+                so += s2; mo += mb[b]; sDry += sb[b]; mDry += mb[b];
+            }
+            if (S.delta) { L[i] = (mo - mDry) + (so - sDry); R[i] = (mo - mDry) - (so - sDry); }   // solo cio che cambia
+            else { L[i] = mo + so; R[i] = mo - so; }
         }
         for (int b = 0; b < kImBands; ++b) { const float k = 0.85f; eM[b] = k * eM[b] + (1 - k) * (float) em[b]; eS[b] = k * eS[b] + (1 - k) * (float) es[b]; }
     }
-    // correlazione stimata per banda (+1 mono, 0 largo, <0 fuori fase)
     float corr (int b) const { const float t = eM[b] + eS[b]; return t < 1e-12f ? 1.0f : (eM[b] - eS[b]) / t; }
 private:
     void split (float M, float Sd, float* sb, float* mb)
     {
         float lo, hi, lo2, hi2, lo3, hi3;
-        // lato (S)
         xs[0].processSample (0, Sd, lo, hi); xs[1].processSample (0, hi, lo2, hi2); xs[2].processSample (0, hi2, lo3, hi3);
         sb[0] = ap[1].processSample (0, ap[0].processSample (0, lo)); sb[1] = ap[2].processSample (0, lo2); sb[2] = lo3; sb[3] = hi3;
-        // medio (M): stessa struttura, canale 1 dei filtri
         xs[0].processSample (1, M, lo, hi); xs[1].processSample (1, hi, lo2, hi2); xs[2].processSample (1, hi2, lo3, hi3);
         mb[0] = ap[1].processSample (1, ap[0].processSample (1, lo)); mb[1] = ap[2].processSample (1, lo2); mb[2] = lo3; mb[3] = hi3;
     }
-    inline float decor (float x)
+    inline float stereoize (int b, float x, int mode)
     {
+        if (mode == 0)
+        {   // MODO I: copia del medio ritardata di pochi ms nel lato
+            auto& z = hz[b]; const float y = z[(size_t) hp[b]]; z[(size_t) hp[b]] = x; hp[b] = (hp[b] + 1) % (int) z.size(); return y;
+        }
         for (int k = 0; k < 4; ++k)
-        {
-            auto& b = dl[k]; const float d = b[(size_t) dp[k]], y = -0.5f * x + d;
-            b[(size_t) dp[k]] = x + 0.5f * y; dp[k] = (dp[k] + 1) % (int) b.size(); x = y;
+        {   // MODO II: catena di allpass di Schroeder
+            auto& z = dl[b][k]; const float d = z[(size_t) dp[b][k]], y = -0.5f * x + d;
+            z[(size_t) dp[b][k]] = x + 0.5f * y; dp[b][k] = (dp[b][k] + 1) % (int) z.size(); x = y;
         }
         return x;
     }
     double sr = 48000; float last[3] { -1, -1, -1 };
     juce::dsp::LinkwitzRileyFilter<float> xs[3], ap[3];
-    std::vector<float> dl[4]; int dp[4] {}; Biquad dHp; float eM[kImBands] {}, eS[kImBands] {};
+    std::vector<float> dl[kImBands][4], hz[kImBands]; int dp[kImBands][4] {}, hp[kImBands] {}; float eM[kImBands] {}, eS[kImBands] {};
 };
 }

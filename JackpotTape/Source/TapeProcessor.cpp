@@ -61,9 +61,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
         else l.add (std::make_unique<AudioParameterFloat> (ParameterID { p.id, 1 }, name, NormalisableRange<float> (p.min, p.max), p.def));
     }
     auto f = [&l] (const char* id, const char* n, float a, float b, float d) { l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, n, NormalisableRange<float> (a, b), d)); };
-    f ("age", "Age", 0, 1, 0); f ("mix", "Mix", 0, 1, 1); f ("out", "Output", -24, 6, -0.9f);
-    f ("wow", "Wow", 0, 1, 0.12f); f ("flut", "Flutter", 0, 1, 0.08f); f ("tone", "Tono", 0, 1, 0.7f);
-    f ("drive", "Drive", 0, 1, 0.2f); f ("hiss", "Hiss", 0, 1, 0); f ("drop", "Dropout", 0, 1, 0);
+    f ("age", "Age", 0, 1, 0); f ("mix", "Mix", 0, 1, 1); f ("out", "Output", -24, 6, 0);
+    f ("wow", "Wow", 0, 1, 0); f ("flut", "Flutter", 0, 1, 0); f ("tone", "Tono", 0, 1, 1);
+    f ("drive", "Drive", 0, 1, 0); f ("hiss", "Hiss", 0, 1, 0); f ("drop", "Dropout", 0, 1, 0);
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "mode", 1 }, "Modo pad", kModes, 0));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "quant", 1 }, "Quantizza", kQuant, 1));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "seqOn", 1 }, "Coreografia", false));
@@ -354,7 +354,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         float oL = l * g * mix + inL * (1 - mix), oR = r * g * mix + inR * (1 - mix);
         // nastro: bump, saturazione (asimmetrica quando spinta), passa basso, uscita
         oL = bumpL.processSample (oL); oR = bumpR.processSample (oR);
-        oL = (std::tanh (oL * dgSm + bias) - biasC) * postG; oR = (std::tanh (oR * dgSm + bias) - biasC) * postG;
+        if (drive > 0.001f || dgSm > 1.001f) { oL = (std::tanh (oL * dgSm + bias) - biasC) * postG; oR = (std::tanh (oR * dgSm + bias) - biasC) * postG; }   // drive a zero: pulito
         { hissLp = hissLp * 0.6f + (rng.nextFloat() * 2 - 1) * 0.4f; const float hs = hiss * 0.0035f * hissLp; oL += hs; oR += hs * 0.9f; }
         auto svf = [lpG, lpK] (float x, float* ic) { const float v3 = x - ic[1], v1 = (ic[0] + lpG * v3) / (1 + lpG * (lpG + lpK)), v2 = ic[1] + lpG * v1; ic[0] = 2 * v1 - ic[0]; ic[1] = 2 * v2 - ic[1]; return v2; };
         if (cutoffSm < 19500.0f) { oL = svf (oL, lpIcL); oR = svf (oR, lpIcR); }

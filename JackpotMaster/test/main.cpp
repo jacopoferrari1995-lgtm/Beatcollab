@@ -38,7 +38,8 @@ int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
     const double sr = 48000;
-    auto fresh = [&] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); return p; };
+    auto blank = [&] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); return p; };
+    auto fresh = [&] { auto p = blank(); setP (*p, "mx_on", 1); setP (*p, "lm_on", 1); setP (*p, "mx_gain", 4); return p; };
     juce::Random rnd (7);
     // materiale di prova "beat": cassa (sinusoide che scende), rullante (rumore), 808, hat, con picchi tra i campioni
     auto beat = [&] (int i, float& l, float& r)
@@ -92,10 +93,10 @@ int main (int argc, char** argv)
     if (argc > 1 && juce::String (argv[1]) == "snap")
     {
         auto p = fresh(); setP (*p, "mx_gain", 8); setP (*p, "mx_style", PUNCH); setP (*p, "mx_clip", 0.4f);
-        setP (*p, "bc_on", 1); setP (*p, "bc_punch", 0.4f); setP (*p, "bc_mono", 110); setP (*p, "bc_harm", 0.3f);
+        setP (*p, "bc_on", 1); setP (*p, "bc_punch", 0.4f); setP (*p, "bc_mono", 110); setP (*p, "bc_harm", 0.3f); setP (*p, "bc_thr", -12);
         setP (*p, "eq_on", 1); setP (*p, eqId (2, "g"), -3); setP (*p, eqId (4, "dyn"), 1); setP (*p, eqId (4, "f"), 7000); setP (*p, eqId (4, "thr"), -40); setP (*p, eqId (5, "g"), 2.5f);
-        setP (*p, "ds_on", 1); setP (*p, "bus_on", 1); setP (*p, "bus_thr", -18); setP (*p, "mb_on", 1); setP (*p, "mb3_up", 0.5f);
-        setP (*p, "im_on", 1); setP (*p, "im_w1", 0.3f); setP (*p, "im_w3", 1.4f); setP (*p, "im_w4", 1.6f); setP (*p, "im_stz", 0.3f);
+        setP (*p, "ds_on", 1); setP (*p, "ds_thr", -10); setP (*p, "bus_on", 1); setP (*p, "bus_thr", -18); setP (*p, "mb_on", 1); setP (*p, "mb3_up", 0.5f); setP (*p, "mb1_thr", -20);
+        setP (*p, "im_on", 1); setP (*p, "im_w1", 0.3f); setP (*p, "im_w3", 1.4f); setP (*p, "im_w4", 1.6f); setP (*p, "im_s3", 0.3f); setP (*p, "im_s4", 0.4f);
         std::vector<float> a, b; run (*p, beat, (int) sr * 12, a, b);
         Editor ed (*p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
@@ -106,6 +107,20 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    {   // plugin appena caricato: non deve toccare nulla (solo latenza)
+        auto p = blank(); juce::Random r3 (9); std::vector<float> in; 
+        std::vector<float> a, b; run (*p, [&] (int, float& l, float& r) { l = r3.nextFloat() - 0.5f; r = r3.nextFloat() - 0.5f; in.push_back (l); }, 48000, a, b);
+        const int lat = p->getLatencySamples(); double e = 0; for (size_t i = (size_t) lat + 100; i < a.size(); ++i) e += std::pow (a[i] - in[i - (size_t) lat], 2.0);
+        std::printf ("default neutro: differenza %.1f dB (deve essere molto bassa)\n", 10 * std::log10 (e / a.size() + 1e-30));
+    }
+    {   // delta del bass control: solo sotto la frequenza
+        auto p = blank(); setP (*p, "bc_on", 1); setP (*p, "bc_punch", 0.8f); setP (*p, "bc_bal", 3); setP (*p, "bc_delta", 1); setP (*p, "bc_freq", 120);
+        std::vector<float> a, b; run (*p, [&] (int i, float& l, float& r) { const double t = i / sr; l = r = (float) (0.3 * std::sin (2 * 3.14159265 * 50 * t) * (std::fmod (t, 0.5) < 0.2 ? 1 : 0.2) + 0.3 * std::sin (2 * 3.14159265 * 2000 * t)); }, 96000, a, b);
+        juce::dsp::FFT f (15); std::vector<float> d (65536, 0); for (int i = 0; i < 32768; ++i) d[(size_t) i] = a[(size_t) (48000 + i)] * (0.5f - 0.5f * std::cos (6.2831853f * i / 32768));
+        f.performFrequencyOnlyForwardTransform (d.data(), true);
+        auto at = [&] (float hz) { const int k = juce::roundToInt (hz * 32768 / sr); float m = 0; for (int j = k - 3; j <= k + 3; ++j) m = juce::jmax (m, d[(size_t) j]); return gToDb (m / 8192.0f); };
+        std::printf ("delta bassi: 50 Hz %.1f dB, 2 kHz %.1f dB (deve sparire)\n", at (50), at (2000));
+    }
     // fase 2: moduli neutri = somma piatta (risposta all'impulso, spettro)
     {
         auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "bc_on", 1); setP (*p, "eq_on", 1); setP (*p, "im_on", 1);
@@ -150,13 +165,13 @@ int main (int argc, char** argv)
     }
     for (int sib = 0; sib < 2; ++sib)
     {   // de-esser: 200 Hz + (8 kHz forte o no)
-        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "ds_on", 1); setP (*p, "ds_freq", 6500); setP (*p, "ds_thr", -12); setP (*p, "ds_range", 8);
+        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "ds_on", 1); setP (*p, "ds_lo", 6000); setP (*p, "ds_thr", -12); setP (*p, "ds_amt", 0.6f);
         const float hf = sib ? 0.25f : 0.02f;
         std::vector<float> a, b; run (*p, [&] (int i, float& l, float& r) { l = r = 0.3f * (float) std::sin (2 * 3.14159265 * 200 * i / sr) + hf * (float) std::sin (2 * 3.14159265 * 8000 * i / sr); }, 48000, a, b);
         std::printf ("de-esser, sibilante %s: riduzione %.1f dB (relativo %.1f)\n", sib ? "forte" : "debole", p->dsGr.load(), p->dsRel.load());
     }
     {   // bus comp: -6 dBFS, soglia -20, 4:1
-        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "bus_on", 1); setP (*p, "bus_thr", -20); setP (*p, "bus_ratio", 2); setP (*p, "bus_auto", 0);
+        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "bus_on", 1); setP (*p, "bus_thr", -20); setP (*p, "bus_ratio", 2); setP (*p, "bus_auto", 0); setP (*p, "bus_range", 20);
         std::vector<float> a, b; run (*p, [&] (int i, float& l, float& r) { l = r = 0.5f * (float) std::sin (2 * 3.14159265 * 100 * i / sr); }, 48000, a, b);
         float pk = 0; for (size_t i = 30000; i < a.size(); ++i) pk = juce::jmax (pk, std::abs (a[i]));
         std::printf ("bus comp 4:1 soglia -20 su -6 dBFS: riduzione %.1f dB (attesa ~10.5), uscita %.1f dBFS\n", p->busGr.load(), gToDb (pk));

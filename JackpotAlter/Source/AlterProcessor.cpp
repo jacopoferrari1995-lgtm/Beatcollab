@@ -135,11 +135,12 @@ void DriveStage::process (float* L, float* R, int n, const Settings& S)
         const float g = juce::Decibels::decibelsToGain (S.drive * modelInfo (S.model).maxDb);
         juce::dsp::AudioBlock<float> blk (band.getArrayOfWritePointers(), 2, (size_t) m);
         auto up = os->processSamplesUp (blk);
-        for (int c = 0; c < 2; ++c)
-        {
-            float* u = up.getChannelPointer ((size_t) c); auto& dc = ch[c];
-            for (size_t i = 0; i < up.getNumSamples(); ++i) u[i] = dc.process (u[i], g, S.drive);
-        }
+        if (S.drive > 0.0005f)      // drive a zero: nessun modello, passa pulito
+            for (int c = 0; c < 2; ++c)
+            {
+                float* u = up.getChannelPointer ((size_t) c); auto& dc = ch[c];
+                for (size_t i = 0; i < up.getNumSamples(); ++i) u[i] = dc.process (u[i], g, S.drive);
+            }
         os->processSamplesDown (blk);
 
         // tono (inclinazione attorno a 800 Hz)
@@ -191,7 +192,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "driftRate", 1 }, "Drift Rate", NormalisableRange<float> (0.05f, 12.0f, 0, 0.35f), 0.8f, AudioParameterFloatAttributes().withLabel ("Hz")));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "driftType", 1 }, "Drift Type", StringArray { "WOW", "VIBRATO", "CAOS" }, 0));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "model", 1 }, "Model", models, 0));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "drive", 1 }, "Drive", NormalisableRange<float> (0, 1), 0.25f));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "drive", 1 }, "Drive", NormalisableRange<float> (0, 1), 0));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "tone", 1 }, "Tone", NormalisableRange<float> (-1, 1), 0));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "focus", 1 }, "Focus", false));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "fLo", 1 }, "Focus Low", NormalisableRange<float> (20, 8000, 0, 0.3f), 150, AudioParameterFloatAttributes().withLabel ("Hz")));

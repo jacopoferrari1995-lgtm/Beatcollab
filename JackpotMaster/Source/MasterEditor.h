@@ -71,8 +71,11 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override { hov = -1; repaint(); }
     juce::Rectangle<float> tile (int m) const { const float w = (getWidth() - 8.0f * (kNumMods - 1)) / kNumMods; return { m * (w + 8), 0, w, (float) getHeight() }; }
-    juce::Rectangle<float> powR (int m) const { auto t = tile (m); return { t.getX() + 8, t.getY() + 9, 14, 14 }; }
-    Editor& ed; int hov = -1;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void paintTile (juce::Graphics&, int m, juce::Rectangle<float>, bool ghost);
+    int insertAt (float x) const;
+    Editor& ed; int hov = -1, dragMod = -1; bool dragging = false; float dragX = 0;
 };
 
 // storia: ingresso, uscita e riduzione di guadagno
@@ -102,7 +105,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     Editor& ed;
-    std::unique_ptr<Knob> ceil, rel; std::unique_ptr<Switch> on, delta, autoR, tp;
+    std::unique_ptr<Knob> gain, ceil, rel; std::unique_ptr<Switch> on, delta, autoR, tp;
     History hist;
 };
 
@@ -176,6 +179,7 @@ public:
     float fOf (float x) const { return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, x / (float) getWidth())); }
     float xb (int k) const;
     Editor& ed; int drag = -1;   // 0..2 tagli, 10..13 larghezze
+    float sp[200] {}; Analyzer an;
 };
 class Gonio : public juce::Component
 {
@@ -190,7 +194,7 @@ public:
     ImagerPage (Editor&);
     void paint (juce::Graphics& g) override;
     void resized() override;
-    ImView view; Gonio gonio; std::unique_ptr<Switch> mono;
+    ImView view; Gonio gonio; std::unique_ptr<Switch> mono, solo[kImBands]; std::unique_ptr<Segs> smode;
 };
 
 // pulsante d'azione

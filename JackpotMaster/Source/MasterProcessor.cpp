@@ -3,6 +3,19 @@
 
 namespace jms
 {
+const char* onParam (int m)
+{
+    static const char* p[kNumMods] = { "bc_on", "eq_on", "ds_on", "bus_on", "mb_on", "tp_on", "im_on", "mx_on", "lm_on" };
+    return p[juce::jlimit (0, kNumMods - 1, m)];
+}
+const char* deltaParam (int m)
+{
+    static const char* p[kNumMods] = { "bc_delta", "eq_delta", "ds_delta", "bus_delta", "mb_delta", "tp_delta", "im_delta", "mx_delta", "lm_delta" };
+    return p[juce::jlimit (0, kNumMods - 1, m)];
+}
+void Processor::setOrder (const std::array<int, kNumMods>& o) { for (int k = 0; k < kNumMods; ++k) order[k] = o[(size_t) k]; }
+std::array<int, kNumMods> Processor::getOrder() const { std::array<int, kNumMods> o {}; for (int k = 0; k < kNumMods; ++k) o[(size_t) k] = order[k].load(); return o; }
+
 juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
 {
     using namespace juce;
@@ -15,11 +28,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "bc_delta", 1 }, "Bass Delta", false));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_freq", 1 }, "Bass Freq", NormalisableRange<float> (40, 300, 0, 0.6f), 120, AudioParameterFloatAttributes().withLabel ("Hz")));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_mono", 1 }, "Bass Mono Below", NormalisableRange<float> (0, 300, 0, 0.7f), 0, AudioParameterFloatAttributes().withLabel ("Hz")));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_punch", 1 }, "Bass Punch", NormalisableRange<float> (-1, 1), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_punch", 1 }, "Bass Punch-Warm", NormalisableRange<float> (-1, 1), 0));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_tail", 1 }, "Bass Tail", NormalisableRange<float> (-1, 1), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_thr", 1 }, "Bass Peak Threshold", NormalisableRange<float> (-30, 0, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_dirty", 1 }, "Bass Clean-Dirty", NormalisableRange<float> (0, 1), 0));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_harm", 1 }, "Bass Harmonics", NormalisableRange<float> (0, 1), 0));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_level", 1 }, "Bass Level", NormalisableRange<float> (-6, 6, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_ctrl", 1 }, "Bass Stabilize", NormalisableRange<float> (0, 1), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bc_bal", 1 }, "Bass Balance", NormalisableRange<float> (-6, 6, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
     // eq dinamico
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "eq_on", 1 }, "EQ On", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "eq_delta", 1 }, "EQ Delta", false));
@@ -43,14 +57,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     // de-esser
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "ds_on", 1 }, "DeEss On", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "ds_delta", 1 }, "DeEss Delta", false));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_freq", 1 }, "DeEss Freq", NormalisableRange<float> (2000, 14000, 0, 0.5f), 6500, AudioParameterFloatAttributes().withLabel ("Hz")));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_thr", 1 }, "DeEss Threshold", NormalisableRange<float> (-30, 0, 0.1f), -12, AudioParameterFloatAttributes().withLabel ("dB")));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_range", 1 }, "DeEss Range", NormalisableRange<float> (0, 12, 0.1f), 6, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_lo", 1 }, "DeEss From", NormalisableRange<float> (1500, 14000, 0, 0.5f), 5000, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_hi", 1 }, "DeEss To", NormalisableRange<float> (3000, 20000, 0, 0.5f), 20000, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_thr", 1 }, "DeEss Threshold", NormalisableRange<float> (-30, 6, 0.1f), 6, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_amt", 1 }, "DeEss Amount", NormalisableRange<float> (0, 1), 0.4f));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_soft", 1 }, "DeEss Softness", NormalisableRange<float> (0, 1), 0.6f));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "ds_ch", 1 }, "DeEss Channel", StringArray { "STEREO", "MID", "SIDE" }, 0));
     // bus comp
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "bus_on", 1 }, "Bus On", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "bus_delta", 1 }, "Bus Delta", false));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bus_thr", 1 }, "Bus Threshold", NormalisableRange<float> (-30, 0, 0.1f), -10, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bus_thr", 1 }, "Bus Threshold", NormalisableRange<float> (-30, 0, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bus_range", 1 }, "Bus Range", NormalisableRange<float> (1, 20, 0.1f), 10, AudioParameterFloatAttributes().withLabel ("dB")));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "bus_ratio", 1 }, "Bus Ratio", StringArray { "1.5", "2", "4", "10" }, 1));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "bus_att", 1 }, "Bus Attack", StringArray { "0.1", "0.3", "1", "3", "10", "30" }, 4));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "bus_rel", 1 }, "Bus Release", StringArray { "0.1", "0.3", "0.6", "1.2", "AUTO" }, 4));
@@ -68,7 +85,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     for (int b = 0; b < kMbBands; ++b)
     {
         const String id = "mb" + String (b + 1) + "_", P = "Multiband " + String (b + 1) + " ";
-        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "thr", 1 }, P + "Threshold", NormalisableRange<float> (-48, 0, 0.1f), -18, AudioParameterFloatAttributes().withLabel ("dB")));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "thr", 1 }, P + "Threshold", NormalisableRange<float> (-48, 0, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "ratio", 1 }, P + "Ratio", NormalisableRange<float> (1, 20, 0, 0.4f), 3));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "up", 1 }, P + "Upward", NormalisableRange<float> (0, 1), 0));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "gain", 1 }, P + "Gain", NormalisableRange<float> (-12, 12, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
@@ -81,20 +98,28 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "im_x2", 1 }, "Imager X2", NormalisableRange<float> (300, 4000, 0, 0.5f), 900, AudioParameterFloatAttributes().withLabel ("Hz")));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "im_x3", 1 }, "Imager X3", NormalisableRange<float> (2000, 16000, 0, 0.5f), 5000, AudioParameterFloatAttributes().withLabel ("Hz")));
     for (int b = 0; b < kImBands; ++b)
+    {
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { "im_w" + String (b + 1), 1 }, "Imager Width " + String (b + 1), NormalisableRange<float> (0, 2), 1));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "im_stz", 1 }, "Stereoize", NormalisableRange<float> (0, 1), 0));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { "im_s" + String (b + 1), 1 }, "Stereoize " + String (b + 1), NormalisableRange<float> (0, 1), 0));
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { "im_solo" + String (b + 1), 1 }, "Imager Solo " + String (b + 1), false));
+    }
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "im_smode", 1 }, "Stereoize Mode", StringArray { "MODO I", "MODO II" }, 0));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "im_mono", 1 }, "Mono Check", false));
+    // tape (in arrivo: per ora passa pulito)
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "tp_on", 1 }, "Tape On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "tp_delta", 1 }, "Tape Delta", false));
     // maximizer
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "mx_on", 1 }, "Maximizer On", true));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "mx_on", 1 }, "Maximizer On", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "mx_delta", 1 }, "Maximizer Delta", false));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mx_gain", 1 }, "Maximizer Gain", NormalisableRange<float> (0, 20, 0.01f), 4, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mx_gain", 1 }, "Maximizer Gain", NormalisableRange<float> (0, 20, 0.01f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "mx_style", 1 }, "Maximizer Style", st, 0));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mx_clip", 1 }, "Maximizer Clip", NormalisableRange<float> (0, 1), 0.2f));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mx_clip", 1 }, "Maximizer Clip", NormalisableRange<float> (0, 1), 0));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mx_char", 1 }, "Maximizer Character", NormalisableRange<float> (0, 1), 0.5f));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mx_link", 1 }, "Maximizer Stereo Link", NormalisableRange<float> (0, 1), 1));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "mx_learn", 1 }, "Maximizer Auto Target", false));
     // limiter
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "lm_on", 1 }, "Limiter On", true));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "lm_on", 1 }, "Limiter On", false));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "lm_gain", 1 }, "Limiter Gain", NormalisableRange<float> (0, 12, 0.01f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "lm_delta", 1 }, "Limiter Delta", false));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "lm_ceil", 1 }, "Ceiling", NormalisableRange<float> (-6, 0, 0.1f), -1, AudioParameterFloatAttributes().withLabel ("dBTP")));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "lm_rel", 1 }, "Limiter Release", NormalisableRange<float> (5, 1000, 0, 0.4f), 80, AudioParameterFloatAttributes().withLabel ("ms")));
@@ -112,6 +137,7 @@ Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "JMS", layout())
 {
+    for (int k = 0; k < kNumMods; ++k) order[k] = k;
     for (int i = 0; i < kHist; ++i) { hIn[i] = -60; hOut[i] = -60; hGrM[i] = 0; hGrL[i] = 0; hS[i] = -60; }
     startTimerHz (5);
 }
@@ -127,7 +153,7 @@ void Processor::prepareToPlay (double s, int maxBlock)
     const int mb = juce::jmax (64, maxBlock);
     mx.prepare (s, mb); lim.prepare (s);
     bass.prepare (s); deq.prepare (s); img.prepare (s); dess.prepare (s); bus.prepare (s); mband.prepare (s);
-    for (auto& d : preDelta) d.prepare (mx.latency() + lim.latency());
+    for (auto& d : deltaVar) { d.b.assign ((size_t) (mx.latency() + lim.latency() + 1), 0.0f); d.w = 0; }
     for (auto& d : mxBy) d.prepare (mx.latency());
     for (auto& d : limBy) d.prepare (lim.latency());
     for (auto& d : mxIn) d.prepare (mx.latency());
@@ -161,105 +187,117 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     for (int i = 0; i < n; ++i) { kL[i] = dry[0] (L[i]); kR[i] = dry[1] (R[i]); }
 
     ringIn.push (L, R, n);
-    // ---- moduli a latenza zero: BASS CONTROL, EQ DINAMICO, IMAGER
+    // ---- catena nell'ordine scelto (i moduli si trascinano nella fila in alto)
     float* tL = tmp.getWritePointer (0); float* tR = tmp.getWritePointer (1);
-    int deltaFrom = -1;
-    auto runMod = [&] (int id, const char* on, const char* delta, auto&& fn)
+    int deltaFrom = -1, latSoFar = 0;
+    auto copyIn = [&] { for (int i = 0; i < n; ++i) { tL[i] = L[i]; tR[i] = R[i]; } };
+    auto subIn = [&] { for (int i = 0; i < n; ++i) { L[i] -= tL[i]; R[i] -= tR[i]; } };
+    mx.gr = 0; lim.gr = 0;
+    for (int k = 0; k < kNumMods; ++k)
     {
-        if (deltaFrom >= 0 || value (on) < 0.5f) return;
-        const bool d = value (delta) > 0.5f;
-        if (d) for (int i = 0; i < n; ++i) { tL[i] = L[i]; tR[i] = R[i]; }
-        fn();
-        if (d) { for (int i = 0; i < n; ++i) { L[i] -= tL[i]; R[i] -= tR[i]; } deltaFrom = id; }
-    };
-    runMod (BASS, "bc_on", "bc_delta", [&]
-    {
-        BassSettings b; b.freq = value ("bc_freq"); b.monoBelow = value ("bc_mono"); b.punch = value ("bc_punch"); b.tail = value ("bc_tail");
-        b.harm = value ("bc_harm"); b.levelDb = value ("bc_level"); b.control = value ("bc_ctrl");
-        bass.process (L, R, n, b);
-    });
-    if (value ("bc_on") < 0.5f) bass.gainDb = 0;
-    runMod (DYNEQ, "eq_on", "eq_delta", [&]
-    {
-        EqBand B[kEqBands];
-        for (int b = 0; b < kEqBands; ++b)
+        const int id = order[k].load();
+        const bool on = value (onParam (id)) > 0.5f, d = on && deltaFrom < 0 && value (deltaParam (id)) > 0.5f;
+        if (deltaFrom >= 0) { if (id == MAXIM) latSoFar += 0; continue; }
+        switch (id)
         {
-            B[b].on = value (eqId (b, "on")) > 0.5f; B[b].type = (int) value (eqId (b, "type")); B[b].ch = (int) value (eqId (b, "ch"));
-            B[b].f = value (eqId (b, "f")); B[b].g = value (eqId (b, "g")); B[b].q = value (eqId (b, "q"));
-            B[b].dyn = value (eqId (b, "dyn")) > 0.5f; B[b].thr = value (eqId (b, "thr")); B[b].rng = value (eqId (b, "rng"));
+            case BASS:
+                if (! on) { bass.gainDb = 0; break; }
+                { BassSettings b; b.freq = value ("bc_freq"); b.monoBelow = value ("bc_mono"); b.punch = value ("bc_punch"); b.tail = value ("bc_tail");
+                  b.harm = value ("bc_harm"); b.balance = value ("bc_bal"); b.thr = value ("bc_thr"); b.dirty = value ("bc_dirty"); b.delta = d;
+                  bass.process (L, R, n, b); }
+                break;
+            case DYNEQ:
+                if (! on) break;
+                {
+                    EqBand B[kEqBands];
+                    for (int b = 0; b < kEqBands; ++b)
+                    {
+                        B[b].on = value (eqId (b, "on")) > 0.5f; B[b].type = (int) value (eqId (b, "type")); B[b].ch = (int) value (eqId (b, "ch"));
+                        B[b].f = value (eqId (b, "f")); B[b].g = value (eqId (b, "g")); B[b].q = value (eqId (b, "q"));
+                        B[b].dyn = value (eqId (b, "dyn")) > 0.5f; B[b].thr = value (eqId (b, "thr")); B[b].rng = value (eqId (b, "rng"));
+                    }
+                    if (d) copyIn();
+                    deq.process (L, R, n, B);
+                    if (d) subIn();
+                }
+                break;
+            case DEESS:
+                if (! on) break;
+                { DeEssSettings e; e.lo = value ("ds_lo"); e.hi = juce::jmax (value ("ds_hi"), e.lo * 1.3f); e.thr = value ("ds_thr"); e.amount = value ("ds_amt");
+                  e.soft = value ("ds_soft"); e.ch = (int) value ("ds_ch"); e.delta = d; dess.process (L, R, n, e); }
+                break;
+            case BUSCOMP:
+                if (! on) break;
+                { BusSettings b; b.thr = value ("bus_thr"); b.ratio = (int) value ("bus_ratio"); b.att = (int) value ("bus_att"); b.rel = (int) value ("bus_rel");
+                  b.makeup = value ("bus_makeup"); b.autoMakeup = value ("bus_auto") > 0.5f; b.mix = value ("bus_mix"); b.scHpf = value ("bus_hpf"); b.range = value ("bus_range");
+                  if (d) copyIn(); bus.process (L, R, n, b); if (d) subIn(); }
+                break;
+            case MULTI:
+                if (! on) break;
+                {
+                    MbSettings m; m.x1 = value ("mb_x1"); m.x2 = juce::jmax (value ("mb_x2"), m.x1 * 2); m.speed = value ("mb_speed"); m.mix = value ("mb_mix"); m.delta = d;
+                    for (int b = 0; b < kMbBands; ++b)
+                    {
+                        const juce::String mid = "mb" + juce::String (b + 1) + "_";
+                        m.b[b].thr = value ((mid + "thr").toRawUTF8()); m.b[b].ratio = value ((mid + "ratio").toRawUTF8()); m.b[b].up = value ((mid + "up").toRawUTF8());
+                        m.b[b].gain = value ((mid + "gain").toRawUTF8()); m.b[b].solo = value ((mid + "solo").toRawUTF8()) > 0.5f;
+                    }
+                    mband.process (L, R, n, m);
+                }
+                break;
+            case IMAGER:
+                if (! on) break;
+                {
+                    ImagerSettings S; S.x[0] = value ("im_x1"); S.x[1] = juce::jmax (value ("im_x2"), S.x[0] * 1.5f); S.x[2] = juce::jmax (value ("im_x3"), S.x[1] * 1.5f);
+                    for (int b = 0; b < kImBands; ++b)
+                    {
+                        S.w[b] = value (("im_w" + juce::String (b + 1)).toRawUTF8()); S.stz[b] = value (("im_s" + juce::String (b + 1)).toRawUTF8());
+                        S.solo[b] = value (("im_solo" + juce::String (b + 1)).toRawUTF8()) > 0.5f;
+                    }
+                    S.mode = (int) value ("im_smode"); S.delta = d;
+                    img.process (L, R, n, S);
+                }
+                break;
+            case MAXIM:
+            {
+                MaxSettings ms; ms.gainDb = value ("mx_gain"); ms.style = (int) value ("mx_style"); ms.clip = value ("mx_clip"); ms.character = value ("mx_char");
+                ms.link = value ("mx_link"); ms.ceilDb = value ("lm_ceil");
+                copyIn();
+                if (on) mx.process (L, R, n, ms);
+                else for (int i = 0; i < n; ++i) { L[i] = mxBy[0] (L[i]); R[i] = mxBy[1] (R[i]); }
+                if (d) { const float g = dbToG (ms.gainDb); for (int i = 0; i < n; ++i) { L[i] -= mxIn[0] (tL[i]) * g; R[i] -= mxIn[1] (tR[i]) * g; } }
+                else for (int i = 0; i < n; ++i) { mxIn[0] (tL[i]); mxIn[1] (tR[i]); }
+                latSoFar += mx.latency();
+                break;
+            }
+            case LIMIT:
+            {
+                LimSettings ls; ls.ceilDb = value ("lm_ceil"); ls.relMs = value ("lm_rel"); ls.autoRel = value ("lm_auto") > 0.5f; ls.truePeak = value ("lm_tp") > 0.5f;
+                if (on) { const float g = dbToG (value ("lm_gain")); if (g != 1.0f) for (int i = 0; i < n; ++i) { L[i] *= g; R[i] *= g; } }
+                copyIn();
+                if (on) lim.process (L, R, n, ls);
+                else for (int i = 0; i < n; ++i) { L[i] = limBy[0] (L[i]); R[i] = limBy[1] (R[i]); }
+                if (d) for (int i = 0; i < n; ++i) { L[i] -= deltaPad[0] (tL[i]); R[i] -= deltaPad[1] (tR[i]); }
+                else for (int i = 0; i < n; ++i) { deltaPad[0] (tL[i]); deltaPad[1] (tR[i]); }
+                latSoFar += lim.latency();
+                break;
+            }
+            default: break;
         }
-        deq.process (L, R, n, B);
-    });
-    runMod (DEESS, "ds_on", "ds_delta", [&]
+        if (d) deltaFrom = id;
+    }
+    // delta: il resto della catena e saltato, si ritarda quanto mancava per restare allineati
+    const int remain = mx.latency() + lim.latency() - latSoFar;
+    for (int c = 0; c < 2; ++c)
     {
-        DeEssSettings d; d.freq = value ("ds_freq"); d.thr = value ("ds_thr"); d.range = value ("ds_range"); d.ch = (int) value ("ds_ch");
-        dess.process (L, R, n, d);
-    });
-    runMod (BUSCOMP, "bus_on", "bus_delta", [&]
-    {
-        BusSettings b; b.thr = value ("bus_thr"); b.ratio = (int) value ("bus_ratio"); b.att = (int) value ("bus_att"); b.rel = (int) value ("bus_rel");
-        b.makeup = value ("bus_makeup"); b.autoMakeup = value ("bus_auto") > 0.5f; b.mix = value ("bus_mix"); b.scHpf = value ("bus_hpf");
-        bus.process (L, R, n, b);
-    });
-    runMod (MULTI, "mb_on", "mb_delta", [&]
-    {
-        MbSettings m; m.x1 = value ("mb_x1"); m.x2 = juce::jmax (value ("mb_x2"), m.x1 * 2); m.speed = value ("mb_speed"); m.mix = value ("mb_mix");
-        for (int b = 0; b < kMbBands; ++b)
-        {
-            const juce::String id = "mb" + juce::String (b + 1) + "_";
-            m.b[b].thr = value ((id + "thr").toRawUTF8()); m.b[b].ratio = value ((id + "ratio").toRawUTF8()); m.b[b].up = value ((id + "up").toRawUTF8());
-            m.b[b].gain = value ((id + "gain").toRawUTF8()); m.b[b].solo = value ((id + "solo").toRawUTF8()) > 0.5f;
-        }
-        mband.process (L, R, n, m);
-    });
-    runMod (IMAGER, "im_on", "im_delta", [&]
-    {
-        ImagerSettings S; S.x[0] = value ("im_x1"); S.x[1] = juce::jmax (value ("im_x2"), S.x[0] * 1.5f); S.x[2] = juce::jmax (value ("im_x3"), S.x[1] * 1.5f);
-        for (int b = 0; b < kImBands; ++b) S.w[b] = value (("im_w" + juce::String (b + 1)).toRawUTF8());
-        S.stereoize = value ("im_stz");
-        img.process (L, R, n, S);
-    });
-    bassGain = bass.gainDb; bassLow = bass.lowRms;
+        float* x = c ? R : L; auto& vd = deltaVar[c];
+        for (int i = 0; i < n; ++i) { vd.b[(size_t) vd.w] = x[i]; if (deltaFrom >= 0) x[i] = vd.b[(size_t) ((vd.w - remain + (int) vd.b.size()) % (int) vd.b.size())]; vd.w = (vd.w + 1) % (int) vd.b.size(); }
+    }
+    bassGain = bass.gainDb; bassLow = bass.lowShare; bassPeak = value ("bc_on") > 0.5f ? bass.peakGr : 0.0f;
     dsGr = value ("ds_on") > 0.5f ? dess.gr : 0.0f; dsRel = dess.relNow; busGr = value ("bus_on") > 0.5f ? bus.gr : 0.0f;
     for (int b = 0; b < kMbBands; ++b) { mbLevel[b] = mband.level[b]; mbDown[b] = value ("mb_on") > 0.5f ? mband.down[b] : 0.0f; mbUp[b] = value ("mb_on") > 0.5f ? mband.up[b] : 0.0f; }
     for (int b = 0; b < kEqBands; ++b) { eqDyn[b] = value ("eq_on") > 0.5f ? deq.dynNow[b] : 0.0f; eqLvl[b] = deq.levelDb[b]; }
     for (int b = 0; b < kImBands; ++b) imCorr[b] = img.corr (b);
-
-    if (deltaFrom >= 0)
-    {   // delta di un modulo: si sente solo cosa cambia, ritardato quanto il resto della catena
-        for (int i = 0; i < n; ++i) { L[i] = preDelta[0] (L[i]); R[i] = preDelta[1] (R[i]); }
-        mx.gr = 0; lim.gr = 0;
-    }
-    else
-    {
-    // ---- MAXIMIZER
-    MaxSettings ms; ms.gainDb = value ("mx_gain"); ms.style = (int) value ("mx_style"); ms.clip = value ("mx_clip"); ms.character = value ("mx_char");
-    ms.link = value ("mx_link"); ms.ceilDb = value ("lm_ceil");
-    const bool mxOn = value ("mx_on") > 0.5f, mxDelta = mxOn && value ("mx_delta") > 0.5f;
-    for (int i = 0; i < n; ++i) { tL[i] = L[i]; tR[i] = R[i]; }
-    if (mxOn) mx.process (L, R, n, ms);
-    else { for (int i = 0; i < n; ++i) { L[i] = mxBy[0] (L[i]); R[i] = mxBy[1] (R[i]); } mx.gr = 0; }
-    if (mxDelta)
-    {   // ascolti solo cosa toglie il maximizer (a parita di spinta)
-        const float g = dbToG (ms.gainDb);
-        for (int i = 0; i < n; ++i) { L[i] = L[i] - mxIn[0] (tL[i]) * g; R[i] = R[i] - mxIn[1] (tR[i]) * g; }
-    }
-    else for (int i = 0; i < n; ++i) { mxIn[0] (tL[i]); mxIn[1] (tR[i]); }
-
-    // ---- LIMITER
-    LimSettings ls; ls.ceilDb = ms.ceilDb; ls.relMs = value ("lm_rel"); ls.autoRel = value ("lm_auto") > 0.5f; ls.truePeak = value ("lm_tp") > 0.5f;
-    const bool lmOn = value ("lm_on") > 0.5f, lmDelta = lmOn && value ("lm_delta") > 0.5f;
-    if (mxDelta) { for (int i = 0; i < n; ++i) { L[i] = deltaPad[0] (L[i]); R[i] = deltaPad[1] (R[i]); } lim.gr = 0; }
-    else
-    {
-        for (int i = 0; i < n; ++i) { tL[i] = L[i]; tR[i] = R[i]; }
-        if (lmOn) lim.process (L, R, n, ls);
-        else { for (int i = 0; i < n; ++i) { L[i] = limBy[0] (L[i]); R[i] = limBy[1] (R[i]); } lim.gr = 0; }
-        if (lmDelta) for (int i = 0; i < n; ++i) { L[i] = L[i] - deltaPad[0] (tL[i]); R[i] = R[i] - deltaPad[1] (tR[i]); }
-        else for (int i = 0; i < n; ++i) { deltaPad[0] (tL[i]); deltaPad[1] (tR[i]); }
-    }
-    for (int i = 0; i < n; ++i) { preDelta[0] (0.0f); preDelta[1] (0.0f); }
-    }
 
     // ---- misure d'uscita (prima di confronto e ascolto normalizzato)
     float po[2] = { 0, 0 }; float tpb = 0;
@@ -362,11 +400,15 @@ void Processor::loadPreset (int i)
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
     auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr);
+    juce::StringArray o; for (int k = 0; k < kNumMods; ++k) o.add (juce::String (order[k].load())); s.setProperty ("order", o.joinIntoString (","), nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
-    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); apvts.replaceState (t); } }
+    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0);
+        const auto o = juce::StringArray::fromTokens (t.getProperty ("order", "").toString(), ",", "");
+        if (o.size() == kNumMods) { std::array<int, kNumMods> a {}; bool ok = true; for (int k = 0; k < kNumMods; ++k) { a[(size_t) k] = o[k].getIntValue(); ok &= a[(size_t) k] >= 0 && a[(size_t) k] < kNumMods; } if (ok) setOrder (a); }
+        apvts.replaceState (t); } }
 }
 
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
