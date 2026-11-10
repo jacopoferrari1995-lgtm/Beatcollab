@@ -199,10 +199,11 @@ void randomKit (Processor& P, int mode)
         for (int q = 3; q < 8; ++q) roles[(size_t) q] = { pick ({ "FX", "TEXTURE", "VOCI", "PERC", "TOM", "CYMBAL", "808", "MELODICI", "CLAP / SNAP" }), "PERC" };
     }
     if (! invent)
-    {   // 808 + tre campioni (melodie, loop, voci, texture) + quattro one shot
+    {   // pad 9 sempre 808/basso, poi almeno altri 3 campioni (melodie, loop, voci, texture, fx); one shot da 0 a 4, mai fissi
+        const int oneShots = r.nextInt (5), samples = 8 - oneShots;
         roles[8] = { "808", "KICK" };
-        for (int q = 9; q < 12; ++q) roles[(size_t) q] = { pick ({ "MELODICI", "LOOP", "VOCI", "TEXTURE", "MELODICI", "LOOP" }), "MELODICI", "TEXTURE" };
-        for (int q = 12; q < 16; ++q) roles[(size_t) q] = { pick ({ "FX", "PERC", "TOM", "CLAP / SNAP", "VOCI", "CYMBAL", "KICK", "SNARE", "HAT" }), "PERC", "FX" };
+        for (int q = 9; q < 8 + samples; ++q) roles[(size_t) q] = { pick ({ "MELODICI", "LOOP", "VOCI", "TEXTURE", "FX", "MELODICI", "LOOP" }), "MELODICI", "TEXTURE" };
+        for (int q = 8 + samples; q < 16; ++q) roles[(size_t) q] = { pick ({ "PERC", "TOM", "CLAP / SNAP", "CYMBAL", "KICK", "SNARE", "HAT", "OPEN HAT" }), "PERC", "FX" };
     }
     else
         for (int q = 8; q < 16; ++q) roles[(size_t) q] = { pick ({ "FX", "TEXTURE", "VOCI", "MELODICI", "LOOP", "PERC", "CYMBAL", "TOM", "808", "KICK", "SNARE", "CLAP / SNAP" }), "PERC", "FX" };

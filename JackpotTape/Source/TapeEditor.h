@@ -31,6 +31,7 @@ public:
     void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
     bool hover = false, drag = false;
     std::function<void (float)> onUserChange;
+    std::function<void()> onStart;   // inizio di un gesto: per annulla
     juce::RangedAudioParameter* param; juce::String lab; juce::Colour col; std::function<juce::String (float)> fmtFn;
 private:
     float startV = 0; void setNorm (float v);
@@ -102,7 +103,8 @@ public:
     void resized() override;
     void rebuild();
     juce::Rectangle<int> curveArea() const;
-    Editor& ed; juce::OwnedArray<Knob> knobs;
+    float paramSig() const;
+    Editor& ed; juce::OwnedArray<Knob> knobs; std::unique_ptr<Toggle> onTog; float lastSig = 0;
 };
 
 class Timeline : public juce::Component
@@ -112,14 +114,21 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override { paintLane = -1; }
+    void mouseUp (const juce::MouseEvent&) override { mode = NONE; }
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override { hLane = hStep = -1; repaint(); }
     void mouseDoubleClick (const juce::MouseEvent&) override;
     bool cellAt (juce::Point<float>, int& lane, int& step) const;
+    int rawStep (float x) const;
+    bool blockAt (int lane, int step, int& s, int& e) const;
+    void setRange (int lane, int a, int b, bool v);
+    void deleteSelected();
     juce::Rectangle<float> grid() const;
     int span() const;
-    Editor& ed; bool paintVal = true; int paintLane = -1, hLane = -1, hStep = -1;
+    enum Mode { NONE, CREATE, ERASE, MOVE, RESL, RESR };
+    Editor& ed; Mode mode = NONE; int dLane = -1, anchor = 0, dOff = 0, bS = 0, bE = 0, hLane = -1, hStep = -1;
+    int selLane = -1, selS = 0, selE = 0;
+    bool before[kMaxSteps] = {};
 };
 
 class Meter : public juce::Component
@@ -168,7 +177,15 @@ public:
     juce::OwnedArray<Knob> tapeKnobs;
     std::unique_ptr<Seg> modeSeg, qSeg, barsSeg, resSeg, genSeg;
     std::unique_ptr<Toggle> seqTog;
-    std::unique_ptr<TextBtn> pPrev, pNext, pName, bpmPill, clearBtn, styleBtn, genBtn, abBtn;
+    std::unique_ptr<TextBtn> pPrev, pNext, pName, bpmPill, clearBtn, styleBtn, genBtn, abBtn, undoBtn, redoBtn;
+    // annulla / rifai: stato dei parametri + coreografia
+    struct Snap { juce::ValueTree st; juce::String seq; };
+    std::vector<Snap> undoS, redoS;
+    Snap snap() const { return { proc.apvts.copyState(), proc.seqString() }; }
+    void pushUndo();
+    void restore (const Snap&);
+    void undo(); void redo();
+    void refreshAll();
 
 private:
     void timerCallback() override;

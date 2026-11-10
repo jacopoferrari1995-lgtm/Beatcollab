@@ -25,7 +25,7 @@ public:
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent&) override { if (drag) param->endChangeGesture(); drag = false; repaint(); }
     void mouseDrag (const juce::MouseEvent& e) override;
-    void mouseDoubleClick (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getDefaultValue()); }
+    void mouseDoubleClick (const juce::MouseEvent&) override { if (enabled) param->setValueNotifyingHost (param->getDefaultValue()); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override;
     void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::UpDownResizeCursor); repaint(); }
     void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
@@ -54,20 +54,23 @@ public:
     juce::RangedAudioParameter* param; juce::Colour col; juce::String label;
 };
 
-// scelta dell'effetto
+// griglia degli effetti: clic = modifica, LED = acceso/spento
 class FxGrid : public juce::Component
 {
 public:
     FxGrid (Editor& e) : ed (e) {}
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override { hov = -1; repaint(); }
-    juce::Rectangle<float> cell (int m) const { const float gap = 6, w = (getWidth() - gap * (kNumFx - 1)) / kNumFx; return { m * (w + gap), 0, w, (float) getHeight() }; }
+    static constexpr int cols = 7;
+    juce::Rectangle<float> cell (int m) const { const float gap = 6, w = (getWidth() - gap * (cols - 1)) / cols, h = (getHeight() - gap) / 2; return { (m % cols) * (w + gap), (m / cols) * (h + gap), w, h }; }
+    juce::Rectangle<float> led (int m) const { auto c = cell (m); return { c.getX() + 6, c.getY() + 6, 26, c.getHeight() - 12 }; }
     Editor& ed; int hov = -1;
 };
 
-// display animato dell'effetto
+// display animato dell'effetto selezionato
 class FxView : public juce::Component
 {
 public:
@@ -95,20 +98,26 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void tickForTest() { for (int i = 0; i < 12; ++i) timerCallback(); }
-    static constexpr int W = 1200, H = 780;
+    static constexpr int W = 1200, H = 830;
     jlook::LnF lnf;
     Processor& proc;
     jlook::Scaler scaler { *this, "motion", W, H };
     jlook::SizeChip sizeChip { scaler };
     juce::RangedAudioParameter* P (const juce::String& id) { return proc.apvts.getParameter (id); }
+    juce::RangedAudioParameter* FP (const char* p) { return proc.apvts.getParameter (pid (sel, p)); }
+    float fv (const char* p) const { return proc.apvts.getRawParameterValue (pid (sel, p))->load(); }
+    void select (int f);
+    void layoutControls();
+    int sel = CHORUS;
     FxGrid grid { *this };
     FxView view { *this };
     PanView panView { *this };
 private:
     void timerCallback() override;
-    std::unique_ptr<Knob> kRate, kDiv, kDepth, kChar, kFb, kStereo, kMix, kTone, kWidth, kBass, kOut, kPanRate, kPanDiv, kPanDepth;
-    std::unique_ptr<Segs> sShape, sPanShape;
-    std::unique_ptr<Switch> wSync, wPan, wPanSync;
+    std::unique_ptr<Knob> kRate, kDiv, kDepth, kChar, kFb, kFreq, kStereo, kMix, kTone, kWidth, kBass, kOut, kPanRate, kPanDiv, kPanDepth;
+    std::unique_ptr<Knob> kVoice[4], kLevel[4];
+    std::unique_ptr<Segs> sShape, sPanShape, sKey, sScale;
+    std::unique_ptr<Switch> wSync, wPan, wPanSync, wOn;
     juce::Rectangle<int> presetRect, prevRect, nextRect, abRect; bool abHover = false; int tick = 0;
 };
 }

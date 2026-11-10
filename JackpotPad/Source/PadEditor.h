@@ -146,12 +146,20 @@ public:
     void keyMenu();
 };
 
+// sequencer a passi: righe = pad (1-8 o 9-16), colonne = sedicesimi della battuta scelta
 class PatternView : public juce::Component
 {
 public:
     explicit PatternView (Editor& e) : ed (e) {}
     void paint (juce::Graphics&) override;
-    Editor& ed;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    juce::Rectangle<float> grid() const { return getLocalBounds().toFloat().reduced (4).withTrimmedTop (22).withTrimmedLeft (52); }
+    juce::Rectangle<float> labels() const { auto g = grid(); return { 4, g.getY(), 48, g.getHeight() }; }
+    bool cellAt (juce::Point<float>, int& pad, int& step) const;
+    Editor& ed; int bank = 0, barPage = 0; int paintMode = -1; int lastCell = -1;
+    std::vector<std::pair<juce::Rectangle<float>, std::function<void()>>> heads;
 };
 
 class DragMidi : public juce::Component

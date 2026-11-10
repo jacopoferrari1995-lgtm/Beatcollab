@@ -1,8 +1,20 @@
 #include "../Source/TapeProcessor.h"
+#include "../Source/TapeEditor.h"
 using namespace jt;
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 2 && juce::String (argv[1]) == "snap")
+    {
+        Processor p; p.prepareToPlay (44100, 512);
+        const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "0").getIntValue(); p.loadPreset (pr);
+        std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+        if (auto* e = dynamic_cast<Editor*> (ed.get())) e->select (juce::SystemStats::getEnvironmentVariable ("JFX", "9").getIntValue());
+        ed->setSize (Editor::W, Editor::H);
+        auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.0f);
+        juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "level")
     {
         auto run = [] (std::function<void (Processor&)> setup)

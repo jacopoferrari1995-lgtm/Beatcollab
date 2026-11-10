@@ -1,3 +1,5 @@
+#include <set>
+#include <map>
 #include "PadProcessor.h"
 #include "PadEditor.h"
 #include <complex>
@@ -389,13 +391,27 @@ void Processor::loadPattern (int index)
     std::vector<PatEv> ev; int len = 32;
     for (auto& [pd, str] : bank[(size_t) index].lanes) len = juce::jmax (len, (int) std::strlen (str));
     len = len > 32 ? 64 : 32;
-    for (auto& [pd, str] : bank[(size_t) index].lanes)
+    // i pattern sono scritti con la vecchia numerazione per genere: li porto sulla disposizione attuale del kit
+    // (1 cassa, 2 rullante, 3 hat, 4 open, 5 clap/rim, 6-7 tom/perc, 8 piatto, 9 808, 10-16 suoni)
+    static const std::map<juce::String, std::map<int, int>> remap {
+        { "Boom Bap",   { {1,1},{2,2},{3,5},{4,3},{5,4},{6,2},{7,1},{8,6} } },
+        { "Trap",       { {1,1},{2,5},{3,2},{4,3},{5,4},{6,3},{9,9},{10,9},{11,9},{12,9} } },
+        { "Drill",      { {1,1},{2,2},{3,5},{4,3},{6,6},{8,2},{9,9},{10,9},{11,9},{12,9} } },
+        { "Lo-fi",      { {1,1},{2,2},{3,5},{4,3},{6,5},{7,6},{9,7},{10,7} } },
+        { "Old School", { {1,1},{2,2},{3,5},{4,3},{5,4},{6,6},{8,7},{9,6},{10,7},{11,7},{12,6},{13,7} } },
+        { "Phonk",      { {1,1},{2,2},{3,5},{4,3},{5,4},{6,9},{7,9},{9,7},{10,7},{11,7},{12,7},{13,7},{14,7},{15,7},{16,7} } },
+        { "R&B",        { {1,1},{2,5},{3,2},{4,3},{6,6},{7,7},{8,6},{9,9},{10,9},{11,10},{12,11},{13,12},{14,13} } } };
+    const auto gm = remap.find (bank[(size_t) index].genre);
+    std::set<std::pair<int, int>> seen;
+    for (auto [pd0, str] : bank[(size_t) index].lanes)
     {
+        int pd = pd0;
+        if (gm != remap.end()) { auto f = gm->second.find (pd0); pd = f != gm->second.end() ? f->second : pd0; }
         const juce::String s (str);
         for (int i = 0; i < juce::jmin (len, s.length()); ++i)
         {
             const auto c = s[i]; const int vel = c == 'X' ? 127 : c == 'x' ? 100 : c == 'o' ? 72 : c == '-' ? 48 : 0;
-            if (vel > 0 && pd >= 1 && pd <= kPads) ev.push_back ({ i * 24.0, pd - 1, vel });
+            if (vel > 0 && pd >= 1 && pd <= kPads && seen.insert ({ i, pd }).second) ev.push_back ({ i * 24.0, pd - 1, vel });
         }
     }
     const juce::SpinLock::ScopedLockType l (recLock); events = std::move (ev); patternIndex = index; patternBars = len / 16;
@@ -413,16 +429,16 @@ void Processor::varyPattern()
 {
     juce::Random r; const juce::SpinLock::ScopedLockType l (recLock);
     std::vector<PatEv> out;
-    bool hasHat = false; for (auto& e : events) if (e.pad == 3) hasHat = true;
+    bool hasHat = false; for (auto& e : events) if (e.pad == 2) hasHat = true;
     for (auto e : events)
     {
         if (e.pad == 0 && e.tick > 0 && r.nextFloat() < 0.12f) continue;             // toglie qualche cassa
-        if (e.pad == 3 && r.nextFloat() < 0.15f) { out.push_back ({ e.tick + 12, 3, juce::jmax (40, e.vel - 40) }); }   // terzina/32esimo sugli hat
+        if (e.pad == 2 && r.nextFloat() < 0.15f) { out.push_back ({ e.tick + 12, 2, juce::jmax (40, e.vel - 40) }); }   // terzina/32esimo sugli hat
         e.vel = juce::jlimit (30, 127, e.vel + r.nextInt ({ -14, 8 }));
         out.push_back (e);
     }
     for (int k = 0; k < 2; ++k) if (r.nextFloat() < 0.6f) out.push_back ({ (double) (r.nextInt (patternBars.load() * 16) * 24), 0, 90 });   // cassa in più
-    if (hasHat && r.nextFloat() < 0.5f) { const int st = patternBars.load() * 16 - 8 + r.nextInt (6); for (int q = 0; q < 4; ++q) out.push_back ({ (st + q * 0.5) * 24.0, 3, 70 + q * 10 }); }   // roll
+    if (hasHat && r.nextFloat() < 0.5f) { const int st = patternBars.load() * 16 - 8 + r.nextInt (6); for (int q = 0; q < 4; ++q) out.push_back ({ (st + q * 0.5) * 24.0, 2, 70 + q * 10 }); }   // roll
     events = std::move (out);
 }
 

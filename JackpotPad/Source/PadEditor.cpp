@@ -1240,34 +1240,97 @@ void Screen::filesDropped (const juce::StringArray& files, int, int)
     ed.root.repaint();
 }
 // ======================= Pattern =======================
+bool PatternView::cellAt (juce::Point<float> pt, int& pad, int& step) const
+{
+    auto g = grid(); if (! g.contains (pt)) return false;
+    const int row = (int) ((pt.y - g.getY()) / (g.getHeight() / 8)), col = (int) ((pt.x - g.getX()) / (g.getWidth() / 16));
+    pad = bank * 8 + (7 - juce::jlimit (0, 7, row)); step = barPage * 16 + juce::jlimit (0, 15, col);
+    return true;
+}
 void PatternView::paint (juce::Graphics& g)
 {
-    auto b = getLocalBounds().toFloat(); insetPanel (g, b, 8);
-    auto s = b.reduced (5); g.setColour (Col::lcd2); g.fillRoundedRectangle (s, 5);
-    auto& P = ed.proc; const double L = P.loopTicks(); const int bars = (int) (L / kBar);
-    auto a = s.reduced (8, 6).withTrimmedTop (12);
-    for (int q = 0; q <= bars * 16; ++q)
+    auto b = getLocalBounds().toFloat(); auto& P = ed.proc;
+    const int bars = P.patternBars.load(); barPage = juce::jlimit (0, bars - 1, barPage);
+    heads.clear();
+    // intestazione: banco di pad, battuta, lunghezza, pulisci
+    auto hd = b.reduced (4, 0).withHeight (20).withY (1);
+    glowText (g, "SEQUENCER", hd.removeFromLeft (80), Col::cyan, ft (10.0f, true));
+    auto chipH = [&] (juce::Rectangle<float> r, const juce::String& t, bool on, juce::Colour c, std::function<void()> fn)
     {
-        const float x = a.getX() + a.getWidth() * (float) (q / (bars * 16.0));
-        g.setColour (Col::phos.withAlpha (q % 16 == 0 ? 0.3f : q % 4 == 0 ? 0.12f : 0.04f)); g.drawVerticalLine ((int) x, a.getY(), a.getBottom());
+        g.setColour (on ? c.withAlpha (0.22f) : Col::phos.withAlpha (0.05f)); g.fillRoundedRectangle (r, 3);
+        g.setColour (on ? c : Col::phos.withAlpha (0.3f)); g.drawRoundedRectangle (r, 3, 1.0f);
+        g.setColour (on ? c : Col::phos.withAlpha (0.7f)); g.setFont (ft (8.5f, true, true)); g.drawText (t, r, juce::Justification::centred);
+        heads.push_back ({ r, std::move (fn) });
+    };
+    chipH (hd.removeFromLeft (44).reduced (1, 2), "1-8", bank == 0, Col::magenta, [this] { bank = 0; }); 
+    chipH (hd.removeFromLeft (44).reduced (1, 2), "9-16", bank == 1, Col::magenta, [this] { bank = 1; });
+    hd.removeFromLeft (8);
+    for (int k = 0; k < bars; ++k) chipH (hd.removeFromLeft (30).reduced (1, 2), "B" + juce::String (k + 1), barPage == k, Col::cyan, [this, k] { barPage = k; });
+    hd.removeFromLeft (8);
+    for (int L : { 1, 2, 4 }) chipH (hd.removeFromLeft (28).reduced (1, 2), juce::String (L), bars == L, Col::amber, [this, L] { ed.proc.patternBars = L; barPage = juce::jmin (barPage, L - 1); });
+    chipH (hd.removeFromRight (62).reduced (1, 2), "PULISCI", false, Col::red, [this] { const juce::SpinLock::ScopedLockType l (ed.proc.recLock); ed.proc.events.clear(); });
+    // griglia
+    auto gr = grid(); const float rh = gr.getHeight() / 8, cw = gr.getWidth() / 16;
+    g.setColour (Col::lcd2); g.fillRoundedRectangle (b.withTrimmedTop (21), 5);
+    for (int r = 0; r < 8; ++r)
+    {
+        const int pad = bank * 8 + (7 - r); auto smp = P.getSample (pad); const auto pc = padColour (P.pad[pad].colour.load());
+        auto lr = juce::Rectangle<float> (6, gr.getY() + r * rh, 46, rh).reduced (0, 1);
+        g.setColour (pad == ed.sel ? pc.withAlpha (0.3f) : Col::phos.withAlpha (0.04f)); g.fillRoundedRectangle (lr, 2);
+        g.setColour (pc); g.setFont (ft (8.0f, true, true));
+        g.drawText (juce::String (pad + 1) + " " + (smp ? smp->name.substring (0, 5) : juce::String ("-")), lr.reduced (3, 0), juce::Justification::centredLeft);
+        for (int c = 0; c < 16; ++c)
+        {
+            auto cr = juce::Rectangle<float> (gr.getX() + c * cw, gr.getY() + r * rh, cw, rh).reduced (1.2f);
+            g.setColour (Col::phos.withAlpha (c % 4 == 0 ? 0.09f : 0.045f)); g.fillRoundedRectangle (cr, 2);
+        }
     }
-    for (int k = 0; k < bars; ++k) glowText (g, juce::String (k + 1), juce::Rectangle<float> (a.getX() + a.getWidth() * k / bars + 3, s.getY() + 2, 20, 11), Col::phos.withAlpha (0.6f), ft (8.5f, true, true));
-    const float rh = a.getHeight() / kPads;
+    const double t0 = barPage * (double) kBar;
     { const juce::SpinLock::ScopedLockType l (P.recLock);
       for (auto& e : P.events)
       {
-          const double q = P.swingTick (e.tick); const float x = a.getX() + a.getWidth() * (float) (q / L), y = a.getBottom() - (e.pad + 1) * rh;
-          const auto c = padColour (P.pad[e.pad].colour.load());
-          g.setColour (c.withAlpha (0.3f + 0.7f * e.vel / 127.0f)); g.fillRoundedRectangle (x - 1, y + 0.5f, 4, juce::jmax (1.5f, rh - 1), 1);
+          if (e.pad / 8 != bank || e.tick < t0 || e.tick >= t0 + kBar) continue;
+          const double st = (e.tick - t0) / 24.0; const int c = (int) std::floor (st), r = 7 - e.pad % 8;
+          auto cr = juce::Rectangle<float> (gr.getX() + c * cw, gr.getY() + r * rh, cw, rh).reduced (1.2f);
+          const auto pc = padColour (P.pad[e.pad].colour.load());
+          if (std::abs (st - c) > 0.01) { g.setColour (pc.withAlpha (0.9f)); g.fillRect (cr.withTrimmedLeft (cr.getWidth() * 0.55f).reduced (0, 2)); continue; }   // colpo fuori griglia (roll, terzine)
+          g.setColour (pc.withAlpha (0.25f + 0.75f * e.vel / 127.0f)); g.fillRoundedRectangle (cr, 2);
+          g.setColour (juce::Colours::white.withAlpha (0.25f)); g.fillRect (cr.withHeight (cr.getHeight() * (1 - e.vel / 127.0f)).withY (cr.getY()));
       } }
     if (P.uiRunning.load())
     {
-        const double t = std::fmod (P.uiTick.load(), L); const float x = a.getX() + a.getWidth() * (float) (t / L);
-        g.setColour (Col::magenta.withAlpha (0.3f)); g.fillRect (x - 3, a.getY(), 6.0f, a.getHeight());
-        g.setColour (Col::magenta); g.drawVerticalLine ((int) x, a.getY(), a.getBottom());
+        const double t = std::fmod (P.uiTick.load(), (double) P.loopTicks());
+        if (t >= t0 && t < t0 + kBar) { const float x = gr.getX() + gr.getWidth() * (float) ((t - t0) / kBar); g.setColour (Col::magenta.withAlpha (0.8f)); g.drawVerticalLine ((int) x, gr.getY(), gr.getBottom()); }
     }
-    const auto& pb = patternBank()[(size_t) juce::jlimit (0, (int) patternBank().size() - 1, P.patternIndex)];
-    glowText (g, juce::String (pb.genre).toUpperCase() + " / " + juce::String (pb.name).toUpperCase(), juce::Rectangle<float> (s.getRight() - 230, s.getY() + 2, 222, 11), P.loopOn.load() ? Col::magenta : Col::phos.withAlpha (0.4f), ft (8.5f, true, true), juce::Justification::centredRight);
+}
+void PatternView::mouseDown (const juce::MouseEvent& e)
+{
+    for (auto& [r, fn] : heads) if (r.contains (e.position)) { fn(); repaint(); return; }
+    if (labels().contains (e.position)) { const int row = (int) ((e.position.y - grid().getY()) / (grid().getHeight() / 8)); const int pad = bank * 8 + 7 - juce::jlimit (0, 7, row); ed.selectPad (pad); ed.playPad (pad, 100); repaint(); return; }
+    int pad, step; if (! cellAt (e.position, pad, step)) return;
+    auto& P = ed.proc; const double tick = step * 24.0;
+    const juce::SpinLock::ScopedLockType l (P.recLock);
+    auto it = std::find_if (P.events.begin(), P.events.end(), [&] (const PatEv& ev) { return ev.pad == pad && ev.tick >= tick && ev.tick < tick + 24; });
+    if (it != P.events.end()) { P.events.erase (it); paintMode = 0; }
+    else { P.events.push_back ({ tick, pad, e.mods.isShiftDown() ? 127 : e.mods.isAltDown() ? 64 : 100 }); paintMode = 1; }
+    lastCell = pad * 1000 + step; repaint();
+}
+void PatternView::mouseDrag (const juce::MouseEvent& e)
+{
+    int pad, step; if (paintMode < 0 || ! cellAt (e.position, pad, step) || pad * 1000 + step == lastCell) return;
+    lastCell = pad * 1000 + step; auto& P = ed.proc; const double tick = step * 24.0;
+    const juce::SpinLock::ScopedLockType l (P.recLock);
+    auto it = std::find_if (P.events.begin(), P.events.end(), [&] (const PatEv& ev) { return ev.pad == pad && ev.tick >= tick && ev.tick < tick + 24; });
+    if (paintMode == 1 && it == P.events.end()) P.events.push_back ({ tick, pad, 100 });
+    if (paintMode == 0 && it != P.events.end()) P.events.erase (it);
+    repaint();
+}
+void PatternView::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
+{   // rotella su un colpo = velocity
+    int pad, step; if (! cellAt (e.position, pad, step)) return;
+    auto& P = ed.proc; const double tick = step * 24.0; const juce::SpinLock::ScopedLockType l (P.recLock);
+    for (auto& ev : P.events) if (ev.pad == pad && ev.tick >= tick && ev.tick < tick + 24) ev.vel = juce::jlimit (10, 127, ev.vel + (w.deltaY > 0 ? 8 : -8));
+    repaint();
 }
 
 // ======================= Drag MIDI =======================
@@ -1305,7 +1368,7 @@ void Root::paint (juce::Graphics& g)
     g.restoreState();
     // sequencer
     jlook::card (g, { 24, 590, 734, 182 }, 10, Col::magenta, true);
-    glowText (g, juce::String::fromUTF8 ("LOOP & SWING  \xc2\xb7  sincronizzati con Ableton"), { 36, 594, 400, 18 }, Col::cyan, ft (10.0f, true));
+
     g.setColour (Col::dim); g.setFont (ft (9.0f));
     g.drawText ("per suonare dalla tastiera del Mac: in Ableton premi M", juce::Rectangle<float> (774, 744, 300, 14), juce::Justification::centredLeft);
     // meter master
@@ -1877,7 +1940,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     auto btn = [this] (const juce::String& t, juce::Colour c, std::function<bool()> lit, std::function<void()> click)
     { auto* b = btns.add (new Btn (t, c)); b->lit = std::move (lit); b->click = std::move (click); root.addAndMakeVisible (b); return b; };
     btn ("LOOP", Col::magenta, [this] { return proc.loopOn.load(); }, [this] { proc.loopOn = ! proc.loopOn.load(); })->setName ("loop");
-    btn ("RANDOM", Col::amber, [] { return false; }, [this] { proc.randomPattern (patternGenres()[genre]); proc.loopOn = true; })->setName ("random");
+    btn ("GENERA", Col::amber, [] { return false; }, [this] { proc.randomPattern (patternGenres()[genre]); proc.loopOn = true; })->setName ("random");
     btn ("VARIA", Col::amber, [] { return false; }, [this] { proc.varyPattern(); })->setName ("vary");
     btn ("PLAY", Col::green, [this] { return proc.uiRunning.load(); }, [this] { proc.requestPlay (! proc.intPlay.load()); })->setName ("play");
     btn ("SWING MIDI", Col::magenta, [this] { return proc.apvts.getRawParameterValue ("swMidi")->load() > 0.5f; },
@@ -1922,16 +1985,16 @@ void Editor::resized()
     named (root, "nr")->setBounds (774, 600, 130, 34);
     named (root, "nrRate")->setBounds (912, 594, 96, 44);
     globalKnobs[3]->setBounds (950, 650, 92, 84);
-    named (root, "genre")->setBounds (36, 614, 120, 44);
-    named (root, "pattern")->setBounds (162, 614, 170, 44);
+    named (root, "genre")->setBounds (452, 598, 146, 40);
+    named (root, "pattern")->setBounds (604, 598, 148, 40);
     const char* tb[] = { "loop", "random", "vary", "play" };
-    for (int i = 0; i < 4; ++i) named (root, tb[i])->setBounds (340 + i * 68, 618, 64, 40);
-    named (root, "swGrid")->setBounds (616, 614, 60, 44);
-    named (root, "swmidi")->setBounds (682, 618, 70, 40);
-    pattern.setBounds (36, 666, 430, 100);
-    globalKnobs[0]->setBounds (474, 664, 66, 76); globalKnobs[1]->setBounds (542, 664, 66, 76); globalKnobs[2]->setBounds (610, 664, 66, 76);
-    named (root, "expsw")->setBounds (680, 676, 72, 34);
-    drag.setBounds (474, 742, 278, 26);
+    for (int i = 0; i < 4; ++i) named (root, tb[i])->setBounds (452 + i * 75, 642, 72, 30);
+    named (root, "swGrid")->setBounds (626, 680, 60, 40);
+    named (root, "swmidi")->setBounds (690, 684, 62, 32);
+    pattern.setBounds (30, 592, 416, 178);
+    globalKnobs[0]->setBounds (450, 676, 58, 70); globalKnobs[1]->setBounds (508, 676, 58, 70); globalKnobs[2]->setBounds (566, 676, 58, 70);
+    named (root, "expsw")->setBounds (626, 726, 60, 30);
+    drag.setBounds (690, 722, 62, 40);
 }
 
 // le 8 manopole Q-link cambiano con la pagina, come sulle MPC

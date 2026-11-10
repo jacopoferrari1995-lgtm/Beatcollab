@@ -20,6 +20,10 @@ static juce::String fmtSpec (const PSpec& p, float v)
         case 4: return (v > 0 ? "+" : "") + juce::String (v, 1) + "st";
         case 5: return juce::String (v, 1) + juce::String::fromUTF8 ("\xc3\x97");
         case 6: return (v > 0 ? "+" : "") + juce::String (v, 1) + "dB";
+        case 7: return juce::String (v, std::abs (v - std::round (v)) < 0.01f ? 0 : 2) + juce::String::fromUTF8 ("\xc3\x97 lento");
+        case 8: return v < 0.25f ? juce::String ("SATURA") : v < 0.7f ? juce::String ("DISTORCE") : juce::String ("FUZZ");
+        case 9: return v >= 15.9f ? juce::String ("OFF") : juce::String (juce::roundToInt (v)) + " bit";
+        case 10: return juce::roundToInt (v) <= 1 ? juce::String ("OFF") : juce::String::fromUTF8 ("\xc3\xb7") + juce::String (juce::roundToInt (v));
         default: return pct (v);
     }
 }
@@ -77,14 +81,15 @@ void Knob::setNorm (float v)
     if (auto* c = dynamic_cast<juce::AudioParameterChoice*> (param)) { const int k = c->choices.size(); v = std::round (v * (k - 1)) / (k - 1); }
     param->setValueNotifyingHost (v); if (onUserChange) onUserChange (param->convertFrom0to1 (v)); repaint();
 }
-void Knob::mouseDown (const juce::MouseEvent& e) { startV = param->getValue(); param->beginChangeGesture(); drag = true; if (e.mods.isAltDown() || e.mods.isCommandDown()) { setNorm (param->getDefaultValue()); drag = false; } }
+void Knob::mouseDown (const juce::MouseEvent& e) { if (onStart) onStart(); startV = param->getValue(); param->beginChangeGesture(); drag = true; if (e.mods.isAltDown() || e.mods.isCommandDown()) { setNorm (param->getDefaultValue()); drag = false; } }
 void Knob::mouseUp (const juce::MouseEvent&) { param->endChangeGesture(); drag = false; repaint(); }
 void Knob::mouseDrag (const juce::MouseEvent& e) { if (! drag) return; setNorm (startV - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 700.0f : 160.0f)); }
-void Knob::mouseDoubleClick (const juce::MouseEvent&) { setNorm (param->getDefaultValue()); }
+void Knob::mouseDoubleClick (const juce::MouseEvent&) { if (onStart) onStart(); setNorm (param->getDefaultValue()); }
 void Knob::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
 {
     float step = 1.0f / 60.0f;
     if (auto* c = dynamic_cast<juce::AudioParameterChoice*> (param)) step = 1.0f / (c->choices.size() - 1);
+    if (onStart) onStart();
     setNorm (param->getValue() + (w.deltaY > 0 ? step : -step));
 }
 
@@ -143,8 +148,8 @@ void FxList::paint (juce::Graphics& g)
     g.setFont (tf (9.0f, 0, true)); g.setColour (K::faint); g.drawText ("clic = modifica", juce::Rectangle<int> (0, 0, getWidth() - 6, 20), juce::Justification::centredRight);
     for (int f = 0; f < kNumFx; ++f)
     {
-        auto r = juce::Rectangle<float> (0, 30.0f + f * 40.0f, (float) getWidth(), 36);
-        const bool s = f == ed.sel, on = (am >> f) & 1; const auto c = fxCol (f);
+        auto r = juce::Rectangle<float> (0, 26.0f + f * 37.0f, (float) getWidth(), 33);
+        const bool s = f == ed.sel, on = (am >> f) & 1, en = ed.proc.fxEnabled (f); const auto c = en ? fxCol (f) : K::faint;
         inset (g, r, 6);
         if (s) { g.setColour (c.withAlpha (0.12f)); g.fillRoundedRectangle (r, 6); g.setColour (c.withAlpha (0.7f)); g.drawRoundedRectangle (r, 6, 1.0f); }
         const float dx = r.getX() + 16, dy = r.getCentreY();
@@ -152,12 +157,12 @@ void FxList::paint (juce::Graphics& g)
         juce::ColourGradient lg (on ? c.brighter (0.6f) : c.withAlpha (0.25f), dx, dy - 5, on ? c : c.withAlpha (0.1f), dx, dy + 5, false);
         g.setGradientFill (lg); g.fillEllipse (dx - 5, dy - 5, 10, 10);
         if (s || on) glow (g, juce::String (kFx[f].name).toUpperCase(), r.withTrimmedLeft (30), on ? c : K::ink, tf (11.0f, 2), juce::Justification::centredLeft);
-        else { g.setColour (K::dim); g.setFont (tf (11.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase(), r.withTrimmedLeft (30).toNearestInt(), juce::Justification::centredLeft); }
+        else { g.setColour (en ? K::dim : K::faint); g.setFont (tf (11.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase() + (en ? "" : "  OFF"), r.withTrimmedLeft (30).toNearestInt(), juce::Justification::centredLeft); }
         auto kk = juce::Rectangle<float> (r.getRight() - 26, dy - 8, 16, 16);
         g.setColour (K::faint); g.drawRoundedRectangle (kk, 3, 1); g.setFont (tf (9.5f, 2, true)); g.drawText (juce::String::charToString (kFx[f].key), kk.toNearestInt(), juce::Justification::centred);
     }
 }
-void FxList::mouseDown (const juce::MouseEvent& e) { const int f = (int) ((e.position.y - 30) / 40); if (f >= 0 && f < kNumFx) ed.select (f); }
+void FxList::mouseDown (const juce::MouseEvent& e) { const int f = (int) ((e.position.y - 26) / 37); if (f >= 0 && f < kNumFx) ed.select (f); }
 
 // ======================= Display =======================
 void Display::paint (juce::Graphics& g)
@@ -222,7 +227,7 @@ void Display::paint (juce::Graphics& g)
 // ======================= Pad =======================
 void PadBtn::paint (juce::Graphics& g)
 {
-    auto b = getLocalBounds().toFloat().reduced (2); const bool on = down || ((ed.proc.activeMask.load() >> fx) & 1); const auto c = fxCol (fx);
+    auto b = getLocalBounds().toFloat().reduced (2); const bool en = ed.proc.fxEnabled (fx); const bool on = en && (down || ((ed.proc.activeMask.load() >> fx) & 1)); const auto c = en ? fxCol (fx) : K::faint;
     // pad in gomma retroilluminato
     g.setColour (juce::Colours::black.withAlpha (0.75f)); g.fillRoundedRectangle (b.expanded (2).translated (0, 2), 9);
     if (on) { g.setColour (c.withAlpha (0.35f)); g.fillRoundedRectangle (b.expanded (4), 11); b = b.translated (0, 1.5f); }
@@ -236,13 +241,19 @@ void PadBtn::paint (juce::Graphics& g)
     g.setColour (on ? juce::Colour (0xff0b0c10) : K::ink); g.setFont (tf (10.5f, 2)); g.drawText (juce::String (kFx[fx].name).toUpperCase(), b.reduced (8, 7).toNearestInt(), juce::Justification::topLeft);
     const bool shot = ed.proc.value ("mode") > 0.5f;
     g.setColour (on ? juce::Colour (0xff0b0c10).withAlpha (0.7f) : c.withAlpha (0.8f)); g.setFont (tf (9.0f, 2, true));
-    g.drawText (juce::String::charToString (kFx[fx].key) + juce::String::fromUTF8 (" \xc2\xb7 ") + (shot ? "SHOT" : "HOLD"), b.reduced (8, 7).toNearestInt(), juce::Justification::bottomLeft);
+    g.drawText (juce::String::charToString (kFx[fx].key) + juce::String::fromUTF8 (" \xc2\xb7 ") + (! en ? "OFF" : shot ? "SHOT" : "HOLD"), b.reduced (8, 7).toNearestInt(), juce::Justification::bottomLeft);
 }
 void PadBtn::mouseDown (const juce::MouseEvent&) { down = true; ed.select (fx); ed.proc.uiPad[fx] = true; repaint(); }
 void PadBtn::mouseUp (const juce::MouseEvent&) { down = false; ed.proc.uiPad[fx] = false; repaint(); }
 
 // ======================= Editor effetto =======================
 juce::Rectangle<int> FxEditor::curveArea() const { return { 16, 44, getWidth() * 36 / 100 - 16, getHeight() - 58 }; }
+float FxEditor::paramSig() const
+{
+    float sg = (float) ed.sel * 1000.0f + (ed.proc.fxEnabled (ed.sel) ? 0.5f : 0.0f);
+    for (int i = 0; i < kNumParams; ++i) if (kParams[i].fx == ed.sel) sg += ed.proc.apvts.getParameter (kParams[i].id)->getValue() * (float) (i + 3);
+    return sg;
+}
 void FxEditor::rebuild()
 {
     knobs.clear();
@@ -252,12 +263,19 @@ void FxEditor::rebuild()
         {
             const auto spec = kParams[i];
             auto* k = knobs.add (new Knob (ed.proc.apvts.getParameter (spec.id), spec.label, c, [spec] (float v) { return fmtSpec (spec, v); }));
+            k->onStart = [this] { ed.pushUndo(); };
+            k->onUserChange = [this] (float) { repaint (curveArea()); };
             addAndMakeVisible (k);
         }
+    const juce::String onId = juce::String (kFx[ed.sel].id) + "_on";
+    onTog = std::make_unique<Toggle> ([this, onId] { return ed.proc.value (onId.toRawUTF8()) > 0.5f; },
+                                      [this, onId] { ed.pushUndo(); auto* pr = ed.proc.apvts.getParameter (onId); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); ed.refreshAll(); });
+    addAndMakeVisible (*onTog);
     resized(); repaint();
 }
 void FxEditor::resized()
 {
+    if (onTog) onTog->setBounds (getWidth() - 56, 11, 38, 20);
     auto a = getLocalBounds().withTrimmedLeft (getWidth() * 36 / 100 + 6).reduced (6, 10).withTrimmedTop (28);
     const int n = knobs.size(); if (n == 0) return;
     const int w = a.getWidth() / n, s = juce::jmin (78, w - 4);
@@ -265,55 +283,86 @@ void FxEditor::resized()
 }
 void FxEditor::paint (juce::Graphics& g)
 {
-    const auto c = fxCol (ed.sel);
+    const bool en = ed.proc.fxEnabled (ed.sel);
+    const auto c = en ? fxCol (ed.sel) : K::faint;
     panel (g, getLocalBounds().toFloat(), 12, c);
     g.setColour (c.withAlpha (0.3f)); g.fillEllipse (12, 11, 18, 18); g.setColour (c.brighter (0.4f)); g.fillEllipse (16, 15, 10, 10);
     glow (g, juce::String (kFx[ed.sel].name).toUpperCase(), { 36, 8, 220, 24 }, K::ink, tf (15.0f, 2));
     const float nw = juce::GlyphArrangement::getStringWidth (tf (15.0f, 2), juce::String (kFx[ed.sel].name).toUpperCase());
-    g.setColour (K::dim); g.setFont (tf (11.0f)); g.drawText (kFx[ed.sel].desc, (int) (48 + nw), 9, 360, 24, juce::Justification::centredLeft);
+    g.setColour (K::dim); g.setFont (tf (11.0f)); g.drawText (kFx[ed.sel].desc, (int) (48 + nw), 9, 400, 24, juce::Justification::centredLeft);
+    caps (g, en ? "Attivo" : "Spento", { getWidth() - 130, 9, 68, 24 }, en ? c : K::dim, juce::Justification::centredRight);
     g.setColour (c); g.fillRoundedRectangle (14.0f, 36.0f, getWidth() - 28.0f, 2.0f, 1.0f);
     auto ca = curveArea().toFloat().withTrimmedTop (6);
     inset (g, ca, 6);
     auto in = ca.reduced (10, 10);
     lcdGrid (g, in, 10);
-    auto& P = ed.proc; const int f = ed.sel; juce::Path p; const int M = 120;
+    auto& P = ed.proc; const int f = ed.sel; juce::Path p; const int M = 160;
+    // asse x: 2 battute per gli effetti a durata, cosi la lunghezza si vede
+    const bool timed = f == STOP || f == START || f == SPIN || f == HALF;
+    if (timed) for (int q = 1; q < 8; ++q) { g.setColour (K::brand2.withAlpha (q == 4 ? 0.25f : 0.08f)); g.drawVerticalLine ((int) (in.getX() + in.getWidth() * q / 8.0f), in.getY(), in.getBottom()); }
+    const double bpm = juce::jmax (40.0, (double) P.uiBpm.load());
+    float marker = -1;
     for (int i = 0; i <= M; ++i)
     {
-        const float x = i / (float) M; float y = 1;
+        const float x = i / (float) M, beats = x * 8.0f; float y = 1;
         switch (f)
         {
-            case STOP:  y = 1 - shapeFn (x, P.fxValue (STOP, "curve")); break;
-            case START: y = shapeFn (x, -P.fxValue (START, "curve")); break;
-            case SPIN:  { const float e = x, a = juce::jmin (1.0f, e * 10); y = -P.fxValue (SPIN, "force") * a * std::pow (1 - e, 1.6f) / 5.0f; break; }
-            case HALF:  y = x < 0.15f ? 1 - (1 - P.fxValue (HALF, "speed")) * (x / 0.15f) : P.fxValue (HALF, "speed"); break;
-            case REV:   y = -P.fxValue (REV, "speed") / 1.5f; break;
+            case STOP:  { const float L = P.fxValue (STOP, "len"); marker = L / 8; y = beats < L ? 1 - shapeFn (beats / L, P.fxValue (STOP, "curve")) : 0; break; }
+            case START: { const float L = P.fxValue (START, "len"); marker = L / 8; y = beats < L ? shapeFn (beats / L, -P.fxValue (START, "curve")) : 1; break; }
+            case SPIN:  { const float L = P.fxValue (SPIN, "len"), e = beats / L, a = juce::jmin (1.0f, e * 10); marker = L / 8; y = e < 1 ? -P.fxValue (SPIN, "force") * a * std::pow (1 - e, 1.6f) / 5.0f : 0; break; }
+            case HALF:  { const float sp = 1.0f / P.fxValue (HALF, "div"), gl = (float) (P.fxValue (HALF, "glide") / 1000.0 * bpm / 60.0);
+                          const float t = beats - 1.0f; y = t < 0 ? 1 : (gl > 0.001f ? sp + (1 - sp) * std::exp (-3.0f * t / gl) : sp); if (t > 4) y = 1; break; }
+            case REV:   y = x < 0.1f || x > 0.9f ? 1.0f : -P.fxValue (REV, "speed") / 1.5f; break;
             case STUT:  { const float sz = P.fxValue (STUT, "size"), roll = P.fxValue (STUT, "roll"); float t = x * 2.0f, len = sz, acc = 0; int k = 0;
                           while (acc + len < t && k < 64) { acc += len; ++k; len = juce::jmax (0.125f, sz * std::pow (1 - roll * 0.22f, (float) k)); }
-                          const float w = (t - acc) / len; y = w < P.fxValue (STUT, "gate") ? std::pow (2.0f, P.fxValue (STUT, "pitch") * x / 12.0f) * 0.5f : 0.05f; break; }
+                          const float w = (t - acc) / len, dec = std::pow (1 - P.fxValue (STUT, "decay") * 0.18f, (float) k);
+                          y = w < P.fxValue (STUT, "gate") ? std::pow (2.0f, P.fxValue (STUT, "pitch") * x / 12.0f) * 0.5f * dec : 0.05f; break; }
             case LOOP:  { const float z = P.fxValue (LOOP, "size") / 8.0f; y = 0.2f + 0.7f * std::fmod (x, z) / z; break; }
-            case GLITCH:{ juce::Random r (int (x * 16) * 7 + 3); const float d = P.fxValue (GLITCH, "dens"); y = r.nextFloat() < d ? (r.nextFloat() * 1.6f - 0.5f) : 1; break; }
-            case GATE:  { const float rt = P.fxValue (GATE, "rate") * 2.0f, ph = std::fmod (x * 4, rt) / rt; y = ph < P.fxValue (GATE, "duty") ? 1 : 1 - P.fxValue (GATE, "depth"); break; }
+            case GLITCH:{ const float gs = P.fxValue (GLITCH, "size"); juce::Random r (int (x * 2.0f / gs) * 7 + 3); const float d = P.fxValue (GLITCH, "dens"), ch = P.fxValue (GLITCH, "chaos");
+                          y = r.nextFloat() < d ? (r.nextFloat() * (0.8f + ch) - 0.5f * ch) : 1; break; }
+            case GATE:  { const float rt = P.fxValue (GATE, "rate") * 2.0f, ph = std::fmod (x * 4, rt) / rt, m = P.fxValue (GATE, "mix"); y = ph < P.fxValue (GATE, "duty") ? 1 : 1 - P.fxValue (GATE, "depth") * m; break; }
+            case CRUSH: { const int rr = juce::jmax (1, juce::roundToInt (P.fxValue (CRUSH, "rate"))); const int ii = i - i % juce::jmin (rr, 40);
+                          const float xin = std::sin ((float) ii / M * juce::MathConstants<float>::twoPi * 2.0f) * 0.7f;
+                          const float wet = crushBits (crushShape (xin, P.fxValue (CRUSH, "drive"), P.fxValue (CRUSH, "char")), P.fxValue (CRUSH, "bits"));
+                          const float m = P.fxValue (CRUSH, "mix"); y = (xin + (wet * juce::Decibels::decibelsToGain (P.fxValue (CRUSH, "vol")) - xin) * m) * 0.75f + 0.15f; break; }
             default: break;
         }
+        // il mix avvicina la curva alla velocita normale (segnale originale)
+        if (f != GATE && f != CRUSH) { const float m = P.fxValue (f, "mix"); y = 1 + (y - 1) * m; }
         const float px = in.getX() + x * in.getWidth(), py = in.getCentreY() + in.getHeight() * 0.5f - juce::jlimit (-1.0f, 1.3f, y) * in.getHeight() * 0.42f - in.getHeight() * 0.08f;
         if (i == 0) p.startNewSubPath (px, py); else p.lineTo (px, py);
     }
     juce::Path fill (p); fill.lineTo (in.getRight(), in.getBottom()); fill.lineTo (in.getX(), in.getBottom()); fill.closeSubPath();
     juce::ColourGradient fg (c.withAlpha (0.28f), 0, in.getY(), c.withAlpha (0.0f), 0, in.getBottom(), false); g.setGradientFill (fg); g.fillPath (fill);
     g.setColour (c.withAlpha (0.3f)); g.strokePath (p, juce::PathStrokeType (6.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (2.0f));
+    if (marker > 0 && marker <= 1) { const float mx = in.getX() + marker * in.getWidth(); g.setColour (K::amber.withAlpha (0.7f)); g.drawVerticalLine ((int) mx, in.getY(), in.getBottom()); }
+    if (timed) { g.setColour (K::dim); g.setFont (tf (8.5f, 2, true)); g.drawText ("2 BATTUTE", in.reduced (4, 2).toNearestInt(), juce::Justification::topRight); }
     scan (g, ca.reduced (2));
 }
 
 // ======================= Coreografia =======================
 juce::Rectangle<float> Timeline::grid() const { return getLocalBounds().toFloat().reduced (12, 0).withTrimmedTop (22).withTrimmedBottom (10).withTrimmedLeft (150); }
 int Timeline::span() const { return ed.res == 0 ? 1 : ed.res == 1 ? 2 : 4; }
+int Timeline::rawStep (float x) const { auto gr = grid(); return juce::jlimit (0, ed.steps() - 1, (int) ((x - gr.getX()) / (gr.getWidth() / ed.steps()))); }
 bool Timeline::cellAt (juce::Point<float> p, int& lane, int& step) const
 {
     auto gr = grid(); if (! gr.contains (p)) return false;
     lane = juce::jlimit (0, kNumFx - 1, (int) ((p.y - gr.getY()) / (gr.getHeight() / kNumFx)));
-    step = juce::jlimit (0, ed.steps() - 1, (int) ((p.x - gr.getX()) / (gr.getWidth() / ed.steps())));
-    step = step / span() * span();
+    step = rawStep (p.x) / span() * span();
     return true;
+}
+bool Timeline::blockAt (int lane, int step, int& s, int& e) const
+{
+    if (lane < 0 || step < 0 || ! ed.proc.seq[lane][step].load()) return false;
+    s = step; while (s > 0 && ed.proc.seq[lane][s - 1].load()) --s;
+    e = step; while (e < ed.steps() && ed.proc.seq[lane][e].load()) ++e;
+    return true;
+}
+void Timeline::setRange (int lane, int a, int b, bool v) { for (int k = juce::jmax (0, a); k < juce::jmin (b, kMaxSteps); ++k) ed.proc.seq[lane][k] = v; }
+void Timeline::deleteSelected()
+{
+    if (selLane < 0) return;
+    ed.pushUndo(); setRange (selLane, selS, selE, false); selLane = -1; repaint();
 }
 void Timeline::paint (juce::Graphics& g)
 {
@@ -321,24 +370,21 @@ void Timeline::paint (juce::Graphics& g)
     inset (g, b, 8);
     auto gr = grid(); const int S = ed.steps(), sp = span(); const float cw = gr.getWidth() / S, lh = gr.getHeight() / kNumFx;
     const int cur = ed.proc.uiStep.load(); const bool on = ed.proc.value ("seqOn") > 0.5f;
-    // intestazione con numeri di battuta e movimenti
     for (int s = 0; s < S; s += 4)
     {
         const float x = gr.getX() + s * cw;
         if (s % 16 == 0) { g.setColour (K::amber.withAlpha (0.9f)); g.setFont (tf (10.0f, 2, true)); g.drawText ("BAR " + juce::String (s / 16 + 1), juce::Rectangle<float> (x + 3, 4, 60, 14), juce::Justification::centredLeft); }
-        else { g.setColour (K::dim); g.setFont (tf (9.0f, 1, true)); g.drawText (juce::String (s / 16 + 1) + "." + juce::String ((s % 16) / 4 + 1), juce::Rectangle<float> (x + 3, 4, 40, 14), juce::Justification::centredLeft); }
+        else if (cw * 4 > 26) { g.setColour (K::dim); g.setFont (tf (9.0f, 1, true)); g.drawText (juce::String (s / 16 + 1) + "." + juce::String ((s % 16) / 4 + 1), juce::Rectangle<float> (x + 3, 4, 40, 14), juce::Justification::centredLeft); }
     }
     g.setColour (K::faint); g.setFont (tf (8.5f, 1));
-    g.drawText ("clic disegna, tasto dx cancella", juce::Rectangle<float> (14, 0, 134, 11), juce::Justification::centredLeft);
-    g.drawText ("doppio clic sul nome svuota", juce::Rectangle<float> (14, 10, 134, 11), juce::Justification::centredLeft);
+    g.drawText (selLane >= 0 ? juce::String ("zona selezionata: CANC per cancellare") : juce::String ("trascina per creare una zona"), juce::Rectangle<float> (14, 4, 134, 14), juce::Justification::centredLeft);
     for (int f = 0; f < kNumFx; ++f)
     {
-        const float y = gr.getY() + f * lh; const auto c = fxCol (f);
+        const float y = gr.getY() + f * lh; const bool en = ed.proc.fxEnabled (f); const auto c = en ? fxCol (f) : K::faint;
         const bool selL = f == ed.sel, hovL = f == hLane;
         if (selL || hovL) { g.setColour (c.withAlpha (selL ? 0.08f : 0.05f)); g.fillRect (12.0f, y, b.getWidth() - 24, lh); }
         g.setColour (c.withAlpha (0.3f)); g.fillEllipse (16, y + lh * 0.5f - 7, 14, 14); g.setColour (c); g.fillEllipse (19.5f, y + lh * 0.5f - 3.5f, 7, 7);
-        g.setColour (selL ? c : K::ink.withAlpha (0.85f)); g.setFont (tf (11.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase(), juce::Rectangle<float> (36, y, 110, lh), juce::Justification::centredLeft);
-        // celle vuote alla risoluzione scelta
+        g.setColour (selL ? c : K::ink.withAlpha (en ? 0.85f : 0.4f)); g.setFont (tf (11.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase() + (en ? "" : " OFF"), juce::Rectangle<float> (36, y, 110, lh), juce::Justification::centredLeft);
         for (int s = 0; s < S; s += sp)
         {
             auto r = juce::Rectangle<float> (gr.getX() + s * cw + 1.5f, y + 2.5f, sp * cw - 3, lh - 5);
@@ -346,32 +392,31 @@ void Timeline::paint (juce::Graphics& g)
             g.setColour (juce::Colours::white.withAlpha (beat ? 0.045f : 0.025f)); g.fillRoundedRectangle (r, 3);
             g.setColour (juce::Colours::white.withAlpha (0.05f)); g.drawRoundedRectangle (r, 3, 1.0f);
         }
-        // blocchi attivi
         int s = 0;
         while (s < S)
         {
             if (! ed.proc.seq[f][s].load()) { ++s; continue; }
             int e = s; while (e < S && ed.proc.seq[f][e].load()) ++e;
             auto r = juce::Rectangle<float> (gr.getX() + s * cw + 1.5f, y + 2.5f, (e - s) * cw - 3, lh - 5);
-            const bool playing = on && cur >= s && cur < e;
+            const bool playing = on && en && cur >= s && cur < e;
             g.setColour (c.withAlpha (playing ? 0.5f : 0.2f)); g.fillRoundedRectangle (r.expanded (playing ? 3.0f : 1.5f), 5);
             juce::ColourGradient cg (playing ? c.brighter (0.5f) : c.brighter (0.15f), 0, r.getY(), c.darker (0.3f), 0, r.getBottom(), false); g.setGradientFill (cg);
             g.fillRoundedRectangle (r, 4);
             g.setColour (juce::Colours::white.withAlpha (0.4f)); g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + 3, r.getRight() - 3);
-            for (int k = s + 1; k < e; ++k) { g.setColour (juce::Colours::black.withAlpha (0.12f)); g.drawVerticalLine ((int) (gr.getX() + k * cw), r.getY() + 3, r.getBottom() - 3); }
-            if (r.getWidth() > 70) { g.setColour (juce::Colour (0xff0a0c10).withAlpha (0.85f)); g.setFont (tf (10.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase(), r.reduced (7, 0).toNearestInt(), juce::Justification::centredLeft); }
+            // maniglie ai bordi
+            g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (r.getX() + 2, r.getCentreY() - 6, 3, 12, 1.5f); g.fillRoundedRectangle (r.getRight() - 5, r.getCentreY() - 6, 3, 12, 1.5f);
+            if (r.getWidth() > 70) { g.setColour (juce::Colour (0xff0a0c10).withAlpha (0.85f)); g.setFont (tf (10.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase(), r.reduced (9, 0).toNearestInt(), juce::Justification::centredLeft); }
+            if (f == selLane && s == selS && e == selE) { g.setColour (juce::Colours::white); g.drawRoundedRectangle (r.expanded (1.5f), 5, 2.0f); }
             s = e;
         }
     }
-    // linee di battuta e di movimento
     for (int s = 0; s <= S; s += 4)
     {
         const float x = gr.getX() + s * cw;
         g.setColour (s % 16 == 0 ? K::amber.withAlpha (0.45f) : K::brand2.withAlpha (0.14f)); g.fillRect (x - (s % 16 == 0 ? 1.0f : 0.5f), gr.getY(), s % 16 == 0 ? 2.0f : 1.0f, gr.getHeight());
     }
     for (int f = 1; f < kNumFx; ++f) { g.setColour (juce::Colours::white.withAlpha (0.04f)); g.drawHorizontalLine ((int) (gr.getY() + f * lh), 12.0f, gr.getRight()); }
-    // cella sotto il mouse
-    if (hLane >= 0 && hStep >= 0)
+    if (hLane >= 0 && hStep >= 0 && mode == NONE)
     {
         auto r = juce::Rectangle<float> (gr.getX() + hStep * cw + 1.5f, gr.getY() + hLane * lh + 2.5f, sp * cw - 3, lh - 5);
         g.setColour (fxCol (hLane).withAlpha (0.9f)); g.drawRoundedRectangle (r, 4, 1.6f);
@@ -384,7 +429,18 @@ void Timeline::mouseMove (const juce::MouseEvent& e)
     int l = -1, s = -1;
     if (! cellAt (e.position, l, s)) { l = -1; s = -1; }
     if (l != hLane || s != hStep) { hLane = l; hStep = s; repaint(); }
-    setMouseCursor (l >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    auto cur = juce::MouseCursor::NormalCursor;
+    if (l >= 0)
+    {
+        int bs, be; const int rs = rawStep (e.position.x);
+        if (blockAt (l, rs, bs, be))
+        {
+            auto gr = grid(); const float cw = gr.getWidth() / ed.steps(), x0 = gr.getX() + bs * cw, x1 = gr.getX() + be * cw;
+            cur = (e.position.x - x0 < 8 || x1 - e.position.x < 8) ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::DraggingHandCursor;
+        }
+        else cur = juce::MouseCursor::CrosshairCursor;
+    }
+    setMouseCursor (cur);
 }
 void Timeline::mouseDown (const juce::MouseEvent& e)
 {
@@ -394,17 +450,50 @@ void Timeline::mouseDown (const juce::MouseEvent& e)
         const int l = juce::jlimit (0, kNumFx - 1, (int) ((e.position.y - gr.getY()) / (gr.getHeight() / kNumFx)));
         ed.select (l); repaint(); return;
     }
-    int l, s; if (! cellAt (e.position, l, s)) return;
-    const bool erase = e.mods.isPopupMenu() || e.mods.isAltDown();
-    paintLane = l; paintVal = erase ? false : ! ed.proc.seq[l][s].load();
-    for (int k = 0; k < span() && s + k < kMaxSteps; ++k) ed.proc.seq[l][s + k] = paintVal;
-    ed.select (l); repaint();
+    int l, s; if (! cellAt (e.position, l, s)) { selLane = -1; repaint(); return; }
+    grabKeyboardFocus();
+    const int rs = rawStep (e.position.x); int bs, be;
+    ed.pushUndo();
+    for (int k = 0; k < kMaxSteps; ++k) before[k] = ed.proc.seq[l][k].load();
+    dLane = l; ed.select (l);
+    if (blockAt (l, rs, bs, be))
+    {
+        if (e.mods.isPopupMenu() || e.mods.isAltDown()) { setRange (l, bs, be, false); selLane = -1; mode = NONE; repaint(); return; }   // tasto destro: cancella la zona
+        selLane = l; selS = bs; selE = be; bS = bs; bE = be;
+        const float cw = gr.getWidth() / ed.steps(), x0 = gr.getX() + bs * cw, x1 = gr.getX() + be * cw;
+        mode = e.position.x - x0 < 8 ? RESL : x1 - e.position.x < 8 ? RESR : MOVE;
+        dOff = rs - bs;
+    }
+    else
+    {
+        mode = (e.mods.isPopupMenu() || e.mods.isAltDown()) ? ERASE : CREATE; anchor = s;
+        setRange (l, s, s + span(), mode == CREATE);
+        if (mode == CREATE) { selLane = l; selS = s; selE = s + span(); int a2, b2; if (blockAt (l, s, a2, b2)) { selS = a2; selE = b2; } }
+        else selLane = -1;
+    }
+    repaint();
 }
 void Timeline::mouseDrag (const juce::MouseEvent& e)
 {
-    int l, s; if (paintLane < 0 || ! cellAt (e.position, l, s)) return;
-    hLane = paintLane; hStep = s;
-    for (int k = 0; k < span() && s + k < kMaxSteps; ++k) ed.proc.seq[paintLane][s + k] = paintVal;
+    if (mode == NONE || dLane < 0) return;
+    const int S = ed.steps(), sp = span(); const int rs = rawStep (e.position.x), st = rs / sp * sp;
+    for (int k = 0; k < kMaxSteps; ++k) ed.proc.seq[dLane][k] = before[k];
+    if (mode == CREATE || mode == ERASE)
+    {
+        const int a = juce::jmin (anchor, st), b = juce::jmin (S, juce::jmax (anchor, st) + sp);
+        setRange (dLane, a, b, mode == CREATE);
+        if (mode == CREATE) { int a2, b2; if (blockAt (dLane, a, a2, b2)) { selLane = dLane; selS = a2; selE = b2; } }
+    }
+    else
+    {
+        int ns = bS, ne = bE;
+        if (mode == MOVE) { ns = juce::jlimit (0, S - (bE - bS), (rs - dOff) / sp * sp); ne = ns + (bE - bS); }
+        if (mode == RESL) { ns = juce::jlimit (0, bE - 1, st); }
+        if (mode == RESR) { ne = juce::jlimit (bS + 1, S, st + sp); }
+        setRange (dLane, bS, bE, false); setRange (dLane, ns, ne, true);
+        int a2, b2; if (blockAt (dLane, ns, a2, b2)) { selLane = dLane; selS = a2; selE = b2; }
+    }
+    hLane = dLane; hStep = st;
     repaint();
 }
 void Timeline::mouseDoubleClick (const juce::MouseEvent& e)
@@ -412,8 +501,9 @@ void Timeline::mouseDoubleClick (const juce::MouseEvent& e)
     auto gr = grid();
     if (e.position.x >= gr.getX() || e.position.y < gr.getY()) return;
     const int l = juce::jlimit (0, kNumFx - 1, (int) ((e.position.y - gr.getY()) / (gr.getHeight() / kNumFx)));
+    ed.pushUndo();
     for (int s = 0; s < kMaxSteps; ++s) ed.proc.seq[l][s] = false;
-    repaint();
+    selLane = -1; repaint();
 }
 
 // ======================= Meter =======================
@@ -452,7 +542,7 @@ void Root::paint (juce::Graphics& g)
     // riga sotto il display
     caps (g, "Pad", { 226, 264, 40, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
     caps (g, "Quantizza", { 404, 264, 80, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
-    g.setColour (K::faint); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-9 \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 264, 366, 28), juce::Justification::centredRight);
+    g.setColour (K::faint); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-0 \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 264, 366, 28), juce::Justification::centredRight);
     // coreografia
     jlook::card (g, juce::Rectangle<float> (8, 552, Wf - 16, Hf - 32 - 558), 12, K::brand1, true, false, false);
     glow (g, "COREOGRAFIA", juce::Rectangle<float> (20, 560, 110, 30), K::ink, tf (10.5f, 2));
@@ -463,6 +553,9 @@ void Root::paint (juce::Graphics& g)
     g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawHorizontalLine (H - 30, 0, Wf);
     g.setColour (K::faint); g.setFont (tf (9.5f, 2, true));
     g.drawText (juce::String::fromUTF8 ("JACKPOT.WAV \xc2\xb7 TAPE MOTION \xc2\xb7 AU"), juce::Rectangle<int> (16, H - 30, 400, 30), juce::Justification::centredLeft);
+    g.setFont (tf (9.0f, 1)); g.drawText (juce::String::fromUTF8 ("coreografia: trascina = crea zona \xc2\xb7 trascina la zona = sposta \xc2\xb7 bordi = allunga \xc2\xb7 tasto dx o CANC = cancella \xc2\xb7 cmd+Z annulla"),
+                juce::Rectangle<int> (330, H - 30, W - 660, 30), juce::Justification::centred);
+    g.setFont (tf (9.5f, 2, true));
     g.drawText (ed.proc.uiHost.load() ? "BPM SINCRONIZZATI CON L'HOST" : (ed.proc.value ("sync") > 0.5f ? "IN ATTESA DEL PLAY DELL'HOST" : "BPM MANUALI"), juce::Rectangle<int> (W - 416, H - 30, 400, 30), juce::Justification::centredRight);
 }
 
@@ -477,13 +570,13 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     root.addAndMakeVisible (list); root.addAndMakeVisible (disp); root.addAndMakeVisible (fxEd); root.addAndMakeVisible (tl); root.addAndMakeVisible (meter);
     for (int f = 0; f < kNumFx; ++f) root.addAndMakeVisible (pads.add (new PadBtn (*this, f)));
     auto choice = [this] (const char* id) { return [this, id] { return (int) proc.value (id); }; };
-    auto setC = [this] (const char* id) { return [this, id] (int i) { auto* pr = proc.apvts.getParameter (id); pr->setValueNotifyingHost (pr->convertTo0to1 ((float) i)); fxEd.repaint(); for (auto* pd : pads) pd->repaint(); tl.repaint(); }; };
+    auto setC = [this] (const char* id) { return [this, id] (int i) { pushUndo(); auto* pr = proc.apvts.getParameter (id); pr->setValueNotifyingHost (pr->convertTo0to1 ((float) i)); fxEd.repaint(); for (auto* pd : pads) pd->repaint(); tl.repaint(); }; };
     modeSeg = std::make_unique<Seg> (juce::StringArray { "Hold", "One-shot" }, choice ("mode"), setC ("mode"));
     qSeg = std::make_unique<Seg> (juce::StringArray { "Off", "1/16", "1/4", "Bar" }, choice ("quant"), setC ("quant"));
     barsSeg = std::make_unique<Seg> (juce::StringArray { "1", "2", "4", "8" }, choice ("bars"), setC ("bars"));
     resSeg = std::make_unique<Seg> (juce::StringArray { "1/16", "1/8", "1/4" }, [this] { return res; }, [this] (int i) { res = i; });
     seqTog = std::make_unique<Toggle> ([this] { return proc.value ("seqOn") > 0.5f; }, [this] { auto* pr = proc.apvts.getParameter ("seqOn"); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); });
-    clearBtn = std::make_unique<TextBtn> ("Svuota", [this] { for (auto& r : proc.seq) for (auto& s : r) s = false; tl.repaint(); });
+    clearBtn = std::make_unique<TextBtn> ("Svuota", [this] { pushUndo(); tl.selLane = -1; for (auto& r : proc.seq) for (auto& s : r) s = false; tl.repaint(); });
     // generatore di coreografia
     styleBtn = std::make_unique<TextBtn> ("", [this]
     {
@@ -494,15 +587,15 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     styleBtn->text = proc.apvts.getParameter ("genStyle")->getCurrentValueAsText();
     genSeg = std::make_unique<Seg> (juce::StringArray { "Soft", "Med", "Hard" }, [this] { const float a = proc.value ("genAmt"); return a < 0.35f ? 0 : a < 0.7f ? 1 : 2; },
                                     [this] (int i) { proc.apvts.getParameter ("genAmt")->setValueNotifyingHost (i == 0 ? 0.2f : i == 1 ? 0.5f : 0.9f); });
-    genBtn = std::make_unique<TextBtn> ("Genera", [this] { proc.generate(); fxEd.rebuild(); tl.repaint(); });
+    genBtn = std::make_unique<TextBtn> ("Genera", [this] { pushUndo(); tl.selLane = -1; proc.generate(); fxEd.rebuild(); tl.repaint(); });
     genBtn->accent = true;
-    abBtn = std::make_unique<TextBtn> ("A / B", [this] { proc.ab.toggle (proc); abBtn->text = juce::String ("CONFRONTO ") + proc.ab.label(); fxEd.rebuild(); tl.repaint(); root.repaint(); });
+    abBtn = std::make_unique<TextBtn> ("A / B", [this] { pushUndo(); proc.ab.toggle (proc); abBtn->text = juce::String ("CONFRONTO ") + proc.ab.label(); fxEd.rebuild(); tl.repaint(); root.repaint(); });
     abBtn->text = "CONFRONTO A"; root.addAndMakeVisible (*abBtn);
     for (auto* c : std::initializer_list<juce::Component*> { modeSeg.get(), qSeg.get(), barsSeg.get(), resSeg.get(), seqTog.get(), clearBtn.get(), styleBtn.get(), genSeg.get(), genBtn.get() }) root.addAndMakeVisible (c);
     // preset
     auto showName = [this] { const auto n = proc.getProgramName (proc.presetIndex); pName->text = n.isEmpty() ? juce::String ("Init") : n; pName->repaint(); };
-    pPrev = std::make_unique<TextBtn> (juce::String::fromUTF8 ("\xe2\x80\xb9"), [this, showName] { proc.loadPreset ((proc.presetIndex - 1 + proc.getNumPrograms()) % proc.getNumPrograms()); showName(); fxEd.rebuild(); tl.repaint(); });
-    pNext = std::make_unique<TextBtn> (juce::String::fromUTF8 ("\xe2\x80\xba"), [this, showName] { proc.loadPreset ((proc.presetIndex + 1) % proc.getNumPrograms()); showName(); fxEd.rebuild(); tl.repaint(); });
+    pPrev = std::make_unique<TextBtn> (juce::String::fromUTF8 ("\xe2\x80\xb9"), [this, showName] { pushUndo(); proc.loadPreset ((proc.presetIndex - 1 + proc.getNumPrograms()) % proc.getNumPrograms()); showName(); fxEd.rebuild(); tl.repaint(); });
+    pNext = std::make_unique<TextBtn> (juce::String::fromUTF8 ("\xe2\x80\xba"), [this, showName] { pushUndo(); proc.loadPreset ((proc.presetIndex + 1) % proc.getNumPrograms()); showName(); fxEd.rebuild(); tl.repaint(); });
     pPrev->round = pNext->round = true;
     pName = std::make_unique<TextBtn> ("", [this, showName]
     {
@@ -516,10 +609,12 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
             if (! found) { juce::PopupMenu pm; pm.addItem (i + 1, item, true, i == proc.presetIndex); groups.push_back ({ gname, pm }); }
         }
         for (auto& gr : groups) m.addSubMenu (gr.first, gr.second);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (pName.get()), [this, showName] (int r) { if (r > 0) { proc.loadPreset (r - 1); showName(); fxEd.rebuild(); tl.repaint(); } });
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (pName.get()), [this, showName] (int r) { if (r > 0) { pushUndo(); proc.loadPreset (r - 1); showName(); fxEd.rebuild(); tl.repaint(); } });
     });
     bpmPill = std::make_unique<TextBtn> ("", [this] { auto* pr = proc.apvts.getParameter ("sync"); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); });
-    for (auto* c : std::initializer_list<juce::Component*> { pPrev.get(), pNext.get(), pName.get(), bpmPill.get() }) root.addAndMakeVisible (c);
+    undoBtn = std::make_unique<TextBtn> ("Annulla", [this] { undo(); });
+    redoBtn = std::make_unique<TextBtn> ("Rifai", [this] { redo(); });
+    for (auto* c : std::initializer_list<juce::Component*> { pPrev.get(), pNext.get(), pName.get(), bpmPill.get(), undoBtn.get(), redoBtn.get() }) root.addAndMakeVisible (c);
     showName();
     // manopole del nastro
     const auto vio = K::brand1;
@@ -529,8 +624,9 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     add ("wow", "Wow", vio, pct); add ("flut", "Flutter", vio, pct); add ("tone", "Tono", vio, pct);
     add ("drive", "Drive", vio, pct); add ("hiss", "Hiss", vio, pct); add ("drop", "Dropout", vio, pct);
     auto* bpmK = add ("bpm", "BPM man.", K::brand2, [] (float v) { return juce::String (v, 1); }); juce::ignoreUnused (bpmK);
+    for (auto* k : tapeKnobs) k->onStart = [this] { pushUndo(); };
 
-    select (STUT);
+    fxEd.rebuild();
     setWantsKeyboardFocus (true);
     root.addAndMakeVisible (sizeChip);
     scaler.setup();
@@ -539,18 +635,46 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 Editor::~Editor() { setLookAndFeel (nullptr); }
 
 int Editor::steps() const { static const int b[] = { 1, 2, 4, 8 }; return b[juce::jlimit (0, 3, (int) proc.value ("bars"))] * 16; }
-void Editor::select (int f) { sel = f; fxEd.rebuild(); list.repaint(); }
+void Editor::select (int f) { if (f != sel) { sel = f; fxEd.rebuild(); } list.repaint(); }
+
+void Editor::pushUndo()
+{
+    auto cur = snap();
+    if (! undoS.empty() && undoS.back().seq == cur.seq && undoS.back().st.isEquivalentTo (cur.st)) return;
+    undoS.push_back (std::move (cur)); if (undoS.size() > 120) undoS.erase (undoS.begin());
+    redoS.clear();
+}
+void Editor::restore (const Snap& sn)
+{
+    // ripristina solo i parametri (non i pad premuti)
+    for (int i = 0; i < sn.st.getNumChildren(); ++i)
+    {
+        auto c = sn.st.getChild (i); const auto id = c.getProperty ("id").toString();
+        if (id.startsWith ("pad")) continue;
+        if (auto* pr = proc.apvts.getParameter (id)) pr->setValueNotifyingHost (pr->convertTo0to1 ((float) (double) c.getProperty ("value")));
+    }
+    proc.setSeqString (sn.seq);
+    refreshAll();
+}
+void Editor::undo() { if (undoS.empty()) return; redoS.push_back (snap()); auto s = undoS.back(); undoS.pop_back(); restore (s); }
+void Editor::redo() { if (redoS.empty()) return; undoS.push_back (snap()); auto s = redoS.back(); redoS.pop_back(); restore (s); }
+void Editor::refreshAll()
+{
+    tl.selLane = -1; fxEd.rebuild(); tl.repaint(); list.repaint();
+    for (auto* p : pads) p->repaint(); for (auto* k : tapeKnobs) k->repaint();
+    for (auto* c : std::initializer_list<juce::Component*> { modeSeg.get(), qSeg.get(), barsSeg.get(), resSeg.get(), seqTog.get(), genSeg.get() }) c->repaint();
+}
 
 void Editor::resized()
 {
     const float s = scaler.update();
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     root.setBounds (0, 0, W, H); root.setTransform (juce::AffineTransform::scale (s));
-    list.setBounds (20, 74, 172, 400);
+    list.setBounds (20, 74, 172, 404);
     disp.setBounds (224, 72, 782, 182);
     modeSeg->setBounds (256, 264, modeSeg->preferredWidth(), 28);
     qSeg->setBounds (484, 264, qSeg->preferredWidth(), 28);
-    const int pw = (782 - 8 * 6) / 9;
+    const int pw = (782 - (kNumFx - 1) * 6) / kNumFx;
     for (int f = 0; f < kNumFx; ++f) pads[f]->setBounds (224 + f * (pw + 6), 300, pw, 56);
     fxEd.setBounds (224, 366, 782, 168);
     // destra
@@ -562,9 +686,10 @@ void Editor::resized()
     tapeKnobs[9]->setVisible (proc.value ("sync") < 0.5f);
     meter.setBounds (rx + (tapeKnobs[9]->isVisible() ? 80 : 18), 490, tapeKnobs[9]->isVisible() ? 124 : 186, 30);
     // intestazione
-    pPrev->setBounds (420, 11, 34, 36); pName->setBounds (454, 11, 332, 36); pNext->setBounds (786, 11, 34, 36);
+    pPrev->setBounds (380, 11, 34, 36); pName->setBounds (414, 11, 320, 36); pNext->setBounds (734, 11, 34, 36);
     bpmPill->setBounds (1060, 11, 164, 36);
-    abBtn->setBounds (850, 11, 92, 36);
+    abBtn->setBounds (776, 11, 104, 36);
+    undoBtn->setBounds (888, 11, 86, 36); redoBtn->setBounds (974, 11, 80, 36);
     // coreografia
     seqTog->setBounds (124, 565, 38, 20);
     barsSeg->setBounds (232, 561, barsSeg->preferredWidth(), 28);
@@ -585,18 +710,28 @@ void Editor::timerCallback()
     disp.repaint(); list.repaint(); tl.repaint(); meter.repaint(); bpmPill->repaint();
     for (auto* p : pads) p->repaint();
     for (auto* k : fxEd.knobs) k->repaint();
+    { const float sg = fxEd.paramSig(); if (sg != fxEd.lastSig) { fxEd.lastSig = sg; fxEd.repaint(); } }
+    if (proc.uiHost.load() && (sel == HALF)) fxEd.repaint (fxEd.curveArea());
+    undoBtn->accent = false; undoBtn->setAlpha (undoS.empty() ? 0.45f : 1.0f); redoBtn->setAlpha (redoS.empty() ? 0.45f : 1.0f);
     { const auto st = proc.apvts.getParameter ("genStyle")->getCurrentValueAsText(); if (styleBtn->text != st) { styleBtn->text = st; styleBtn->repaint(); } }
     for (auto* k : tapeKnobs) k->repaint();
     static int n = 0; if (++n % 15 == 0) root.repaint (0, H - 32, W, 32);
 }
 
-bool Editor::keyPressed (const juce::KeyPress& k) { const int c = k.getKeyCode(); return c >= '1' && c <= '9'; }
+bool Editor::keyPressed (const juce::KeyPress& k)
+{
+    const int c = k.getKeyCode();
+    if (k.getModifiers().isCommandDown() && (c == 'z' || c == 'Z')) { if (k.getModifiers().isShiftDown()) redo(); else undo(); return true; }
+    if (k.getModifiers().isCommandDown() && (c == 'y' || c == 'Y')) { redo(); return true; }
+    if (c == juce::KeyPress::deleteKey || c == juce::KeyPress::backspaceKey) { tl.deleteSelected(); return true; }
+    return c >= '0' && c <= '9';
+}
 bool Editor::keyStateChanged (bool)
 {
     bool used = false;
     for (int f = 0; f < kNumFx; ++f)
     {
-        const bool d = juce::KeyPress::isKeyCurrentlyDown ('1' + f);
+        const bool d = juce::KeyPress::isKeyCurrentlyDown (kFx[f].key);
         if (d && ! keysDown.count (f)) { keysDown.insert (f); proc.uiPad[f] = true; select (f); used = true; }
         else if (! d && keysDown.count (f)) { keysDown.erase (f); proc.uiPad[f] = false; used = true; }
     }

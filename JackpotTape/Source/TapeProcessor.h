@@ -7,7 +7,7 @@
 
 namespace jt
 {
-enum Fx { STOP, START, SPIN, HALF, REV, STUT, LOOP, GLITCH, GATE, kNumFx };
+enum Fx { STOP, START, SPIN, HALF, REV, STUT, LOOP, GLITCH, GATE, CRUSH, kNumFx };
 constexpr int kMaxSteps = 128;   // 8 battute in sedicesimi
 constexpr int kCols = 512;       // risoluzione della traccia nel display
 
@@ -24,6 +24,16 @@ extern const PSpec kParams[];
 extern const int kNumParams;
 
 struct Preset;
+
+// distorsione dello stacco: da saturazione morbida (char 0) a distorsione dura (0.5) a fuzz ripiegato (1); uscita compensata
+inline float crushShape (float x, float drive, float ch)
+{
+    const float g = 1.0f + drive * drive * 40.0f + drive * 3.0f;
+    const float soft = std::tanh (x * g), hard = juce::jlimit (-1.0f, 1.0f, x * g * 1.2f), fold = std::sin (juce::jlimit (-6.0f, 6.0f, x * g) * 1.5707963f);
+    const float y = ch < 0.5f ? soft + (hard - soft) * ch * 2.0f : hard + (fold - hard) * (ch - 0.5f) * 2.0f;
+    return y * (0.3f / std::tanh (0.3f * g));
+}
+inline float crushBits (float y, float bits) { if (bits >= 15.9f) return y; const float q = std::pow (2.0f, bits - 1.0f); return std::round (y * q) / q; }
 
 class Processor : public juce::AudioProcessor
 {
@@ -58,6 +68,9 @@ public:
     void generate();   // coreografia generata a regole
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     float fxValue (int fx, const char* p) const;
+    bool fxEnabled (int fx) const { return onPtr[fx]->load() > 0.5f; }
+    juce::String seqString() const;
+    void setSeqString (const juce::String&);
 
     // per il display
     std::atomic<float> dispWet[kCols], dispDry[kCols], dispSpd[kCols];
@@ -70,6 +83,7 @@ public:
 private:
     std::atomic<float>* paramPtr[64] = {};
     std::atomic<float>* padPtr[kNumFx] = {};
+    std::atomic<float>* onPtr[kNumFx] = {};
     juce::AudioBuffer<float> hist; int HL = 1 << 21, HM = (1 << 21) - 1;
     juce::int64 T = 0;               // campioni scritti
     double R = 0;                     // testina di lettura (assoluta)
@@ -86,6 +100,7 @@ private:
     juce::dsp::IIR::Filter<float> bumpL, bumpR;
     float lpIcL[2] = {}, lpIcR[2] = {}, lpZL = 0, lpZR = 0, cutoffSm = 20000, dgSm = 1, outSm = 1;
     float speedAcc = 0; int speedN = 0; float volSm = 1, hissLp = 0, stLp[2] = {};
+    float mixSm = 1, crFade = 0, crHold[2] = {}, crLp[2] = {}; int crCnt = 0;
 
     float rd (double pos, int ch) const;
     void activate (int fx, double bf, double beatAtT, juce::int64 t);

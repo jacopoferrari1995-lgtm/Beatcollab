@@ -7,6 +7,7 @@ namespace jmo
 {
 struct Preset { const char* name; const char* note; std::vector<std::pair<const char*, float>> v; };
 const std::vector<Preset>& presets();
+juce::String pid (int fx, const char* p);
 
 struct Ring
 {
@@ -50,9 +51,11 @@ public:
     Ring ringIn, ringOut, ringOutR;
     std::atomic<float> inPk[2] {}, outPk[2] {}, corr { 1 };
     std::atomic<double> uiBpm { 120 };
+    int uiSel = CHORUS;   // effetto selezionato nell'interfaccia (salvato con lo stato)
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100; float cxy = 0, cxx = 1e-9f, cyy = 1e-9f;
     std::vector<float> mono;
+    std::atomic<float>* ptr[kNumFx][11] {};
 };
 }
