@@ -101,7 +101,17 @@ int main (int argc, char** argv)
         Editor ed (*p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         if (auto* pg = std::getenv ("JPAGE")) ed.select (std::atoi (pg));
-        ed.tickForTest();
+        if (std::getenv ("JREF"))
+        {
+            juce::File wf ("/tmp/jref.wav"); wf.deleteFile();
+            { juce::WavAudioFormat wav; std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (wf), sr, 2, 24, {}, 0));
+              juce::AudioBuffer<float> bb (2, (int) sr * 8); for (int i = 0; i < bb.getNumSamples(); ++i) { float l, r; beat (i, l, r); bb.setSample (0, i, l * 1.6f); bb.setSample (1, i, r * 1.6f); }
+              bb.applyGainRamp (0, bb.getNumSamples(), 1, 1); w->writeFromAudioSampleBuffer (bb, 0, bb.getNumSamples()); }
+            p->loadReference (wf); juce::Thread::sleep (50); for (int i = 0; i < 400 && p->refLoading.load(); ++i) juce::Thread::sleep (10);
+            p->refPos = sr * 3;
+            auto rt = p->reference(); std::printf ("riferimento: %s  %.1f LUFS  %.1f dBTP\n", rt ? rt->name.toRawUTF8() : "nessuno", rt ? rt->lufs : 0.0f, rt ? rt->tp : 0.0f);
+        }
+        for (int i = 0; i < 30; ++i) ed.tickForTest();
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argc > 2 ? argv[2] : "/tmp/master.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

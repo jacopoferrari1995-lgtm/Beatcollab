@@ -1152,6 +1152,168 @@ void ExView::mouseDrag (const juce::MouseEvent& e)
     repaint();
 }
 
+// ======================================================================= BILANCIAMENTO TONALE
+static void drawThirds (juce::Graphics& g, const float* v, juce::Rectangle<float> r, juce::Colour c, float range, bool fill)
+{
+    juce::Path p;
+    for (int k = 0; k < kThirds; ++k)
+    {
+        const float x = r.getX() + r.getWidth() * k / (kThirds - 1), y = r.getCentreY() - juce::jlimit (-1.0f, 1.0f, v[k] / range) * r.getHeight() * 0.5f;
+        if (k == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
+    }
+    if (fill) { juce::Path f = p; f.lineTo (r.getRight(), r.getBottom()); f.lineTo (r.getX(), r.getBottom()); f.closeSubPath(); juce::ColourGradient cg (c.withAlpha (0.2f), 0, r.getY(), c.withAlpha (0.02f), 0, r.getBottom(), false); g.setGradientFill (cg); g.fillPath (f); }
+    g.setColour (c.withAlpha (0.25f)); g.strokePath (p, juce::PathStrokeType (4.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (1.6f));
+}
+static float targetAt (const float* off, float f)
+{
+    // interpolazione in log-frequenza tra i centri delle regioni
+    float m = 0; for (int r = 0; r < kRegions; ++r) m += off[r]; m /= kRegions;
+    const float lf = std::log2 (f);
+    if (lf <= std::log2 (regionCentre (0))) return off[0] - m;
+    for (int r = 0; r < kRegions - 1; ++r)
+    {
+        const float a = std::log2 (regionCentre (r)), b = std::log2 (regionCentre (r + 1));
+        if (lf <= b) { const float t = (lf - a) / (b - a); return off[r] + (off[r + 1] - off[r]) * t - m; }
+    }
+    return off[kRegions - 1] - m;
+}
+BalancePage::BalancePage (Editor& e) : ed (e)
+{
+    fix = std::make_unique<ActBtn> ("CORREGGI CON L'EQ DINAMICO", C::green, [this]
+    {
+        float reg[kRegions], dev[kRegions]; ThirdAnalyzer::regions (ed.liveThirds, reg);
+        const auto& G = genre (genreSel); float m = 0; for (float o : G.off) m += o; m /= kRegions;
+        for (int r = 0; r < kRegions; ++r) dev[r] = reg[r] - (G.off[r] - m);
+        applyEq (dev);
+    });
+    reset = std::make_unique<ActBtn> ("RIMETTI L'EQ A ZERO", C::phos, [this] { for (int b = 0; b < kEqBands; ++b) { auto* p = ed.P (eqId (b, "g")); p->setValueNotifyingHost (p->getDefaultValue()); } });
+    addAndMakeVisible (*fix); addAndMakeVisible (*reset);
+}
+void BalancePage::applyEq (const float* dev)
+{
+    // una banda per regione: shelf per gli estremi, campane in mezzo. Correzione al 70%, massimo 4 dB.
+    static const float f[kRegions] = { 45, 130, 450, 1400, 4000, 11000 };
+    static const int t[kRegions] = { Biquad::LSHELF, Biquad::BELL, Biquad::BELL, Biquad::BELL, Biquad::BELL, Biquad::HSHELF };
+    auto set = [this] (const char* id, float v) { auto* p = ed.P (id); p->setValueNotifyingHost (p->convertTo0to1 (v)); };
+    for (int r = 0; r < kRegions; ++r)
+    {
+        set (eqId (r, "on"), 1); set (eqId (r, "type"), (float) t[r]); set (eqId (r, "ch"), 0); set (eqId (r, "f"), f[r]);
+        set (eqId (r, "q"), t[r] == Biquad::BELL ? 0.7f : 0.7f); set (eqId (r, "dyn"), 0);
+        set (eqId (r, "g"), juce::jlimit (-4.0f, 4.0f, -dev[r] * 0.7f));
+    }
+    set ("eq_on", 1);
+}
+void BalancePage::resized() { fix->setBounds (16, 556, 300, 34); reset->setBounds (326, 556, 200, 34); }
+void BalancePage::mouseDown (const juce::MouseEvent& e) { for (int g = 0; g < kGenres; ++g) if (genreCell (g).contains (e.position)) { genreSel = g; repaint(); } }
+void BalancePage::paint (juce::Graphics& g)
+{
+    glowText (g, "BILANCIAMENTO TONALE", { 16, 10, 400, 26 }, C::green, uf (17.0f));
+    g.setColour (C::dim); g.setFont (uf (10.5f, false)); g.drawText ("Confronta lo spettro medio del tuo master con quello tipico del genere.", juce::Rectangle<float> (300, 14, 540, 20), juce::Justification::centredRight);
+    for (int k = 0; k < kGenres; ++k) jlook::button (g, genreCell (k), C::green, k == genreSel, false, genre (k).name, uf (10.0f));
+    auto r = juce::Rectangle<float> (16, 120, 822, 300); lcd (g, r, 8);
+    auto plot = r.reduced (40, 16);
+    const auto& G = genre (genreSel);
+    // fascia obiettivo +-2.5 dB
+    juce::Path band; const int n = 80;
+    for (int i = 0; i <= n; ++i) { const float f = 20.0f * std::pow (1000.0f, i / (float) n), x = plot.getX() + plot.getWidth() * i / n, y = plot.getCentreY() - juce::jlimit (-1.0f, 1.0f, (targetAt (G.off, f) + 2.5f) / 15.0f) * plot.getHeight() * 0.5f; if (i == 0) band.startNewSubPath (x, y); else band.lineTo (x, y); }
+    for (int i = n; i >= 0; --i) { const float f = 20.0f * std::pow (1000.0f, i / (float) n), x = plot.getX() + plot.getWidth() * i / n, y = plot.getCentreY() - juce::jlimit (-1.0f, 1.0f, (targetAt (G.off, f) - 2.5f) / 15.0f) * plot.getHeight() * 0.5f; band.lineTo (x, y); }
+    band.closeSubPath(); g.setColour (C::green.withAlpha (0.13f)); g.fillPath (band); g.setColour (C::green.withAlpha (0.4f)); g.strokePath (band, juce::PathStrokeType (1.0f));
+    // regioni
+    g.setFont (mf (8.5f));
+    for (int k = 0; k <= kRegions; ++k)
+    {
+        const float x = plot.getX() + plot.getWidth() * (float) (std::log (regionEdge (k) / 20.0) / std::log (1000.0));
+        g.setColour (C::phos.withAlpha (0.08f)); g.drawVerticalLine ((int) x, plot.getY(), plot.getBottom());
+        if (k < kRegions) { const float x2 = plot.getX() + plot.getWidth() * (float) (std::log (regionEdge (k + 1) / 20.0) / std::log (1000.0)); g.setColour (C::dim); g.drawText (regionName (k), juce::Rectangle<float> (x, plot.getBottom() + 2, x2 - x, 12), juce::Justification::centred); }
+    }
+    const bool has = ed.live.hasData();
+    if (has) drawThirds (g, ed.liveThirds, plot, C::amber, 15.0f, false);
+    else glowText (g, "FAI SUONARE IL PEZZO", plot, C::dim, uf (14.0f), juce::Justification::centred);
+    // scarti per regione
+    if (has)
+    {
+        float reg[kRegions]; ThirdAnalyzer::regions (ed.liveThirds, reg); float m = 0; for (float o : G.off) m += o; m /= kRegions;
+        const float cw = 822.0f / kRegions;
+        for (int k = 0; k < kRegions; ++k)
+        {
+            const float d = reg[k] - (G.off[k] - m);
+            auto c = juce::Rectangle<float> (16 + k * cw + 3, 432, cw - 6, 110); lcd (g, c, 6);
+            g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText (regionName (k), c.reduced (8, 6).removeFromTop (12), juce::Justification::centredLeft);
+            const auto col = std::abs (d) < 2.5f ? C::green : d > 0 ? C::amber : C::phos;
+            glowText (g, (d > 0 ? "+" : "") + juce::String (d, 1) + " dB", { c.getX() + 8, c.getY() + 24, c.getWidth() - 16, 26 }, col, jlook::logo (15.0f));
+            g.setColour (C::text.withAlpha (0.8f)); g.setFont (uf (10.0f, false));
+            g.drawFittedText (std::abs (d) < 2.5f ? juce::String ("nella norma") : d > 0 ? juce::String ("troppo: abbassa ") + regionName (k) : juce::String ("poco: alza ") + regionName (k),
+                              c.reduced (8, 0).withTrimmedTop (56).toNearestInt(), juce::Justification::topLeft, 3);
+        }
+    }
+    g.setColour (C::dim); g.setFont (uf (10.0f, false));
+    g.drawFittedText ("La linea ambra e il tuo master (media degli ultimi secondi), la fascia verde e dove stanno i master del genere. CORREGGI scrive nell'EQ dinamico sei bande che riportano il suono verso la fascia (al 70%, massimo 4 dB): poi ritocca a orecchio.",
+                      juce::Rectangle<int> (540, 552, 300, 60), juce::Justification::topLeft, 4);
+}
+
+// ======================================================================= RIFERIMENTO
+RefPage::RefPage (Editor& e) : ed (e)
+{
+    load = std::make_unique<ActBtn> ("CARICA RIFERIMENTO...", C::phos, [this]
+    {
+        chooser = std::make_unique<juce::FileChooser> ("Scegli un master di riferimento", juce::File::getSpecialLocation (juce::File::userMusicDirectory), "*.wav;*.aif;*.aiff;*.mp3;*.flac");
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& fc) { if (fc.getResult().existsAsFile()) ed.proc.loadReference (fc.getResult()); });
+    });
+    listen = std::make_unique<ActBtn> ("ASCOLTA: MIO MASTER", C::amber, [this] { ed.proc.refListen = ! ed.proc.refListen.load(); });
+    match = std::make_unique<ActBtn> ("A VOLUME UGUALE: SI", C::green, [this] { ed.proc.refMatch = ! ed.proc.refMatch.load(); });
+    matchEq = std::make_unique<ActBtn> ("MATCH EQ: AVVICINA AL RIFERIMENTO", C::green, [this]
+    {
+        auto rt = ed.proc.reference(); if (! rt || ! ed.live.hasData()) return;
+        float a[kRegions], b[kRegions], dev[kRegions]; ThirdAnalyzer::regions (ed.liveThirds, a); ThirdAnalyzer::regions (rt->thirds, b);
+        for (int r = 0; r < kRegions; ++r) dev[r] = a[r] - b[r];
+        ed.balPage.applyEq (dev);
+    });
+    for (auto* x : { load.get(), listen.get(), match.get(), matchEq.get() }) addAndMakeVisible (x);
+}
+void RefPage::resized() { load->setBounds (16, 52, 220, 34); listen->setBounds (246, 52, 220, 34); match->setBounds (476, 52, 180, 34); matchEq->setBounds (16, 556, 340, 34); }
+void RefPage::mouseDown (const juce::MouseEvent& e)
+{
+    auto rt = ed.proc.reference(); auto w = waveR();
+    if (rt && w.contains (e.position)) ed.proc.refPos = (double) ((e.position.x - w.getX()) / w.getWidth() * rt->buf.getNumSamples());
+}
+void RefPage::paint (juce::Graphics& g)
+{
+    auto& P = ed.proc; auto rt = P.reference();
+    listen->text = P.refListen.load() ? "ASCOLTA: RIFERIMENTO" : "ASCOLTA: MIO MASTER"; listen->down = P.refListen.load();
+    match->text = P.refMatch.load() ? "A VOLUME UGUALE: SI" : "A VOLUME UGUALE: NO";
+    glowText (g, "TRACCIA DI RIFERIMENTO", { 16, 10, 400, 26 }, C::phos, uf (17.0f));
+    auto w = waveR(); lcd (g, w, 8);
+    if (P.refLoading.load()) glowText (g, "CARICO E ANALIZZO...", w, C::amber, uf (13.0f), juce::Justification::centred);
+    else if (! rt) glowText (g, "CARICA UN MASTER CHE TI PIACE (WAV, AIFF, MP3, FLAC)", w, C::dim, uf (12.0f), juce::Justification::centred);
+    else
+    {
+        const int n = (int) rt->overview.size();
+        for (int i = 0; i < n; ++i) { const float x = w.getX() + w.getWidth() * i / n, h = rt->overview[(size_t) i] * (w.getHeight() - 10) * 0.5f; g.setColour (C::phos.withAlpha (0.6f)); g.drawVerticalLine ((int) x, w.getCentreY() - h, w.getCentreY() + h); }
+        const float px = w.getX() + w.getWidth() * (float) (P.refPos.load() / juce::jmax (1, rt->buf.getNumSamples()));
+        g.setColour (C::amber); g.fillRect (px - 1, w.getY(), 2.0f, w.getHeight());
+        glowText (g, rt->name, { w.getX() + 10, w.getY() + 6, 400, 14 }, C::text, mf (10.0f));
+    }
+    // confronto numeri
+    auto c = juce::Rectangle<float> (16, 202, 822, 70); lcd (g, c, 8);
+    const float myI = P.lufsI.load() > -60 ? P.lufsI.load() : P.lufsS.load();
+    auto col = [&] (int i, const juce::String& k, const juce::String& v, juce::Colour cc)
+    { auto r = juce::Rectangle<float> (c.getX() + 12 + i * 200.0f, c.getY() + 8, 190, 54); g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText (k, r.removeFromTop (14), juce::Justification::centredLeft); glowText (g, v, r, cc, jlook::logo (15.0f)); };
+    col (0, "MIO MASTER", myI > -60 ? juce::String (myI, 1) + " LUFS" : juce::String ("-"), C::amber);
+    col (1, "RIFERIMENTO", rt ? juce::String (rt->lufs, 1) + " LUFS" : juce::String ("-"), C::phos);
+    col (2, "DIFFERENZA", (rt && myI > -60) ? dbS (myI - rt->lufs) + " dB" : juce::String ("-"), C::text);
+    col (3, "TP RIFERIMENTO", rt ? juce::String (rt->tp, 1) + " dBTP" : juce::String ("-"), C::text);
+    // spettri a confronto
+    auto r = juce::Rectangle<float> (16, 284, 822, 260); lcd (g, r, 8);
+    auto plot = r.reduced (30, 14);
+    for (int k = 0; k <= kRegions; ++k) { const float x = plot.getX() + plot.getWidth() * (float) (std::log (regionEdge (k) / 20.0) / std::log (1000.0)); g.setColour (C::phos.withAlpha (0.08f)); g.drawVerticalLine ((int) x, plot.getY(), plot.getBottom()); }
+    if (rt) drawThirds (g, rt->thirds, plot, C::phos, 15.0f, true);
+    if (ed.live.hasData()) drawThirds (g, ed.liveThirds, plot, C::amber, 15.0f, false);
+    g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText ("AMBRA = mio master   AZZURRO = riferimento   (spettro medio, a volume normalizzato)", juce::Rectangle<float> (plot.getX(), r.getBottom() - 14, 600, 12), juce::Justification::centredLeft);
+    g.setColour (C::dim); g.setFont (uf (10.0f, false));
+    g.drawFittedText ("Clicca sulla forma d'onda per scegliere il punto. A VOLUME UGUALE porta il riferimento alla loudness del tuo master: confronti il suono, non il volume. MATCH EQ scrive nell'EQ dinamico sei bande che avvicinano il tuo bilanciamento al riferimento.",
+                      juce::Rectangle<int> (370, 552, 470, 60), juce::Justification::topLeft, 4);
+}
+
 void SoonPage::paint (juce::Graphics& g)
 {
     const auto& mi = modInfo (mod); const auto c = juce::Colour (mi.colour);
@@ -1225,7 +1387,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     compare = std::make_unique<Switch> (P ("compare"), C::phos, "CONFRONTA A VOLUME UGUALE");
     norm = std::make_unique<Switch> (P ("norm"), C::green, "ASCOLTA COME LA PIATTAFORMA");
     dither = std::make_unique<Segs> (P ("dither"), C::violet, juce::StringArray { "OFF", "24 BIT", "16 BIT", "16 SHAPED" }); dither->font = 10.0f;
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &chain, &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &soon, &loud, trim.get(), compare.get(), norm.get(), dither.get() }) addAndMakeVisible (c);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &chain, &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &balPage, &refPage, &soon, &loud, trim.get(), compare.get(), norm.get(), dither.get() }) addAndMakeVisible (c);
     addAndMakeVisible (sizeChip);
     select (MAXIM);
     scaler.setup();
@@ -1235,16 +1397,17 @@ void Editor::select (int m)
 {
     sel = m;
     maxPage.setVisible (m == MAXIM); limPage.setVisible (m == LIMIT); bassPage.setVisible (m == BASS); eqPage.setVisible (m == DYNEQ); imPage.setVisible (m == IMAGER);
-    dsPage.setVisible (m == DEESS); busPage.setVisible (m == BUSCOMP); mbPage.setVisible (m == MULTI); tpPage.setVisible (m == TAPE); exPage.setVisible (m == EXCITER);
-    soon.setVisible (! modInfo (m).ready); soon.mod = m;
+    dsPage.setVisible (m == DEESS); busPage.setVisible (m == BUSCOMP); mbPage.setVisible (m == MULTI); tpPage.setVisible (m == TAPE); exPage.setVisible (m == EXCITER); balPage.setVisible (m == TOOL_BAL); refPage.setVisible (m == TOOL_REF);
+    soon.setVisible (m < kNumMods && ! modInfo (m).ready); soon.mod = m < kNumMods ? m : 0;
     chain.repaint(); repaint();
 }
 void Editor::resized()
 {
     const float sc = scaler.update();
     presetRect = { 450, 15, 330, 36 }; prevRect = { 412, 15, 36, 36 }; nextRect = { 782, 15, 36, 36 }; abRect = { 830, 15, 110, 36 };
+    balRect = { 956, 15, 150, 36 }; refRect = { 1112, 15, 150, 36 };
     chain.setBounds (18, 76, 1244, 66);
-    for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &soon }) pg->setBounds (18, 154, 854, 628);
+    for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &balPage, &refPage, &soon }) pg->setBounds (18, 154, 854, 628);
     loud.setBounds (884, 154, 378, 406);
     trim->setBounds (898, 606, 84, 84 + 27);
     compare->setBounds (996, 604, 260, 22); norm->setBounds (996, 632, 260, 22);
@@ -1264,15 +1427,16 @@ void Editor::paint (juce::Graphics& g)
     g.setColour (C::phos); g.setFont (uf (20.0f));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
     jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, abHover, "CONFRONTO " + proc.ab.label(), uf (11.5f));
-    if (proc.value ("compare") > 0.5f) jlook::button (g, { Wf - 300, 18, 280, 30 }, C::phos, true, false, "ASCOLTI L'ORIGINALE A VOLUME UGUALE", uf (11.0f));
-    else if (proc.value ("norm") > 0.5f) jlook::button (g, { Wf - 300, 18, 280, 30 }, C::green, true, false, "ASCOLTO NORMALIZZATO: SPEGNI PRIMA DI ESPORTARE", uf (10.5f));
+    jlook::button (g, balRect.toFloat(), C::green, sel == TOOL_BAL, false, "BILANCIO TONALE", uf (11.0f));
+    jlook::button (g, refRect.toFloat(), C::phos, sel == TOOL_REF || proc.refListen.load(), false, proc.refListen.load() ? "RIFERIMENTO IN ASCOLTO" : "RIFERIMENTO", uf (11.0f));
+    if (proc.value ("compare") > 0.5f) jlook::button (g, { 900, 742, 352, 30 }, C::phos, true, false, "ASCOLTI L'ORIGINALE A VOLUME UGUALE", uf (11.0f));
+    else if (proc.value ("norm") > 0.5f) jlook::button (g, { 900, 742, 352, 30 }, C::green, true, false, "NORMALIZZATO: SPEGNI PRIMA DI ESPORTARE", uf (10.5f));
     else
     {
         g.setColour (C::dim); g.setFont (mf (9.0f));
-        g.drawText ("latenza " + juce::String (proc.getLatencySamples() * 1000.0 / juce::jmax (1.0, proc.sampleRate()), 1) + " ms (compensata)", juce::Rectangle<float> (Wf - 250, 20, 230, 14), juce::Justification::centredRight);
-        for (int i = 0; i < 9; ++i) { auto r = juce::Rectangle<float> (Wf - 120 + i * 11.0f, 38, 5, 14); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 2.5f); }
+        g.drawText ("latenza " + juce::String (proc.getLatencySamples() * 1000.0 / juce::jmax (1.0, proc.sampleRate()), 1) + " ms (compensata)", juce::Rectangle<float> (900, 580, 352, 14), juce::Justification::centredRight);
     }
-    const auto mc = juce::Colour (modInfo (sel).colour);
+    const auto mc = sel < kNumMods ? juce::Colour (modInfo (sel).colour) : (sel == TOOL_BAL ? C::green : C::phos);
     auto card = [&] (juce::Rectangle<float> r, juce::Colour c) { jlook::softShadow (g, r, 14); jlook::card (g, r, 14, c, true, false, false); };
     card ({ 18, 154, 854, 628 }, mc);
     card ({ 884, 154, 378, 406 }, C::green);
@@ -1280,8 +1444,9 @@ void Editor::paint (juce::Graphics& g)
     glowText (g, "USCITA", { 900, 578, 200, 24 }, C::text, uf (13.0f));
     g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText ("DITHER (solo per l'export finale)", juce::Rectangle<float> (996, 684, 260, 12), juce::Justification::centredLeft);
     g.setColour (C::dim); g.setFont (uf (10.0f, false));
-    g.drawFittedText ("Il confronto alza l'originale allo stesso volume: senti cosa cambia davvero, non solo il piu forte. 16 SHAPED solo se esporti a 16 bit.",
-                      juce::Rectangle<int> (900, 734, 352, 40), juce::Justification::topLeft, 3);
+    if (proc.value ("compare") < 0.5f && proc.value ("norm") < 0.5f)
+        g.drawFittedText ("Il confronto alza l'originale allo stesso volume: senti cosa cambia davvero, non solo il piu forte. 16 SHAPED solo se esporti a 16 bit.",
+                          juce::Rectangle<int> (900, 734, 352, 40), juce::Justification::topLeft, 3);
 }
 
 void Editor::mouseMove (const juce::MouseEvent& e0)
@@ -1296,6 +1461,8 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int n = (int) presets().size();
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); repaint(); }
+    else if (balRect.contains (e.getPosition())) select (TOOL_BAL);
+    else if (refRect.contains (e.getPosition())) select (TOOL_REF);
     else if (prevRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + n - 1) % n); repaint(); }
     else if (nextRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + 1) % n); repaint(); }
     else if (presetRect.contains (e.getPosition()))
@@ -1321,8 +1488,14 @@ void Editor::timerCallback()
     chain.repaint(); loud.repaint();
     if (maxPage.isVisible()) maxPage.repaint();
     if (limPage.isVisible()) limPage.repaint();
-    for (auto* pg : std::initializer_list<juce::Component*> { &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage }) if (pg->isVisible()) pg->repaint();
+    for (auto* pg : std::initializer_list<juce::Component*> { &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &balPage, &refPage }) if (pg->isVisible()) pg->repaint();
+    if (tick % 3 == 0)
+    {   // spettro medio dell'uscita per bilanciamento e riferimento
+        float l[4096], r[4096]; proc.ringOut.read (l, r, 4096);
+        float e = 0; for (int i = 0; i < 4096; ++i) { l[i] = 0.5f * (l[i] + r[i]); e += l[i] * l[i]; }
+        if (e > 4096 * 1e-7f) { live.addFrame (l, proc.sampleRate(), live.frames < 10 ? 0.3 : 0.03); live.result (liveThirds); }
+    }
     trim->repaint(); compare->repaint(); norm->repaint(); dither->repaint();
-    if (++tick % 10 == 0) repaint (scaler.map ({ W - 320, 8, 312, 50 }));
+    if (++tick % 10 == 0) { repaint (scaler.map ({ 950, 8, 320, 50 })); repaint (scaler.map ({ 884, 572, 378, 210 })); }
 }
 }

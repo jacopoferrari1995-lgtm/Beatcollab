@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "JackpotLook.h"
 #include "MasterColor.h"
+#include "MasterAnalysis.h"
 
 namespace jms
 {
@@ -48,7 +49,7 @@ class Processor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     Processor();
-    ~Processor() override { stopTimer(); }
+    ~Processor() override { stopTimer(); for (int i = 0; i < 500 && refLoading.load(); ++i) juce::Thread::sleep (10); }
     void prepareToPlay (double, int) override;
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout&) const override;
@@ -83,6 +84,11 @@ public:
     void setOrder (const std::array<int, kNumMods>&);
     std::array<int, kNumMods> getOrder() const;
     std::atomic<float> bassPeak { 0 }, exMeter { 0 };
+    // traccia di riferimento
+    void loadReference (const juce::File&);
+    std::shared_ptr<RefTrack> reference() const { const juce::SpinLock::ScopedLockType sl (refLock); return ref; }
+    std::atomic<bool> refListen { false }, refMatch { true }, refLoading { false };
+    std::atomic<double> refPos { 0 }; std::atomic<float> refGainDb { 0 };
     std::atomic<float> dsGr { 0 }, dsRel { -60 }, busGr { 0 }, mbLevel[kMbBands] {}, mbDown[kMbBands] {}, mbUp[kMbBands] {};
     StereoRing ringOut, ringIn;
     double eqRate() const { return sr; }
@@ -99,6 +105,7 @@ private:
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2];
     juce::AudioBuffer<float> tmp, keep;
     float matchSm = 1, normSm = 1, colIn = 0, colOut = 0, colM = 0, colL = 0; int colN = 0;
+    std::shared_ptr<RefTrack> ref; mutable juce::SpinLock refLock;
     float tpHold = -100; double cLR = 0, cLL = 1e-9, cRR = 1e-9;
 };
 }

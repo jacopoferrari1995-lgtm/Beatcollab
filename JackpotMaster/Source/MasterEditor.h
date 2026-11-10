@@ -304,6 +304,31 @@ public:
     ExView view; std::unique_ptr<Segs> mode[kExBands]; std::unique_ptr<Switch> solo[kExBands];
 };
 
+constexpr int TOOL_BAL = 100, TOOL_REF = 101;
+
+// bilanciamento tonale rispetto al genere
+class BalancePage : public juce::Component
+{
+public:
+    BalancePage (Editor&);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void applyEq (const float* devRegions);
+    juce::Rectangle<float> genreCell (int g) const { return { 16 + (g % 4) * 206.0f, 52.0f + (g / 4) * 30.0f, 200, 26 }; }
+    Editor& ed; int genreSel = 0; std::unique_ptr<ActBtn> fix, reset;
+};
+class RefPage : public juce::Component
+{
+public:
+    RefPage (Editor&);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    juce::Rectangle<float> waveR() const { return { 16, 100, 822, 90 }; }
+    Editor& ed; std::unique_ptr<ActBtn> load, listen, match, matchEq; std::unique_ptr<juce::FileChooser> chooser;
+};
+
 class SoonPage : public juce::Component
 {
 public:
@@ -351,12 +376,16 @@ public:
     MultiPage mbPage { *this };
     TapePage tpPage { *this };
     ExciterPage exPage { *this };
+    BalancePage balPage { *this };
+    RefPage refPage { *this };
+    ThirdAnalyzer live;   // spettro medio dell'uscita (mobile, ~3 s)
+    float liveThirds[kThirds] {};
     LimPage limPage { *this };
     SoonPage soon { *this };
     LoudPanel loud { *this };
 private:
     void timerCallback() override;
     std::unique_ptr<Segs> dither; std::unique_ptr<Switch> compare, norm; std::unique_ptr<Knob> trim;
-    juce::Rectangle<int> presetRect, prevRect, nextRect, abRect; bool abHover = false; int tick = 0;
+    juce::Rectangle<int> presetRect, prevRect, nextRect, abRect, balRect, refRect; bool abHover = false; int tick = 0;
 };
 }

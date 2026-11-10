@@ -151,6 +151,7 @@ public:
         blockE += e;
         if (++blockN >= blockLen) block();
     }
+    void flush() { integrate(); }
     float M = -100, S = -100, I = -100, lra = 0;
 private:
     static int bin (double l) { return juce::jlimit (0, 759, (int) std::round ((l + 70.0) * 10.0)); }

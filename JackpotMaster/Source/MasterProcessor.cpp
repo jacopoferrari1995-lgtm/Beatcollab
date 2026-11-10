@@ -376,6 +376,20 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
     else normSm = dbToG (ndb);
 
+    // ---- ascolto della traccia di riferimento (a volume uguale)
+    if (refListen.load())
+    {
+        std::shared_ptr<RefTrack> rt; { const juce::SpinLock::ScopedTryLockType tl (refLock); if (tl.isLocked()) rt = ref; }
+        if (rt && rt->buf.getNumSamples() > 0)
+        {
+            const float me = loudOut.I > -60 ? loudOut.I : loudOut.S;
+            const float gdb = (refMatch.load() && me > -60 && rt->lufs > -60) ? juce::jlimit (-24.0f, 24.0f, me - rt->lufs) : 0.0f;
+            refGainDb = gdb; const float g = dbToG (gdb);
+            const int len = rt->buf.getNumSamples(); int p = (int) refPos.load() % len;
+            for (int i = 0; i < n; ++i) { L[i] = rt->buf.getSample (0, p) * g; R[i] = rt->buf.getSample (1, p) * g; if (++p >= len) p = 0; }
+            refPos = (double) p;
+        }
+    }
     // ---- ascolto in mono (controllo)
     if (value ("im_mono") > 0.5f) for (int i = 0; i < n; ++i) { const float m = 0.5f * (L[i] + R[i]); L[i] = R[i] = m; }
     // ---- dither (sempre l'ultimo)
@@ -393,6 +407,18 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         hIn[w] = gToDb (colIn); hOut[w] = gToDb (colOut); hGrM[w] = colM; hGrL[w] = colL; hS[w] = loudOut.S;
         hW = (w + 1) % kHist; colIn = colOut = colM = colL = 0; colN = 0;
     }
+}
+
+void Processor::loadReference (const juce::File& f)
+{
+    if (refLoading.exchange (true)) return;
+    const double rate = sr;
+    juce::Thread::launch ([this, f, rate]
+    {
+        auto t = loadRefTrack (f, rate);
+        if (t) { const juce::SpinLock::ScopedLockType sl (refLock); ref = t; refPos = 0; }
+        refLoading = false;
+    });
 }
 
 // porta il maximizer al target (sul thread dei messaggi)
