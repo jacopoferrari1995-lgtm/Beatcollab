@@ -20,8 +20,9 @@ static juce::String noteName (int n)
 }
 static void glowText (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> r, juce::Colour c, juce::Font f, juce::Justification j = juce::Justification::centredLeft)
 {
+    // alone leggero: 2 passate invece di 9 (il testo e la parte piu costosa da disegnare)
     g.setFont (f);
-    for (int k = 3; k >= 1; --k) { g.setColour (c.withAlpha (0.10f)); g.drawText (t, r.translated ((float) -k * 0.5f, 0), j); g.drawText (t, r.translated ((float) k * 0.5f, 0), j); g.drawText (t, r.translated (0, (float) k * 0.5f), j); }
+    g.setColour (c.withAlpha (0.22f)); g.drawText (t, r.translated (-0.7f, 0.4f), j); g.drawText (t, r.translated (0.7f, 0.4f), j);
     g.setColour (c); g.drawText (t, r, j);
 }
 static void insetPanel (juce::Graphics& g, juce::Rectangle<float> r, float rad)
@@ -106,8 +107,8 @@ void PadComp::paint (juce::Graphics& g)
         g.setGradientFill (hot); g.fillRoundedRectangle (b.reduced (1), 11);
     }
     // texture e bordo smussato
-    juce::Random rr (pad * 97 + 5); g.setColour (juce::Colours::black.withAlpha (0.12f));
-    for (int i = 0; i < 140; ++i) g.fillEllipse (b.getX() + rr.nextFloat() * b.getWidth(), b.getY() + rr.nextFloat() * b.getHeight(), 1.3f, 1.3f);
+    if (dots.isEmpty()) { juce::Random rr (pad * 97 + 5); auto bb = body(); for (int i = 0; i < 140; ++i) dots.addEllipse (bb.getX() + rr.nextFloat() * bb.getWidth(), bb.getY() + rr.nextFloat() * bb.getHeight(), 1.3f, 1.3f); }
+    g.setColour (juce::Colours::black.withAlpha (0.12f)); g.fillPath (dots);
     juce::ColourGradient bevel (juce::Colours::white.withAlpha (0.16f), 0, b.getY(), juce::Colours::transparentWhite, 0, b.getY() + 18, false);
     g.setGradientFill (bevel); g.fillRoundedRectangle (b.reduced (1.5f).withHeight (18), 10);
     g.setColour (juce::Colours::white.withAlpha (0.07f)); g.drawRoundedRectangle (b.reduced (0.5f), 11, 1.0f);
@@ -213,13 +214,30 @@ void Screen::paint (juce::Graphics& g)
     hots.clear();
     if (search.isVisible() != (ed.page == PG_BROWSE)) search.setVisible (ed.page == PG_BROWSE);
     auto b = getLocalBounds().toFloat();
-    insetPanel (g, b, 10);
     auto s = b.reduced (6);
-    juce::ColourGradient bg (Col::lcd1, s.getCentreX(), s.getCentreY(), Col::lcd2, s.getX(), s.getY(), true);
-    g.setGradientFill (bg); g.fillRoundedRectangle (s, 6);
-    g.setColour (Col::phos.withAlpha (0.03f));
-    for (float x = s.getX(); x < s.getRight(); x += 12) g.drawVerticalLine ((int) x, s.getY(), s.getBottom());
-    for (float y = s.getY(); y < s.getBottom(); y += 12) g.drawHorizontalLine ((int) y, s.getX(), s.getRight());
+    // fondo e vetro si disegnano una volta sola (immagini in cache alla risoluzione dello schermo)
+    const float ps = juce::jmax (1.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+    if (bgImg.isNull() || std::abs (ps - imgScale) > 0.01f || bgImg.getWidth() != juce::roundToInt (getWidth() * ps))
+    {
+        imgScale = ps; const int iw = juce::roundToInt (getWidth() * ps), ih = juce::roundToInt (getHeight() * ps);
+        bgImg = juce::Image (juce::Image::ARGB, iw, ih, true); ovImg = juce::Image (juce::Image::ARGB, iw, ih, true);
+        {
+            juce::Graphics gb (bgImg); gb.addTransform (juce::AffineTransform::scale (ps));
+            insetPanel (gb, b, 10);
+            juce::ColourGradient bg (Col::lcd1, s.getCentreX(), s.getCentreY(), Col::lcd2, s.getX(), s.getY(), true);
+            gb.setGradientFill (bg); gb.fillRoundedRectangle (s, 6);
+            gb.setColour (Col::phos.withAlpha (0.03f));
+            for (float x = s.getX(); x < s.getRight(); x += 12) gb.drawVerticalLine ((int) x, s.getY(), s.getBottom());
+            for (float y = s.getY(); y < s.getBottom(); y += 12) gb.drawHorizontalLine ((int) y, s.getX(), s.getRight());
+        }
+        {
+            juce::Graphics go (ovImg); go.addTransform (juce::AffineTransform::scale (ps));
+            go.setColour (juce::Colours::black.withAlpha (0.2f)); for (float y = s.getY(); y < s.getBottom(); y += 3) go.drawHorizontalLine ((int) y, s.getX(), s.getRight());
+            juce::ColourGradient gl (juce::Colours::white.withAlpha (0.05f), s.getX(), s.getY(), juce::Colours::transparentWhite, s.getX() + s.getWidth() * 0.35f, s.getY() + s.getHeight() * 0.6f, false);
+            go.setGradientFill (gl); go.fillRoundedRectangle (s, 6);
+        }
+    }
+    g.drawImage (bgImg, b);
     // schede
     const float tw = (s.getWidth() - 12) / kNumPages;
     for (int i = 0; i < kNumPages; ++i)
@@ -242,7 +260,7 @@ void Screen::paint (juce::Graphics& g)
             glowText (g, rt, hdr, Col::phos.withAlpha (0.8f), ft (10.5f, false, true), juce::Justification::centredRight);
             pageKit (g, c); break;
         }
-        case PG_MASTER: glowText (g, juce::String::fromUTF8 ("MASTER  \xc2\xb7  REVERB  \xc2\xb7  DELAY  \xc2\xb7  BUS"), hdr, Col::phos, ft (12.0f, true, true)); pageMaster (g, c); break;
+        case PG_MASTER: glowText (g, juce::String::fromUTF8 ("MASTER  \xc2\xb7  REVERB  \xc2\xb7  DELAY  \xc2\xb7  SATURAZIONE  \xc2\xb7  BUS"), hdr, Col::phos, ft (12.0f, true, true)); pageMaster (g, c); break;
         case PG_BROWSE: padHeader (g, hdr); pageBrowse (g, c); break;
         case PG_MIX: glowText (g, juce::String::fromUTF8 ("MIXER  \xc2\xb7  GAIN  \xc2\xb7  PAN  \xc2\xb7  VOLUME  \xc2\xb7  MUTE / SOLO"), hdr, Col::phos, ft (12.0f, true, true)); pageMix (g, c); break;
         default:
@@ -254,9 +272,7 @@ void Screen::paint (juce::Graphics& g)
             else if (ed.page == PG_COMP) pageComp (g, c);
             else if (ed.page == PG_FX) pageFx (g, c);
     }
-    g.setColour (juce::Colours::black.withAlpha (0.2f)); for (float y = s.getY(); y < s.getBottom(); y += 3) g.drawHorizontalLine ((int) y, s.getX(), s.getRight());
-    juce::ColourGradient gl (juce::Colours::white.withAlpha (0.05f), s.getX(), s.getY(), juce::Colours::transparentWhite, s.getX() + s.getWidth() * 0.35f, s.getY() + s.getHeight() * 0.6f, false);
-    g.setGradientFill (gl); g.fillRoundedRectangle (s, 6);
+    g.drawImage (ovImg, b);
 }
 
 // ---------- SUONI (banca per categoria) ----------
@@ -1028,56 +1044,74 @@ void Screen::pageMaster (juce::Graphics& g, juce::Rectangle<float> c)
 {
     auto& P = ed.proc; auto par = [&P] (const char* id) { return P.apvts.getParameter (id); };
     auto val = [&P] (const char* id) { return P.apvts.getRawParameterValue (id)->load(); };
-    const float bw = (c.getWidth() - 24) / 3;
+    const float bw = (c.getWidth() - 30) / 4;
     auto box = [&] (juce::Rectangle<float> r, const char* nm, juce::Colour col, bool on)
     {
         g.setColour (Col::phos.withAlpha (0.04f)); g.fillRoundedRectangle (r, 6); g.setColour (on ? col : Col::phos.withAlpha (0.25f)); g.drawRoundedRectangle (r, 6, 1.2f);
         glowText (g, nm, r.reduced (10, 6).withHeight (16), on ? col : Col::phos.withAlpha (0.6f), ft (12.0f, true, true));
     };
-    auto line = [&] (juce::Rectangle<float>& r, const juce::String& l, const juce::String& v)
-    {
-        auto rr = r.removeFromTop (18); g.setFont (ft (9.5f, false, true)); g.setColour (Col::phos.withAlpha (0.55f)); g.drawText (l, rr, juce::Justification::centredLeft);
-        glowText (g, v, rr, Col::phos, ft (10.5f, true, true), juce::Justification::centredRight);
-    };
     auto pct = [] (float v) { return juce::String (juce::roundToInt (v * 100)) + "%"; };
-    // reverb
-    auto r1 = c.removeFromLeft (bw); c.removeFromLeft (12);
-    box (r1, "REVERB", Col::cyan, true); auto in1 = r1.reduced (12, 0).withTrimmedTop (30);
-    line (in1, "SIZE", pct (val ("revSize"))); line (in1, "DAMP", pct (val ("revDamp"))); line (in1, "RETURN", pct (val ("revRet")));
-    { juce::Path dec; auto gr = in1.removeFromTop (in1.getHeight() - 8).reduced (0, 8);
+    // cursore: trascina (su/giu o destra/sinistra), rotella, doppio clic = valore di serie
+    auto slider = [&] (juce::Rectangle<float>& r, const juce::String& lab, const char* id, juce::Colour col, std::function<juce::String (float)> fmt)
+    {
+        auto* pr = par (id); auto rr = r.removeFromTop (34); r.removeFromTop (2);
+        const float n = pr->getValue();
+        g.setFont (ft (9.5f, true, true)); g.setColour (Col::phos.withAlpha (0.6f)); g.drawText (lab, rr.withHeight (16), juce::Justification::centredLeft);
+        glowText (g, fmt (pr->convertFrom0to1 (n)), rr.withHeight (16), col, ft (11.0f, true, true), juce::Justification::centredRight);
+        auto bar = juce::Rectangle<float> (rr.getX(), rr.getY() + 21, rr.getWidth(), 7);
+        g.setColour (Col::phos.withAlpha (0.1f)); g.fillRoundedRectangle (bar, 3); g.setColour (col.withAlpha (0.85f)); g.fillRoundedRectangle (bar.withWidth (juce::jmax (3.0f, bar.getWidth() * n)), 3);
+        hots.push_back ({ rr, [this, pr] (const juce::MouseEvent&) { sGain0 = pr->getValue(); pr->beginChangeGesture(); upFn = [pr] { pr->endChangeGesture(); }; },
+                          [this, pr] (const juce::MouseEvent& e) { const float d = (e.getDistanceFromDragStartX() - e.getDistanceFromDragStartY()) / (e.mods.isShiftDown() ? 900.0f : 180.0f); pr->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, sGain0 + d)); },
+                          [pr] (float d) { pr->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, pr->getValue() + (d > 0 ? 0.02f : -0.02f))); },
+                          [pr] { pr->setValueNotifyingHost (pr->getDefaultValue()); } });
+    };
+    // riverbero
+    auto r1 = c.removeFromLeft (bw); c.removeFromLeft (10);
+    box (r1, "REVERB", Col::cyan, val ("revKit") > 0 || val ("revRet") > 0); auto in1 = r1.reduced (10, 0).withTrimmedTop (28);
+    slider (in1, "SUL KIT", "revKit", Col::cyan, pct); slider (in1, "RITORNO SEND", "revRet", Col::cyan, pct);
+    slider (in1, "SIZE", "revSize", Col::cyan, pct); slider (in1, "DAMP", "revDamp", Col::cyan, pct);
+    { juce::Path dec; auto gr = in1.reduced (0, 6);
       for (int i = 0; i <= 60; ++i) { const float t = i / 60.0f, y = std::exp (-t * (5.5f - val ("revSize") * 4.5f)); const juce::Point<float> pt (gr.getX() + gr.getWidth() * t, gr.getBottom() - gr.getHeight() * y); if (i == 0) dec.startNewSubPath (pt); else dec.lineTo (pt); }
       g.setColour (Col::cyan.withAlpha (0.8f)); g.strokePath (dec, juce::PathStrokeType (1.5f)); }
     // delay
-    auto r2 = c.removeFromLeft (bw); c.removeFromLeft (12);
-    box (r2, "DELAY", Col::magenta, true); auto in2 = r2.reduced (12, 0).withTrimmedTop (30);
+    auto r2 = c.removeFromLeft (bw); c.removeFromLeft (10);
+    box (r2, "DELAY", Col::magenta, val ("dlyKit") > 0 || val ("dlyRet") > 0); auto in2 = r2.reduced (10, 0).withTrimmedTop (28);
     auto* dt = dynamic_cast<juce::AudioParameterChoice*> (par ("dlyTime"));
     chip (g, in2.removeFromTop (24), "", "TEMPO " + dt->getCurrentChoiceName(), true, [dt] (const juce::MouseEvent& e) { const int n = dt->choices.size(); dt->setValueNotifyingHost (dt->convertTo0to1 ((float) ((dt->getIndex() + (e.mods.isPopupMenu() ? n - 1 : 1)) % n))); }, Col::magenta);
-    in2.removeFromTop (6);
-    line (in2, "FEEDBACK", pct (val ("dlyFb"))); line (in2, "TONE", pct (val ("dlyTone"))); line (in2, "RETURN", pct (val ("dlyRet")));
-    { auto gr = in2.reduced (0, 8); float a = 1; for (int k = 0; k < 8 && a > 0.03f; ++k) { const float x = gr.getX() + gr.getWidth() * k / 8.0f; g.setColour ((k % 2 ? Col::cyan : Col::magenta).withAlpha (0.85f)); g.fillRect (x, gr.getBottom() - gr.getHeight() * a, 5.0f, gr.getHeight() * a); a *= val ("dlyFb"); } }
-    // bus
-    auto r3 = c; box (r3, "BUS", Col::amber, val ("busMode") > 0.5f || val ("clip") > 0.5f);
-    auto in3 = r3.reduced (12, 0).withTrimmedTop (30);
+    in2.removeFromTop (4);
+    slider (in2, "SUL KIT", "dlyKit", Col::magenta, pct); slider (in2, "RITORNO SEND", "dlyRet", Col::magenta, pct);
+    slider (in2, "FEEDBACK", "dlyFb", Col::magenta, pct); slider (in2, "TONE", "dlyTone", Col::magenta, pct);
+    // saturazione e bus
+    auto r3 = c.removeFromLeft (bw); c.removeFromLeft (10);
+    box (r3, "COLORE", Col::amber, val ("busMode") > 0.5f || val ("satAmt") > 0 || val ("clip") > 0.5f); auto in3 = r3.reduced (10, 0).withTrimmedTop (28);
+    slider (in3, "SATURAZIONE", "satAmt", Col::amber, pct);
+    g.setFont (ft (9.5f, true, true)); g.setColour (Col::phos.withAlpha (0.6f)); g.drawText ("BUS COMP", in3.removeFromTop (14), juce::Justification::centredLeft);
     auto* bm = dynamic_cast<juce::AudioParameterChoice*> (par ("busMode"));
-    auto row = in3.removeFromTop (24); const float cw = (row.getWidth() - 9) / 4;
-    for (int i = 0; i < 4; ++i) { chip (g, row.removeFromLeft (cw), "", bm->choices[i], bm->getIndex() == i, [bm, i] (const juce::MouseEvent&) { bm->setValueNotifyingHost (bm->convertTo0to1 ((float) i)); }, Col::amber); row.removeFromLeft (3); }
-    in3.removeFromTop (6);
-    line (in3, "AMOUNT", pct (val ("busAmt")));
-    auto grb = in3.removeFromTop (14).reduced (0, 3); const float gr = juce::jlimit (0.0f, 18.0f, P.busGr.load());
+    for (int row2 = 0; row2 < 2; ++row2)
+    {
+        auto row = in3.removeFromTop (22); in3.removeFromTop (3); const float cw = (row.getWidth() - 4) / 2;
+        for (int k = 0; k < 2; ++k) { const int i = row2 * 2 + k; chip (g, row.removeFromLeft (cw), "", bm->choices[i], bm->getIndex() == i, [bm, i] (const juce::MouseEvent&) { bm->setValueNotifyingHost (bm->convertTo0to1 ((float) i)); }, Col::amber); row.removeFromLeft (4); }
+    }
+    slider (in3, "QUANTITA BUS", "busAmt", Col::amber, pct);
+    auto grb = in3.removeFromTop (10).reduced (0, 2); const float gr = juce::jlimit (0.0f, 18.0f, P.busGr.load());
     g.setColour (Col::phos.withAlpha (0.1f)); g.fillRoundedRectangle (grb, 2); g.setColour (Col::amber); g.fillRoundedRectangle (grb.withLeft (grb.getRight() - grb.getWidth() * gr / 18), 2);
     in3.removeFromTop (6);
     auto* cl = par ("clip");
     chip (g, in3.removeFromTop (24), "", val ("clip") > 0.5f ? "CLIP ON" : "CLIP OFF", val ("clip") > 0.5f, [cl] (const juce::MouseEvent&) { cl->setValueNotifyingHost (cl->getValue() > 0.5f ? 0.0f : 1.0f); }, Col::red);
-    in3.removeFromTop (8);
-    // meter di uscita
+    // uscita
+    auto r4 = c; box (r4, "USCITA", Col::green, true); auto in4 = r4.reduced (10, 0).withTrimmedTop (28);
+    slider (in4, "OUTPUT", "out", Col::green, [] (float v) { return juce::String (v, 1) + " dB"; });
     const float m[2] = { P.meterL.load(), P.meterR.load() };
     for (int ch = 0; ch < 2; ++ch)
     {
-        auto mb = in3.removeFromTop (9).reduced (0, 1); in3.removeFromTop (3);
+        auto mb = in4.removeFromTop (10).reduced (0, 1); in4.removeFromTop (3);
         const float db = juce::Decibels::gainToDecibels (m[ch], -48.0f), n = juce::jlimit (0.0f, 1.0f, (db + 48) / 51);
-        for (int k = 0; k < 30; ++k) { const float t = k / 30.0f; g.setColour (t <= n ? (t > 0.9f ? Col::red : t > 0.75f ? Col::amber : Col::green) : Col::phos.withAlpha (0.08f)); g.fillRect (mb.getX() + k * mb.getWidth() / 30, mb.getY(), mb.getWidth() / 30 - 1.5f, mb.getHeight()); }
+        for (int k = 0; k < 24; ++k) { const float t = k / 24.0f; g.setColour (t <= n ? (t > 0.9f ? Col::red : t > 0.75f ? Col::amber : Col::green) : Col::phos.withAlpha (0.08f)); g.fillRect (mb.getX() + k * mb.getWidth() / 24, mb.getY(), mb.getWidth() / 24 - 1.5f, mb.getHeight()); }
     }
-    line (in3, "OUTPUT", juce::String (val ("out"), 1) + " dB");
+    in4.removeFromTop (8);
+    g.setColour (Col::phos.withAlpha (0.55f)); g.setFont (ft (9.0f, false, true));
+    g.drawFittedText ("SUL KIT = effetto su tutto il kit.\nRITORNO SEND = volume di reverb e delay mandati dai singoli pad (pagina FX).\n\nTrascina i cursori, rotella per i passi, doppio clic = valore di serie.",
+                      in4.toNearestInt(), juce::Justification::topLeft, 12);
 }
 
 void Screen::mouseDown (const juce::MouseEvent& e)
@@ -1636,7 +1670,7 @@ void Editor::setPadParam (int i, float v)
     auto& P = proc.pad[sel];
     if (i == START) v = juce::jmin (v, P.get (END) - 0.002f);
     if (i == END) v = juce::jmax (v, P.get (START) + 0.002f);
-    P.v[i] = juce::jlimit (kPInfo[i].min, kPInfo[i].max, v);
+    proc.setPadValue (sel, i, juce::jlimit (kPInfo[i].min, kPInfo[i].max, v));
 }
 
 Knob* Editor::paramKnob (const char* id, const juce::String& label, juce::Colour c, std::function<juce::String (float)> fmt)
@@ -1726,7 +1760,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     proc.commitIfChanged();
     root.addAndMakeVisible (sizeChip);
     scaler.setup();
-    startTimerHz (40);
+    startTimerHz (30);
 }
 
 static juce::Component* named (juce::Component& parent, const char* n) { for (auto* c : parent.getChildren()) if (c->getName() == n) return c; return nullptr; }
@@ -1777,8 +1811,8 @@ void Editor::bindQlinks()
         { { CUTOFF }, { RESO }, { FENV }, { FDECAY }, { VFILTER }, { GAIN }, { LEVEL }, { -1 } },
         { { CAMT }, { CMAKEUP }, { CMIX }, { GAIN }, { LEVEL }, { -1 }, { -1 }, { -1 } },
         { { DRIVE }, { BITS }, { RATE }, { SREV }, { SDLY }, { PAN }, { LEVEL }, { GAIN } },
-        { { -1, "revSize", "REV SIZE" }, { -1, "revDamp", "REV DAMP" }, { -1, "revRet", "REV RET" }, { -1, "dlyFb", "DLY FB" },
-          { -1, "dlyTone", "DLY TONE" }, { -1, "dlyRet", "DLY RET" }, { -1, "busAmt", "BUS AMT" }, { -1, "out", "OUTPUT" } } };
+        { { -1, "revKit", "REV KIT" }, { -1, "revSize", "REV SIZE" }, { -1, "dlyKit", "DLY KIT" }, { -1, "dlyFb", "DLY FB" },
+          { -1, "satAmt", "SATURA" }, { -1, "busAmt", "BUS AMT" }, { -1, "revRet", "REV RET" }, { -1, "out", "OUTPUT" } } };
     const auto& m = map[(size_t) page];
     for (int k = 0; k < 8; ++k)
     {
@@ -1792,6 +1826,7 @@ void Editor::bindQlinks()
             q->set = [this, i] (float n) { setPadParam (i, fromNorm (i, n)); screen.repaint(); };
             q->reset = [this, i] { setPadParam (i, kPInfo[i].def); screen.repaint(); };
             q->text = [this, i] { return formatPadParam (i, proc.pad[sel].get (i)); };
+            q->gesture = [this, i] (bool b) { if (auto* h = proc.hostParam (sel, i)) { if (b) h->beginChangeGesture(); else h->endChangeGesture(); } };
             q->setVisible (true);
         }
         else if (e.global != nullptr)
@@ -1801,12 +1836,13 @@ void Editor::bindQlinks()
             q->get = [pr] { return pr->getValue(); };
             q->set = [this, pr] (float v) { pr->setValueNotifyingHost (v); screen.repaint(); };
             q->reset = [pr] { pr->setValueNotifyingHost (pr->getDefaultValue()); };
+            q->gesture = [pr] (bool b) { if (b) pr->beginChangeGesture(); else pr->endChangeGesture(); };
             const juce::String id (e.global);
             q->text = [pr, id] { const float v = pr->convertFrom0to1 (pr->getValue()); return id == "out" ? juce::String (v, 1) + " dB" : juce::String (juce::roundToInt (pr->getValue() * 100)) + "%"; };
             q->setVisible (true);
         }
-        else q->setVisible (false);
-        q->repaint();
+        else { q->setVisible (false); q->gesture = nullptr; }
+        q->shown = -1.0f; q->repaint();
     }
 }
 
@@ -1933,11 +1969,21 @@ void Editor::timerCallback()
         pc->glow = juce::jmax (target, pc->glow * 0.86f); pc->flash *= 0.8f;
         if (pc->glow > 0.003f || pc->flash > 0.003f || pc->held) pc->repaint(); else if (pc->glow > 0) { pc->glow = 0; pc->repaint(); }
     }
-    screen.repaint(); pattern.repaint();
-    for (auto* b : btns) b->repaint();
-    for (auto* k : qlinks) k->repaint();
-    for (auto* k : globalKnobs) k->repaint();
-    for (auto* s : selectors) s->repaint();
+    // ridisegna solo cio che cambia: lo schermo se cambiano i valori o se la pagina ha misure dal vivo
+    {
+        juce::uint64 h = (juce::uint64) page * 1315423911ull + (juce::uint64) sel * 2654435761ull;
+        auto mix = [&h] (float v) { juce::uint32 u; std::memcpy (&u, &v, 4); h = (h ^ u) * 1099511628211ull; };
+        for (int i = 0; i < kNumPadParams; ++i) mix (proc.pad[sel].get (i));
+        mix ((float) (juce::pointer_sized_int) proc.getSample (sel).get()); mix ((float) proc.kitName.hashCode());
+        for (auto id : { "revSize", "revDamp", "revRet", "dlyTime", "dlyFb", "dlyTone", "dlyRet", "busMode", "busAmt", "clip", "out", "revKit", "dlyKit", "satAmt", "curve" }) mix (proc.apvts.getRawParameterValue (id)->load());
+        const bool live = page == PG_KIT || page == PG_MIX || page == PG_COMP || page == PG_MASTER || (page == PG_BROWSE && proc.sampleIndex->scanning());
+        if (h != screen.sig || (live && (undoTick % 3) == 0)) { screen.sig = h; screen.repaint(); }
+    }
+    if (proc.uiRunning.load() || (undoTick % 10) == 0) pattern.repaint();
+    for (auto* b : btns) { const int l = b->lit && b->lit() ? 1 : 0; if (l != b->shown) { b->shown = l; b->repaint(); } }
+    for (auto* k : qlinks) if (k->isVisible() && k->get) { const float v = k->get(); if (v != k->shown) { k->shown = v; k->repaint(); } }
+    for (auto* k : globalKnobs) if (k->get) { const float v = k->get(); if (v != k->shown) { k->shown = v; k->repaint(); } }
+    for (auto* sl : selectors) if (sl->get) { const int v = sl->get(); if (v != sl->shown) { sl->shown = v; sl->repaint(); } }
     root.repaint (1096, 738, 124, 22);
 }
 

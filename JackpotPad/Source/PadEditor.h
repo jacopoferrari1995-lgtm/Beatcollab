@@ -28,13 +28,14 @@ public:
     std::function<void (float)> set;
     std::function<juce::String()> text;
     std::function<void()> reset;
-    bool bipolar = false;
+    std::function<void (bool)> gesture;   // inizio/fine del gesto per registrare le automazioni in Ableton
+    bool bipolar = false; float shown = -1.0f;
     void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent& e) override { if (! get) return; start = get(); dragging = true; if ((e.mods.isAltDown() || e.mods.isCommandDown()) && reset) { reset(); dragging = false; } }
+    void mouseDown (const juce::MouseEvent& e) override { if (! get) return; start = get(); dragging = true; if (gesture) gesture (true); if ((e.mods.isAltDown() || e.mods.isCommandDown()) && reset) { reset(); } }
     void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::UpDownResizeCursor); repaint(); }
     void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
-    void mouseUp (const juce::MouseEvent&) override { dragging = false; repaint(); }
-    void mouseDrag (const juce::MouseEvent& e) override { if (! dragging) return; if (set) set (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 170.0f))); repaint(); }
+    void mouseUp (const juce::MouseEvent& e) override { if (dragging && gesture) gesture (false); dragging = false; repaint(); juce::ignoreUnused (e); }
+    void mouseDrag (const juce::MouseEvent& e) override { if (! dragging || e.mods.isAltDown() || e.mods.isCommandDown()) return; if (set) set (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 170.0f))); repaint(); }
     void mouseDoubleClick (const juce::MouseEvent&) override { if (reset) reset(); repaint(); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { if (set) set (juce::jlimit (0.0f, 1.0f, get() + (w.deltaY > 0 ? 0.01f : -0.01f))); repaint(); }
     juce::String label; juce::Colour col; float start = 0; bool dragging = false, hover = false;
@@ -45,7 +46,7 @@ class Selector : public juce::Component
 public:
     Selector (juce::String l) : label (std::move (l)) {}
     std::function<int()> get; std::function<void (int)> set; std::function<int()> count; std::function<juce::String (int)> name;
-    void paint (juce::Graphics&) override;
+    void paint (juce::Graphics&) override; int shown = -1;
     void mouseDown (const juce::MouseEvent& e) override { const int n = count(); set ((get() + (e.mods.isPopupMenu() || e.mods.isShiftDown() ? n - 1 : 1)) % n); repaint(); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { const int n = count(); set ((get() + (w.deltaY > 0 ? 1 : n - 1)) % n); repaint(); }
     juce::String label; juce::Colour col { Col::cyan };
@@ -59,7 +60,7 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override { down = true; repaint(); }
     void mouseUp (const juce::MouseEvent& e) override { down = false; repaint(); if (contains (e.getPosition()) && click) click(); }
-    juce::String label; juce::Colour ledCol; bool down = false;
+    juce::String label; juce::Colour ledCol; bool down = false; int shown = -1;
 };
 
 class PadComp : public juce::Component, public juce::FileDragAndDropTarget
@@ -74,7 +75,7 @@ public:
     void fileDragEnter (const juce::StringArray&, int, int) override { dragOver = true; repaint(); }
     void fileDragExit (const juce::StringArray&) override { dragOver = false; repaint(); }
     juce::Rectangle<float> body() const { return getLocalBounds().toFloat().reduced (8); }
-    Editor& ed; int pad; bool held = false, dragOver = false; float glow = 0, flash = 0; juce::uint32 lastHit = 0;
+    Editor& ed; int pad; bool held = false, dragOver = false; float glow = 0, flash = 0; juce::uint32 lastHit = 0; juce::Path dots;
 };
 
 enum Page { PG_KIT, PG_BROWSE, PG_MIX, PG_SAMPLE, PG_VEL, PG_EQ, PG_FILTER, PG_COMP, PG_FX, PG_MASTER, kNumPages };
@@ -87,7 +88,8 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override { drag = nullptr; sDrag = 0; repaint(); }
+    void mouseUp (const juce::MouseEvent&) override { drag = nullptr; sDrag = 0; if (upFn) { upFn(); upFn = nullptr; } repaint(); }
+    std::function<void()> upFn;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     bool isInterestedInFileDrag (const juce::StringArray&) override { return true; }
@@ -131,6 +133,8 @@ public:
     juce::TextEditor search;
     void setupSearch();
     void itemMenu (int i);
+    juce::Image bgImg, ovImg; float imgScale = 0;   // fondo e vetro dello schermo in cache
+    juce::uint64 sig = 0;
     juce::String pendKey;              // suono scelto nella banca: si sente subito, si carica al secondo clic
     // pagina SAMPLE: trascinamento (1 inizio, 2 fine, 3 volume sull'onda) e cache dei picchi
     int sDrag = 0; float sGain0 = 0;

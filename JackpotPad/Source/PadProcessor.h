@@ -54,10 +54,16 @@ struct KitPad { DrumDesc d; std::vector<std::pair<int, float>> p; int colour; };
 struct FactoryKit { const char* name; const char* style; std::vector<KitPad> pads; };
 const std::vector<FactoryKit>& factoryKits();
 
-class Processor : public juce::AudioProcessor
+// parametri dei pad visibili ad Ableton (automazione): 12 per pad
+constexpr int kAutoN = 12;
+extern const int kAutoParams[kAutoN];
+int autoIndex (int padParam);   // -1 se non e automatizzabile
+
+class Processor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     Processor();
+    ~Processor() override { stopTimer(); }
     void prepareToPlay (double, int) override;
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& l) const override { return l.getMainOutputChannelSet() == juce::AudioChannelSet::stereo(); }
@@ -78,6 +84,8 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
     Pad pad[kPads];
+    juce::RangedAudioParameter* hostParam (int p, int i) const { const int a = autoIndex (i); return a < 0 ? nullptr : hp[p][a]; }
+    void setPadValue (int p, int i, float v);   // dall'interfaccia: aggiorna anche il parametro di Ableton
     SamplePtr getSample (int p) const { const juce::SpinLock::ScopedLockType l (sLock); return smp[p]; }
     void setSample (int p, SamplePtr s) { const juce::SpinLock::ScopedLockType l (sLock); smp[p] = std::move (s); }
     bool loadFile (const juce::File&, int p, bool analyse = true);
@@ -149,12 +157,15 @@ public:
     juce::SharedResourcePointer<SampleIndex> sampleIndex;   // indice SCAN condiviso (la scansione continua anche a editor chiuso)
 
 private:
+    juce::RangedAudioParameter* hp[kPads][kAutoN] {}; std::atomic<float>* hpRaw[kPads][kAutoN] {}; std::atomic<float> lastHost[kPads][kAutoN];
+    void timerCallback() override;
     float colPk = 0; int colN = 0, colHits = 0, colVel = 0;
     struct Grain { double start = 0, ph = 0; };
     struct Voice
     {
         bool active = false, rel = false, choking = false, loop = false; int pad = 0, age = 0, gate = -1, warp = 0;
         SamplePtr s; double pos = 0, inc = 1, a0 = 0, a1 = 0, tRate = 1, pRate = 1, G = 2048, sbpm = 0, pitch = 1; int dir = 1;
+        float velSemis = 0, velDb = 0, velCut = 1;
         Grain gr[2];
         float gain = 1, env = 0, atkInc = 1, decCoef = 1, relCoef = 1, fEnv = 1, fEnvCoef = 1, cutBase = 20000, fenvAmt = 0, reso = 0.1f; bool atkDone = false, hold = false;
         float ic1[2] = {}, ic2[2] = {}, fg = 0, fk = 1; int ftype = 0, fCount = 0; bool filt = false;
@@ -183,7 +194,7 @@ private:
     juce::AudioBuffer<float> padBuf;
     std::vector<float> revL, revR, dlyInL, dlyInR;
     juce::AudioBuffer<float> dlyBuf; int dlyW = 0; float dlyLpL = 0, dlyLpR = 0;
-    juce::Reverb reverb;
+    juce::Reverb reverb; float satZ = 0;
     juce::Random rng;
     float busEnv = 0;
     void startVoice (int p, int vel, float r0 = -1, float r1 = -1);

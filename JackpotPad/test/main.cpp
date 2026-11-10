@@ -53,6 +53,16 @@ int main (int argc, char** argv)
             int last = 0; for (int b = 0; b < 1200; ++b) { p.processBlock (blk, m); m.clear(); float pk = 0; for (int i = 0; i < 512; ++i) pk = std::max (pk, std::abs (blk.getSample (0, i))); if (pk > 1e-4f) last = b; }
             std::printf ("stretch 92->120: suona %.2f s (atteso 8.00)\n", (last + 1) * 512 / 48000.0);
         }
+        {   // automazione: Ableton -> pad e pad -> Ableton
+            auto* h = p.apvts.getParameter ("p01_tune"); h->setValueNotifyingHost (h->convertTo0to1 (7.0f));
+            juce::AudioBuffer<float> blk (2, 512); juce::MidiBuffer m; p.processBlock (blk, m);
+            const float a = p.pad[0].get (TUNE);
+            p.setPadValue (0, CUTOFF, 800.0f); const float hc = p.apvts.getParameter ("p01_cutoff")->convertFrom0to1 (p.apvts.getParameter ("p01_cutoff")->getValue());
+            p.apvts.getParameter ("satAmt")->setValueNotifyingHost (1.0f); p.apvts.getParameter ("revKit")->setValueNotifyingHost (0.5f); p.apvts.getParameter ("dlyKit")->setValueNotifyingHost (0.5f);
+            p.loadFactoryKit (1); bool nan = false; float pk = 0;
+            for (int b = 0; b < 200; ++b) { juce::MidiBuffer mm; if (b % 20 == 0) mm.addEvent (juce::MidiMessage::noteOn (1, p.rootNote() + (b / 20) % 4, (juce::uint8) 120), 0); p.processBlock (blk, mm); for (int i = 0; i < 512; ++i) { const float x = blk.getSample (0, i); if (! std::isfinite (x)) nan = true; pk = std::max (pk, std::abs (x)); } }
+            std::printf ("automazione: tune da Ableton %.1f (7), cutoff verso Ableton %.0f (800); master kit: picco %.2f nan %d; parametri %d\n", a, hc, pk, (int) nan, p.getParameters().size());
+        }
         return 0;
     }
     if (argc > 1 && juce::String (argv[1]) == "scan")
