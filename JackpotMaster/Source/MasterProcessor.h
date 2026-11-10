@@ -1,7 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "JackpotLook.h"
-#include "MasterModules.h"
+#include "MasterDyn.h"
 
 namespace jms
 {
@@ -11,8 +11,8 @@ struct ModInfo { const char* name; const char* sub; bool ready; juce::uint32 col
 inline const ModInfo& modInfo (int m)
 {
     static const ModInfo I[kNumMods] = {
-        { "BASS CONTROL", "sub e punch", true, 0xffffb000 }, { "EQ DINAMICO", "bande che reagiscono", true, 0xff5ef2ff }, { "DE-ESSER", "sibilanti e piatti", false, 0xff7dff5a },
-        { "BUS COMP", "colla da console", false, 0xffa66bff }, { "MULTIBANDA", "dinamica + OTT", false, 0xffff7a3d }, { "TAPE", "nastro analogico", false, 0xffffd23d },
+        { "BASS CONTROL", "sub e punch", true, 0xffffb000 }, { "EQ DINAMICO", "bande che reagiscono", true, 0xff5ef2ff }, { "DE-ESSER", "sibilanti e piatti", true, 0xff7dff5a },
+        { "BUS COMP", "colla da console", true, 0xffa66bff }, { "MULTIBANDA", "dinamica + OTT", true, 0xffff7a3d }, { "TAPE", "nastro analogico", false, 0xffffd23d },
         { "IMAGER", "stereo per banda", true, 0xff3dffd2 }, { "MAXIMIZER", "volume e carattere", true, 0xffff2e88 }, { "LIMITER", "true peak finale", true, 0xffff3b5c } };
     return I[juce::jlimit (0, kNumMods - 1, m)];
 }
@@ -74,6 +74,7 @@ public:
     std::atomic<float> lufsM { -100 }, lufsS { -100 }, lufsI { -100 }, lra { 0 }, tpMax { -100 }, inS { -100 }, matchDb { 0 }, normDb { 0 };
     std::atomic<float> grMax { 0 }, grLim { 0 }, inPk[2] {}, outPk[2] {};
     std::atomic<float> bassGain { 0 }, bassLow { 0 }, eqDyn[kEqBands] {}, eqLvl[kEqBands] {}, imCorr[kImBands] {}, corrAll { 1 };
+    std::atomic<float> dsGr { 0 }, dsRel { -60 }, busGr { 0 }, mbLevel[kMbBands] {}, mbDown[kMbBands] {}, mbUp[kMbBands] {};
     StereoRing ringOut, ringIn;
     double eqRate() const { return sr; }
     std::atomic<bool> resetReq { false };
@@ -84,7 +85,7 @@ private:
     void timerCallback() override;
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100;
-    BassControl bass; DynEq deq; Imager img; Delay preDelta[2];
+    BassControl bass; DynEq deq; Imager img; DeEsser dess; BusComp bus; Multiband mband; Delay preDelta[2];
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2];
     juce::AudioBuffer<float> tmp, keep;

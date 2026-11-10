@@ -40,6 +40,40 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
             l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "rng"), 1 }, P + "Range", NormalisableRange<float> (-18, 18, 0.1f), -6, AudioParameterFloatAttributes().withLabel ("dB")));
         }
     }
+    // de-esser
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "ds_on", 1 }, "DeEss On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "ds_delta", 1 }, "DeEss Delta", false));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_freq", 1 }, "DeEss Freq", NormalisableRange<float> (2000, 14000, 0, 0.5f), 6500, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_thr", 1 }, "DeEss Threshold", NormalisableRange<float> (-30, 0, 0.1f), -12, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_range", 1 }, "DeEss Range", NormalisableRange<float> (0, 12, 0.1f), 6, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "ds_ch", 1 }, "DeEss Channel", StringArray { "STEREO", "MID", "SIDE" }, 0));
+    // bus comp
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "bus_on", 1 }, "Bus On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "bus_delta", 1 }, "Bus Delta", false));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bus_thr", 1 }, "Bus Threshold", NormalisableRange<float> (-30, 0, 0.1f), -10, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "bus_ratio", 1 }, "Bus Ratio", StringArray { "1.5", "2", "4", "10" }, 1));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "bus_att", 1 }, "Bus Attack", StringArray { "0.1", "0.3", "1", "3", "10", "30" }, 4));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "bus_rel", 1 }, "Bus Release", StringArray { "0.1", "0.3", "0.6", "1.2", "AUTO" }, 4));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bus_makeup", 1 }, "Bus Makeup", NormalisableRange<float> (-6, 12, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "bus_auto", 1 }, "Bus Auto Makeup", true));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bus_mix", 1 }, "Bus Mix", NormalisableRange<float> (0, 1), 1));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "bus_hpf", 1 }, "Bus SC HPF", NormalisableRange<float> (0, 250, 0, 0.6f), 0, AudioParameterFloatAttributes().withLabel ("Hz")));
+    // multibanda
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "mb_on", 1 }, "Multiband On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "mb_delta", 1 }, "Multiband Delta", false));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mb_x1", 1 }, "Multiband X1", NormalisableRange<float> (40, 500, 0, 0.5f), 120, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mb_x2", 1 }, "Multiband X2", NormalisableRange<float> (800, 10000, 0, 0.5f), 2500, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mb_speed", 1 }, "Multiband Speed", NormalisableRange<float> (0, 1), 0.5f));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mb_mix", 1 }, "Multiband Mix", NormalisableRange<float> (0, 1), 1));
+    for (int b = 0; b < kMbBands; ++b)
+    {
+        const String id = "mb" + String (b + 1) + "_", P = "Multiband " + String (b + 1) + " ";
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "thr", 1 }, P + "Threshold", NormalisableRange<float> (-48, 0, 0.1f), -18, AudioParameterFloatAttributes().withLabel ("dB")));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "ratio", 1 }, P + "Ratio", NormalisableRange<float> (1, 20, 0, 0.4f), 3));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "up", 1 }, P + "Upward", NormalisableRange<float> (0, 1), 0));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "gain", 1 }, P + "Gain", NormalisableRange<float> (-12, 12, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { id + "solo", 1 }, P + "Solo", false));
+    }
     // imager
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "im_on", 1 }, "Imager On", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "im_delta", 1 }, "Imager Delta", false));
@@ -92,7 +126,7 @@ void Processor::prepareToPlay (double s, int maxBlock)
     sr = s;
     const int mb = juce::jmax (64, maxBlock);
     mx.prepare (s, mb); lim.prepare (s);
-    bass.prepare (s); deq.prepare (s); img.prepare (s);
+    bass.prepare (s); deq.prepare (s); img.prepare (s); dess.prepare (s); bus.prepare (s); mband.prepare (s);
     for (auto& d : preDelta) d.prepare (mx.latency() + lim.latency());
     for (auto& d : mxBy) d.prepare (mx.latency());
     for (auto& d : limBy) d.prepare (lim.latency());
@@ -156,6 +190,28 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         }
         deq.process (L, R, n, B);
     });
+    runMod (DEESS, "ds_on", "ds_delta", [&]
+    {
+        DeEssSettings d; d.freq = value ("ds_freq"); d.thr = value ("ds_thr"); d.range = value ("ds_range"); d.ch = (int) value ("ds_ch");
+        dess.process (L, R, n, d);
+    });
+    runMod (BUSCOMP, "bus_on", "bus_delta", [&]
+    {
+        BusSettings b; b.thr = value ("bus_thr"); b.ratio = (int) value ("bus_ratio"); b.att = (int) value ("bus_att"); b.rel = (int) value ("bus_rel");
+        b.makeup = value ("bus_makeup"); b.autoMakeup = value ("bus_auto") > 0.5f; b.mix = value ("bus_mix"); b.scHpf = value ("bus_hpf");
+        bus.process (L, R, n, b);
+    });
+    runMod (MULTI, "mb_on", "mb_delta", [&]
+    {
+        MbSettings m; m.x1 = value ("mb_x1"); m.x2 = juce::jmax (value ("mb_x2"), m.x1 * 2); m.speed = value ("mb_speed"); m.mix = value ("mb_mix");
+        for (int b = 0; b < kMbBands; ++b)
+        {
+            const juce::String id = "mb" + juce::String (b + 1) + "_";
+            m.b[b].thr = value ((id + "thr").toRawUTF8()); m.b[b].ratio = value ((id + "ratio").toRawUTF8()); m.b[b].up = value ((id + "up").toRawUTF8());
+            m.b[b].gain = value ((id + "gain").toRawUTF8()); m.b[b].solo = value ((id + "solo").toRawUTF8()) > 0.5f;
+        }
+        mband.process (L, R, n, m);
+    });
     runMod (IMAGER, "im_on", "im_delta", [&]
     {
         ImagerSettings S; S.x[0] = value ("im_x1"); S.x[1] = juce::jmax (value ("im_x2"), S.x[0] * 1.5f); S.x[2] = juce::jmax (value ("im_x3"), S.x[1] * 1.5f);
@@ -164,6 +220,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         img.process (L, R, n, S);
     });
     bassGain = bass.gainDb; bassLow = bass.lowRms;
+    dsGr = value ("ds_on") > 0.5f ? dess.gr : 0.0f; dsRel = dess.relNow; busGr = value ("bus_on") > 0.5f ? bus.gr : 0.0f;
+    for (int b = 0; b < kMbBands; ++b) { mbLevel[b] = mband.level[b]; mbDown[b] = value ("mb_on") > 0.5f ? mband.down[b] : 0.0f; mbUp[b] = value ("mb_on") > 0.5f ? mband.up[b] : 0.0f; }
     for (int b = 0; b < kEqBands; ++b) { eqDyn[b] = value ("eq_on") > 0.5f ? deq.dynNow[b] : 0.0f; eqLvl[b] = deq.levelDb[b]; }
     for (int b = 0; b < kImBands; ++b) imCorr[b] = img.corr (b);
 

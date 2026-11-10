@@ -193,6 +193,75 @@ public:
     ImView view; Gonio gonio; std::unique_ptr<Switch> mono;
 };
 
+// pulsante d'azione
+class ActBtn : public juce::Component
+{
+public:
+    ActBtn (juce::String t, juce::Colour c, std::function<void()> f) : text (std::move (t)), col (c), fn (std::move (f)) {}
+    void paint (juce::Graphics& g) override { jlook::button (g, getLocalBounds().toFloat(), col, down, hover, text, jlook::ui (11.0f, 2)); }
+    void mouseDown (const juce::MouseEvent&) override { down = true; repaint(); if (fn) fn(); }
+    void mouseUp (const juce::MouseEvent&) override { down = false; repaint(); }
+    void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::PointingHandCursor); repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
+    juce::String text; juce::Colour col; std::function<void()> fn; bool down = false, hover = false;
+};
+
+class DsView : public juce::Component
+{
+public:
+    DsView (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent& e) override { mouseDrag (e); }
+    void mouseDrag (const juce::MouseEvent&) override;
+    Editor& ed; float sp[200] {}; float hist[160] {}; int hw = 0; Analyzer an;
+};
+class DeEssPage : public ModPage
+{
+public:
+    DeEssPage (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    DsView view; std::unique_ptr<Segs> ch;
+};
+
+class BusView : public juce::Component
+{
+public:
+    BusView (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    Editor& ed; float needle = 0; float hist[200] {}; int hw = 0;
+};
+class BusPage : public ModPage
+{
+public:
+    BusPage (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    BusView view; std::unique_ptr<Segs> ratio, att, rel; std::unique_ptr<Switch> autoM;
+};
+
+class MbView : public juce::Component
+{
+public:
+    MbView (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override { drag = -1; }
+    float xOf (float f) const { return (float) (std::log (f / 20.0) / std::log (1000.0) * getWidth()); }
+    float fOf (float x) const { return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, x / (float) getWidth())); }
+    Editor& ed; int drag = -1;
+};
+class MultiPage : public ModPage
+{
+public:
+    MultiPage (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    void ott();
+    MbView view; std::unique_ptr<Switch> solo[kMbBands]; std::unique_ptr<ActBtn> ottBtn, resetBtn;
+};
+
 class SoonPage : public juce::Component
 {
 public:
@@ -235,6 +304,9 @@ public:
     BassPage bassPage { *this };
     EqPage eqPage { *this };
     ImagerPage imPage { *this };
+    DeEssPage dsPage { *this };
+    BusPage busPage { *this };
+    MultiPage mbPage { *this };
     LimPage limPage { *this };
     SoonPage soon { *this };
     LoudPanel loud { *this };

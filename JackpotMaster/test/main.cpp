@@ -94,6 +94,7 @@ int main (int argc, char** argv)
         auto p = fresh(); setP (*p, "mx_gain", 8); setP (*p, "mx_style", PUNCH); setP (*p, "mx_clip", 0.4f);
         setP (*p, "bc_on", 1); setP (*p, "bc_punch", 0.4f); setP (*p, "bc_mono", 110); setP (*p, "bc_harm", 0.3f);
         setP (*p, "eq_on", 1); setP (*p, eqId (2, "g"), -3); setP (*p, eqId (4, "dyn"), 1); setP (*p, eqId (4, "f"), 7000); setP (*p, eqId (4, "thr"), -40); setP (*p, eqId (5, "g"), 2.5f);
+        setP (*p, "ds_on", 1); setP (*p, "bus_on", 1); setP (*p, "bus_thr", -18); setP (*p, "mb_on", 1); setP (*p, "mb3_up", 0.5f);
         setP (*p, "im_on", 1); setP (*p, "im_w1", 0.3f); setP (*p, "im_w3", 1.4f); setP (*p, "im_w4", 1.6f); setP (*p, "im_stz", 0.3f);
         std::vector<float> a, b; run (*p, beat, (int) sr * 12, a, b);
         Editor ed (*p);
@@ -138,6 +139,34 @@ int main (int argc, char** argv)
         juce::Random r2 (5); std::vector<float> a, b; run (*p, [&] (int, float& l, float& r) { l = r2.nextFloat() - 0.5f; r = r2.nextFloat() - 0.5f; }, 48000, a, b);
         double es = 0, em = 0; for (size_t i = 10000; i < a.size(); ++i) { es += (a[i] - b[i]) * (a[i] - b[i]); em += (a[i] + b[i]) * (a[i] + b[i]); }
         std::printf ("imager larghezza 0: lato/medio %.1f dB (deve essere molto basso)\n", 10 * std::log10 (es / em + 1e-20));
+    }
+    {   // multibanda neutro = piatto
+        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "mb_on", 1); for (int b = 1; b <= 3; ++b) { setP (*p, ("mb" + juce::String (b) + "_thr").toRawUTF8(), 0); setP (*p, ("mb" + juce::String (b) + "_ratio").toRawUTF8(), 1); }
+        std::vector<float> a, b; run (*p, [] (int i, float& l, float& r) { l = r = i == 100 ? 0.5f : 0.0f; }, 65536, a, b);
+        juce::dsp::FFT f (16); std::vector<float> d (131072, 0); for (int i = 0; i < 65536; ++i) d[(size_t) i] = a[(size_t) i];
+        f.performFrequencyOnlyForwardTransform (d.data(), true);
+        float mn = 100, mx2 = -100; for (int k = 3; k < 30000; ++k) { const float db = gToDb (d[(size_t) k] / 0.5f); mn = juce::jmin (mn, db); mx2 = juce::jmax (mx2, db); }
+        std::printf ("multibanda neutro: %.2f .. %.2f dB\n", mn, mx2);
+    }
+    for (int sib = 0; sib < 2; ++sib)
+    {   // de-esser: 200 Hz + (8 kHz forte o no)
+        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "ds_on", 1); setP (*p, "ds_freq", 6500); setP (*p, "ds_thr", -12); setP (*p, "ds_range", 8);
+        const float hf = sib ? 0.25f : 0.02f;
+        std::vector<float> a, b; run (*p, [&] (int i, float& l, float& r) { l = r = 0.3f * (float) std::sin (2 * 3.14159265 * 200 * i / sr) + hf * (float) std::sin (2 * 3.14159265 * 8000 * i / sr); }, 48000, a, b);
+        std::printf ("de-esser, sibilante %s: riduzione %.1f dB (relativo %.1f)\n", sib ? "forte" : "debole", p->dsGr.load(), p->dsRel.load());
+    }
+    {   // bus comp: -6 dBFS, soglia -20, 4:1
+        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "bus_on", 1); setP (*p, "bus_thr", -20); setP (*p, "bus_ratio", 2); setP (*p, "bus_auto", 0);
+        std::vector<float> a, b; run (*p, [&] (int i, float& l, float& r) { l = r = 0.5f * (float) std::sin (2 * 3.14159265 * 100 * i / sr); }, 48000, a, b);
+        float pk = 0; for (size_t i = 30000; i < a.size(); ++i) pk = juce::jmax (pk, std::abs (a[i]));
+        std::printf ("bus comp 4:1 soglia -20 su -6 dBFS: riduzione %.1f dB (attesa ~10.5), uscita %.1f dBFS\n", p->busGr.load(), gToDb (pk));
+    }
+    {   // OTT: un segnale debole viene alzato
+        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "mb_on", 1);
+        for (int b = 1; b <= 3; ++b) { const juce::String id = "mb" + juce::String (b) + "_"; setP (*p, (id + "thr").toRawUTF8(), -24); setP (*p, (id + "ratio").toRawUTF8(), 12); setP (*p, (id + "up").toRawUTF8(), 0.85f); }
+        std::vector<float> a, b; run (*p, [&] (int i, float& l, float& r) { l = r = 0.002f * (float) std::sin (2 * 3.14159265 * 1000 * i / sr); }, 48000, a, b);
+        float pk = 0; for (size_t i = 30000; i < a.size(); ++i) pk = juce::jmax (pk, std::abs (a[i]));
+        std::printf ("OTT su tono a -54 dBFS: uscita %.1f dBFS (su %.1f dB)\n", gToDb (pk), p->mbUp[1].load());
     }
     // 1) latenza
     {
