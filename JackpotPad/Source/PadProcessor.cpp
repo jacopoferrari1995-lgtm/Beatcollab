@@ -1,6 +1,7 @@
 #include "PadProcessor.h"
 #include "PadEditor.h"
 #include <complex>
+#include "KeyDetect.h"
 
 namespace jp
 {
@@ -21,7 +22,8 @@ const PInfo kPInfo[kNumPadParams] = {
     { "cmode",  "COMP",      0, 3, 0, 6 },          { "camt",  "AMOUNT",    0, 1, 0.4f, 0 },       { "cmake", "MAKEUP",    0, 18, 0, 11 },   { "cmix",  "MIX",       0, 1, 1, 0 },
     { "drive",  "DRIVE",     0, 1, 0, 0 },          { "bits",  "BIT",       0, 1, 0, 0 },          { "rate",  "RATE",      0, 1, 0, 0 },
     { "srev",   "REVERB",    0, 1, 0, 0 },          { "sdly",  "DELAY",     0, 1, 0, 0 },
-    { "mute",   "MUTE",      0, 1, 0, 8 },          { "solo",  "SOLO",      0, 1, 0, 8 },          { "slice", "SLICE",     0, 64, 0, 7 } };
+    { "mute",   "MUTE",      0, 1, 0, 8 },          { "solo",  "SOLO",      0, 1, 0, 8 },          { "slice", "SLICE",     0, 64, 0, 7 },
+    { "skey",   "TONALITA",  -2, 35, -1, 7 } };
 
 int choiceCount (int i) { return i == FTYPE ? 3 : i == WARP ? 3 : i == CMODE ? 4 : i == CHOKE ? 9 : 2; }
 
@@ -194,6 +196,7 @@ void Processor::startVoice (int p, int vel, float r0, float r1)
     v->dir = P.get (REVERSE) > 0.5f ? -1 : 1;
     v->a0 = loop ? sa0 : a0; v->a1 = a1;
     v->warp = (warp == 2 && sb > 40.0f) ? 2 : (warp == 1 && sb > 40.0f ? 1 : 0);
+    v->sbpm = sb; v->pitch = pitch;
     v->pos = v->dir > 0 ? a0 : a1 - 2;
     if (v->warp == 2)
     {
@@ -357,7 +360,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     // stop del trasporto: si fermano i campioni lunghi (loop, hold, gate)
     if (! running && wasRunning) for (auto& v : voices) if (v.active && (v.loop || v.hold || v.gate > 0)) v.rel = true;
     wasRunning = running;
-    if (stopReq.exchange (false)) for (auto& v : voices) if (v.active) v.choking = true;
+    if (stopReq.exchange (false)) { for (auto& v : voices) if (v.active) v.choking = true; prevS = nullptr; }
     if (audReq.load() != audSeen) { audSeen = audReq.load(); const int ap = audP.load(); if (ap >= 0 && ap < kPads) { for (auto& v : voices) if (v.active && v.pad == ap) v.choking = true; startVoice (ap, 110, audS0.load(), audS1.load()); } }
 
     const int root = rootNote();
@@ -450,6 +453,14 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     if (! hostPlay && intPlay.load()) intTick += N * tps;
     uiTick = running ? t1 : 0.0;
 
+    // i campioni sincronizzati seguono il tempo della DAW anche se cambia mentre suonano
+    for (auto& v : voices)
+        if (v.active && v.warp > 0 && v.sbpm > 40 && v.s)
+        {
+            const double tempo = curBpm / v.sbpm;
+            if (v.warp == 2) { v.tRate = tempo * v.s->sr / sr; v.inc = v.tRate; }
+            else v.inc = v.pitch * tempo;
+        }
     // 1) voci nei bus dei pad
     for (int p = 0; p < kPads; ++p) if (chain[p].active > 0) { padBuf.clear (p * 2, 0, N); padBuf.clear (p * 2 + 1, 0, N); }
     size_t ti = 0;
@@ -584,6 +595,25 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             }
         }
         busGr = maxGr;
+        // ascolto di prova dalla banca
+        if (prevReq.load() != prevSeen)
+        {
+            prevSeen = prevReq.load(); const juce::SpinLock::ScopedTryLockType l (sLock);
+            if (l.isLocked()) { prevS = std::move (prevNext); prevNext = nullptr; prevPos = 0; } else prevSeen = -1;
+        }
+        if (prevS)
+        {
+            const auto& pb = prevS->buf; const int pn = pb.getNumSamples(); const double inc = prevS->sr / sr, maxLen = juce::jmin ((double) pn, prevS->sr * 12.0);
+            const float* p0 = pb.getReadPointer (0); const float* p1 = pb.getReadPointer (juce::jmin (1, pb.getNumChannels() - 1));
+            for (int i = 0; i < N; ++i)
+            {
+                if (prevPos >= maxLen - 2) { prevS = nullptr; break; }
+                const int k = (int) prevPos; const float f = (float) (prevPos - k);
+                const float fade = (float) juce::jmin (1.0, (maxLen - 2 - prevPos) / (prevS->sr * 0.05)) * 0.5f;
+                cl[i] += (p0[k] + (p0[k + 1] - p0[k]) * f) * fade; cr[i] += (p1[k] + (p1[k + 1] - p1[k]) * f) * fade;
+                prevPos += inc;
+            }
+        }
         const bool clip = par ("clip") > 0.5f; const float og = juce::Decibels::decibelsToGain (par ("out"));
         float pk[2] = { 0, 0 };
         for (int i = 0; i < N; ++i)
@@ -606,19 +636,39 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 float Processor::estimateBpm (const juce::String& name, double sec, bool& confident)
 {
     confident = false;
-    auto toks = juce::StringArray::fromTokens (name.toLowerCase().replaceCharacters ("_-.()[]", "       "), " ", "");
+    auto toks = juce::StringArray::fromTokens (name.toLowerCase().replaceCharacters ("_-.()[],+", "         "), " ", "");
+    toks.removeEmptyStrings();
+    // 1) numero marcato: "140bpm", "140 bpm", "bpm140", "bpm 140", "140_BPM"
     for (int i = 0; i < toks.size(); ++i)
     {
-        const auto t = toks[i]; const bool tagged = t.endsWith ("bpm") || (i + 1 < toks.size() && toks[i + 1] == "bpm");
-        const auto num = t.upToFirstOccurrenceOf ("bpm", false, true);
-        if (tagged && num.containsOnly ("0123456789.") && num.isNotEmpty()) { const float v = num.getFloatValue(); if (v >= 55 && v <= 210) { confident = true; return v; } }
+        auto t = toks[i]; juce::String num;
+        if (t.endsWith ("bpm") && t.length() > 3) num = t.dropLastCharacters (3);
+        else if (t.startsWith ("bpm") && t.length() > 3) num = t.substring (3);
+        else if (i + 1 < toks.size() && toks[i + 1] == "bpm") num = t;
+        else if (t == "bpm" && i + 1 < toks.size()) num = toks[i + 1];
+        if (num.isNotEmpty() && num.containsOnly ("0123456789.")) { const float v = num.getFloatValue(); if (v >= 50 && v <= 220) { confident = true; return v; } }
     }
-    for (auto& t : toks)
-        if (t.containsOnly ("0123456789") && t.isNotEmpty())
+    // 2) numero nudo plausibile (60-200): se e uno solo ci si fida; se sono di piu vince chi torna con la durata
+    juce::Array<int> cand;
+    for (int i = 0; i < toks.size(); ++i)
+    {
+        const auto& t = toks[i];
+        if (! t.containsOnly ("0123456789") || t.isEmpty() || t.length() > 3) continue;
+        const int v = t.getIntValue(); if (v < 60 || v > 200 || v == 808 || v == 909) continue;
+        if (i > 0 && (toks[i - 1] == "vol" || toks[i - 1] == "take" || toks[i - 1] == "v" || toks[i - 1] == "no")) continue;
+        cand.add (v);
+    }
+    if (sec >= 1.2 && cand.size() > 0)
+    {
+        int best = cand.getLast(); double bestErr = 1e9;
+        for (int v : cand)
         {
-            const int v = t.getIntValue();
-            if (v >= 60 && v <= 200) { const double beats = sec * v / 60.0, m = std::round (beats / 2.0) * 2.0; if (m >= 2 && std::abs (beats - m) / m < 0.04) { confident = true; return (float) v; } }
+            const double beats = sec * v / 60.0, m = juce::jmax (1.0, std::round (beats));
+            const double err = std::abs (beats - m) / m;
+            if (err < bestErr) { bestErr = err; best = v; }
         }
+        if (cand.size() == 1 || bestErr < 0.05) { confident = true; return (float) best; }
+    }
     if (sec < 1.2) return 0.0f;
     float best = 0; double bestScore = 1e9;
     for (double beats : { 4.0, 8.0, 16.0, 32.0, 64.0, 2.0 })
@@ -677,18 +727,82 @@ void Processor::detectBpm (int p)
     else if (sec >= 1.8) { pad[p].v[MODE] = 1; pad[p].v[DECAY] = 4000; }
 }
 
-bool Processor::loadFile (const juce::File& f, int p)
+void Processor::detectKey (int p, bool audio)
+{
+    auto s = getSample (p); if (! s) { pad[p].v[SKEY] = -1; return; }
+    int k = keyFromName (s->name);
+    if (k < 0 && s->path.isNotEmpty() && ! s->path.startsWith ("gen:") && ! s->path.startsWith ("builtin:"))
+        k = keyFromName (juce::File (s->path).getParentDirectory().getFileName());   // cartella "Loops in Am"
+    if (k < 0 && audio) { float conf = 0; k = keyFromAudio (s->buf, s->sr, conf); if (conf < (k >= 24 ? 0.26f : 0.3f)) k = -1; }
+    pad[p].v[SKEY] = (float) (k < 0 ? -2 : k);
+}
+
+void Processor::transposeTo (int p, int key)
+{
+    auto& P = pad[p]; const int from = juce::roundToInt (P.get (SKEY));
+    if (from < 0 || key < 0) return;
+    P.v[TUNE] = (float) keyShift (from, key);
+    // un loop a tempo cambia solo l'intonazione, non la velocita
+    auto s = getSample (p);
+    if (s && P.get (SBPM) > 40 && s->buf.getNumSamples() / s->sr >= 1.8 && juce::roundToInt (P.get (WARP)) != 2) P.v[WARP] = 2;
+}
+
+Processor::Snap Processor::capture() const
+{
+    Snap n;
+    for (int p = 0; p < kPads; ++p) { for (int i = 0; i < kNumPadParams; ++i) n.v[p][i] = pad[p].get (i); n.col[p] = pad[p].colour.load(); n.s[p] = getSample (p); }
+    n.kit = kitName; return n;
+}
+void Processor::restore (const Snap& n)
+{
+    for (int p = 0; p < kPads; ++p) { for (int i = 0; i < kNumPadParams; ++i) pad[p].v[i] = n.v[p][i]; pad[p].colour = n.col[p]; setSample (p, n.s[p]); }
+    kitName = n.kit;
+}
+bool Processor::same (const Snap& a, const Snap& b)
+{
+    if (a.kit != b.kit) return false;
+    for (int p = 0; p < kPads; ++p)
+    {
+        if (a.col[p] != b.col[p] || a.s[p] != b.s[p]) return false;
+        for (int i = 0; i < kNumPadParams; ++i) if (i != MUTE && i != SOLO && std::abs (a.v[p][i] - b.v[p][i]) > 1e-6f) return false;
+    }
+    return true;
+}
+void Processor::commitIfChanged()
+{
+    auto cur = capture();
+    if (! hasCommitted) { committed = std::move (cur); hasCommitted = true; return; }
+    if (same (cur, committed)) return;
+    undoStack.push_back (std::move (committed)); if (undoStack.size() > 80) undoStack.erase (undoStack.begin());
+    redoStack.clear(); committed = std::move (cur);
+}
+bool Processor::undo()
+{
+    commitIfChanged();
+    if (undoStack.empty()) return false;
+    redoStack.push_back (std::move (committed)); committed = std::move (undoStack.back()); undoStack.pop_back();
+    restore (committed); return true;
+}
+bool Processor::redo()
+{
+    commitIfChanged();
+    if (redoStack.empty()) return false;
+    undoStack.push_back (std::move (committed)); committed = std::move (redoStack.back()); redoStack.pop_back();
+    restore (committed); return true;
+}
+
+bool Processor::loadFile (const juce::File& f, int p, bool analyse)
 {
     std::unique_ptr<juce::AudioFormatReader> rd (formats.createReaderFor (f));
     if (rd == nullptr || rd->lengthInSamples < 8) return false;
-    const int len = (int) juce::jmin<juce::int64> (rd->lengthInSamples, (juce::int64) (rd->sampleRate * 60));
+    const int len = (int) std::min<long long> ((long long) rd->lengthInSamples, (long long) (rd->sampleRate * 60));
     auto s = std::make_shared<SampleData>();
     s->buf.setSize (2, len); rd->read (&s->buf, 0, len, 0, true, true);
     if (rd->numChannels == 1) s->buf.copyFrom (1, 0, s->buf, 0, 0, len);
     s->sr = rd->sampleRate; s->name = f.getFileNameWithoutExtension(); s->path = f.getFullPathName();
     pad[p].v[START] = 0; pad[p].v[END] = 1; pad[p].v[WARP] = 0; pad[p].v[SBPM] = 0; pad[p].v[LOOP] = 0;
     setSample (p, s);
-    detectBpm (p);
+    if (analyse) { detectBpm (p); detectKey (p); }
     return true;
 }
 
@@ -719,7 +833,7 @@ static SamplePtr sampleFromPath (Processor& P, const juce::String& path, int p)
     if (path.isNotEmpty() && juce::File (path).existsAsFile())
     {
         float keep[kNumPadParams]; for (int i = 0; i < kNumPadParams; ++i) keep[i] = P.pad[p].get (i);
-        P.loadFile (juce::File (path), p);
+        P.loadFile (juce::File (path), p, false);
         for (int i = 0; i < kNumPadParams; ++i) P.pad[p].v[i] = keep[i];
         return P.getSample (p);
     }
@@ -842,8 +956,8 @@ namespace jp
 void Processor::assignSlice (int src, float s0, float s1, int dst, int sliceNo)
 {
     auto s = getSample (src); if (s == nullptr || dst < 0 || dst >= kPads) return;
-    const int col = pad[src].colour.load(); const float gain = pad[src].get (GAIN), sb = pad[src].get (SBPM), wp = pad[src].get (WARP);
-    pad[dst].reset(); pad[dst].colour = col; pad[dst].v[GAIN] = gain; pad[dst].v[SBPM] = sb; pad[dst].v[WARP] = wp;
+    const int col = pad[src].colour.load(); const float gain = pad[src].get (GAIN), sb = pad[src].get (SBPM), wp = pad[src].get (WARP), sk = pad[src].get (SKEY), tu = pad[src].get (TUNE);
+    pad[dst].reset(); pad[dst].colour = col; pad[dst].v[GAIN] = gain; pad[dst].v[SBPM] = sb; pad[dst].v[WARP] = wp; pad[dst].v[SKEY] = sk; pad[dst].v[TUNE] = tu;
     pad[dst].v[START] = s0; pad[dst].v[END] = s1; pad[dst].v[SLICE] = (float) sliceNo; pad[dst].v[DECAY] = 4000;
     setSample (dst, s);
 }
@@ -852,11 +966,11 @@ void Processor::chopToPads (int src, const std::vector<float>& pts, int firstPad
     auto s = getSample (src); if (s == nullptr || pts.size() < 2) return;
     const int start = firstPad < 0 ? src : firstPad;
     // copia i dati della sorgente prima di sovrascrivere (la sorgente puo essere tra le destinazioni)
-    const int col = pad[src].colour.load(); const float gain = pad[src].get (GAIN), sb = pad[src].get (SBPM), wp = pad[src].get (WARP);
+    const int col = pad[src].colour.load(); const float gain = pad[src].get (GAIN), sb = pad[src].get (SBPM), wp = pad[src].get (WARP), sk = pad[src].get (SKEY), tu = pad[src].get (TUNE);
     for (size_t k = 0; k + 1 < pts.size(); ++k)
     {
         const int p = start + (int) k; if (p >= kPads) break;
-        pad[p].reset(); pad[p].colour = col; pad[p].v[GAIN] = gain; pad[p].v[SBPM] = sb; pad[p].v[WARP] = wp;
+        pad[p].reset(); pad[p].colour = col; pad[p].v[GAIN] = gain; pad[p].v[SBPM] = sb; pad[p].v[WARP] = wp; pad[p].v[SKEY] = sk; pad[p].v[TUNE] = tu;
         pad[p].v[START] = pts[k]; pad[p].v[END] = pts[k + 1]; pad[p].v[SLICE] = (float) (k + 1); pad[p].v[DECAY] = 4000;
         setSample (p, s);
     }

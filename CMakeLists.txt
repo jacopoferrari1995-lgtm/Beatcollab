@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
-project(JackpotPlugins VERSION 1.0.0)
+if(NOT JACKPOT_VERSION)
+  set(JACKPOT_VERSION 1.0.0)
+endif()
+project(JackpotPlugins VERSION ${JACKPOT_VERSION})
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

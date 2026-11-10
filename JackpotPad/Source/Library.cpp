@@ -1,4 +1,6 @@
 #include "Library.h"
+#include "KeyDetect.h"
+#include <map>
 
 namespace jp
 {
@@ -75,7 +77,7 @@ std::vector<LibItem> libItems (const juce::String& category)
     juce::SharedResourcePointer<SampleIndex> idx;
     auto sc = idx->entries (category);
     std::sort (sc.begin(), sc.end(), [] (const ScanEntry& a, const ScanEntry& b) { return juce::File (a.path).getFileName().compareNatural (juce::File (b.path).getFileName()) < 0; });
-    for (auto& e : sc) { LibItem it; it.file = juce::File (e.path); it.name = it.file.getFileNameWithoutExtension(); it.category = category; it.user = true; it.scanned = true; out.push_back (it); }
+    for (auto& e : sc) { LibItem it; it.file = juce::File (e.path); it.name = it.file.getFileNameWithoutExtension(); it.category = category; it.user = true; it.scanned = true; it.dur = e.dur; out.push_back (it); }
     return out;
 }
 
@@ -104,9 +106,23 @@ bool loadLibItem (Processor& P, const LibItem& it, int p)
 {
     auto& pd = P.pad[p];
     pd.v[START] = 0; pd.v[END] = 1; pd.v[SLICE] = 0; pd.v[WARP] = 0; pd.v[SBPM] = 0; pd.v[LOOP] = 0;
+    pd.v[SKEY] = -1;
     if (it.user) return P.loadFile (it.file, p);
     P.setSample (p, makeDrum (it.d));
+    P.detectKey (p);
     return true;
+}
+
+SamplePtr libItemSample (Processor& P, const LibItem& it)
+{
+    if (! it.user) return makeDrum (it.d);
+    std::unique_ptr<juce::AudioFormatReader> rd (P.formats.createReaderFor (it.file));
+    if (rd == nullptr || rd->lengthInSamples < 8) return nullptr;
+    const int len = (int) std::min<long long> ((long long) rd->lengthInSamples, (long long) (rd->sampleRate * 12));
+    auto s = std::make_shared<SampleData>(); s->buf.setSize (2, len); rd->read (&s->buf, 0, len, 0, true, true);
+    if (rd->numChannels == 1) s->buf.copyFrom (1, 0, s->buf, 0, 0, len);
+    s->sr = rd->sampleRate; s->name = it.name; s->path = it.file.getFullPathName();
+    return s;
 }
 
 bool addFileToLibrary (const juce::File& src, const juce::String& category)
@@ -130,44 +146,112 @@ bool savePadToLibrary (Processor& P, int p, const juce::String& category)
     return w->writeFromAudioSampleBuffer (part, 0, b - a);
 }
 
-const char* kRandModes[3] = { "MIX KIT", "LIBRERIA", "SOLO MIEI" };
+const char* kRandModes[3] = { "FABBRICA", "LIBRERIA", "SOLO MIEI" };
 
-// Kit casuale con criterio: un kit "base" decide ruoli, colori e catena di ogni pad; le parti melodiche e gli 808
-// restano tutte dello stesso kit base (stessa tonalita); i suoni di batteria vengono pescati per ruolo.
+static int catColour (const juce::String& c)
+{
+    static const std::map<juce::String, int> m { { "KICK", 0 }, { "SNARE", 1 }, { "CLAP / SNAP", 2 }, { "HAT", 3 }, { "OPEN HAT", 4 }, { "808", 14 }, { "PERC", 5 }, { "TOM", 11 },
+                                                 { "CYMBAL", 12 }, { "MELODICI", 8 }, { "TEXTURE", 15 }, { "FX", 6 }, { "VOCI", 10 }, { "LOOP", 7 } };
+    auto it = m.find (c); return it == m.end() ? 6 : it->second;
+}
+static float maxDur (const juce::String& c)
+{
+    if (c == "KICK" || c == "SNARE" || c == "CLAP / SNAP" || c == "HAT" || c == "PERC" || c == "TOM") return 1.6f;
+    if (c == "OPEN HAT") return 2.5f; if (c == "808") return 4.0f; if (c == "CYMBAL") return 6.0f;
+    if (c == "MELODICI" || c == "VOCI" || c == "FX") return 12.0f;
+    return 40.0f;
+}
+
+// Kit casuale con criterio: ruoli fissi per pad (1-8 batteria, 9-16 fx/voci/melodie/loop), suoni pescati per
+// categoria dalla banca scelta, parti tonali portate tutte nella stessa tonalita. 1 volta su 5: kit sperimentale.
 void randomKit (Processor& P, int mode)
 {
     juce::Random r;
-    const auto& kits = factoryKits(); const int base = 1 + r.nextInt ((int) kits.size() - 1);   // 0 = kit vuoto
-    const auto& B = kits[(size_t) base];
-    for (int p = 0; p < kPads; ++p)
+    const bool weird = r.nextFloat() < 0.2f;
+    std::map<juce::String, std::vector<LibItem>> pools;
+    auto pool = [&] (const juce::String& cat) -> std::vector<LibItem>&
+    {
+        auto f = pools.find (cat); if (f != pools.end()) return f->second;
+        std::vector<LibItem> mine, fac;
+        for (auto& it : libItems (cat)) { if (it.scanned && it.dur > maxDur (cat)) continue; (it.user ? mine : fac).push_back (it); }
+        std::vector<LibItem> v;
+        if (mode == 0) v = fac;
+        else if (mode == 2) v = mine;
+        else { v = (! mine.empty() && (fac.empty() || r.nextFloat() < 0.65f)) ? mine : fac; }
+        return pools[cat] = v;
+    };
+    // ruoli: categorie possibili in ordine di preferenza
+    std::vector<juce::StringArray> roles = {
+        { "KICK" }, { "SNARE" }, { "CLAP / SNAP", "SNARE" }, { "HAT" }, { "OPEN HAT", "HAT" }, { "808", "KICK" }, { "PERC" }, { "PERC", "TOM", "CLAP / SNAP" },
+        { "CYMBAL", "FX" }, { "FX", "TEXTURE", "PERC" }, { "FX", "TEXTURE", "CYMBAL" }, { "VOCI", "FX", "MELODICI" },
+        { "MELODICI" }, { "MELODICI", "VOCI" }, { "LOOP", "MELODICI" }, { "LOOP", "TEXTURE", "VOCI", "MELODICI" } };
+    {   // il pad 8 cambia da kit a kit
+        static const char* alt[] = { "PERC", "TOM", "KICK", "SNARE", "HAT", "CLAP / SNAP" };
+        roles[7] = { alt[r.nextInt (6)], "PERC" };
+    }
+    if (weird)
+    {
+        static const char* odd[] = { "PERC", "TOM", "FX", "TEXTURE", "VOCI", "CYMBAL", "CLAP / SNAP" };
+        static const char* top[] = { "FX", "TEXTURE", "VOCI", "MELODICI", "LOOP", "PERC", "CYMBAL", "TOM" };
+        for (int p = 1; p < 8; ++p) if (p != 5 && r.nextFloat() < 0.4f) roles[(size_t) p] = { odd[r.nextInt (7)], roles[(size_t) p][0] };
+        for (int p = 8; p < 16; ++p) roles[(size_t) p] = { top[r.nextInt (8)], roles[(size_t) p][0] };
+    }
+    juce::StringArray used;
+    // tonalita del kit: la decide la prima parte tonale con tonalita nota (melodie per prime)
+    int kitKey = -1;
+    const int order[] = { 12, 13, 14, 15, 11, 9, 10, 8, 5, 0, 1, 2, 3, 4, 6, 7 };
+    for (int p : order)
     {
         auto& pd = P.pad[p]; pd.reset();
-        if (p >= (int) B.pads.size()) { P.setSample (p, nullptr); continue; }
-        const auto& kp = B.pads[(size_t) p];
-        pd.colour = kp.colour; for (auto& [i, v] : kp.p) pd.v[i] = v;
-        const auto cat = categoryOf (kp.d); const bool tonal = cat == "MELODICI" || cat == "808";
-        bool done = false;
-        if (mode == 2 || (mode == 1 && ! tonal))
+        bool done = false; juce::String cat;
+        for (auto& c : roles[(size_t) p])
         {
-            std::vector<LibItem> pool;
-            for (auto& it : libItems (cat)) if (it.user || mode == 1) pool.push_back (it);
-            if (mode == 1) { std::vector<LibItem> mine; for (auto& it : pool) if (it.user) mine.push_back (it); if (! mine.empty() && r.nextFloat() < 0.5f) pool = mine; }
-            if (! pool.empty()) done = loadLibItem (P, pool[(size_t) r.nextInt ((int) pool.size())], p);
-        }
-        if (! done && ! tonal && mode != 2)
-        {
-            // stesso pad da un altro kit, se ha lo stesso ruolo
-            for (int t = 0; t < 6 && ! done; ++t)
+            auto& v = pool (c); if (v.empty()) continue;
+            for (int t = 0; t < 8 && ! done; ++t)
             {
-                const auto& K2 = kits[(size_t) r.nextInt ((int) kits.size())];
-                if (p < (int) K2.pads.size() && categoryOf (K2.pads[(size_t) p].d) == cat) { P.setSample (p, makeDrum (K2.pads[(size_t) p].d)); done = true; }
+                const auto& it = v[(size_t) r.nextInt ((int) v.size())];
+                const auto key = it.user ? it.file.getFullPathName() : descToPath (it.d);
+                if (used.contains (key) && t < 7) continue;
+                if (loadLibItem (P, it, p)) { used.add (key); done = true; cat = c; }
+            }
+            if (done) break;
+        }
+        if (! done && mode == 2)
+        {   // niente dei tuoi per questo ruolo: suono di fabbrica dello stesso ruolo
+            for (auto& c : roles[(size_t) p])
+            {
+                std::vector<LibItem> fac; for (auto& it : libItems (c)) if (! it.user) fac.push_back (it);
+                if (! fac.empty()) { done = loadLibItem (P, fac[(size_t) r.nextInt ((int) fac.size())], p); cat = c; }
+                if (done) break;
             }
         }
-        if (! done) P.setSample (p, makeDrum (kp.d));
-        // piccola variazione umana (mai sull'intonazione delle parti tonali)
-        pd.v[LEVEL] = juce::jlimit (0.0f, 1.41f, pd.get (LEVEL) * (0.92f + r.nextFloat() * 0.12f));
-        if (! tonal && r.nextFloat() < 0.5f) pd.v[TUNE] = juce::jlimit (-24.0f, 24.0f, pd.get (TUNE) + (float) (r.nextInt (3) - 1));
+        if (! done) { P.setSample (p, nullptr); continue; }
+        pd.colour = catColour (cat);
+        if (cat == "HAT" || cat == "OPEN HAT") pd.v[CHOKE] = 1;
+        if (cat == "OPEN HAT" || cat == "CYMBAL") pd.v[DECAY] = 4000;
+        const bool tonal = cat == "MELODICI" || cat == "808" || cat == "LOOP" || cat == "VOCI";
+        if (tonal)
+        {
+            const int k = juce::roundToInt (pd.get (SKEY));
+            if (k >= 0)
+            {
+                if (kitKey < 0) kitKey = k >= 24 ? 12 + k % 12 : k;
+                else P.transposeTo (p, kitKey);
+            }
+        }
+        // piccola variazione umana
+        pd.v[LEVEL] = juce::jlimit (0.0f, 1.41f, pd.get (LEVEL) * (0.9f + r.nextFloat() * 0.12f));
+        if (! tonal && cat != "KICK" && r.nextFloat() < 0.35f) pd.v[TUNE] = (float) (r.nextInt (3) - 1);
+        if (weird)
+        {
+            if (! tonal && r.nextFloat() < 0.3f) pd.v[TUNE] = (float) (r.nextInt (15) - 7);
+            if (p >= 8 && r.nextFloat() < 0.25f) pd.v[REVERSE] = 1;
+            if (r.nextFloat() < 0.2f) { pd.v[BITS] = 0.3f + r.nextFloat() * 0.4f; pd.v[RATE] = r.nextFloat() * 0.5f; }
+            if (r.nextFloat() < 0.2f) pd.v[DRIVE] = 0.2f + r.nextFloat() * 0.5f;
+            if (p >= 8 && r.nextFloat() < 0.3f) pd.v[SREV] = 0.2f + r.nextFloat() * 0.4f;
+        }
     }
-    P.kitName = juce::String ("Random ") + kRandModes[juce::jlimit (0, 2, mode)] + " / " + B.name; P.kitFile = juce::File();
+    P.kitName = juce::String ("Random ") + (weird ? "Sperimentale" : "Classico") + " / " + kRandModes[juce::jlimit (0, 2, mode)] + (kitKey >= 0 ? " in " + keyName (kitKey) : juce::String());
+    P.kitFile = juce::File();
 }
 }

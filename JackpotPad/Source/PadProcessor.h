@@ -19,7 +19,7 @@ enum PadParam { GAIN, LEVEL, PAN, TUNE, FINE, START, END, ATTACK, DECAY, RELEASE
                 FTYPE, CUTOFF, RESO, FENV, FDECAY,
                 EQON, LOWG, LOWF, MIDG, MIDF, MIDQ, HIGHG, HIGHF,
                 CMODE, CAMT, CMAKEUP, CMIX,
-                DRIVE, BITS, RATE, SREV, SDLY, MUTE, SOLO, SLICE, kNumPadParams };
+                DRIVE, BITS, RATE, SREV, SDLY, MUTE, SOLO, SLICE, SKEY, kNumPadParams };
 struct PInfo { const char* id; const char* label; float min, max, def; int kind; };
 // kind: 0 %, 1 ±, 2 st, 3 ct, 4 ms, 5 Hz, 6 scelta, 7 int, 8 on/off, 9 pan, 10 bpm, 11 dB, 12 Q, 13 fader
 extern const PInfo kPInfo[kNumPadParams];
@@ -80,7 +80,20 @@ public:
     Pad pad[kPads];
     SamplePtr getSample (int p) const { const juce::SpinLock::ScopedLockType l (sLock); return smp[p]; }
     void setSample (int p, SamplePtr s) { const juce::SpinLock::ScopedLockType l (sLock); smp[p] = std::move (s); }
-    bool loadFile (const juce::File&, int p);
+    bool loadFile (const juce::File&, int p, bool analyse = true);
+    void detectKey (int p, bool audio = true);    // tonalita del campione (nome, poi ascolto)
+    void transposeTo (int p, int key);            // porta il campione nella tonalita scelta (stretch se e un loop)
+    // ascolto di prova dalla banca, senza caricarlo sul pad
+    void preview (SamplePtr s) { { const juce::SpinLock::ScopedLockType l (sLock); prevNext = std::move (s); } prevReq = prevReq.load() + 1; }
+    // annulla / ripeti: istantanee dei pad prese dall'editor quando cambia qualcosa
+    struct Snap { float v[kPads][kNumPadParams]; int col[kPads]; SamplePtr s[kPads]; juce::String kit; };
+    Snap capture() const;
+    void restore (const Snap&);
+    static bool same (const Snap&, const Snap&);
+    std::vector<Snap> undoStack, redoStack; Snap committed; bool hasCommitted = false;
+    void commitIfChanged();
+    bool undo();
+    bool redo();
     void chopToPads (int src, const std::vector<float>& points, int firstPad = -1);   // punti normalizzati, inizio e fine inclusi
     void assignSlice (int src, float s0, float s1, int dst, int sliceNo);
     void audition (int p, float s0, float s1) { audP = p; audS0 = s0; audS1 = s1; audReq = audReq.load() + 1; }
@@ -141,7 +154,7 @@ private:
     struct Voice
     {
         bool active = false, rel = false, choking = false, loop = false; int pad = 0, age = 0, gate = -1, warp = 0;
-        SamplePtr s; double pos = 0, inc = 1, a0 = 0, a1 = 0, tRate = 1, pRate = 1, G = 2048; int dir = 1;
+        SamplePtr s; double pos = 0, inc = 1, a0 = 0, a1 = 0, tRate = 1, pRate = 1, G = 2048, sbpm = 0, pitch = 1; int dir = 1;
         Grain gr[2];
         float gain = 1, env = 0, atkInc = 1, decCoef = 1, relCoef = 1, fEnv = 1, fEnvCoef = 1, cutBase = 20000, fenvAmt = 0, reso = 0.1f; bool atkDone = false, hold = false;
         float ic1[2] = {}, ic2[2] = {}, fg = 0, fk = 1; int ftype = 0, fCount = 0; bool filt = false;
@@ -157,6 +170,7 @@ private:
     mutable juce::SpinLock sLock;
     double sr = 44100, curBpm = 120;
     std::atomic<int> audP { -1 }, audReq { 0 }; std::atomic<float> audS0 { 0 }, audS1 { 1 }; int audSeen = 0; std::atomic<bool> stopReq { false };
+    SamplePtr prevNext, prevS; std::atomic<int> prevReq { 0 }; int prevSeen = 0; double prevPos = 0;
     struct UiEv { int pad, vel; bool on; };
     juce::AbstractFifo fifo { 512 }; UiEv fifoBuf[512];
     std::atomic<int> transportReq { 0 };

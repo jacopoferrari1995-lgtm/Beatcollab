@@ -2,9 +2,59 @@
 #include "../Source/PadProcessor.h"
 #include "../Source/PadEditor.h"
 #include "../Source/Library.h"
+#include "../Source/KeyDetect.h"
 using namespace jp;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "t2")
+    {
+        juce::ScopedJuceInitialiser_GUI gi;
+        const char* kn[][2] = { { "Loop Dark 140 Bm", "Bm" }, { "piano_F#min_90bpm", "F#m" }, { "Vox C Minor", "Cm" }, { "Melody 85 G#", "G#" }, { "keys_Ebmaj", "D#" },
+            { "Stab Am7", "Am" }, { "808 C1", "C" }, { "Kick Fat", "--" }, { "Bass Loop 120", "--" }, { "Guitar Loop 90 A", "A" }, { "drill_loop_142_bm", "Bm" }, { "am_i_dreaming", "--" },
+            { "Snare 2", "--" }, { "Pad Bb", "A#" }, { "Lead_D_minor_128", "Dm" }, { "Cmaj9 chord", "C" } };
+        for (auto& k : kn) { const auto got = keyName (keyFromName (k[0])); std::printf ("%-24s %-5s %s\n", k[0], got.toRawUTF8(), got == k[1] ? "ok" : "<<< atteso " ); if (got != k[1]) std::printf ("   atteso %s\n", k[1]); }
+        const char* bn[][2] = { { "Loop 140 Bm", "140" }, { "drum_loop_92", "92" }, { "Guitar Loop 120 BPM", "120" }, { "bpm85_keys", "85" }, { "Loop_01_90", "90" }, { "808 Mafia 140", "140" } };
+        for (auto& b : bn) { bool c = false; const float v = Processor::estimateBpm (b[0], 7.3, c); std::printf ("bpm %-24s %.1f conf %d %s\n", b[0], v, (int) c, juce::String (v, 0) == b[1] ? "ok" : "<<<"); }
+        std::printf ("shift Bm->Dm %d  Bm->D %d  C->Am %d  nota C->Dm %d  Am->Em %d\n", keyShift (23, 14), keyShift (23, 2), keyShift (0, 21), keyShift (24, 14), keyShift (21, 16));
+        // tonalita dall'ascolto: accordi di La minore
+        {
+            const double sr = 44100; juce::AudioBuffer<float> b (2, (int) (sr * 6)); b.clear();
+            const double ch[][3] = { { 57, 60, 64 }, { 53, 57, 60 }, { 48, 52, 55 }, { 55, 59, 62 } };
+            for (int c = 0; c < 4; ++c) for (int i = 0; i < (int) (sr * 1.5); ++i) { float v = 0; for (double m : ch[c]) v += (float) std::sin (2 * 3.14159 * 440 * std::pow (2, (m - 69) / 12) * i / sr) * 0.2f; v += (float) std::sin (2 * 3.14159 * 440 * std::pow (2, (ch[c][0] - 12 - 69) / 12) * i / sr) * 0.2f; b.setSample (0, c * (int) (sr * 1.5) + i, v); b.setSample (1, c * (int) (sr * 1.5) + i, v); }
+            float conf = 0; const int k = keyFromAudio (b, sr, conf); std::printf ("ascolto Am-F-C-G: %s (conf %.2f)\n", keyName (k).toRawUTF8(), conf);
+            juce::AudioBuffer<float> n (2, (int) (sr * 0.8)); for (int i = 0; i < n.getNumSamples(); ++i) { const float v = (float) (std::sin (2 * 3.14159 * 110 * i / sr) * std::exp (-i / sr * 3)); n.setSample (0, i, v); n.setSample (1, i, v); }
+            const int k2 = keyFromAudio (n, sr, conf); std::printf ("ascolto nota La: %s\n", keyName (k2).toRawUTF8());
+            juce::AudioFormatManager fm; fm.registerBasicFormats(); std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (juce::File ("/tmp/loop_test.wav")));
+            if (rd) { juce::AudioBuffer<float> lb (2, (int) rd->lengthInSamples); rd->read (&lb, 0, lb.getNumSamples(), 0, true, true); const int k3 = keyFromAudio (lb, rd->sampleRate, conf); std::printf ("ascolto loop di batteria: %s (conf %.2f)\n", keyName (k3).toRawUTF8(), conf); }
+            for (int d : { 0, 2, 5, 9 }) { const auto smp = makeDrum (factoryKits()[1].pads[(size_t) d].d); const int kd = keyFromAudio (smp->buf, smp->sr, conf); std::printf ("ascolto %s: %s (%.2f)\n", smp->name.toRawUTF8(), keyName (kd).toRawUTF8(), conf); }
+        }
+        Processor p; p.prepareToPlay (48000, 512);
+        // random kit
+        int drumsLow = 0, tot = 0, weird = 0;
+        for (int t = 0; t < 30; ++t)
+        {
+            randomKit (p, 0); if (p.kitName.contains ("Sperim")) ++weird;
+            for (int q = 0; q < 8; ++q) if (auto s = p.getSample (q)) { DrumDesc d; if (pathToDesc (s->path, d)) { const auto c = categoryOf (d); if (c != "MELODICI" && c != "TEXTURE") ++drumsLow; } ++tot; }
+            if (t < 3) { std::printf ("%s:", p.kitName.toRawUTF8()); for (int q = 0; q < 16; ++q) { auto s = p.getSample (q); std::printf (" %s%s", s ? s->name.toRawUTF8() : "-", juce::roundToInt (p.pad[q].get (TUNE)) ? juce::String ("(" + juce::String (juce::roundToInt (p.pad[q].get (TUNE))) + ")").toRawUTF8() : ""); } std::printf ("\n"); }
+        }
+        std::printf ("random: pad 1-8 batteria %d/%d, sperimentali %d/30\n", drumsLow, tot, weird);
+        // annulla / ripeti
+        p.loadFactoryKit (1); p.commitIfChanged(); p.pad[0].v[GAIN] = 5; p.commitIfChanged(); p.pad[0].v[GAIN] = 9; p.clearPad (3);
+        const bool u1 = p.undo(); const float g1 = p.pad[0].get (GAIN); const bool has3 = p.getSample (3) != nullptr;
+        p.undo(); const float g2 = p.pad[0].get (GAIN); p.redo(); const float g3 = p.pad[0].get (GAIN);
+        std::printf ("undo: %d gain %.0f pad4 %d -> %.0f, redo %.0f\n", (int) u1, g1, (int) has3, g2, g3);
+        // stretch che segue il tempo: loop a 92 BPM di 4 battute, DAW a 120 -> deve durare 8 s
+        {
+            const double sr = 48000; const int len = (int) (sr * 60.0 / 92 * 16); auto s = std::make_shared<SampleData>(); s->sr = sr; s->buf.setSize (2, len); s->buf.clear();
+            for (int i = 0; i < len; ++i) { const float v = 0.3f * (float) std::sin (i * 0.05); s->buf.setSample (0, i, v); s->buf.setSample (1, i, v); }
+            s->name = "loop 92"; p.loadFactoryKit (0); p.setSample (0, s); p.pad[0].v[SBPM] = 92; p.pad[0].v[WARP] = 2; p.pad[0].v[DECAY] = 4000;
+            p.apvts.getParameter ("bpm")->setValueNotifyingHost (p.apvts.getParameter ("bpm")->convertTo0to1 (120));
+            juce::AudioBuffer<float> blk (2, 512); juce::MidiBuffer m; m.addEvent (juce::MidiMessage::noteOn (1, p.rootNote(), (juce::uint8) 100), 0);
+            int last = 0; for (int b = 0; b < 1200; ++b) { p.processBlock (blk, m); m.clear(); float pk = 0; for (int i = 0; i < 512; ++i) pk = std::max (pk, std::abs (blk.getSample (0, i))); if (pk > 1e-4f) last = b; }
+            std::printf ("stretch 92->120: suona %.2f s (atteso 8.00)\n", (last + 1) * 512 / 48000.0);
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "scan")
     {
         juce::ScopedJuceInitialiser_GUI gui3;
@@ -87,7 +137,9 @@ int main (int argc, char** argv)
         p.loadFile (wf, 0);
         std::printf ("BPM rilevato %.2f  warp %d  mode %d\n", p.pad[0].get (SBPM), (int) p.pad[0].get (WARP), (int) p.pad[0].get (MODE));
         Editor ed (p);
-        ed.openChop (0);
+        if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
+        if (auto* pg = std::getenv ("JPAGE")) { ed.selectPad (0); ed.setPage (std::atoi (pg)); for (int i = 0; i < 3; ++i) ed.screen.repaint(); }
+        else ed.openChop (0);
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

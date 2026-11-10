@@ -87,7 +87,7 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override { drag = nullptr; }
+    void mouseUp (const juce::MouseEvent&) override { drag = nullptr; sDrag = 0; repaint(); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     bool isInterestedInFileDrag (const juce::StringArray&) override { return true; }
@@ -131,6 +131,11 @@ public:
     juce::TextEditor search;
     void setupSearch();
     void itemMenu (int i);
+    juce::String pendKey;              // suono scelto nella banca: si sente subito, si carica al secondo clic
+    // pagina SAMPLE: trascinamento (1 inizio, 2 fine, 3 volume sull'onda) e cache dei picchi
+    int sDrag = 0; float sGain0 = 0;
+    const SampleData* wfSmp = nullptr; int wfW = 0; std::vector<float> wfPk;
+    void keyMenu();
 };
 
 class PatternView : public juce::Component
@@ -191,6 +196,13 @@ public:
     void paintChrome (juce::Graphics&);
     juce::Image chrome; float chromeScale = 0; bool chromeDirty = true;
     juce::Path wavePath; float pathV0 = -1, pathV1 = -1;
+    // trascinamento: marker piu vicino, spostamento di una fetta intera, annulla locale
+    int hovMark = 0; float dragStartFx = 0; std::vector<float> dragMarks0; float dragR00 = 0, dragR10 = 0; bool moved = false;
+    struct Edit { std::vector<float> marks; float r0, r1; };
+    std::vector<Edit> undoE, redoE;
+    void pushUndo() { undoE.push_back ({ marks, r0, r1 }); if (undoE.size() > 60) undoE.erase (undoE.begin()); redoE.clear(); }
+    int markAt (float x, float tol) const;
+    juce::String posText (float fx) const;
 };
 
 class Editor : public juce::AudioProcessorEditor, public juce::DragAndDropContainer, private juce::Timer
@@ -206,13 +218,13 @@ public:
     void setPage (int pg);
     void playPad (int p, int vel) { proc.uiNoteOn (p, vel); }
     void stopPad (int p) { proc.uiNoteOff (p); }
-    static constexpr int W = 1240, H = 736;
+    static constexpr int W = 1240, H = 780;
 
     jlook::LnF lnf;
     Processor& proc;
     jlook::Scaler scaler { *this, "pad", W, H };
     jlook::SizeChip sizeChip { scaler };
-    int sel = 0, page = PG_KIT, octave = 1, kbVel = 100, genre = 0;
+    int sel = 0, page = PG_KIT, octave = 1, kbVel = 100, genre = 0, undoTick = 0;
     bool fullLevel = false, kbOn = false, exportSwing = false;
     std::set<int> keysDown;
     std::unique_ptr<juce::FileChooser> chooser;
@@ -224,6 +236,7 @@ public:
     void openBrowser (int pad);
     void addToLibraryDialog();
     void scanMenu();
+    void doUndo (bool redo);
 
     // valori normalizzati dei parametri dei pad (per manopole e grafici)
     static float toNorm (int i, float v);
