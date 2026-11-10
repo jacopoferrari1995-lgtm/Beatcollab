@@ -1,18 +1,19 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "JackpotLook.h"
-#include "MasterDyn.h"
+#include "MasterColor.h"
 
 namespace jms
 {
 // moduli della catena di master (in ordine). Fase 1: MAXIMIZER e LIMITER.
-enum ModId { BASS, DYNEQ, DEESS, BUSCOMP, MULTI, TAPE, IMAGER, MAXIM, LIMIT, kNumMods };
+enum ModId { BASS, DYNEQ, DEESS, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT, kNumMods };
 struct ModInfo { const char* name; const char* sub; bool ready; juce::uint32 colour; };
 inline const ModInfo& modInfo (int m)
 {
     static const ModInfo I[kNumMods] = {
         { "BASS CONTROL", "sub e punch", true, 0xffffb000 }, { "EQ DINAMICO", "bande che reagiscono", true, 0xff5ef2ff }, { "DE-ESSER", "sibilanti e piatti", true, 0xff7dff5a },
-        { "BUS COMP", "colla da console", true, 0xffa66bff }, { "MULTIBANDA", "dinamica + OTT", true, 0xffff7a3d }, { "TAPE", "nastro analogico", false, 0xffffd23d },
+        { "BUS COMP", "colla da console", true, 0xffa66bff }, { "MULTIBANDA", "dinamica + OTT", true, 0xffff7a3d },
+        { "EXCITER", "armoniche per banda", true, 0xffff5ea8 }, { "TAPE", "nastro analogico", true, 0xffffd23d },
         { "IMAGER", "stereo per banda", true, 0xff3dffd2 }, { "MAXIMIZER", "volume e carattere", true, 0xffff2e88 }, { "LIMITER", "true peak finale", true, 0xffff3b5c } };
     return I[juce::jlimit (0, kNumMods - 1, m)];
 }
@@ -81,7 +82,7 @@ public:
     std::atomic<int> order[kNumMods];
     void setOrder (const std::array<int, kNumMods>&);
     std::array<int, kNumMods> getOrder() const;
-    std::atomic<float> bassPeak { 0 };
+    std::atomic<float> bassPeak { 0 }, exMeter { 0 };
     std::atomic<float> dsGr { 0 }, dsRel { -60 }, busGr { 0 }, mbLevel[kMbBands] {}, mbDown[kMbBands] {}, mbUp[kMbBands] {};
     StereoRing ringOut, ringIn;
     double eqRate() const { return sr; }
@@ -93,7 +94,7 @@ private:
     void timerCallback() override;
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100;
-    BassControl bass; DynEq deq; Imager img; DeEsser dess; BusComp bus; Multiband mband; VarDelay deltaVar[2];
+    BassControl bass; DynEq deq; Imager img; DeEsser dess; BusComp bus; Multiband mband; TapeMachine tape; Exciter exc; VarDelay deltaVar[2];
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2];
     juce::AudioBuffer<float> tmp, keep;

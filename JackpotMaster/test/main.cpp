@@ -121,6 +121,24 @@ int main (int argc, char** argv)
         auto at = [&] (float hz) { const int k = juce::roundToInt (hz * 32768 / sr); float m = 0; for (int j = k - 3; j <= k + 3; ++j) m = juce::jmax (m, d[(size_t) j]); return gToDb (m / 8192.0f); };
         std::printf ("delta bassi: 50 Hz %.1f dB, 2 kHz %.1f dB (deve sparire)\n", at (50), at (2000));
     }
+    {   // exciter acceso ma a zero = piatto; tape: armoniche
+        auto p = blank(); setP (*p, "ex_on", 1);
+        std::vector<float> a, b; run (*p, [] (int i, float& l, float& r) { l = r = i == 100 ? 0.5f : 0.0f; }, 65536, a, b);
+        juce::dsp::FFT f (16); std::vector<float> d (131072, 0); for (int i = 0; i < 65536; ++i) d[(size_t) i] = a[(size_t) i];
+        f.performFrequencyOnlyForwardTransform (d.data(), true);
+        float mn = 100, mx2 = -100; for (int k = 3; k < 30000; ++k) { const float db = gToDb (d[(size_t) k] / 0.5f); mn = juce::jmin (mn, db); mx2 = juce::jmax (mx2, db); }
+        std::printf ("exciter a zero: %.2f .. %.2f dB\n", mn, mx2);
+        for (int m = 0; m < 3; ++m)
+        {
+            auto q = blank(); setP (*q, "tp_on", 1); setP (*q, "tp_model", (float) m); setP (*q, "tp_drive", 0.5f);
+            std::vector<float> x, y; run (*q, [&] (int i, float& l, float& r) { l = r = 0.4f * (float) std::sin (2 * 3.14159265 * 100 * i / sr); }, 96000, x, y);
+            bool ok = true; for (auto v : x) ok &= std::isfinite (v);
+            std::printf ("tape %d drive 50%%: THD %.2f%% %s\n", m, thd (x, 48000, sr, 100), ok ? "" : "NaN");
+        }
+        auto e = blank(); setP (*e, "ex_on", 1); setP (*e, "ex2_amt", 0.5f); setP (*e, "ex2_mode", 0);
+        std::vector<float> x, y; run (*e, [&] (int i, float& l, float& r) { l = r = 0.3f * (float) std::sin (2 * 3.14159265 * 1000 * i / sr); }, 96000, x, y);
+        std::printf ("exciter medi valvola 50%%: THD %.2f%%\n", thd (x, 48000, sr, 1000));
+    }
     // fase 2: moduli neutri = somma piatta (risposta all'impulso, spettro)
     {
         auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "bc_on", 1); setP (*p, "eq_on", 1); setP (*p, "im_on", 1);

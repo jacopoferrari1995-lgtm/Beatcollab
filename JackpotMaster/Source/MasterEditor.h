@@ -266,6 +266,44 @@ public:
     MbView view; std::unique_ptr<Switch> solo[kMbBands]; std::unique_ptr<ActBtn> ottBtn, resetBtn;
 };
 
+class TapeView : public juce::Component
+{
+public:
+    TapeView (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void update();
+    Editor& ed; float angle = 0, harm[8] {}; int lm = -1; float ld = -1, lb = -9;
+};
+class TapePage : public ModPage
+{
+public:
+    TapePage (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    TapeView view; std::unique_ptr<Segs> model;
+};
+
+class ExView : public juce::Component
+{
+public:
+    ExView (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override { drag = -1; }
+    float xOf (float f) const { return (float) (std::log (f / 20.0) / std::log (1000.0) * getWidth()); }
+    float fOf (float x) const { return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, x / (float) getWidth())); }
+    Editor& ed; int drag = -1; float sp[200] {}; Analyzer an;
+};
+class ExciterPage : public ModPage
+{
+public:
+    ExciterPage (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    ExView view; std::unique_ptr<Segs> mode[kExBands]; std::unique_ptr<Switch> solo[kExBands];
+};
+
 class SoonPage : public juce::Component
 {
 public:
@@ -311,6 +349,8 @@ public:
     DeEssPage dsPage { *this };
     BusPage busPage { *this };
     MultiPage mbPage { *this };
+    TapePage tpPage { *this };
+    ExciterPage exPage { *this };
     LimPage limPage { *this };
     SoonPage soon { *this };
     LoudPanel loud { *this };
