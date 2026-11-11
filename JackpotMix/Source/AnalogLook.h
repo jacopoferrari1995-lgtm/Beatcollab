@@ -19,7 +19,8 @@ inline juce::Font typed (float size) { return jlook::mono (size); }
 inline void engrave (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> r, juce::Font f, juce::Justification j = juce::Justification::centred, juce::Colour c = A::ink)
 {
     g.setFont (f);
-    g.setColour (juce::Colours::white.withAlpha (0.35f)); g.drawText (t, r.translated (0, 0.8f), j);
+    const bool light = c.getPerceivedBrightness() > 0.55f;   // inchiostro chiaro su pannello scuro: ombra sotto invece della luce
+    g.setColour (light ? juce::Colours::black.withAlpha (0.55f) : juce::Colours::white.withAlpha (0.35f)); g.drawText (t, r.translated (0, light ? 1.0f : 0.8f), j);
     g.setColour (c); g.drawText (t, r, j);
 }
 inline void screw (juce::Graphics& g, float x, float y, float r = 6, float rot = 0.6f)
@@ -109,11 +110,11 @@ public:
         const float lh = 16.0f, vh = 14.0f, S = juce::jmin ((float) getWidth(), getHeight() - lh - vh);
         const float cx = getWidth() * 0.5f, cy = lh + S * 0.5f, R = S * 0.5f;
         const float a0 = -2.356f, a1 = 2.356f, v = param->getValue();
-        engrave (g, label, { 0, 0, (float) getWidth(), lh - 2 }, serif (big ? 11.0f : 9.5f));
+        engrave (g, label, { 0, 0, (float) getWidth(), lh - 2 }, serif (big ? 11.0f : 9.5f), juce::Justification::centred, ink);
         for (int i = 0; i <= ticks; ++i)
         {
             const float a = a0 + (a1 - a0) * i / ticks, ro = R - 1, ri = R - (i % 5 == 0 ? 6.5f : 4.0f);
-            g.setColour (A::ink.withAlpha (0.85f)); g.drawLine (cx + std::sin (a) * ri, cy - std::cos (a) * ri, cx + std::sin (a) * ro, cy - std::cos (a) * ro, 1.0f);
+            g.setColour (ink.withAlpha (0.85f)); g.drawLine (cx + std::sin (a) * ri, cy - std::cos (a) * ri, cx + std::sin (a) * ro, cy - std::cos (a) * ro, 1.0f);
             if (numbers && i % 2 == 0) { g.setFont (typed (big ? 8.5f : 7.5f)); g.drawText (juce::String (i), juce::Rectangle<float> (cx + std::sin (a) * (R + 7) - 9, cy - std::cos (a) * (R + 7) - 5, 18, 10), juce::Justification::centred); }
         }
         const float rk = R - 8;                      // raggio della manopola sul pannello
@@ -121,7 +122,7 @@ public:
         Art::contactShadow (g, cx, cy, rk);
         Art::frame (g, Art::knob (style), juce::roundToInt (v * 63), { cx - fs / 2, cy - fs / 2 - rk * 0.02f, fs, fs });
         const juce::String t = text ? text() : param->getCurrentValueAsText();
-        g.setColour (drag || hover ? A::maroon : A::inkSoft); g.setFont (typed (big ? 10.0f : 8.8f));
+        g.setColour (drag || hover ? hot : soft); g.setFont (typed (big ? 10.0f : 8.8f));
         g.drawText (t, juce::Rectangle<float> (-10, (float) getHeight() - vh, getWidth() + 20.0f, vh), juce::Justification::centred);
         if (! lit) { g.setColour (A::cream.withAlpha (0.4f)); g.fillRect (getLocalBounds()); }
     }
@@ -142,6 +143,7 @@ public:
     juce::RangedAudioParameter* param; juce::String label; int style;
     std::function<juce::String()> text; std::function<void()> onTouch;
     bool big = false, numbers = true, lit = true; int ticks = 10; float shown = -1;
+    juce::Colour ink = A::ink, soft = A::inkSoft, hot = A::maroon;
 private:
     float start = 0; bool drag = false, hover = false;
 };
@@ -156,13 +158,13 @@ public:
     float radius() const { return juce::jmin (getWidth() * 0.5f, (getHeight() - 16.0f) * 0.5f) * knobFrac; }
     void paint (juce::Graphics& g) override
     {
-        engrave (g, label, { 0, 0, (float) getWidth(), 14 }, serif (10.0f));
+        engrave (g, label, { 0, 0, (float) getWidth(), 14 }, serif (10.0f), juce::Justification::centred, ink);
         const auto c = centre(); const float rk = radius(); const int cur = juce::roundToInt (param->convertFrom0to1 (param->getValue()));
         for (int k = 0; k < items.size(); ++k)
         {
             const float a = angleOf (k), rl = rk + labelGap;
-            g.setColour (A::ink); g.drawLine (c.x + std::sin (a) * (rk + 3), c.y - std::cos (a) * (rk + 3), c.x + std::sin (a) * (rk + 8), c.y - std::cos (a) * (rk + 8), 1.2f);
-            engrave (g, items[k], { c.x + std::sin (a) * rl - 34, c.y - std::cos (a) * rl - 7, 68, 14 }, serif (fontSize), juce::Justification::centred, k == cur ? A::maroon : A::ink);
+            g.setColour (ink); g.drawLine (c.x + std::sin (a) * (rk + 3), c.y - std::cos (a) * (rk + 3), c.x + std::sin (a) * (rk + 8), c.y - std::cos (a) * (rk + 8), 1.2f);
+            engrave (g, items[k], { c.x + std::sin (a) * rl - 34, c.y - std::cos (a) * rl - 7, 68, 14 }, serif (fontSize), juce::Justification::centred, k == cur ? hot : ink);
         }
         // la testa a pollo e lunga 1.06 contro una base di 0.62: il fotogramma (2.75) va scalato sulla base
         const float fs = rk * 2.75f / 1.06f;
@@ -183,6 +185,7 @@ public:
     void set (int k) { param->setValueNotifyingHost (param->convertTo0to1 ((float) k)); if (onPick) onPick (k); repaint(); }
     juce::RangedAudioParameter* param; juce::String label; juce::StringArray items; float span; float fontSize = 9.0f, knobFrac = 0.42f, labelGap = 18; bool lit = true;
     std::function<void()> onTouch; std::function<void (int)> onPick;
+    juce::Colour ink = A::ink, hot = A::maroon;
 private:
     int startIdx = 0;
 };
@@ -195,12 +198,12 @@ public:
     void paint (juce::Graphics& g) override
     {
         const bool on = param->getValue() > 0.5f; const float cy = getHeight() * 0.5f;
-        engrave (g, upT, { 0, 0, 44, 11 }, serif (8.0f)); engrave (g, dnT, { 0, (float) getHeight() - 11, 44, 11 }, serif (8.0f));
+        engrave (g, upT, { 0, 0, 44, 11 }, serif (8.0f), juce::Justification::centred, ink); engrave (g, dnT, { 0, (float) getHeight() - 11, 44, 11 }, serif (8.0f), juce::Justification::centred, ink);
         const float s = 58; Art::frame (g, Art::toggle (on), 0, { -7, cy - s / 2, s, s });
-        engrave (g, label, { 48, 0, (float) getWidth() - 48, (float) getHeight() }, serif (9.5f), juce::Justification::centredLeft);
+        engrave (g, label, { 48, 0, (float) getWidth() - 48, (float) getHeight() }, serif (9.5f), juce::Justification::centredLeft, ink);
     }
     void mouseDown (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getValue() > 0.5f ? 0.0f : 1.0f); if (onPick) onPick(); repaint(); }
-    juce::RangedAudioParameter* param; juce::String label, upT, dnT; std::function<void()> onPick;
+    juce::RangedAudioParameter* param; juce::String label, upT, dnT; std::function<void()> onPick; juce::Colour ink = A::ink;
 };
 
 // strumento ad ago in cornice crema

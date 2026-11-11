@@ -79,7 +79,7 @@ inline juce::String modName (int t) { return t == 0 ? juce::String ("VUOTO") : i
 inline juce::String modDesc (int t) { return t == 0 ? juce::String ("Scegli un preamp o un EQ dal menu.") : isPre (t) ? juce::String (preInfo (preOf (t)).desc) : juce::String (eqDesc (eqOf (t))); }
 
 // un comando di un modulo: valore reale = lo + v * (hi - lo); con items e a scatti
-enum PFmt { F_NUM, F_DB, F_PCT, F_BOOL, F_ITEMS, F_AEF };
+enum PFmt { F_NUM, F_DB, F_PCT, F_BOOL, F_ITEMS, F_AEF, F_HZ, F_MS, F_CUSTOM, F_BIP };   // HZ/MS: scala logaritmica; BIP: -100..+100
 struct PSpec { const char* label = nullptr; float lo = 0, hi = 1, def = 0; int fmt = F_NUM; juce::StringArray items; int aeBand = -1; int cap = 2; };
 inline bool hidden (const PSpec& s) { return s.label == nullptr; }
 inline int steps (const PSpec& s) { return s.fmt == F_BOOL ? 2 : s.fmt == F_ITEMS ? s.items.size() : s.fmt == F_AEF ? 99 : 0; }
@@ -135,6 +135,7 @@ inline float specReal (const PSpec& s, float v)
     if (s.fmt == F_BOOL) return v > 0.5f ? 1.0f : 0.0f;
     if (s.fmt == F_ITEMS) return (float) juce::roundToInt (v * (s.items.size() - 1));
     if (s.fmt == F_AEF) return v;
+    if ((s.fmt == F_HZ || s.fmt == F_MS) && s.lo > 0) return s.lo * std::pow (s.hi / s.lo, v);
     return s.lo + v * (s.hi - s.lo);
 }
 inline float specNorm (const PSpec& s, float real)
@@ -142,6 +143,7 @@ inline float specNorm (const PSpec& s, float real)
     if (s.fmt == F_BOOL) return real > 0.5f ? 1.0f : 0.0f;
     if (s.fmt == F_ITEMS) return s.items.size() > 1 ? juce::jlimit (0.0f, 1.0f, real / (float) (s.items.size() - 1)) : 0.0f;
     if (s.fmt == F_AEF) return juce::jlimit (0.0f, 1.0f, real);
+    if ((s.fmt == F_HZ || s.fmt == F_MS) && s.lo > 0) return juce::jlimit (0.0f, 1.0f, std::log (juce::jmax (s.lo, real) / s.lo) / std::log (s.hi / s.lo));
     return juce::jlimit (0.0f, 1.0f, (real - s.lo) / (s.hi - s.lo));
 }
 inline juce::String specText (int t, int i, float v)
