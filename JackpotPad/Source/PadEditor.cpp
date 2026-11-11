@@ -445,12 +445,18 @@ void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
     hots.push_back ({ arrowL, [loadItem, cur, n = (int) items.size()] (const juce::MouseEvent&) { loadItem ((cur - 1 + n) % n); }, nullptr, nullptr, nullptr });
     hots.push_back ({ arrowR, [loadItem, cur, n = (int) items.size()] (const juce::MouseEvent&) { loadItem ((cur + 1) % n); }, nullptr, nullptr, nullptr });
     auto btnRow = left.removeFromBottom (30); left.removeFromBottom (5);
-    auto rndRow = left.removeFromBottom (26); left.removeFromBottom (6);
+    auto rndRow = left.removeFromBottom (26); left.removeFromBottom (5);
+    auto keyRow = left.removeFromBottom (26); left.removeFromBottom (6);
     {
-        const float rw = (rndRow.getWidth() - 4) * 0.5f;
+        const float rw = (rndRow.getWidth() - 8) / 3;
         chip (g, rndRow.removeFromLeft (rw), "", "RANDOM KIT", true, [this] (const juce::MouseEvent&) { randomKit (ed.proc, randMode); ed.kitChanged(); ed.playPad (0, 100); }, Col::amber);
         rndRow.removeFromLeft (4);
+        chip (g, rndRow.removeFromLeft (rw), "", "RANDOM PAD " + juce::String (ed.sel + 1), true, [this] (const juce::MouseEvent&) { randomPad (ed.proc, ed.sel, randMode); ed.kitChanged(); ed.playPad (ed.sel, 100); }, Col::amber);
+        rndRow.removeFromLeft (4);
         chip (g, rndRow, "", kRandModes[randMode], false, [this] (const juce::MouseEvent&) { randMode = (randMode + 1) % 3; repaint(); }, Col::amber);
+        const int kl = P.keyLock();
+        chip (g, keyRow, "", juce::String::fromUTF8 ("TONALIT\xc3\x80 KIT: ") + (kl < 0 ? juce::String ("LIBERA") : keyName (kl) + (kl >= 12 ? " (minore)" : " (maggiore)")) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), kl >= 0,
+              [this] (const juce::MouseEvent&) { ed.keyLockMenu(); }, Col::cyan);
     }
     const float bw = (btnRow.getWidth() - 8) / 3;
     chip (g, btnRow.removeFromLeft (bw), "", "SALVA", true, [this] (const juce::MouseEvent&) { ed.saveKit (false); }, Col::magenta); btnRow.removeFromLeft (4);
@@ -2187,6 +2193,23 @@ void Editor::doUndo (bool redo)
     if (redo ? proc.redo() : proc.undo()) { screen.chopSmp = nullptr; screen.wfSmp = nullptr; kitChanged(); }
     root.repaint();
 }
+void Editor::keyLockMenu()
+{
+    juce::PopupMenu m, ma, mi; const int cur = proc.keyLock();
+    for (int i = 0; i < 12; ++i) { ma.addItem (2 + i, keyName (i) + " maggiore", true, cur == i); mi.addItem (14 + i, keyName (12 + i).dropLastCharacters (1) + " minore", true, cur == 12 + i); }
+    m.addItem (1, "LIBERA (non forzare la tonalita)", true, cur < 0);
+    m.addSubMenu ("Maggiore", ma); m.addSubMenu ("Minore", mi);
+    m.addSeparator();
+    m.addItem (40, "Usa la tonalita del kit attuale", proc.kitEffectiveKey() >= 0);
+    m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r)
+    {
+        if (r <= 0) return;
+        int k = r == 1 ? -1 : r == 40 ? proc.kitEffectiveKey() : r - 2;
+        auto* pr = proc.apvts.getParameter ("kkey"); pr->setValueNotifyingHost (pr->convertTo0to1 ((float) (k + 1)));
+        if (k >= 0) proc.applyKeyLockAll();
+        kitChanged();
+    });
+}
 void Editor::kitChanged() { for (auto* pd : pads) pd->repaint(); root.repaint(); screen.repaint(); }
 void Editor::openBrowser (int p)
 {
@@ -2269,6 +2292,7 @@ void Editor::padMenu (int p)
 {
     juce::PopupMenu m, cm;
     m.addItem (7, "Scegli suono dalla banca...");
+    m.addItem (8, p < 8 ? "Random: altro suono della stessa categoria" : "Random: altro campione (di solito lungo)");
     m.addItem (1, "Carica campione da file...");
     m.addItem (2, "Svuota pad");
     m.addItem (4, "Ripristina parametri del pad");
@@ -2283,6 +2307,7 @@ void Editor::padMenu (int p)
         else if (r == 4) { const int c = proc.pad[p].colour.load(); proc.pad[p].reset(); proc.pad[p].colour = c; }
         else if (r == 6) { proc.detectBpm (p); setPage (PG_SAMPLE); }
         else if (r == 7) openBrowser (p);
+        else if (r == 8) { randomPad (proc, p, screen.randMode); kitChanged(); playPad (p, 100); }
         else if (r >= 100) proc.pad[p].colour = r - 100;
         root.repaint();
     });

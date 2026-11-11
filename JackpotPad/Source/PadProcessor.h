@@ -106,7 +106,12 @@ public:
     bool loadLayerFile (const juce::File&, int p);
     bool loadFile (const juce::File&, int p, bool analyse = true);
     void detectKey (int p, bool audio = true);    // tonalita del campione (nome, poi ascolto)
-    void transposeTo (int p, int key);            // porta il campione nella tonalita scelta (stretch se e un loop)
+    void transposeTo (int p, int key);
+    int keyLock() const { return (int) apvts.getRawParameterValue ("kkey")->load() - 1; }   // -1 libera, 0..23 tonalita fissa
+    bool isTonalPad (int p) const;
+    void applyKeyLock (int p);                    // se la tonalita e fissata porta il pad li
+    void applyKeyLockAll();
+    int kitEffectiveKey (int except = -1) const;  // tonalita in cui suonano le parti tonali ora            // porta il campione nella tonalita scelta (stretch se e un loop)
     // ascolto di prova dalla banca, senza caricarlo sul pad
     void preview (SamplePtr s) { { const juce::SpinLock::ScopedLockType l (sLock); prevNext = std::move (s); } prevReq = prevReq.load() + 1; }
     // annulla / ripeti: istantanee dei pad prese dall'editor quando cambia qualcosa

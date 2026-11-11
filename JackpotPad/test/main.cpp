@@ -9,6 +9,32 @@
 using namespace jp;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "rnd")
+    {
+        Processor p; p.prepareToPlay (44100, 512);
+        int drumsHigh = 0, longHigh = 0, tot = 0;
+        auto isDrum = [] (const juce::String& c) { return c == "KICK" || c == "SNARE" || c == "CLAP / SNAP" || c == "HAT" || c == "OPEN HAT" || c == "PERC" || c == "TOM"; };
+        for (int k = 0; k < 40; ++k)
+        {
+            randomKit (p, 0);
+            for (int q = 8; q < 16; ++q) if (auto s = p.getSample (q)) { ++tot; if (isDrum (p.padCat[q])) ++drumsHigh; if (s->buf.getNumSamples() / s->sr >= 1.5) ++longHigh; }
+        }
+        std::printf ("kit casuali: pad 9-16 riempiti %d, colpi di batteria %d, lunghi %d\n", tot, drumsHigh, longHigh);
+        int same = 0, ok = 0;
+        for (int k = 0; k < 40; ++k) { const int q = k % 8; const auto c = p.padCat[q]; randomPad (p, q, 0); if (p.padCat[q] == c) ++same; ++ok; }
+        std::printf ("random pad 1-8: stessa categoria %d / %d\n", same, ok);
+        int lg = 0, dr = 0; for (int k = 0; k < 40; ++k) { const int q = 8 + k % 8; randomPad (p, q, 0); auto s = p.getSample (q); if (s && s->buf.getNumSamples() / s->sr >= 1.5) ++lg; if (isDrum (p.padCat[q])) ++dr; }
+        std::printf ("random pad 9-16: lunghi %d / 40, batteria %d\n", lg, dr);
+        auto* pr = p.apvts.getParameter ("kkey"); pr->setValueNotifyingHost (pr->convertTo0to1 (1 + 12 + 9));   // La minore
+        p.applyKeyLockAll(); int tonal = 0, inKey = 0;
+        for (int q = 0; q < 16; ++q) if (p.getSample (q) && p.isTonalPad (q) && p.pad[q].get (SKEY) >= 0)
+        { ++tonal; const int k = juce::roundToInt (p.pad[q].get (SKEY)), t = juce::roundToInt (p.pad[q].get (TUNE)); const int pc = (((k % 12) + t) % 12 + 12) % 12;
+          const bool good = k >= 24 ? pc == 9 : (k >= 12 ? pc == 9 : pc == 0); if (good) ++inKey;
+          std::printf ("  pad %2d %-10s %-4s tune %+d -> %s\n", q + 1, p.padCat[q].toRawUTF8(), keyName (k).toRawUTF8(), t, good ? "ok" : "NO"); }
+        std::printf ("tonalita fissa Am: %d / %d parti tonali in tonalita\n", inKey, tonal);
+        randomKit (p, 0); std::printf ("kit dopo blocco: %s\n", p.kitName.toRawUTF8());
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "t2")
     {
         juce::ScopedJuceInitialiser_GUI gi;

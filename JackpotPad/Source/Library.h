@@ -23,5 +23,6 @@ std::vector<LibItem> searchLibrary (const juce::String& query, size_t maxItems =
 // kit casuale: 0 suoni di fabbrica, 1 libreria (fabbrica + tuoi), 2 solo i tuoi campioni.
 // Di solito pad 1-8 batteria e 9-16 fx, voci, melodie e loop; ogni tanto un kit sperimentale.
 void randomKit (Processor&, int mode);
+void randomPad (Processor&, int pad, int mode);   // solo un pad: 1-8 stessa categoria, 9-16 casuale con piu campioni lunghi
 extern const char* kRandModes[3];
 }

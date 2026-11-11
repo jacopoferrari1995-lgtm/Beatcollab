@@ -1,5 +1,6 @@
 #include "Library.h"
 #include "KeyDetect.h"
+#include "Generator.h"
 #include <map>
 
 namespace jp
@@ -107,9 +108,9 @@ bool loadLibItem (Processor& P, const LibItem& it, int p)
     auto& pd = P.pad[p];
     pd.v[START] = 0; pd.v[END] = 1; pd.v[SLICE] = 0; pd.v[WARP] = 0; pd.v[SBPM] = 0; pd.v[LOOP] = 0;
     pd.v[SKEY] = -1;
-    if (it.user) { const bool ok = P.loadFile (it.file, p); if (ok) P.padCat[p] = it.category; return ok; }
+    if (it.user) { const bool ok = P.loadFile (it.file, p); if (ok) { P.padCat[p] = it.category; P.applyKeyLock (p); } return ok; }
     P.setSample (p, makeDrum (it.d)); P.padCat[p] = it.category;
-    P.detectKey (p);
+    P.detectKey (p); P.applyKeyLock (p);
     return true;
 }
 
@@ -204,39 +205,48 @@ void randomKit (Processor& P, int mode)
         roles[2] = { pick ({ "HAT", "PERC", "TEXTURE" }), "HAT" };
         for (int q = 3; q < 8; ++q) roles[(size_t) q] = { pick ({ "FX", "TEXTURE", "VOCI", "PERC", "TOM", "CYMBAL", "808", "MELODICI", "CLAP / SNAP" }), "PERC" };
     }
+    // pad 9-16: niente colpi di batteria. Pad 9 808/basso, poi quasi tutti campioni lunghi (melodie, loop, voci, texture)
+    std::vector<bool> wantLong (kPads, false);
+    static const juce::StringArray longCats { "MELODICI", "LOOP", "VOCI", "TEXTURE", "MELODICI", "LOOP" };
     if (! invent)
-    {   // pad 9 sempre 808/basso, poi almeno altri 3 campioni (melodie, loop, voci, texture, fx); one shot da 0 a 4, mai fissi
-        const int oneShots = r.nextInt (3), samples = 8 - oneShots;   // almeno 6 campioni lunghi su 8
-        roles[8] = { "808", "KICK" };
-        for (int q = 9; q < 8 + samples; ++q) roles[(size_t) q] = { pick ({ "MELODICI", "LOOP", "VOCI", "TEXTURE", "FX", "MELODICI", "LOOP" }), "MELODICI", "TEXTURE" };
-        for (int q = 8 + samples; q < 16; ++q) roles[(size_t) q] = { pick ({ "PERC", "TOM", "CLAP / SNAP", "CYMBAL", "KICK", "SNARE", "HAT", "OPEN HAT" }), "PERC", "FX" };
+    {
+        const int oneShots = r.nextFloat() < 0.6f ? 0 : 1;
+        roles[8] = { "808", "MELODICI" };
+        for (int q = 9; q < 16 - oneShots; ++q) { roles[(size_t) q] = { longCats[r.nextInt (longCats.size())], "MELODICI", "LOOP", "TEXTURE" }; wantLong[(size_t) q] = true; }
+        for (int q = 16 - oneShots; q < 16; ++q) roles[(size_t) q] = { pick ({ "FX", "VOCI", "TEXTURE" }), "FX", "TEXTURE" };
     }
     else
-        for (int q = 8; q < 16; ++q) roles[(size_t) q] = { pick ({ "FX", "TEXTURE", "VOCI", "MELODICI", "LOOP", "PERC", "CYMBAL", "TOM", "808", "KICK", "SNARE", "CLAP / SNAP" }), "PERC", "FX" };
+        for (int q = 8; q < 16; ++q)
+        {
+            roles[(size_t) q] = { pick ({ "FX", "TEXTURE", "VOCI", "MELODICI", "LOOP", "MELODICI", "808" }), "MELODICI", "TEXTURE", "FX" };
+            wantLong[(size_t) q] = roles[(size_t) q][0] != "808" && r.nextFloat() < 0.8f;
+        }
     juce::StringArray used;
     // tonalita del kit: la decide la prima parte tonale con tonalita nota (melodie per prime)
-    int kitKey = -1;
+    int kitKey = P.keyLock();
     const int order[] = { 9, 10, 11, 8, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7 };
     for (int p : order)
     {
         auto& pd = P.pad[p]; pd.reset(); P.setLayer (p, nullptr);
         bool done = false; juce::String cat;
         // pad 9-16 dei ruoli "campione": serve un suono lungo (loop, frase, melodia), non un altro one shot
-        const bool wantLong = p >= 9 && ! invent && roles[(size_t) p].contains ("MELODICI") && roles[(size_t) p].size() == 3 && roles[(size_t) p][1] == "MELODICI";
+        const bool longOnly = wantLong[(size_t) p];
         auto lenOf = [&P, p] { auto s = P.getSample (p); return s ? s->buf.getNumSamples() / s->sr : 0.0; };
-        for (int pass = wantLong ? 0 : 1; pass < 2 && ! done; ++pass)
+        // passaggi: 0 solo lunghi (1.5 s o piu), 1 almeno 0.8 s, 2 qualsiasi
+        for (int pass = longOnly ? 0 : 2; pass < 3 && ! done; ++pass)
             for (auto& c : roles[(size_t) p])
             {
                 auto& v = pool (c); if (v.empty()) continue;
-                for (int t = 0; t < (pass == 0 ? 14 : 8) && ! done; ++t)
+                const float minLen = pass == 0 ? 1.5f : pass == 1 ? 0.8f : 0.0f;
+                for (int t = 0; t < (pass == 0 ? 30 : 10) && ! done; ++t)
                 {
                     const auto& it = v[(size_t) r.nextInt ((int) v.size())];
-                    if (pass == 0 && it.scanned && it.dur > 0 && it.dur < 1.5f) continue;   // durata gia nota: scarta subito
+                    if (minLen > 0 && it.scanned && it.dur > 0 && it.dur < minLen) continue;   // durata gia nota: scarta subito
                     const auto key = it.user ? it.file.getFullPathName() : descToPath (it.d);
                     if (used.contains (key) && t < 7) continue;
                     if (loadLibItem (P, it, p))
                     {
-                        if (pass == 0 && lenOf() < 1.5) continue;   // troppo corto: prova un altro
+                        if (lenOf() < minLen) continue;   // troppo corto: prova un altro
                         used.add (key); done = true; cat = c;
                     }
                 }
@@ -279,5 +289,70 @@ void randomKit (Processor& P, int mode)
     }
     P.kitName = juce::String ("Random ") + (first == 0 ? "Classico" : first == 1 ? "Variato" : "Sperimentale") + (invent ? "+" : "") + " / " + kRandModes[juce::jlimit (0, 2, mode)] + (kitKey >= 0 ? " in " + keyName (kitKey) : juce::String());
     P.kitFile = juce::File();
+}
+
+// Random su un solo pad. 1-8: un altro suono della stessa categoria del pad. 9-16: casuale, quasi sempre lungo.
+// Le parti tonali seguono la tonalita fissata o quella del resto del kit.
+void randomPad (Processor& P, int p, int mode)
+{
+    if (! juce::isPositiveAndBelow (p, kPads)) return;
+    juce::Random r;
+    static const char* drumRole[8] = { "KICK", "SNARE", "HAT", "OPEN HAT", "CLAP / SNAP", "TOM", "PERC", "CYMBAL" };
+    juce::StringArray cats; bool longOnly = false;
+    if (p < 8)
+    {
+        auto c = P.padCat[p];
+        if (c.isEmpty())
+        {   // categoria non nota: deducila dal ruolo del suono che c'e, altrimenti dal ruolo del pad
+            switch (padRole (P, p))
+            {
+                case R_KICK: c = "KICK"; break; case R_SNARE: c = "SNARE"; break; case R_CLAP: c = "CLAP / SNAP"; break; case R_HAT: c = "HAT"; break;
+                case R_OPEN: c = "OPEN HAT"; break; case R_TOM: c = "TOM"; break; case R_CYM: c = "CYMBAL"; break; case R_808: c = "808"; break;
+                case R_PERC: c = "PERC"; break; case R_FX: c = "FX"; break; case R_VOX: c = "VOCI"; break; case R_TEX: c = "TEXTURE"; break;
+                case R_MEL: c = "MELODICI"; break; case R_LOOP: c = "LOOP"; break; default: c = drumRole[p]; break;
+            }
+        }
+        cats.add (c);
+    }
+    else
+    {
+        const float x = r.nextFloat();
+        if (x < 0.85f) { static const char* l[] = { "MELODICI", "LOOP", "VOCI", "TEXTURE", "MELODICI", "LOOP" }; cats.add (l[r.nextInt (6)]); cats.addArray ({ "MELODICI", "LOOP", "TEXTURE" }); longOnly = true; }
+        else if (x < 0.93f) cats.addArray ({ "808", "MELODICI" });
+        else cats.addArray ({ r.nextBool() ? "FX" : "VOCI", "FX", "TEXTURE" });
+    }
+    const juce::String curPath = P.getSample (p) ? P.getSample (p)->path : juce::String();
+    const int col = P.pad[p].colour.load(); const float choke = P.pad[p].get (CHOKE);
+    auto lenOf = [&P, p] { auto s = P.getSample (p); return s ? s->buf.getNumSamples() / s->sr : 0.0; };
+    bool done = false; juce::String cat;
+    for (int pass = longOnly ? 0 : 2; pass < 3 && ! done; ++pass)
+        for (auto& c : cats)
+        {
+            std::vector<LibItem> mine, fac, v;
+            for (auto& it : libItems (c)) { if (it.scanned && it.dur > maxDur (c)) continue; (it.user ? mine : fac).push_back (it); }
+            v = mode == 0 ? fac : mode == 2 ? mine : (! mine.empty() && (fac.empty() || r.nextFloat() < 0.65f)) ? mine : fac;
+            if (v.empty() && mode == 2) v = fac;
+            if (v.empty()) continue;
+            const float minLen = pass == 0 ? 1.5f : pass == 1 ? 0.8f : 0.0f;
+            for (int t = 0; t < 30 && ! done; ++t)
+            {
+                const auto& it = v[(size_t) r.nextInt ((int) v.size())];
+                if (minLen > 0 && it.scanned && it.dur > 0 && it.dur < minLen) continue;
+                const auto key = it.user ? it.file.getFullPathName() : descToPath (it.d);
+                if (key == curPath && v.size() > 1) continue;   // un suono diverso da quello di prima
+                P.pad[p].reset(); P.setLayer (p, nullptr);
+                if (loadLibItem (P, it, p) && lenOf() >= minLen) { done = true; cat = c; }
+            }
+            if (done) break;
+        }
+    if (! done) return;
+    auto& pd = P.pad[p]; pd.colour = col;
+    if (p < 8) pd.v[CHOKE] = choke;
+    if (cat == "OPEN HAT" || cat == "CYMBAL") pd.v[DECAY] = 4000;
+    if (P.keyLock() < 0 && P.isTonalPad (p) && pd.get (SKEY) >= 0)
+    {
+        const int k = P.kitEffectiveKey (p);
+        if (k >= 0) P.transposeTo (p, k);
+    }
 }
 }

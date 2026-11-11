@@ -260,6 +260,7 @@ public:
     void saveKit (bool askName);
     void loadKitDialog();
     void kitChanged();
+    void keyLockMenu();
     void openBrowser (int pad);
     void addToLibraryDialog();
     void scanMenu();

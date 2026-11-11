@@ -162,6 +162,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     F ("human", "Humanize", 0, 1, 0);
     F ("bpm", "BPM interno", 50, 220, 120);
     l.add (std::make_unique<AudioParameterInt> (ParameterID { "root", 1 }, "Nota del pad 1", 0, 112, 36));
+    {   StringArray k { "LIBERA" }; static const char* n[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        for (int i = 0; i < 12; ++i) k.add (String (n[i]) + " maggiore"); for (int i = 0; i < 12; ++i) k.add (String (n[i]) + " minore");
+        C ("kkey", "Tonalita del kit", k, 0); }
 
     F ("revSize", "Reverb Decay", 0, 1, 0.5f); F ("revDamp", "Reverb Damp", 0, 1, 0.5f); F ("revRet", "Reverb Return", 0, 1, 0.7f);
     { NormalisableRange<float> r (20, 1000); r.setSkewForCentre (150); l.add (std::make_unique<AudioParameterFloat> (ParameterID { "revLo", 1 }, "Reverb taglio bassi", r, 120)); }
@@ -986,6 +989,31 @@ void Processor::transposeTo (int p, int key)
     if (s && P.get (SBPM) > 40 && s->buf.getNumSamples() / s->sr >= 1.8 && juce::roundToInt (P.get (WARP)) != 2) P.v[WARP] = 2;
 }
 
+bool Processor::isTonalPad (int p) const
+{
+    const auto r = padRole (*this, p);
+    return r == R_808 || r == R_MEL || r == R_LOOP || r == R_VOX || r == R_TEX || r == R_CHOP;
+}
+void Processor::applyKeyLock (int p)
+{
+    const int k = keyLock(); if (k < 0 || getSample (p) == nullptr || ! isTonalPad (p)) return;
+    if (juce::roundToInt (pad[p].get (SKEY)) == -1) detectKey (p);
+    if (pad[p].get (SKEY) >= 0) transposeTo (p, k);
+}
+void Processor::applyKeyLockAll() { for (int p = 0; p < kPads; ++p) applyKeyLock (p); }
+int Processor::kitEffectiveKey (int except) const
+{
+    if (keyLock() >= 0) return keyLock();
+    for (int p : { 9, 10, 11, 12, 13, 14, 15, 8, 0, 1, 2, 3, 4, 5, 6, 7 })
+    {
+        if (p == except || getSample (p) == nullptr || ! isTonalPad (p)) continue;
+        const int k = juce::roundToInt (pad[p].get (SKEY)); if (k < 0 || k >= 24) continue;
+        const int t = juce::roundToInt (pad[p].get (TUNE));
+        return (k >= 12 ? 12 : 0) + (((k % 12) + t) % 12 + 12) % 12;
+    }
+    return -1;
+}
+
 Processor::Snap Processor::capture() const
 {
     Snap n;
@@ -1042,7 +1070,7 @@ bool Processor::loadFile (const juce::File& f, int p, bool analyse)
     padCat[p] = {};
     pad[p].v[START] = 0; pad[p].v[END] = 1; pad[p].v[WARP] = 0; pad[p].v[SBPM] = 0; pad[p].v[LOOP] = 0;
     setSample (p, s);
-    if (analyse) { detectBpm (p); detectKey (p); }
+    if (analyse) { detectBpm (p); detectKey (p); applyKeyLock (p); }
     return true;
 }
 
