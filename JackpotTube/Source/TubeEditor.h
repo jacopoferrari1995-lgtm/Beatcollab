@@ -35,6 +35,9 @@ public:
     jlook::SizeChip sizeChip { scaler };
     juce::RangedAudioParameter* P (const juce::String& id) { return proc.apvts.getParameter (id); }
     const juce::Colour gold { 0xffe8b04a }, acc2 = C::magenta;
+    // un colore per banda: la stessa tinta nel grafico e sulle sue tre manopole
+    static juce::Colour bandCol (int k) { static const juce::uint32 c[5] = { 0xffff3d6e, 0xffff9a3d, 0xffffd84a, 0xff4ade80, 0xff5ec8ff }; return juce::Colour (c[juce::jlimit (0, 4, k)]); }
+    int hotBand = -1;   // banda sotto il mouse (grafico o manopole)
 private:
     void timerCallback() override;
     struct KS { std::unique_ptr<Knob> k; int sec; };

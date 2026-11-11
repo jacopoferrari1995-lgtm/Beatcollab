@@ -114,7 +114,7 @@ public:
     PanView panView { *this };
 private:
     void timerCallback() override;
-    std::unique_ptr<Knob> kRate, kDiv, kDepth, kChar, kFb, kFreq, kStereo, kMix, kTone, kWidth, kBass, kOut, kPanRate, kPanDiv, kPanDepth;
+    std::unique_ptr<Knob> kRate, kDiv, kDepth, kChar, kFb, kFreq, kStereo, kMix, kTone, kWidth, kBass, kOut, kPanRate, kPanDiv, kPanDepth, kDry;
     std::unique_ptr<Knob> kVoice[4], kLevel[4];
     std::unique_ptr<Segs> sShape, sPanShape, sKey, sScale;
     std::unique_ptr<Switch> wSync, wPan, wPanSync, wOn;

@@ -50,6 +50,33 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    if (argc > 1 && juce::String (argv[1]) == "voce")
+    {   // eco solo sulla voce pitch: nella coda deve esserci solo la nota spostata (110 Hz), non quella originale (220)
+        for (int ve : { 0, 1, 2 })
+        {
+            auto p = fresh(); setP (*p, "pitch", ve == 2 ? 0.0f : -12.0f); setP (*p, "pmix", 0.3f); setP (*p, "b1_drive", 0); setP (*p, "b1_model", CONSOLE);
+            setP (*p, "eOn", 1); setP (*p, "eSync", 0); setP (*p, "eMs", 250); setP (*p, "eFb", 0.0f); setP (*p, "eMix", 1); setP (*p, "eLo", 20); setP (*p, "eHi", 20000); setP (*p, "eSat", 0);
+            setP (*p, "vEcho", (float) ve); setP (*p, "vWide", 0.7f);
+            // nota di 0,2 s ogni 0,5 s: tra una nota e l'altra si sente solo l'eco
+            auto y = run (*p, [] (int i) { const int ph = i % 24000; return ph < 9600 ? (float) (0.3 * std::sin (2 * 3.14159265 * 220.0 * i / 48000.0)) : 0.0f; }, 96000);
+            const int lat = p->getLatencySamples(); std::vector<float> tail;
+            for (int k = 0; k < 1; ++k) for (int i = 0; i < 8000; ++i) tail.push_back (y[(size_t) (24000 * (k + 1) + lat + 12000 + 1500 + i)]);
+            tail.resize (32768, 0.0f);
+            auto gz = [&] (double f) { double re = 0, im = 0; for (int i = 0; i < 8000; ++i) { re += tail[(size_t) i] * std::cos (6.2831853 * f * i / sr); im += tail[(size_t) i] * std::sin (6.2831853 * f * i / sr); } return std::sqrt (re * re + im * im) / 4000; };
+            { std::vector<float> d; for (int i = 0; i < 8000; ++i) d.push_back (y[(size_t) (48000 + lat + 1000 + i)]); d.resize (32768, 0); auto t2 = tail; tail = d;
+              std::printf ("   diretto: 220 %.4f 110 %.4f\n", gz (220), gz (110)); tail = t2; }
+            std::printf ("vEcho %d: coda 220 Hz %.4f  110 Hz %.4f\n", ve, gz (220), gz (110));
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "eco")
+    {
+        auto p = fresh(); setP (*p, "eOn", 1); setP (*p, "eSync", 0); setP (*p, "eMs", 250); setP (*p, "eFb", 0); setP (*p, "eMix", 1); if (argc > 2) { setP (*p, "eLo", 20); setP (*p, "eHi", 20000); setP (*p, "eSat", 0); }
+        auto S = p->settings(); std::printf ("eOn %d ms %.1f mix %.2f\n", (int) S.eOn, S.eMs, S.eMix);
+        auto y = run (*p, [] (int i) { return i == 1000 ? 0.5f : 0.0f; }, 48000);
+        for (int i = 0; i < (int) y.size(); ++i) if (std::abs (y[(size_t) i]) > 0.05f) std::printf ("  %d %.3f\n", i, y[(size_t) i]);
+        return 0;
+    }
     // 1) latenza: impulso con tutto fermo e drive pulito
     {
         auto p = fresh(); setP (*p, "b1_model", CONSOLE); setP (*p, "b1_drive", 0); setP (*p, "auto", 0);

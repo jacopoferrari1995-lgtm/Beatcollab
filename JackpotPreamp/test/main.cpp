@@ -41,11 +41,26 @@ int main (int argc, char** argv)
         for (float g : { 0.0f, 12.0f, 24.0f })
         {
             float r1, t1, r2, t2, r3, t3;
-            run ([m, g] (Processor& p) { setP (p, "p_on", 1); setP (p, "p_model", (float) m); setP (p, "p_gain", g); }, 0.25f, 100, r1, t1, pk);
-            run ([m, g] (Processor& p) { setP (p, "p_on", 1); setP (p, "p_model", (float) m); setP (p, "p_gain", g); }, 0.25f, 1000, r2, t2, pk);
-            run ([m, g] (Processor& p) { setP (p, "p_on", 1); setP (p, "p_model", (float) m); setP (p, "p_gain", g); }, 0.25f, 10000, r3, t3, pk);
+            auto set = [m, g] (Processor& p) { p.setModule (0, 1 + m); setP (p, "s1_p1", (g + 10) / 40.0f); };
+            run (set, 0.25f, 100, r1, t1, pk); run (set, 0.25f, 1000, r2, t2, pk); run (set, 0.25f, 10000, r3, t3, pk);
             std::printf ("%-8s gain %2.0f: 100Hz %+.2f dB thd %.2f%% | 1k %+.2f thd %.2f%% | 10k %+.2f\n", preInfo (m).name, g, r1, t1, r2, t2, r3);
         }
+    // centro anti-risonanze a profondita minima: deve passare il suono quasi intatto (ricostruzione STFT)
+    run ([] (Processor& p) { setP (p, "c_on", 1); setP (p, "c_mode", 1); setP (p, "r_depth", 0); setP (p, "r_lo", 20000 > 0 ? 1999 : 0); setP (p, "r_hi", 1001); }, 0.25f, 440, r, thd, pk);
+    std::printf ("anti-risonanze fuori zona: %+.3f dB thd %.3f%%\n", r, thd);
+    run ([] (Processor& p) { setP (p, "c_on", 1); setP (p, "c_mode", 1); setP (p, "r_depth", 1); }, 0.25f, 3000, r, thd, pk);
+    std::printf ("anti-risonanze su un tono puro a 3k (picco da togliere): %+.2f dB\n", r);
+    // taglio dinamico: sotto soglia non tocca, sopra taglia
+    for (float amp : { 0.01f, 0.3f }) { run ([] (Processor& p) { setP (p, "c_on", 1); setP (p, "b1f", 1000); setP (p, "b1g", -12); setP (p, "b1q", 2); setP (p, "b1dyn", 1); setP (p, "b1thr", -30); }, amp, 1000, r, thd, pk);
+      std::printf ("dinamico a 1k, ampiezza %.2f: %+.2f dB\n", amp, r); }
+    // taglio solo sul side: un segnale mono non deve cambiare
+    run ([] (Processor& p) { setP (p, "c_on", 1); setP (p, "b1f", 1000); setP (p, "b1g", -12); setP (p, "b1ms", 2); }, 0.25f, 1000, r, thd, pk);
+    std::printf ("taglio sul SIDE con segnale mono: %+.3f dB\n", r);
+    // latenza dichiarata
+    { Processor p; p.prepareToPlay (sr, 512); p.setModule (0, 1); p.setModule (1, 1 + kPreModels); setP (p, "c_on", 1); setP (p, "c_mode", 1);
+      juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; int at = -1, n = 0;
+      for (int k = 0; k < 40; ++k) { b.clear(); if (k == 2) { b.setSample (0, 0, 0.5f); b.setSample (1, 0, 0.5f); } p.processBlock (b, m); for (int i = 0; i < 512; ++i) { if (at < 0 && std::abs (b.getSample (0, i)) > 0.05f && k >= 2) at = n - 1024; ++n; } }
+      std::printf ("latenza dichiarata %d, impulso a %d\n", p.getLatencySamples(), at); }
     for (int i = 0; i < (int) presets().size(); ++i) { run ([i] (Processor& p) { p.loadPreset (i); }, 0.25f, 120, r, thd, pk); std::printf ("preset %-34s %+.2f dB thd %.2f%% picco %.2f\n", presets()[(size_t) i].name, r, thd, pk); }
     {
         Processor p; p.prepareToPlay (sr, 512); p.loadPreset (1);

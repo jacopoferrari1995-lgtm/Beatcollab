@@ -145,9 +145,9 @@ public:
 private:
     void timerCallback() override;
     std::unique_ptr<Knob> kPitch, kFormant, kPMix, kDrift, kRate, kDrive, kTone, kBMix, kBLvl, kMix, kOut;
-    std::unique_ptr<Knob> kEDiv, kEMs, kEFb, kEMix, kELo, kEHi, kESat;
+    std::unique_ptr<Knob> kEDiv, kEMs, kEFb, kEMix, kELo, kEHi, kESat, kVWide, kVPan;
     std::unique_ptr<Segs> sMode, sKey, sScale, sDriftT, sOrder;
-    std::unique_ptr<Switch> wLink, wSolo, wByp, wAuto, wEOn, wESync, wEPing;
+    std::unique_ptr<Switch> wLink, wSolo, wByp, wAuto, wEOn, wESync, wEPing, wVEcho;
     juce::Rectangle<int> presetRect, prevRect, nextRect, abRect; bool abHover = false; int tick = 0;
 };
 }

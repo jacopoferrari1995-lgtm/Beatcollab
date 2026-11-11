@@ -11,6 +11,8 @@ constexpr float kTwoPi = 6.283185307179586f;
 // ordine = ordine della catena (si applicano uno dopo l'altro, da sinistra a destra, riga per riga)
 enum Fx { OMNIVOX, DOUBLER, TRIVOX, ENSEMBLE, CHORUS, DIMENSION, VIBRATO, FLANGER, PHASER, FSHIFT, RINGMOD, AUTOFILT, ROTARY, TREMOLO, kNumFx };
 enum Shape { SINE, TRI, SQUARE, RANDOM, SH, kNumShapes };
+// effetti per voci: la voce principale resta (con il suo volume), MIX alza solo le copie
+inline bool isVoiceFx (int f) { return f == OMNIVOX || f == DOUBLER || f == TRIVOX || f == ENSEMBLE; }
 // controlli usati da ogni effetto
 enum Ctl { C_RATE = 1, C_DEPTH = 2, C_CHAR = 4, C_FB = 8, C_FREQ = 16, C_STEREO = 32, C_SHAPE = 64 };
 
@@ -228,7 +230,7 @@ struct PitchDet
 struct FxSet
 {
     bool on = false, sync = false; int div = 6, shape = SINE;
-    float rateHz = 0.5f, depth = 0.5f, character = 0.5f, fb = 0, freq = 1000, stereo = 90, mix = 0.5f;
+    float rateHz = 0.5f, depth = 0.5f, character = 0.5f, fb = 0, freq = 1000, stereo = 90, mix = 0.5f, dryDb = 0;
     int key = 0, scale = 0, deg[4] { 2, 4, 0, -7 }; float lvlDb[4] { 0, -4, 0, -6 };
 };
 struct Settings
@@ -257,7 +259,7 @@ public:
     {
         for (auto& c : dl) c.clear(); for (auto& m : ms) m.clear();
         for (auto& c : ch) { for (auto& a : c.ap) a = 0; c.fbS = 0; c.flFb = 0; c.s1 = c.s2 = 0; c.car = 0; }
-        for (auto& t : wetLp) t.reset(); for (auto& h : hil) h.reset();
+        for (auto& t : wetLp) t.reset(); for (auto& t : wetHp) t.reset(); for (auto& h : hil) h.reset();
         lfo = Lfo(); for (int i = 0; i < 12; ++i) { vl[i] = Lfo(); vl[i].rng.setSeed (100 + i * 37); vl[i].ph = i / 12.0; }
         dimPh = 0; shPh = 0; fsFb = 0; rotH = rotD = 0; rotSpH = rotSpD = -1; xLp = 0;
         for (auto& r : hRatio) r = 1; lastNote = -1;
@@ -276,6 +278,7 @@ public:
         const float dryG = std::cos (mix * juce::MathConstants<float>::halfPi), wetG = std::sin (mix * juce::MathConstants<float>::halfPi);
         const int stages = 2 + 2 * juce::jlimit (0, 5, (int) (S.character * 5.99f));
         if (type == DIMENSION) { wetLp[0].setLp (S.freq, sr); wetLp[1].setLp (S.freq, sr); }
+        else if (type == DOUBLER || type == TRIVOX) { wetLp[0].setLp (9500.0f, sr); wetLp[1].setLp (9500.0f, sr); wetHp[0].setLp (140.0f, sr); wetHp[1].setLp (140.0f, sr); }
         else { wetLp[0].setLp (15000.0f, sr); wetLp[1].setLp (15000.0f, sr); }
         // armonizzatore: rapporti delle voci dalla nota riconosciuta
         float hGain[4] {}, hPan[4] {};
@@ -285,6 +288,7 @@ public:
             for (int v = 0; v < 4; ++v) { hGain[v] = S.deg[v] == 0 ? 0.0f : juce::Decibels::decibelsToGain (S.lvlDb[v], -40.0f); hPan[v] = pans[v] * S.character; }
         }
         const float glide = (float) (1.0 - std::exp (-1.0 / (0.015 * sr)));
+        const float dryLin = juce::Decibels::decibelsToGain (S.dryDb, -60.0f);
         for (int i = 0; i < n; ++i)
         {
             const float xl = L[i], xr = R[i];
@@ -363,17 +367,19 @@ public:
                 {
                     for (int c = 0; c < 2; ++c) dl[c].push (c ? xr : xl);
                     float yl = 0, yr = 0;
-                    const float spread = 0.012f + 0.022f * S.character;
-                    for (int v = 0; v < 6; ++v)
+                    const float spread = 0.010f + 0.026f * S.character;
+                    // sei voci per lato con ritardi sfalsati e velocita non multiple tra loro: i battimenti si diluiscono, niente "pompaggio"
+                    for (int v = 0; v < 12; ++v)
                     {
-                        auto& V = vl[v]; V.advance (inc * (0.6 + 0.13 * v));
-                        const float m = V.at (V.ph, RANDOM) * 0.6f + std::sin (kTwoPi * (float) (V.ph * 2 + v * 0.17)) * 0.4f;
-                        const float t = (float) ((0.010f + spread * v / 5.0f + 0.004f * S.depth * m) * sr);
-                        static const float pans[6] = { -1.0f, 1.0f, -0.55f, 0.55f, -0.15f, 0.15f }; const float pan = pans[v], gL = std::sqrt (0.5f * (1 - pan * 0.9f)), gR = std::sqrt (0.5f * (1 + pan * 0.9f));
-                        const float s = 0.5f * (dl[0].read (t) + dl[1].read (t + 7));
-                        yl += s * gL; yr += s * gR;
+                        auto& V = vl[v]; V.advance (inc * (0.55 + 0.071 * v + 0.013 * (v % 5)));
+                        const float o = std::fmod (v * 0.618034f, 1.0f);
+                        const float m = V.at (V.ph, RANDOM) * 0.5f + std::sin (kTwoPi * (float) (V.ph * 1.7 + o)) * 0.5f;
+                        const float t = (float) ((0.007f + spread * o + 0.0016f * (0.3f + S.depth) * m) * sr);
+                        const int side = v & 1;
+                        const float s = dl[side].read (t) * ((v >> 1) % 3 == 1 ? -1.0f : 1.0f);
+                        if (side) yr += s; else yl += s;
                     }
-                    wl = wetLp[0].lp (yl * 0.5f); wr = wetLp[1].lp (yr * 0.5f);
+                    wl = wetLp[0].lp (yl * 0.34f); wr = wetLp[1].lp (yr * 0.34f);
                     break;
                 }
                 case OMNIVOX:
@@ -408,8 +414,7 @@ public:
                         const float y = ms[v].process (mono, hRatio[v], 2.0f) * hGain[v];
                         yl += y * std::sqrt (0.5f * (1 - hPan[v])); yr += y * std::sqrt (0.5f * (1 + hPan[v]));
                     }
-                    // il dry resta intero: MIX regola quanto si sentono le voci
-                    wl = xl + yl * mix * 0.8f; wr = xr + yr * mix * 0.8f; full = true;
+                    wl = yl * 0.8f; wr = yr * 0.8f;
                     break;
                 }
                 case DOUBLER:
@@ -424,18 +429,23 @@ public:
                     const float dB = (float) (base * 1.37f * sr) + amp * (1.0f + vl[1].at (vl[1].ph, RANDOM));
                     const float a = dl[0].read (juce::jmax (2.0f, dA)), b = dl[0].read (juce::jmax (2.0f, dB));
                     const float gA = 1.0f + 0.08f * vl[0].at (vl[0].ph * 3.1, RANDOM), gB = 1.0f + 0.08f * vl[1].at (vl[1].ph * 2.7, RANDOM);
-                    wl = wetLp[0].lp (a * gA); wr = wetLp[1].lp (b * gB);
+                    // la copia e un filo piu sottile e scura della voce vera: sta dietro, non sopra
+                    const float ya = wetLp[0].lp (a * gA), yb = wetLp[1].lp (b * gB);
+                    wl = ya - wetHp[0].lp (ya); wr = yb - wetHp[1].lp (yb);
                     break;
                 }
                 case TRIVOX:
                 {
                     const float mono = 0.5f * (xl + xr);
+                    // finestre agganciate al periodo della nota: le due prese restano in fase, niente "flanger" nei cambi
+                    pd.push (mono);
+                    if ((i & 127) == 0 && pd.voiced && pd.hz > 50) { ms[0].syncTo ((float) (sr / pd.hz), sr); ms[1].syncTo ((float) (sr / pd.hz), sr); }
                     const float cents = 3.0f + 27.0f * S.depth;
                     const float up = std::pow (2.0f, cents / 1200.0f), dn = 1.0f / up;
                     const float d = (float) (S.character * 0.03 * sr);
                     const float a = ms[0].process (mono, dn, d + 2), b = ms[1].process (mono, up, d * 1.3f + 2);
-                    dl[0].push (mono); const float cen = dl[0].read (juce::jmax (2.0f, d * 0.5f + 2));
-                    wl = wetLp[0].lp (a * 0.9f + cen * 0.35f); wr = wetLp[1].lp (b * 0.9f + cen * 0.35f);
+                    const float ya = wetLp[0].lp (a), yb = wetLp[1].lp (b);
+                    wl = ya - wetHp[0].lp (ya) * 0.6f; wr = yb - wetHp[1].lp (yb) * 0.6f;
                     break;
                 }
                 case VIBRATO:
@@ -524,7 +534,7 @@ public:
             }
             lfo.advance (inc);
             float ol, orr;
-            if (type == OMNIVOX) { ol = wl; orr = wr; }
+            if (isVoiceFx (type)) { ol = xl * dryLin + wl * mix; orr = xr * dryLin + wr * mix; }
             else if (full) { ol = xl + (wl - xl) * mix; orr = xr + (wr - xr) * mix; }
             else { ol = xl * dryG + wl * wetG; orr = xr * dryG + wr * wetG; }
             // accensione e spegnimento senza click
@@ -539,7 +549,7 @@ public:
 private:
     struct Ch { float ap[12] {}; float apA = 0, fbS = 0, flFb = 0, s1 = 0, s2 = 0, g = 0.1f; double car = 0; };
     double sr = 44100, dimPh = 0, shPh = 0, rotH = 0, rotD = 0; float fsFb = 0, rotSpH = -1, rotSpD = -1, xLp = 0;
-    Delay dl[2]; MicroShift ms[4]; Ch ch[2]; OnePole wetLp[2]; Hilbert hil[2]; PitchDet pd;
+    Delay dl[2]; MicroShift ms[4]; Ch ch[2]; OnePole wetLp[2], wetHp[2]; Hilbert hil[2]; PitchDet pd;
     Lfo lfo, vl[12];
     float hRatio[4] { 1, 1, 1, 1 }, tRatio[4] { 1, 1, 1, 1 }, lastNote = -1;
 };

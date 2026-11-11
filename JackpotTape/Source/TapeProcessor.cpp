@@ -17,7 +17,13 @@ const FxInfo kFx[kNumFx] = {
     { "sweep",  "Sweep",       "filtro che si chiude (passa basso) o si apre (passa alto) sulla zona", 0xff38bdf8, 'Q' },
     { "echo",   "Eco coda",    "manda l'ultimo colpo in un eco a tempo che resta dopo la zona", 0xffe879f9, 'W' },
     { "throw",  "Lancio rev",  "lancia la zona in un riverbero che resta in coda", 0xff94a3b8, 'E' },
-    { "riser",  "Riser",       "sale di tono (e si apre) per il build-up", 0xfffde047, 'R' } };
+    { "riser",  "Riser",       "sale di tono (e si apre) per il build-up", 0xfffde047, 'R' },
+    { "trem",   "Tremolo",     "il volume pulsa a tempo, anche tra destra e sinistra", 0xffffe066, 'T' },
+    { "rota",   "Rotary",      "cassa rotante: il suono gira, lento o veloce", 0xffd9a066, 'Y' },
+    { "afil",   "Autofiltro",  "filtro risonante che si apre e chiude a tempo (wah)", 0xffffb000, 'U' },
+    { "ring",   "Ring mod",    "moltiplica per un tono: robot, campane, metallo", 0xffff5ef2, 'I' },
+    { "fshf",   "Freq shift",  "sposta tutte le frequenze di qualche Hz: metallico e instabile", 0xff00d4a0, 'O' },
+    { "dist",   "Distorsione", "drive da ampli: crunch, distorsione o fuzz sulla zona", 0xffff4d2e, 'P' } };
 
 const Step kDur[6]  = { { 0.25, "1/16" }, { 0.5, "1/8" }, { 1, "1/4" }, { 2, "1/2" }, { 4, "1 bar" }, { 8, "2 bar" } };
 const Step kSize[6] = { { 0.125, "1/32" }, { 1.0 / 6, "1/16T" }, { 0.25, "1/16" }, { 1.0 / 3, "1/8T" }, { 0.5, "1/8" }, { 1, "1/4" } };
@@ -52,7 +58,19 @@ const PSpec kParams[] = {
     { "throw_pre", "Pre-delay", THROW, 0, 200, 30, 0, 3 }, { "throw_vol", "Volume", THROW, -18, 6, 0, 0, 6 }, { "throw_mix", "Mix", THROW, 0, 1, 0.8f, 0, 0 },
     { "riser_len", "Durata", RISER, 0, 5, 5, 1, 0 },     { "riser_pitch", "Sale di", RISER, 0, 24, 12, 0, 4 }, { "riser_curve", "Curva", RISER, -1, 1, 0.4f, 0, 1 },
     { "riser_open", "Apre", RISER, 0, 1, 0.5f, 0, 0 },   { "riser_noise", "Rumore", RISER, 0, 1, 0.2f, 0, 0 }, { "riser_vol", "Volume", RISER, -18, 6, 0, 0, 6 },
-    { "riser_mix", "Mix", RISER, 0, 1, 1, 0, 0 } };
+    { "riser_mix", "Mix", RISER, 0, 1, 1, 0, 0 },
+    { "trem_rate", "Rate", TREM, 0, 4, 2, 3, 0 },        { "trem_depth", "Prof.", TREM, 0, 1, 0.8f, 0, 0 },   { "trem_stereo", "Stereo", TREM, 0, 1, 0, 0, 0 },
+    { "trem_shape", "Spigolo", TREM, 0, 1, 0.3f, 0, 0 }, { "trem_vol", "Volume", TREM, -18, 6, 0, 0, 6 },     { "trem_mix", "Mix", TREM, 0, 1, 1, 0, 0 },
+    { "rota_speed", "Velocita", ROTARY, 0, 1, 1, 0, 13 }, { "rota_depth", "Prof.", ROTARY, 0, 1, 0.7f, 0, 0 }, { "rota_drive", "Drive", ROTARY, 0, 1, 0.2f, 0, 0 },
+    { "rota_vol", "Volume", ROTARY, -18, 6, 0, 0, 6 },   { "rota_mix", "Mix", ROTARY, 0, 1, 1, 0, 0 },
+    { "afil_rate", "Rate", AUTOFILT, 0, 5, 2, 1, 0 },    { "afil_freq", "Centro", AUTOFILT, 0, 1, 0.45f, 0, 14 }, { "afil_depth", "Escursione", AUTOFILT, 0, 1, 0.7f, 0, 0 },
+    { "afil_reso", "Risonanza", AUTOFILT, 0, 1, 0.6f, 0, 0 }, { "afil_vol", "Volume", AUTOFILT, -18, 6, 0, 0, 6 }, { "afil_mix", "Mix", AUTOFILT, 0, 1, 1, 0, 0 },
+    { "ring_freq", "Tono", RINGMOD, 20, 2000, 220, 0, 12 }, { "ring_glide", "Scende", RINGMOD, 0, 1, 0, 0, 0 }, { "ring_vol", "Volume", RINGMOD, -18, 6, 0, 0, 6 },
+    { "ring_mix", "Mix", RINGMOD, 0, 1, 0.7f, 0, 0 },
+    { "fshf_hz", "Sposta", FSHIFT, -400, 400, 40, 0, 12 }, { "fshf_fb", "Feedback", FSHIFT, 0, 0.9f, 0.3f, 0, 0 }, { "fshf_vol", "Volume", FSHIFT, -18, 6, 0, 0, 6 },
+    { "fshf_mix", "Mix", FSHIFT, 0, 1, 0.8f, 0, 0 },
+    { "dist_drive", "Drive", DIST, 0, 1, 0.6f, 0, 0 },   { "dist_type", "Tipo", DIST, 0, 1, 0.5f, 0, 15 },     { "dist_tone", "Tono", DIST, 0, 1, 0.5f, 0, 0 },
+    { "dist_vol", "Volume", DIST, -18, 6, 0, 0, 6 },     { "dist_mix", "Mix", DIST, 0, 1, 1, 0, 0 } };
 const int kNumParams = (int) (sizeof (kParams) / sizeof (kParams[0]));
 
 static const juce::StringArray kModes { "HOLD", "ONE-SHOT" }, kQuant { "OFF", "1/16", "1/4", "BAR" }, kBars { "1", "2", "4", "8" };
@@ -133,6 +151,11 @@ void Processor::prepareToPlay (double s, int)
     eBuf.setSize (2, (int) (sr * 4.5) + 8); eBuf.clear(); eW = 0; eSend = eCut = 0; eTime = 0;
     verb.setSampleRate (sr); verb.reset(); vPre.setSize (2, (int) (sr * 0.25) + 8); vPre.clear(); vW = 0; vSend = vCut = 0;
     rBuf.setSize (2, 8192); rBuf.clear(); rW = 0; rPh = 0; rFade = 0;
+    rotBuf.setSize (2, 4096); rotBuf.clear(); rotW = 0; for (auto& m : modFade) m = 0; rotSp = 0;
+    {   // Hilbert IIR (due catene di allpass in quadratura)
+        const float ca[4] = { 0.6923878f, 0.9360654322959f, 0.9882295226860f, 0.9987488452737f }, cb[4] = { 0.4021921162426f, 0.8561710882420f, 0.9722909545651f, 0.9952884791278f };
+        for (int c = 0; c < 2; ++c) for (int k = 0; k < 4; ++k) { hA[c][k] = {}; hB[c][k] = {}; hA[c][k].c = ca[k] * ca[k]; hB[c][k].c = cb[k] * cb[k]; }
+    }
     swFade = 0; for (auto& a : swIc) a[0] = a[1] = 0;
 }
 
@@ -211,6 +234,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     const float swLen = fxValue (SWEEP, "len"), swDir = fxValue (SWEEP, "dir"), swRes = fxValue (SWEEP, "reso"), swDepth = fxValue (SWEEP, "depth");
     const float eTimeT = (float) (fxValue (ECHO, "time") * bf), eFb = fxValue (ECHO, "fb"), eCutP = fxValue (ECHO, "cut"), eTone = fxValue (ECHO, "tone");
     const float vCutP = fxValue (THROW, "cut"), vPreN = fxValue (THROW, "pre") * 0.001f * (float) sr;
+    const float trRate = fxValue (TREM, "rate"), trDepth = fxValue (TREM, "depth"), trStereo = fxValue (TREM, "stereo"), trShape = fxValue (TREM, "shape");
+    const float rtSpeed = fxValue (ROTARY, "speed"), rtDepth = fxValue (ROTARY, "depth"), rtDrive = fxValue (ROTARY, "drive");
+    const float afRate = fxValue (AUTOFILT, "rate"), afFreq = fxValue (AUTOFILT, "freq"), afDepth = fxValue (AUTOFILT, "depth"), afReso = fxValue (AUTOFILT, "reso");
+    const float rmFreq = fxValue (RINGMOD, "freq"), rmGlide = fxValue (RINGMOD, "glide"), fsHz = fxValue (FSHIFT, "hz"), fsFbAmt = fxValue (FSHIFT, "fb");
+    const float dsDrive = fxValue (DIST, "drive"), dsType = fxValue (DIST, "type"), dsTone = fxValue (DIST, "tone");
     const float rLen = fxValue (RISER, "len"), rPitch = fxValue (RISER, "pitch"), rCurve = fxValue (RISER, "curve"), rOpen = fxValue (RISER, "open"), rNoise = fxValue (RISER, "noise");
     {
         juce::Reverb::Parameters vp; vp.roomSize = 0.55f + fxValue (THROW, "size") * 0.43f; vp.damping = 0.85f - fxValue (THROW, "tone") * 0.75f;
@@ -411,6 +439,85 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             const float k = crFade * fxMix[CRUSH];
             wL += (cv[0] - wL) * k; wR += (cv[1] - wR) * k;
         }
+        // ---- modulazioni sul nastro (entrano e escono con una dissolvenza breve, le code restano pulite)
+        {
+            const double twoPi = juce::MathConstants<double>::twoPi;
+            auto fadeTo = [&] (int k, int fx) { modFade[k] += ((F[fx].on ? 1.0f : 0.0f) - modFade[k]) * 0.004f; return modFade[k] > 0.0005f; };
+            auto blend = [&] (int fx, int k, float yl, float yr) { const float m = modFade[k] * fxMix[fx]; wL += (yl * fxVol[fx] - wL) * m; wR += (yr * fxVol[fx] - wR) * m; };
+            if (fadeTo (0, TREM))
+            {   // tremolo a tempo; STEREO sfasa i lati fino a rimbalzare
+                const double ph = ((double) t - F[TREM].t0) / (trRate * bf);
+                auto lfo = [&] (double p) { const float s = (float) std::cos (twoPi * p); const float k = 1 + trShape * 12; return 0.5f + 0.5f * std::tanh (s * k) / std::tanh (k); };
+                const float gl = 1.0f - trDepth * (1.0f - lfo (ph)), gr = 1.0f - trDepth * (1.0f - lfo (ph + 0.5 * trStereo));
+                blend (TREM, 0, wL * gl, wR * gr);
+            }
+            if (fadeTo (1, ROTARY))
+            {   // tromba (acuti) e tamburo (bassi) che girano con inerzia; doppler sulla tromba
+                const float tgtH = 0.8f + rtSpeed * 5.9f;
+                rotSp += (tgtH - rotSp) * (float) (dt * (rtSpeed > 0.5f ? 1.2 : 0.7));
+                rotH += rotSp * dt; rotD += rotSp * 0.86 * dt; rotH -= std::floor (rotH); rotD -= std::floor (rotD);
+                const float m = 0.5f * (wL + wR), d = rtDrive > 0.01f ? std::tanh (m * (1 + rtDrive * 6)) / (1 + rtDrive * 2) : m;
+                rotXo[0] += (d - rotXo[0]) * (float) (1.0 - std::exp (-twoPi * 800.0 / sr)); const float lo = rotXo[0], hi = d - lo;
+                const int RL = rotBuf.getNumSamples(); float* rb = rotBuf.getWritePointer (0); rb[rotW] = hi;
+                const float sH = (float) std::sin (twoPi * rotH), cH = (float) std::cos (twoPi * rotH), sD = (float) std::sin (twoPi * rotD);
+                auto tap = [&] (float delMs) { double rp = rotW - delMs * 0.001 * sr; while (rp < 0) rp += RL; const int i0 = (int) rp; const float fr = (float) (rp - i0); return rb[i0] + (rb[(i0 + 1) % RL] - rb[i0]) * fr; };
+                const float hL = tap (1.2f + 0.35f * rtDepth * (1 + sH)) * (1 - 0.35f * rtDepth * (0.5f + 0.5f * cH)), hR = tap (1.2f + 0.35f * rtDepth * (1 - sH)) * (1 - 0.35f * rtDepth * (0.5f - 0.5f * cH));
+                const float dL = lo * (1 - 0.25f * rtDepth * (0.5f + 0.5f * sD)), dR = lo * (1 - 0.25f * rtDepth * (0.5f - 0.5f * sD));
+                if (++rotW >= RL) rotW = 0;
+                blend (ROTARY, 1, (hL + dL) * 0.7f, (hR + dR) * 0.7f);
+            }
+            else { rotSp = 0.8f; }
+            if (fadeTo (2, AUTOFILT))
+            {   // passa basso risonante che si muove a tempo
+                const double ph = ((double) t - F[AUTOFILT].t0) / (afRate * bf);
+                const float lf = 0.5f - 0.5f * (float) std::cos (twoPi * ph);
+                const float fc = juce::jlimit (60.0f, (float) sr * 0.42f, (float) (150.0 * std::pow (40.0, (double) afFreq)) * std::pow (2.0f, (lf - 0.5f) * afDepth * 6.0f));
+                const float gg = (float) std::tan (juce::MathConstants<double>::pi * fc / sr), kk = 2.0f - 1.9f * afReso;
+                float y[2] = { wL, wR };
+                for (int k = 0; k < 2; ++k) { auto* ic = afIc[k]; const float v3 = y[k] - ic[1], v1 = (ic[0] + gg * v3) / (1 + gg * (gg + kk)), v2 = ic[1] + gg * v1; ic[0] = 2 * v1 - ic[0]; ic[1] = 2 * v2 - ic[1]; y[k] = v2 + v1 * afReso * 0.6f; }
+                blend (AUTOFILT, 2, y[0], y[1]);
+            }
+            else { afIc[0][0] = afIc[0][1] = afIc[1][0] = afIc[1][1] = 0; }
+            if (fadeTo (3, RINGMOD))
+            {   // SCENDE: il tono cala lungo la zona (effetto "robot che si spegne")
+                const double pr = juce::jmin (1.0, ((double) t - F[RINGMOD].t0) / (4.0 * bf));
+                const double f = rmFreq * std::pow (0.25, pr * rmGlide);
+                ringPh += f / sr; ringPh -= std::floor (ringPh);
+                const float c = (float) std::sin (twoPi * ringPh);
+                blend (RINGMOD, 3, wL * c * 1.4f, wR * c * 1.4f);
+            }
+            if (fadeTo (4, FSHIFT))
+            {   // single sideband: x*cos + H(x)*sin, con feedback
+                fsPh += fsHz / sr; fsPh -= std::floor (fsPh);
+                const float co = (float) std::cos (twoPi * fsPh), si = (float) std::sin (twoPi * fsPh);
+                float y[2] = { wL, wR };
+                for (int k = 0; k < 2; ++k)
+                {
+                    float a = y[k] + fsFb[k] * fsFbAmt, b = a; for (auto& h : hA[k]) a = h.run (a); for (auto& h : hB[k]) b = h.run (b);
+                    const float re = a, im = hBd[k]; hBd[k] = b;
+                    const float o = re * co - im * (k ? -si : si) * 1.0f;
+                    fsFb[k] = std::tanh (o); y[k] = o;
+                }
+                blend (FSHIFT, 4, y[0], y[1]);
+            }
+            if (fadeTo (5, DIST))
+            {   // ampli: enfasi sui medi prima, curva per tipo, tono dopo; uscita compensata
+                const float g = 1.0f + dsDrive * dsDrive * 90.0f + dsDrive * 6.0f;
+                const float aHp = (float) std::exp (-twoPi * 180.0 / sr), aLp = (float) std::exp (-twoPi * (1200.0 * std::pow (10.0, (double) dsTone)) / sr);
+                float y[2] = { wL, wR };
+                for (int k = 0; k < 2; ++k)
+                {
+                    dsHp[k] = (1 - aHp) * y[k] + aHp * dsHp[k]; float x = (y[k] - dsHp[k]) * g;
+                    float o;
+                    if (dsType < 0.34f) o = std::tanh (x + 0.15f) - std::tanh (0.15f);                                      // crunch asimmetrico
+                    else if (dsType < 0.67f) o = juce::jlimit (-1.0f, 1.0f, x * 1.3f) * 0.8f + std::tanh (x) * 0.2f;          // distorsione dura
+                    else { const float r = x > 0 ? x : -0.6f * x; o = std::tanh (r * 1.5f) * (x > 0 ? 1.0f : 0.7f); }         // fuzz rettificato
+                    dsLp[k] = (1 - aLp) * o + aLp * dsLp[k];
+                    y[k] = dsLp[k] * 0.18f;
+                }
+                blend (DIST, 5, y[0], y[1]);
+            }
+        }
         // riser: sale di tono lungo la zona (pitch shifter a due teste), si apre e aggiunge rumore
         rFade += ((F[RISER].on ? 1.0f : 0.0f) - rFade) * (F[RISER].on ? 0.01f : 0.0015f);
         {
@@ -580,7 +687,14 @@ static const std::vector<Preset>& presets()
         { "Riser veloce", "Build-up", 1, { { RISER, { 8, 9, 10, 11, 12, 13, 14, 15 } } }, { { "riser_len", 2 }, { "riser_pitch", 7 }, { "riser_curve", 0.2f }, { "riser_open", 0.4f } }, 0 },
         { "Build-up completo", "Build-up", 4, { { RISER, Q4 (8, 15) }, { SWEEP, Q4 (8, 15) }, { STUT, Q4 (14, 15) }, { ECHO, Q4 (15, 15) } },
           { { "riser_len", 8 }, { "riser_pitch", 12 }, { "riser_noise", 0.35f }, { "sweep_len", 8 }, { "sweep_dir", -1 }, { "sweep_depth", 0.7f }, { "stut_size", 0.25f }, { "stut_roll", 0.6f }, { "echo_time", 0.5f } }, 0 },
-        { "Fuzz che sporca", "Crush", 1, { { CRUSH, { 8, 9, 10, 11, 12, 13, 14, 15 } } }, { { "crush_drive", 0.85f }, { "crush_char", 0.9f }, { "crush_tone", 0.6f }, { "crush_mix", 0.7f } }, 0 } };
+        { "Fuzz che sporca", "Crush", 1, { { CRUSH, { 8, 9, 10, 11, 12, 13, 14, 15 } } }, { { "crush_drive", 0.85f }, { "crush_char", 0.9f }, { "crush_tone", 0.6f }, { "crush_mix", 0.7f } }, 0 },
+        { "Tremolo sul giro", "Modulazioni", 1, { { TREM, { 8, 9, 10, 11, 12, 13, 14, 15 } } }, { { "trem_rate", 2 }, { "trem_depth", 0.85f }, { "trem_stereo", 1 }, { "trem_shape", 0.6f } }, 0 },
+        { "Leslie sul break", "Modulazioni", 2, { { ROTARY, { 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 } } }, { { "rota_speed", 1 }, { "rota_depth", 0.8f }, { "rota_drive", 0.3f } }, 0.1f },
+        { "Wah a tempo", "Modulazioni", 1, { { AUTOFILT, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 } } }, { { "afil_rate", 2 }, { "afil_freq", 0.4f }, { "afil_depth", 0.8f }, { "afil_reso", 0.7f } }, 0 },
+        { "Robot che si spegne", "Modulazioni", 1, { { RINGMOD, { 12, 13, 14, 15 } } }, { { "ring_freq", 400 }, { "ring_glide", 1 }, { "ring_mix", 0.8f } }, 0 },
+        { "Shift metallico", "Modulazioni", 1, { { FSHIFT, { 14, 15 } } }, { { "fshf_hz", 90 }, { "fshf_fb", 0.6f }, { "fshf_mix", 0.8f } }, 0 },
+        { "Distorsione sullo stacco", "Distorsione", 1, { { DIST, { 12, 13, 14, 15 } } }, { { "dist_drive", 0.75f }, { "dist_type", 0.5f }, { "dist_tone", 0.55f } }, 0 },
+        { "Fuzz da ampli", "Distorsione", 2, { { DIST, { 24, 25, 26, 27, 28, 29, 30, 31 } }, { STUT, { 30, 31 } } }, { { "dist_drive", 0.9f }, { "dist_type", 0.9f }, { "dist_tone", 0.4f }, { "stut_size", 2 } }, 0 } };
     return P;
 }
 int Processor::getNumPrograms() { return (int) presets().size(); }

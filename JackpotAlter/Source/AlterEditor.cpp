@@ -425,9 +425,15 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     ek (kESat, "eSat", "SATURAZIONE", [this] { return juce::String (juce::roundToInt (proc.value ("eSat") * 100)) + "%"; });
     wEOn = std::make_unique<Switch> (P ("eOn"), C::green, "ECHO"); wESync = std::make_unique<Switch> (P ("eSync"), C::green, "A TEMPO"); wEPing = std::make_unique<Switch> (P ("ePing"), C::green, "PING-PONG");
     wAuto = std::make_unique<Switch> (P ("auto"), C::phos, "AUTO GAIN");
+    // voce pitch a parte
+    kVWide = std::make_unique<Knob> (P ("vWide"), C::violet); kVWide->label = "LARGHEZZA"; kVWide->text = [this] { return juce::String (juce::roundToInt (proc.value ("vWide") * 100)) + "%"; };
+    kVPan = std::make_unique<Knob> (P ("vPan"), C::violet); kVPan->label = "POSIZIONE"; kVPan->bipolar = true;
+    kVPan->text = [this] { const float v = proc.value ("vPan"); return std::abs (v) < 0.02f ? juce::String ("CENTRO") : (v < 0 ? "SX " : "DX ") + juce::String (juce::roundToInt (std::abs (v) * 100)); };
+    wVEcho = std::make_unique<Switch> (P ("vEcho"), C::violet, "ECHO SOLO SU LEI");
     for (juce::Component* c : std::initializer_list<juce::Component*> { kPitch.get(), kFormant.get(), kPMix.get(), kDrift.get(), kRate.get(), kDrive.get(), kTone.get(), kBMix.get(), kBLvl.get(), kMix.get(), kOut.get(),
                                                                         kEDiv.get(), kEMs.get(), kEFb.get(), kEMix.get(), kELo.get(), kEHi.get(), kESat.get(), wEOn.get(), wESync.get(), wEPing.get(),
                                                                         sMode.get(), sKey.get(), sScale.get(), sDriftT.get(), sOrder.get(), wLink.get(), wSolo.get(), wByp.get(), wAuto.get(),
+                                                                        kVWide.get(), kVPan.get(), wVEcho.get(),
                                                                         &grid, &pitchView, &driveView, &focusView, &driftView })
         addAndMakeVisible (c);
     addAndMakeVisible (sizeChip);
@@ -471,6 +477,7 @@ void Editor::resized()
     wEOn->setBounds (34, 806, 110, 22); wESync->setBounds (34, 840, 110, 22); wEPing->setBounds (34, 874, 120, 22);
     kEDiv->setBounds (176, 796, 86, 86 + 27); kEMs->setBounds (176, 796, 86, 86 + 27);
     { int x = 280; for (auto* k : { kEFb.get(), kEMix.get(), kELo.get(), kEHi.get(), kESat.get() }) { k->setBounds (x, 796, 86, 86 + 27); x += 100; } }
+    kVWide->setBounds (800, 796, 86, 86 + 27); kVPan->setBounds (894, 796, 86, 86 + 27); wVEcho->setBounds (992, 806, 178, 22);
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     jlook::scaleChildren (*this, sc);
 }
@@ -506,8 +513,10 @@ void Editor::paint (juce::Graphics& g)
     card ({ 876 + 4, 452, 302, 318 }, C::phos, "USCITA", "");
     card ({ 18, 782, 1164, 136 }, C::green, "", "");
     g.setColour (C::dim); g.setFont (uf (10.0f, false));
-    g.drawFittedText ("ECHO dopo tutto il resto. Il ritorno passa nei tagli e in una saturazione da nastro: ogni ripetizione si scalda e si scurisce. PING-PONG: rimbalza tra destra e sinistra.",
-                      juce::Rectangle<int> (790, 800, 380, 100), juce::Justification::topLeft, 5);
+    g.setColour (C::violet.withAlpha (0.25f)); g.drawVerticalLine (790, 792.0f, 910.0f);
+    glowText (g, "VOCE PITCH", { 800, 784, 200, 14 }, C::violet, uf (10.5f));
+    g.drawFittedText ("Solo la voce spostata (quella che esce con MIX PITCH): larghezza, posizione, e l'echo puo andare solo su di lei. La voce principale resta asciutta e al centro.",
+                      juce::Rectangle<int> (992, 836, 180, 72), juce::Justification::topLeft, 5);
 
     // spiegazioni brevi
     const int mode = (int) proc.value ("mode");
@@ -586,12 +595,16 @@ void Editor::timerCallback()
     driftView.trace[driftView.tw] = proc.pitch.driftSemi.load(); driftView.tw = (driftView.tw + 1) % (int) std::size (driftView.trace);
     driveView.update ((int) bv ("model"), bv ("drive"), bv ("tone"));
     { const bool sy = proc.value ("eSync") > 0.5f; kEDiv->setVisible (sy); kEMs->setVisible (! sy); }
+    // toccare una manopola dell'echo lo accende (prima serviva anche il tasto ECHO, e sembrava rotto)
+    if (proc.value ("eOn") < 0.5f && juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
+        for (auto* k : { kEDiv.get(), kEMs.get(), kEFb.get(), kEMix.get() })
+            if (k->isMouseButtonDown()) { if (auto* p = proc.apvts.getParameter ("eOn")) p->setValueNotifyingHost (1.0f); break; }
     focusView.analyse();
     kDrive->activity = juce::jlimit (0.0f, 1.0f, juce::jmax (proc.outPk[0].load(), proc.outPk[1].load()) * bv ("drive") * 1.5f);
     kDrive->activity = juce::jlimit (0.0f, 1.0f, kDrive->activity);
     for (juce::Component* c : std::initializer_list<juce::Component*> { &pitchView, &driftView, &driveView, &focusView, &grid, sKey.get(), sScale.get(), sMode.get(), sDriftT.get(), sOrder.get(),
                                                                         wLink.get(), wSolo.get(), wByp.get(), wAuto.get(), kPitch.get(), kFormant.get(), kPMix.get(), kDrift.get(), kRate.get(), kDrive.get(), kTone.get(), kBMix.get(), kBLvl.get(), kMix.get(), kOut.get(),
-                                                                        kEDiv.get(), kEMs.get(), kEFb.get(), kEMix.get(), kELo.get(), kEHi.get(), kESat.get(), wEOn.get(), wESync.get(), wEPing.get() })
+                                                                        kEDiv.get(), kEMs.get(), kEFb.get(), kEMix.get(), kELo.get(), kEHi.get(), kESat.get(), wEOn.get(), wESync.get(), wEPing.get(), kVWide.get(), kVPan.get(), wVEcho.get() })
         c->repaint();
     if (++tick % 3 == 0) { repaint (scaler.map ({ 590, 78, 592, 362 }).withTrimmedLeft (0).withHeight (30)); repaint (scaler.map ({ 880, 452, 302, 318 })); repaint (scaler.map ({ 590, 360, 592, 80 })); repaint (scaler.map ({ 18, 400, 562, 40 })); }
 }

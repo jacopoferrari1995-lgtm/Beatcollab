@@ -27,6 +27,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
         F (pid (f, "stereo"), nm + " stereo", { 0, 180 }, f == TREMOLO ? 0.0f : 90.0f);
         l.add (std::make_unique<AudioParameterChoice> (ParameterID { pid (f, "shape"), 1 }, nm + " forma", shapes, SINE));
         F (pid (f, "mix"), nm + " mix", { 0, 1 }, I.dMix);
+        if (isVoiceFx (f)) F (pid (f, "dry"), nm + " voce principale", { -30, 6 }, 0);
     }
     // armonizzatore
     StringArray keys; for (auto& n : noteNames()) keys.add (n);
@@ -55,8 +56,8 @@ Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", layout())
 {
-    static const char* names[11] = { "on", "rate", "sync", "div", "depth", "char", "fb", "freq", "stereo", "shape", "mix" };
-    for (int f = 0; f < kNumFx; ++f) for (int k = 0; k < 11; ++k) ptr[f][k] = apvts.getRawParameterValue (pid (f, names[k]));
+    static const char* names[12] = { "on", "rate", "sync", "div", "depth", "char", "fb", "freq", "stereo", "shape", "mix", "dry" };
+    for (int f = 0; f < kNumFx; ++f) for (int k = 0; k < 12; ++k) ptr[f][k] = apvts.getRawParameterValue (pid (f, names[k]));
 }
 
 bool Processor::isBusesLayoutSupported (const BusesLayout& l) const
@@ -79,7 +80,7 @@ Settings Processor::settings() const
         auto& X = S.fx[f];
         auto g = [&] (int k) { return ptr[f][k]->load(); };
         X.on = g (0) > 0.5f; X.rateHz = g (1); X.sync = g (2) > 0.5f; X.div = (int) g (3); X.depth = g (4); X.character = g (5);
-        X.fb = g (6); X.freq = g (7); X.stereo = g (8); X.shape = (int) g (9); X.mix = g (10);
+        X.fb = g (6); X.freq = g (7); X.stereo = g (8); X.shape = (int) g (9); X.mix = g (10); X.dryDb = ptr[f][11] != nullptr ? g (11) : 0.0f;
     }
     auto& O = S.fx[OMNIVOX]; O.key = (int) value ("omni_key"); O.scale = (int) value ("omni_scale");
     for (int v = 0; v < 4; ++v) { O.deg[v] = (int) value (("omni_v" + juce::String (v + 1)).toRawUTF8()); O.lvlDb[v] = value (("omni_l" + juce::String (v + 1)).toRawUTF8()); }

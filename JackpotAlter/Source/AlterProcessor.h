@@ -30,6 +30,8 @@ struct Settings
     bool link = false, autoGain = true;
     BandSet b[kBandsMax];
     // echo
+    // voce pitch trattata a parte: larghezza, posizione, eco solo su di lei
+    float vWide = 0, vPan = 0; bool vEcho = false;
     bool eOn = false, eSync = true, ePing = false; int eDiv = 4; float eMs = 300, eFb = 0.35f, eMix = 0.25f, eLo = 150, eHi = 6000, eSat = 0.3f;
 };
 inline const juce::StringArray& echoDivs() { static const juce::StringArray d { "1/32", "1/16", "1/16D", "1/8T", "1/8", "1/8D", "1/4T", "1/4", "1/4D", "1/2", "1 BAR" }; return d; }
@@ -43,7 +45,9 @@ public:
     void process (float* L, float* R, int n, const Settings&);
     int latency() const { return N; }
     std::atomic<float> inHz { 0 }, outHz { 0 }, driftSemi { 0 }, corrSemi { 0 }; std::atomic<bool> active { false };
+    std::vector<float> voice[2];                       // solo la voce spostata, per l'eco dedicata
 private:
+    std::vector<float> haas; int hPos = 0;
     void frame (const Settings&);
     double sr = 44100; int N = 2048, H = 256, hopPos = 0;
     PhaseVocoder pv[2]; PitchDetector det;
@@ -76,7 +80,7 @@ class EchoStage
 {
 public:
     void prepare (double s) { sr = s; for (auto& d : buf) d.assign ((size_t) (sr * 4.2) + 8, 0.0f); w = 0; for (auto& f : hp) f.reset(); for (auto& f : lp) f.reset(); dSm = -1; fade = 0; }
-    void process (float* L, float* R, int n, const Settings& S, double bpm)
+    void process (float* L, float* R, int n, const Settings& S, double bpm, const float* srcL = nullptr, const float* srcR = nullptr)
     {
         const float tgt = S.eOn ? 1.0f : 0.0f;
         if (! S.eOn && fade <= 0) return;
@@ -90,13 +94,13 @@ public:
             double rp = w - dSm; while (rp < 0) rp += BL; const int i0 = (int) rp, i1 = (i0 + 1) % BL; const float fr = (float) (rp - i0);
             float y[2]; for (int c = 0; c < 2; ++c) y[c] = buf[c][(size_t) i0] * (1 - fr) + buf[c][(size_t) i1] * fr;
             float fb[2]; for (int c = 0; c < 2; ++c) { float v = lp[c] (hp[c] (y[c])); if (S.eSat > 0.001f) v = std::tanh (v * drv) / drv; fb[c] = v * S.eFb; }
-            const float inL = L[i], inR = R[i];
+            const float inL = srcL ? srcL[i] : L[i], inR = srcR ? srcR[i] : R[i];
             if (S.ePing) { buf[0][(size_t) w] = 0.5f * (inL + inR) + fb[1]; buf[1][(size_t) w] = fb[0]; }
             else { buf[0][(size_t) w] = inL + fb[0]; buf[1][(size_t) w] = inR + fb[1]; }
             w = (w + 1) % BL;
             fade = juce::jlimit (0.0f, 1.0f, fade + (tgt > fade ? 1.0f : -1.0f) / (float) (0.02 * sr));
             const float m = S.eMix * fade;
-            L[i] = inL + y[0] * m; R[i] = inR + y[1] * m;
+            L[i] += y[0] * m; R[i] += y[1] * m;
         }
     }
 private:

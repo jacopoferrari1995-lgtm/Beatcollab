@@ -336,7 +336,12 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     auto pctF = [this] (const char* sfx) { return [this, sfx] { return juce::String (juce::roundToInt (fv (sfx) * 100)) + "%"; }; };
     auto pct = [this] (const char* id) { return [this, id] { return juce::String (juce::roundToInt (proc.value (id) * 100)) + "%"; }; };
     // manopole dell'effetto: legate ai parametri dell'effetto selezionato (vedi select)
-    knob (kRate, FP ("rate"), C::phos, "RATE", false, [this] { const float r = fv ("rate"); return juce::String (r, r < 1 ? 2 : 1) + " Hz"; });
+    knob (kRate, FP ("rate"), C::phos, "RATE", false, [this]
+    {
+        const float r = fv ("rate");
+        if (sel == DOUBLER) return juce::String (r < 0.35f ? "LENTA" : r < 1.2f ? "NATURALE" : r < 3 ? "MOSSA" : "INSTABILE");
+        return juce::String (r, r < 1 ? 2 : 1) + " Hz";
+    });
     knob (kDiv, FP ("div"), C::phos, "A TEMPO", false, [this] { return divNames()[(int) fv ("div")]; }); kDiv->steps = divNames().size() - 1;
     knob (kDepth, FP ("depth"), C::magenta, "DEPTH", false, pctF ("depth"));
     knob (kFreq, FP ("freq"), C::amber, "FREQUENZA", false, [this] { const float f = fv ("freq"); return sel == FSHIFT ? juce::String (f, f < 10 ? 1 : 0) + " Hz" : hzT (f); });
@@ -361,6 +366,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     knob (kFb, FP ("fb"), C::violet, "FEEDBACK", false, [this] { return juce::String (juce::roundToInt (fv ("fb") * 100)) + "%"; }, true);
     knob (kStereo, FP ("stereo"), C::phos, "STEREO", false, [this] { return juce::String (juce::roundToInt (fv ("stereo"))) + juce::String::fromUTF8 ("\xc2\xb0"); });
     knob (kMix, FP ("mix"), C::green, "MIX", false, pctF ("mix"));
+    knob (kDry, P ("omni_dry"), C::text, "VOCE PRINCIPALE", false, [this] { if (! isVoiceFx (sel)) return juce::String(); const float v = fv ("dry"); return v <= -29.9f ? juce::String ("MUTA") : (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; }, true);
     for (int v = 0; v < 4; ++v)
     {
         knob (kVoice[v], P ("omni_v" + juce::String (v + 1)), C::magenta, "", false, [this, v] { return intervalName ((int) proc.value (("omni_v" + juce::String (v + 1)).toRawUTF8()), (int) proc.value ("omni_scale")); }, true);
@@ -394,13 +400,14 @@ void Editor::select (int f)
 {
     sel = juce::jlimit (0, kNumFx - 1, f); proc.uiSel = sel;
     kRate->param = FP ("rate"); kDiv->param = FP ("div"); kDepth->param = FP ("depth"); kFreq->param = FP ("freq"); kChar->param = FP ("char");
-    kFb->param = FP ("fb"); kStereo->param = FP ("stereo"); kMix->param = FP ("mix"); sShape->param = FP ("shape"); wSync->param = FP ("sync"); wOn->param = FP ("on");
+    kFb->param = FP ("fb"); kStereo->param = FP ("stereo"); kMix->param = FP ("mix"); if (isVoiceFx (sel)) kDry->param = FP ("dry"); sShape->param = FP ("shape"); wSync->param = FP ("sync"); wOn->param = FP ("on");
     const auto& I = fxInfo (sel); const auto c = fxCol (sel);
     kRate->label = I.rateName[0] ? I.rateName : "RATE"; kDepth->label = I.depthName[0] ? I.depthName : "DEPTH"; kChar->label = I.charName[0] ? I.charName : "CARATTERE";
     kFb->label = I.fbName[0] ? I.fbName : "FEEDBACK"; kFreq->label = I.freqName[0] ? I.freqName : "FREQUENZA";
-    kMix->label = sel == OMNIVOX ? "VOCI" : "MIX";
+    kMix->label = sel == OMNIVOX ? "VOCI" : isVoiceFx (sel) ? "COPIE" : "MIX";
+    kDry->label = sel == OMNIVOX ? "TUA VOCE" : "VOCE PRINCIPALE";
     for (auto* k : { kDepth.get(), kChar.get(), kFreq.get() }) k->col = c;
-    for (auto* k : { kRate.get(), kDiv.get(), kDepth.get(), kFreq.get(), kChar.get(), kFb.get(), kStereo.get(), kMix.get() }) k->shown = -1;
+    for (auto* k : { kRate.get(), kDiv.get(), kDepth.get(), kFreq.get(), kChar.get(), kFb.get(), kStereo.get(), kMix.get(), kDry.get() }) k->shown = -1;
     layoutControls();
     grid.repaint(); view.repaint(); repaint();
 }
@@ -409,7 +416,7 @@ void Editor::select (int f)
 void Editor::layoutControls()
 {
     const int ctl = fxInfo (sel).ctl; const bool omni = sel == OMNIVOX, sync = fv ("sync") > 0.5f;
-    for (juce::Component* c : std::initializer_list<juce::Component*> { kRate.get(), kDiv.get(), kDepth.get(), kFreq.get(), kChar.get(), kFb.get(), kStereo.get(), kMix.get(), sShape.get(), wSync.get(), sKey.get(), sScale.get() }) c->setVisible (false);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { kRate.get(), kDiv.get(), kDepth.get(), kFreq.get(), kChar.get(), kFb.get(), kStereo.get(), kMix.get(), kDry.get(), sShape.get(), wSync.get(), sKey.get(), sScale.get() }) c->setVisible (false);
     for (int v = 0; v < 4; ++v) { kVoice[v]->setVisible (omni); kLevel[v]->setVisible (omni); }
     const int x0 = 34, y0 = 262, cw = 104, kh = 84 + 27;
     std::vector<juce::Component*> slots;
@@ -418,7 +425,8 @@ void Editor::layoutControls()
         sKey->setVisible (true); sScale->setVisible (true); sKey->setBounds (x0, 258, 526, 26); sScale->setBounds (x0, 290, 526, 26);
         for (int v = 0; v < 4; ++v) { kVoice[v]->setBounds (x0 + v * cw + 12, 326, 80, 80 + 27); kLevel[v]->setBounds (x0 + v * cw + 18, 440, 68, 68 + 27); }
         kChar->setVisible (true); kChar->setBounds (x0 + 4 * cw + 12, 326, 80, 80 + 27);
-        kMix->setVisible (true); kMix->setBounds (x0 + 4 * cw + 12, 440, 80, 68 + 27);
+        kMix->setVisible (true); kMix->setBounds (x0 + 4 * cw + 2, 440, 50, 50 + 27);
+        kDry->setVisible (true); kDry->setBounds (x0 + 4 * cw + 52, 440, 56, 50 + 27);
         return;
     }
     if (ctl & C_RATE) slots.push_back (sync ? (juce::Component*) kDiv.get() : (juce::Component*) kRate.get());
@@ -428,6 +436,7 @@ void Editor::layoutControls()
     if (ctl & C_FB) slots.push_back (kFb.get());
     if (ctl & C_STEREO) slots.push_back (kStereo.get());
     slots.push_back (kMix.get());
+    if (isVoiceFx (sel)) slots.push_back (kDry.get());
     for (size_t i = 0; i < slots.size(); ++i)
     {
         const int r = (int) i / 5, col = (int) i % 5;

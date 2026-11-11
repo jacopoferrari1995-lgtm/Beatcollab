@@ -33,6 +33,22 @@ int main (int argc, char** argv)
         for (float d : { 0.0f, 0.2f, 0.5f, 0.8f, 1.0f }) { auto r = run ([d] (Processor& p) { auto* pr = p.apvts.getParameter ("drive"); pr->setValueNotifyingHost (d); }); std::printf ("drive %.2f guadagno %+.1f dB  picco %.2f\n", d, r.first, r.second); }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "mod")
+    {   // nuovi effetti sovrapposti: livello rispetto all'ingresso, niente nan
+        for (int f = TREM; f < kNumFx; ++f)
+        {
+            Processor p; const double sr = 44100; p.prepareToPlay (sr, 512); p.uiPad[f] = true;
+            juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; double ph = 0, ei = 0, eo = 0, el = 0, er = 0; bool nan = false;
+            for (int k = 0; k < 400; ++k)
+            {
+                for (int i = 0; i < 512; ++i) { float v = 0; for (int h = 1; h < 6; ++h) v += (float) std::sin (ph * h) / h; v *= 0.2f; ph += 2 * 3.14159 * 196 / sr; b.setSample (0, i, v); b.setSample (1, i, v); if (k > 100) ei += v * v; }
+                p.processBlock (b, m);
+                if (k > 100) for (int i = 0; i < 512; ++i) { const float l = b.getSample (0, i), r = b.getSample (1, i); if (! std::isfinite (l)) nan = true; eo += 0.5 * (l * l + r * r); el += l * l; er += r * r; }
+            }
+            std::printf ("%-12s livello %+.1f dB  L/R %+.1f dB  nan %d\n", kFx[f].name, juce::Decibels::gainToDecibels (std::sqrt (eo / ei)), juce::Decibels::gainToDecibels (std::sqrt (el / juce::jmax (1e-9, er))), (int) nan);
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "gen")
     {
         Processor p; const double sr = 44100; p.prepareToPlay (sr, 512);

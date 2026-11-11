@@ -56,6 +56,6 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100; float cxy = 0, cxx = 1e-9f, cyy = 1e-9f;
     std::vector<float> mono;
-    std::atomic<float>* ptr[kNumFx][11] {};
+    std::atomic<float>* ptr[kNumFx][12] {};
 };
 }

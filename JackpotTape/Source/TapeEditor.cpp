@@ -7,6 +7,7 @@ juce::Font tf (float size, int weight, bool mono)
     return mono ? jlook::mono (size) : jlook::ui (size, weight == 0 ? 0 : weight == 1 ? 1 : 2);
 }
 static inline float shapeFn (float x, float c) { x = juce::jlimit (0.0f, 1.0f, x); return c >= 0 ? 1.0f - std::pow (1.0f - x, 1.0f + 3.0f * c) : std::pow (x, 1.0f - 3.0f * c); }
+static constexpr float kRowH = 19.0f;
 static juce::Colour fxCol (int f) { return juce::Colour (kFx[f].colour); }
 static juce::String pct (float v) { return juce::String (juce::roundToInt (v * 100)) + "%"; }
 static juce::String fmtSpec (const PSpec& p, float v)
@@ -24,6 +25,10 @@ static juce::String fmtSpec (const PSpec& p, float v)
         case 8: return v < 0.25f ? juce::String ("SATURA") : v < 0.7f ? juce::String ("DISTORCE") : juce::String ("FUZZ");
         case 9: return v >= 15.9f ? juce::String ("OFF") : juce::String (juce::roundToInt (v)) + " bit";
         case 11: return v >= 0 ? juce::String ("PASSA BASSO") : juce::String ("PASSA ALTO");
+        case 12: return std::abs (v) < 0.05f ? juce::String ("0 Hz") : juce::String (v, std::abs (v) < 10 ? 1 : 0) + " Hz";
+        case 13: return v < 0.3f ? juce::String ("LENTO") : v > 0.7f ? juce::String ("VELOCE") : juce::String ("IN MEZZO");
+        case 14: { const float hz = 150.0f * std::pow (40.0f, v); return hz < 1000 ? juce::String (juce::roundToInt (hz)) + " Hz" : juce::String (hz / 1000.0f, 1) + " kHz"; }
+        case 15: return v < 0.34f ? juce::String ("CRUNCH") : v < 0.67f ? juce::String ("DISTORSIONE") : juce::String ("FUZZ");
         case 10: return juce::roundToInt (v) <= 1 ? juce::String ("OFF") : juce::String::fromUTF8 ("\xc3\xb7") + juce::String (juce::roundToInt (v));
         default: return pct (v);
     }
@@ -149,21 +154,21 @@ void FxList::paint (juce::Graphics& g)
     g.setFont (tf (9.0f, 0, true)); g.setColour (K::faint); g.drawText ("clic = modifica", juce::Rectangle<int> (0, 0, getWidth() - 6, 20), juce::Justification::centredRight);
     for (int f = 0; f < kNumFx; ++f)
     {
-        auto r = juce::Rectangle<float> (0, 26.0f + f * 27.0f, (float) getWidth(), 24);
+        auto r = juce::Rectangle<float> (0, 24.0f + f * kRowH, (float) getWidth(), kRowH - 2);
         const bool s = f == ed.sel, on = (am >> f) & 1, en = ed.proc.fxEnabled (f); const auto c = en ? fxCol (f) : K::faint;
         inset (g, r, 6);
         if (s) { g.setColour (c.withAlpha (0.12f)); g.fillRoundedRectangle (r, 6); g.setColour (c.withAlpha (0.7f)); g.drawRoundedRectangle (r, 6, 1.0f); }
         const float dx = r.getX() + 16, dy = r.getCentreY();
-        if (on) { g.setColour (c.withAlpha (0.3f)); g.fillEllipse (dx - 8, dy - 8, 16, 16); }
+        if (on) { g.setColour (c.withAlpha (0.3f)); g.fillEllipse (dx - 7, dy - 7, 14, 14); }
         juce::ColourGradient lg (on ? c.brighter (0.6f) : c.withAlpha (0.25f), dx, dy - 5, on ? c : c.withAlpha (0.1f), dx, dy + 5, false);
         g.setGradientFill (lg); g.fillEllipse (dx - 5, dy - 5, 10, 10);
-        if (s || on) glow (g, juce::String (kFx[f].name).toUpperCase(), r.withTrimmedLeft (30), on ? c : K::ink, tf (11.0f, 2), juce::Justification::centredLeft);
-        else { g.setColour (en ? K::dim : K::faint); g.setFont (tf (11.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase() + (en ? "" : "  OFF"), r.withTrimmedLeft (30).toNearestInt(), juce::Justification::centredLeft); }
-        auto kk = juce::Rectangle<float> (r.getRight() - 26, dy - 8, 16, 16);
+        if (s || on) glow (g, juce::String (kFx[f].name).toUpperCase(), r.withTrimmedLeft (30), on ? c : K::ink, tf (10.0f, 2), juce::Justification::centredLeft);
+        else { g.setColour (en ? K::dim : K::faint); g.setFont (tf (10.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase() + (en ? "" : "  OFF"), r.withTrimmedLeft (30).toNearestInt(), juce::Justification::centredLeft); }
+        auto kk = juce::Rectangle<float> (r.getRight() - 24, dy - 7, 14, 14);
         g.setColour (K::faint); g.drawRoundedRectangle (kk, 3, 1); g.setFont (tf (9.5f, 2, true)); g.drawText (juce::String::charToString (kFx[f].key), kk.toNearestInt(), juce::Justification::centred);
     }
 }
-void FxList::mouseDown (const juce::MouseEvent& e) { const int f = (int) ((e.position.y - 26) / 27); if (f >= 0 && f < kNumFx) ed.select (f); }
+void FxList::mouseDown (const juce::MouseEvent& e) { const int f = (int) ((e.position.y - 24) / kRowH); if (f >= 0 && f < kNumFx) ed.select (f); }
 
 // ======================= Display =======================
 void Display::paint (juce::Graphics& g)
@@ -239,11 +244,11 @@ void PadBtn::paint (juce::Graphics& g)
     juce::ColourGradient spec (juce::Colours::white.withAlpha (on ? 0.25f : 0.08f), b.getX(), b.getY(), juce::Colours::transparentWhite, b.getX(), b.getY() + b.getHeight() * 0.5f, false);
     g.setGradientFill (spec); g.fillRoundedRectangle (b, 8);
     g.setColour (on ? c.brighter (0.4f) : juce::Colours::white.withAlpha (0.1f)); g.drawRoundedRectangle (b, 8, 1.0f);
-    static const char* shortN[] = { "STOP", "START", "SPIN", "HALF", "REV", "STUTTER", "ZONA", "GLITCH", "GATE", "CRUSH", "SWEEP", "ECO", "REVERB", "RISER" };
-    g.setColour (on ? juce::Colour (0xff0b0c10) : K::ink); g.setFont (tf (10.0f, 2)); g.drawText (shortN[fx], b.reduced (6, 7).toNearestInt(), juce::Justification::topLeft);
+    static const char* shortN[] = { "STOP", "START", "SPIN", "HALF", "REV", "STUTTER", "ZONA", "GLITCH", "GATE", "CRUSH", "SWEEP", "ECO", "REVERB", "RISER", "TREMOLO", "ROTARY", "AUTOFILT", "RING", "SHIFT", "DIST" };
+    g.setColour (on ? juce::Colour (0xff0b0c10) : K::ink); g.setFont (tf (9.5f, 2)); g.drawText (shortN[fx], b.reduced (6, 0).toNearestInt(), juce::Justification::centredLeft);
     const bool shot = ed.proc.value ("mode") > 0.5f;
-    g.setColour (on ? juce::Colour (0xff0b0c10).withAlpha (0.7f) : c.withAlpha (0.8f)); g.setFont (tf (9.0f, 2, true));
-    g.drawText (juce::String::charToString (kFx[fx].key) + (! en ? juce::String (" OFF") : shot ? juce::String (" SHOT") : juce::String()), b.reduced (6, 7).toNearestInt(), juce::Justification::bottomLeft);
+    g.setColour (on ? juce::Colour (0xff0b0c10).withAlpha (0.7f) : c.withAlpha (0.8f)); g.setFont (tf (8.5f, 2, true));
+    g.drawText (juce::String::charToString (kFx[fx].key) + (! en ? juce::String (" OFF") : shot ? juce::String (" 1x") : juce::String()), b.reduced (5, 0).toNearestInt(), juce::Justification::centredRight);
 }
 void PadBtn::mouseDown (const juce::MouseEvent&) { down = true; ed.select (fx); ed.proc.uiPad[fx] = true; repaint(); }
 void PadBtn::mouseUp (const juce::MouseEvent&) { down = false; ed.proc.uiPad[fx] = false; repaint(); }
@@ -333,6 +338,13 @@ void FxEditor::paint (juce::Graphics& g)
                           if (b2 < 0) y = 1.0f;
                           else { const int k = (int) (b2 / tm); const float ph = b2 / tm - k; y = ph < 0.25f ? std::pow (fb, (float) k) * P.fxValue (ECHO, "mix") : 0.0f; } break; }
             case THROW: { const float b2 = beats - 1.0f; y = b2 < 0 ? 1.0f : std::exp (-b2 / (0.6f + P.fxValue (THROW, "size") * 3.0f)) * P.fxValue (THROW, "mix"); break; }
+            case TREM:  { const float rt = P.fxValue (TREM, "rate"), k = 1 + P.fxValue (TREM, "shape") * 12; const float s = std::cos (beats / rt * juce::MathConstants<float>::twoPi);
+                          y = 1.0f - P.fxValue (TREM, "depth") * (0.5f - 0.5f * std::tanh (s * k) / std::tanh (k)); break; }
+            case ROTARY:{ const float sp = 0.8f + P.fxValue (ROTARY, "speed") * 5.9f; y = 0.6f + 0.35f * P.fxValue (ROTARY, "depth") * std::sin (x * 4.0f * sp); break; }
+            case AUTOFILT: { const float rt = P.fxValue (AUTOFILT, "rate"); y = 0.15f + P.fxValue (AUTOFILT, "freq") * 0.5f + 0.4f * P.fxValue (AUTOFILT, "depth") * (0.5f - 0.5f * std::cos (beats / rt * juce::MathConstants<float>::twoPi)); break; }
+            case RINGMOD: { const float f0 = P.fxValue (RINGMOD, "freq"); const float fr = f0 * std::pow (0.25f, juce::jmin (1.0f, beats / 4.0f) * P.fxValue (RINGMOD, "glide")); y = 0.2f + 0.8f * std::log (fr / 20.0f) / std::log (100.0f); break; }
+            case FSHIFT:{ y = 0.6f + 0.35f * std::sin (x * juce::MathConstants<float>::twoPi * (1.0f + std::abs (P.fxValue (FSHIFT, "hz")) / 40.0f)); break; }
+            case DIST:  { const float xin = std::sin (x * juce::MathConstants<float>::twoPi * 2.0f) * 0.8f, gd = 1 + P.fxValue (DIST, "drive") * 12; y = 0.25f + std::tanh (xin * gd) * 0.6f; break; }
             case RISER: { const float L = P.fxValue (RISER, "len"); marker = L / 8; y = 0.15f + 0.85f * shapeFn (juce::jmin (1.0f, beats / L), P.fxValue (RISER, "curve")) * P.fxValue (RISER, "pitch") / 24.0f; break; }
             default: break;
         }
@@ -551,7 +563,7 @@ void Root::paint (juce::Graphics& g)
     // riga sotto il display
     caps (g, "Pad", { 226, 264, 40, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
     caps (g, "Quantizza", { 404, 264, 80, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
-    g.setColour (K::faint); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-0 e Q W E R \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 264, 366, 28), juce::Justification::centredRight);
+    g.setColour (K::faint); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-0 e Q-P \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 264, 366, 28), juce::Justification::centredRight);
     // coreografia
     jlook::card (g, juce::Rectangle<float> (8, 552, Wf - 16, Hf - 32 - 558), 12, K::brand1, true, false, false);
     glow (g, "COREOGRAFIA", juce::Rectangle<float> (20, 560, 110, 30), K::ink, tf (10.5f, 2));
@@ -683,8 +695,10 @@ void Editor::resized()
     disp.setBounds (224, 72, 782, 182);
     modeSeg->setBounds (256, 264, modeSeg->preferredWidth(), 28);
     qSeg->setBounds (484, 264, qSeg->preferredWidth(), 28);
-    const int pw = (782 - (kNumFx - 1) * 6) / kNumFx;
-    for (int f = 0; f < kNumFx; ++f) pads[f]->setBounds (224 + f * (pw + 6), 300, pw, 56);
+    {   // due file di pad: nastro sopra, effetti sovrapposti sotto
+        const int perRow = (kNumFx + 1) / 2, pw = (782 - (perRow - 1) * 5) / perRow;
+        for (int f = 0; f < kNumFx; ++f) pads[f]->setBounds (224 + (f % perRow) * (pw + 5), 298 + (f / perRow) * 30, pw, 27);
+    }
     fxEd.setBounds (224, 366, 782, 168);
     // destra
     const int rx = rightPanel.getX();
@@ -733,7 +747,8 @@ bool Editor::keyPressed (const juce::KeyPress& k)
     if (k.getModifiers().isCommandDown() && (c == 'z' || c == 'Z')) { if (k.getModifiers().isShiftDown()) redo(); else undo(); return true; }
     if (k.getModifiers().isCommandDown() && (c == 'y' || c == 'Y')) { redo(); return true; }
     if (c == juce::KeyPress::deleteKey || c == juce::KeyPress::backspaceKey) { tl.deleteSelected(); return true; }
-    return (c >= '0' && c <= '9') || c == 'q' || c == 'Q' || c == 'w' || c == 'W' || c == 'e' || c == 'E' || c == 'r' || c == 'R';
+    for (int f = 0; f < kNumFx; ++f) if (juce::CharacterFunctions::toUpperCase (c) == kFx[f].key) return true;
+    return false;
 }
 bool Editor::keyStateChanged (bool)
 {

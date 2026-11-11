@@ -34,6 +34,20 @@ int main (int argc, char** argv)
     auto fresh = [&] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); return p; };
     juce::Random rnd (3);
     auto music = [&] (int i, float& l, float& r) { const double t = i / sr; l = (float) (0.3 * std::sin (6.2831853 * 220 * t) + 0.2 * std::sin (6.2831853 * 330 * t) + 0.05 * (rnd.nextFloat() - 0.5f)); r = l * 0.9f + 0.05f * (float) std::sin (6.2831853 * 554 * t); };
+    if (argc > 1 && juce::String (argv[1]) == "voci")
+    {   // nota "vocale" (fondamentale 196 Hz con armoniche): le copie non devono pulsare (pettine nei cambi di presa)
+        auto voice = [&] (int i, float& l, float& r) { const double t = i / sr; double s = 0; for (int h = 1; h < 14; ++h) s += std::sin (6.2831853 * 196 * h * t + h * 0.7) / (h * 1.3); l = r = (float) (0.15 * s); };
+        for (int f : { DOUBLER, TRIVOX, ENSEMBLE, OMNIVOX })
+        {
+            auto p = fresh(); const juce::String id (fxInfo (f).id);
+            setP (*p, (id + "_on").toRawUTF8(), 1); setP (*p, (id + "_mix").toRawUTF8(), argc > 2 ? 0.5f : 1.0f); setP (*p, (id + "_dry").toRawUTF8(), argc > 2 ? 0.0f : -30.0f);
+            std::vector<float> L, R; run (*p, voice, (int) sr * 6, L, R);
+            float mn = 9, mx = 0; for (int k = (int) sr; k + 960 < (int) L.size(); k += 960) { const float v = rms (L, k, k + 960) + rms (R, k, k + 960); mn = juce::jmin (mn, v); mx = juce::jmax (mx, v); }
+            std::vector<float> L2, R2; auto p2 = fresh(); setP (*p2, (id + "_on").toRawUTF8(), 1); setP (*p2, (id + "_mix").toRawUTF8(), 0.5f); run (*p2, voice, (int) sr * 2, L2, R2);
+            std::printf ("%-9s pulsazione copie %.1f dB  livello copie %.3f  | mix 50%% voce+copie %.3f (dry solo 0.%03d)\n", fxInfo (f).name, juce::Decibels::gainToDecibels (mx / juce::jmax (1e-6f, mn)), mx * 0.5f, rms (L2, (int) sr, (int) sr * 2), 0);
+        }
+        return 0;
+    }
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
         auto p = fresh(); if (auto* pr = std::getenv ("JPRESET")) p->loadPreset (std::atoi (pr));

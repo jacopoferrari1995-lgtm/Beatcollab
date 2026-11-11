@@ -13,6 +13,8 @@ void PitchStage::prepare (double s, int)
     H = pv[0].hop(); hopPos = 0;
     det.prepare (sr, N);
     for (auto& d : dly) d.assign ((size_t) N, 0.0f); dPos = 0;
+    haas.assign ((size_t) (sr * 0.03) + 4, 0.0f); hPos = 0;
+    for (auto& v : voice) v.assign (8192, 0.0f);
     wet = 0; corr = 0; lastF0 = 0; dPhase = 0; dA = dB = dT = 0; unvoiced = 0;
 }
 
@@ -84,7 +86,21 @@ void PitchStage::process (float* L, float* R, int n, const Settings& S)
         dly[0][(size_t) dPos] = xl; dly[1][(size_t) dPos] = xr; dPos = (dPos + 1) % N;
         wet = on ? juce::jmin (1.0f, wet + step) : juce::jmax (0.0f, wet - step);
         const float w2 = wet * S.pmix;   // MIX del pitch: dry e voce spostata insieme (la "patina" di AlterBoy)
-        L[i] = cl + (yl - cl) * w2; R[i] = cr + (yr - cr) * w2;
+        // la voce spostata da sola: larghezza (haas, un lato in ritardo fino a 18 ms) e posizione
+        float vl = yl * w2, vr = yr * w2;
+        if (S.vWide > 0.001f || std::abs (S.vPan) > 0.001f)
+        {
+            const int HL = (int) haas.size(); haas[(size_t) hPos] = 0.5f * (vl + vr);
+            const int d = juce::jlimit (1, HL - 1, (int) (S.vWide * 0.018 * sr)); const float late = haas[(size_t) ((hPos - d + HL) % HL)];
+            hPos = (hPos + 1) % HL;
+            const float m = 0.5f * (vl + vr), sd = 0.5f * (vl - vr);
+            const float k = 1.0f / (1.0f + 0.55f * S.vWide);   // compensa l'energia aggiunta dai lati
+            vl = (m + sd + S.vWide * (m - late) * 0.9f) * k; vr = (m - sd - S.vWide * (m - late) * 0.9f) * k;
+            const float pa = (S.vPan + 1) * juce::MathConstants<float>::pi * 0.25f;
+            vl *= std::cos (pa) * 1.4142f; vr *= std::sin (pa) * 1.4142f;
+        }
+        if (i < (int) voice[0].size()) { voice[0][(size_t) i] = vl; voice[1][(size_t) i] = vr; }
+        L[i] = cl * (1 - w2) + vl; R[i] = cr * (1 - w2) + vr;
         if (++hopPos >= H)
         {
             hopPos = 0;
@@ -226,6 +242,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "byp", 1 }, n + "Bypass", false));
     }
     // echo
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "vWide", 1 }, "Voce Pitch Larghezza", NormalisableRange<float> (0, 1), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "vPan", 1 }, "Voce Pitch Pan", NormalisableRange<float> (-1, 1), 0));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "vEcho", 1 }, "Echo solo sulla voce pitch", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "eOn", 1 }, "Echo", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "eSync", 1 }, "Echo Sync", true));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "eDiv", 1 }, "Echo Tempo", echoDivs(), 4));
@@ -268,6 +287,7 @@ Settings Processor::settings() const
         B.model = (int) value ((p + "model").toRawUTF8()); B.drive = value ((p + "drive").toRawUTF8()); B.tone = value ((p + "tone").toRawUTF8());
         B.mix = value ((p + "mix").toRawUTF8()); B.lvlDb = value ((p + "lvl").toRawUTF8()); B.solo = value ((p + "solo").toRawUTF8()) > 0.5f; B.byp = value ((p + "byp").toRawUTF8()) > 0.5f;
     }
+    S.vWide = value ("vWide"); S.vPan = value ("vPan"); S.vEcho = value ("vEcho") > 0.5f;
     S.eOn = value ("eOn") > 0.5f; S.eSync = value ("eSync") > 0.5f; S.eDiv = (int) value ("eDiv"); S.eMs = value ("eMs"); S.eFb = value ("eFb");
     S.eMix = value ("eMix"); S.eLo = value ("eLo"); S.eHi = value ("eHi"); S.eSat = value ("eSat"); S.ePing = value ("ePing") > 0.5f;
     S.order = (int) value ("order"); S.autoGain = value ("auto") > 0.5f; S.mix = value ("mix"); S.outDb = value ("out");
@@ -317,7 +337,9 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     bool solo = false; for (int b = 0; b < S.bands; ++b) solo |= S.b[b].solo;
     const float og = juce::Decibels::decibelsToGain (S.outDb), mix = solo ? 1.0f : S.mix;
     for (int i = 0; i < n; ++i) { L[i] = dryL[(size_t) i] * (1 - mix) + L[i] * mix; Rw[i] = dryR[(size_t) i] * (1 - mix) + Rw[i] * mix; }
-    echo.process (L, Rw, n, S, bpm.load());
+    if (S.vEcho && pitch.active.load() && n <= (int) pitch.voice[0].size())
+        echo.process (L, Rw, n, S, bpm.load(), pitch.voice[0].data(), pitch.voice[1].data());   // eco solo sulla voce spostata
+    else echo.process (L, Rw, n, S, bpm.load());
     float pkO[2] = { 0, 0 };
     for (int i = 0; i < n; ++i)
     {

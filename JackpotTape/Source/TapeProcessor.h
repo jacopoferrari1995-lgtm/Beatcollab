@@ -7,7 +7,7 @@
 
 namespace jt
 {
-enum Fx { STOP, START, SPIN, HALF, REV, STUT, LOOP, GLITCH, GATE, CRUSH, SWEEP, ECHO, THROW, RISER, kNumFx };
+enum Fx { STOP, START, SPIN, HALF, REV, STUT, LOOP, GLITCH, GATE, CRUSH, SWEEP, ECHO, THROW, RISER, TREM, ROTARY, AUTOFILT, RINGMOD, FSHIFT, DIST, kNumFx };
 // effetti "sopra" il nastro: non spostano la testina
 inline bool isOverlay (int f) { return f == GATE || f == CRUSH || f >= SWEEP; }
 constexpr int kMaxSteps = 128;   // 8 battute in sedicesimi
@@ -108,6 +108,11 @@ private:
     juce::AudioBuffer<float> eBuf; int eW = 0; float eSend = 0, eCut = 0, eLp[2] = {}, eHp[2] = {}, eTime = 0;
     juce::Reverb verb; juce::AudioBuffer<float> vPre; int vW = 0; float vSend = 0, vCut = 0, vHp[2] = {}; int vIdle = 1 << 30;
     juce::AudioBuffer<float> rBuf; int rW = 0; double rPh = 0; float rFade = 0, rHp[2] = {}, rNoiseLp = 0, rSt = 0;
+    // modulazioni sul nastro: tremolo, rotary, autofiltro, ring mod, frequency shift, distorsione
+    float modFade[6] = {}; double rotH = 0, rotD = 0, ringPh = 0, fsPh = 0; float rotSp = 0, afIc[2][2] = {}, rotXo[2] = {}, fsFb[2] = {}, dsHp[2] = {}, dsLp[2] = {}, dsPre[2] = {};
+    juce::AudioBuffer<float> rotBuf; int rotW = 0;
+    struct HAp { float c = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0; float run (float x) { const float y = c * (x + y2) - x2; x2 = x1; x1 = x; y2 = y1; y1 = y; return y; } };
+    HAp hA[2][4], hB[2][4]; float hBd[2] = {};
 
     float rd (double pos, int ch) const;
     void activate (int fx, double bf, double beatAtT, juce::int64 t);
