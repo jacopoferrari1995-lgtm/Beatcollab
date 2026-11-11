@@ -23,6 +23,7 @@ static juce::String fmtSpec (const PSpec& p, float v)
         case 7: return juce::String (v, std::abs (v - std::round (v)) < 0.01f ? 0 : 2) + juce::String::fromUTF8 ("\xc3\x97 lento");
         case 8: return v < 0.25f ? juce::String ("SATURA") : v < 0.7f ? juce::String ("DISTORCE") : juce::String ("FUZZ");
         case 9: return v >= 15.9f ? juce::String ("OFF") : juce::String (juce::roundToInt (v)) + " bit";
+        case 11: return v >= 0 ? juce::String ("PASSA BASSO") : juce::String ("PASSA ALTO");
         case 10: return juce::roundToInt (v) <= 1 ? juce::String ("OFF") : juce::String::fromUTF8 ("\xc3\xb7") + juce::String (juce::roundToInt (v));
         default: return pct (v);
     }
@@ -148,7 +149,7 @@ void FxList::paint (juce::Graphics& g)
     g.setFont (tf (9.0f, 0, true)); g.setColour (K::faint); g.drawText ("clic = modifica", juce::Rectangle<int> (0, 0, getWidth() - 6, 20), juce::Justification::centredRight);
     for (int f = 0; f < kNumFx; ++f)
     {
-        auto r = juce::Rectangle<float> (0, 26.0f + f * 37.0f, (float) getWidth(), 33);
+        auto r = juce::Rectangle<float> (0, 26.0f + f * 27.0f, (float) getWidth(), 24);
         const bool s = f == ed.sel, on = (am >> f) & 1, en = ed.proc.fxEnabled (f); const auto c = en ? fxCol (f) : K::faint;
         inset (g, r, 6);
         if (s) { g.setColour (c.withAlpha (0.12f)); g.fillRoundedRectangle (r, 6); g.setColour (c.withAlpha (0.7f)); g.drawRoundedRectangle (r, 6, 1.0f); }
@@ -162,7 +163,7 @@ void FxList::paint (juce::Graphics& g)
         g.setColour (K::faint); g.drawRoundedRectangle (kk, 3, 1); g.setFont (tf (9.5f, 2, true)); g.drawText (juce::String::charToString (kFx[f].key), kk.toNearestInt(), juce::Justification::centred);
     }
 }
-void FxList::mouseDown (const juce::MouseEvent& e) { const int f = (int) ((e.position.y - 26) / 37); if (f >= 0 && f < kNumFx) ed.select (f); }
+void FxList::mouseDown (const juce::MouseEvent& e) { const int f = (int) ((e.position.y - 26) / 27); if (f >= 0 && f < kNumFx) ed.select (f); }
 
 // ======================= Display =======================
 void Display::paint (juce::Graphics& g)
@@ -238,10 +239,11 @@ void PadBtn::paint (juce::Graphics& g)
     juce::ColourGradient spec (juce::Colours::white.withAlpha (on ? 0.25f : 0.08f), b.getX(), b.getY(), juce::Colours::transparentWhite, b.getX(), b.getY() + b.getHeight() * 0.5f, false);
     g.setGradientFill (spec); g.fillRoundedRectangle (b, 8);
     g.setColour (on ? c.brighter (0.4f) : juce::Colours::white.withAlpha (0.1f)); g.drawRoundedRectangle (b, 8, 1.0f);
-    g.setColour (on ? juce::Colour (0xff0b0c10) : K::ink); g.setFont (tf (10.5f, 2)); g.drawText (juce::String (kFx[fx].name).toUpperCase(), b.reduced (8, 7).toNearestInt(), juce::Justification::topLeft);
+    static const char* shortN[] = { "STOP", "START", "SPIN", "HALF", "REV", "STUTTER", "ZONA", "GLITCH", "GATE", "CRUSH", "SWEEP", "ECO", "REVERB", "RISER" };
+    g.setColour (on ? juce::Colour (0xff0b0c10) : K::ink); g.setFont (tf (10.0f, 2)); g.drawText (shortN[fx], b.reduced (6, 7).toNearestInt(), juce::Justification::topLeft);
     const bool shot = ed.proc.value ("mode") > 0.5f;
     g.setColour (on ? juce::Colour (0xff0b0c10).withAlpha (0.7f) : c.withAlpha (0.8f)); g.setFont (tf (9.0f, 2, true));
-    g.drawText (juce::String::charToString (kFx[fx].key) + juce::String::fromUTF8 (" \xc2\xb7 ") + (! en ? "OFF" : shot ? "SHOT" : "HOLD"), b.reduced (8, 7).toNearestInt(), juce::Justification::bottomLeft);
+    g.drawText (juce::String::charToString (kFx[fx].key) + (! en ? juce::String (" OFF") : shot ? juce::String (" SHOT") : juce::String()), b.reduced (6, 7).toNearestInt(), juce::Justification::bottomLeft);
 }
 void PadBtn::mouseDown (const juce::MouseEvent&) { down = true; ed.select (fx); ed.proc.uiPad[fx] = true; repaint(); }
 void PadBtn::mouseUp (const juce::MouseEvent&) { down = false; ed.proc.uiPad[fx] = false; repaint(); }
@@ -298,7 +300,7 @@ void FxEditor::paint (juce::Graphics& g)
     lcdGrid (g, in, 10);
     auto& P = ed.proc; const int f = ed.sel; juce::Path p; const int M = 160;
     // asse x: 2 battute per gli effetti a durata, cosi la lunghezza si vede
-    const bool timed = f == STOP || f == START || f == SPIN || f == HALF;
+    const bool timed = f == STOP || f == START || f == SPIN || f == HALF || f == SWEEP || f == ECHO || f == THROW || f == RISER;
     if (timed) for (int q = 1; q < 8; ++q) { g.setColour (K::brand2.withAlpha (q == 4 ? 0.25f : 0.08f)); g.drawVerticalLine ((int) (in.getX() + in.getWidth() * q / 8.0f), in.getY(), in.getBottom()); }
     const double bpm = juce::jmax (40.0, (double) P.uiBpm.load());
     float marker = -1;
@@ -325,10 +327,17 @@ void FxEditor::paint (juce::Graphics& g)
                           const float xin = std::sin ((float) ii / M * juce::MathConstants<float>::twoPi * 2.0f) * 0.7f;
                           const float wet = crushBits (crushShape (xin, P.fxValue (CRUSH, "drive"), P.fxValue (CRUSH, "char")), P.fxValue (CRUSH, "bits"));
                           const float m = P.fxValue (CRUSH, "mix"); y = (xin + (wet * juce::Decibels::decibelsToGain (P.fxValue (CRUSH, "vol")) - xin) * m) * 0.75f + 0.15f; break; }
+            case SWEEP: { const float L = P.fxValue (SWEEP, "len"); marker = L / 8; const float pr = juce::jmin (1.0f, beats / L) * P.fxValue (SWEEP, "depth");
+                          y = P.fxValue (SWEEP, "dir") >= 0 ? 1.0f - pr * 0.9f : 0.1f + pr * 0.9f; break; }
+            case ECHO:  { const float tm = P.fxValue (ECHO, "time"), fb = P.fxValue (ECHO, "fb"); const float b2 = beats - 1.0f;
+                          if (b2 < 0) y = 1.0f;
+                          else { const int k = (int) (b2 / tm); const float ph = b2 / tm - k; y = ph < 0.25f ? std::pow (fb, (float) k) * P.fxValue (ECHO, "mix") : 0.0f; } break; }
+            case THROW: { const float b2 = beats - 1.0f; y = b2 < 0 ? 1.0f : std::exp (-b2 / (0.6f + P.fxValue (THROW, "size") * 3.0f)) * P.fxValue (THROW, "mix"); break; }
+            case RISER: { const float L = P.fxValue (RISER, "len"); marker = L / 8; y = 0.15f + 0.85f * shapeFn (juce::jmin (1.0f, beats / L), P.fxValue (RISER, "curve")) * P.fxValue (RISER, "pitch") / 24.0f; break; }
             default: break;
         }
         // il mix avvicina la curva alla velocita normale (segnale originale)
-        if (f != GATE && f != CRUSH) { const float m = P.fxValue (f, "mix"); y = 1 + (y - 1) * m; }
+        if (! isOverlay (f)) { const float m = P.fxValue (f, "mix"); y = 1 + (y - 1) * m; }
         const float px = in.getX() + x * in.getWidth(), py = in.getCentreY() + in.getHeight() * 0.5f - juce::jlimit (-1.0f, 1.3f, y) * in.getHeight() * 0.42f - in.getHeight() * 0.08f;
         if (i == 0) p.startNewSubPath (px, py); else p.lineTo (px, py);
     }
@@ -542,7 +551,7 @@ void Root::paint (juce::Graphics& g)
     // riga sotto il display
     caps (g, "Pad", { 226, 264, 40, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
     caps (g, "Quantizza", { 404, 264, 80, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
-    g.setColour (K::faint); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-0 \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 264, 366, 28), juce::Justification::centredRight);
+    g.setColour (K::faint); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-0 e Q W E R \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 264, 366, 28), juce::Justification::centredRight);
     // coreografia
     jlook::card (g, juce::Rectangle<float> (8, 552, Wf - 16, Hf - 32 - 558), 12, K::brand1, true, false, false);
     glow (g, "COREOGRAFIA", juce::Rectangle<float> (20, 560, 110, 30), K::ink, tf (10.5f, 2));
@@ -724,14 +733,14 @@ bool Editor::keyPressed (const juce::KeyPress& k)
     if (k.getModifiers().isCommandDown() && (c == 'z' || c == 'Z')) { if (k.getModifiers().isShiftDown()) redo(); else undo(); return true; }
     if (k.getModifiers().isCommandDown() && (c == 'y' || c == 'Y')) { redo(); return true; }
     if (c == juce::KeyPress::deleteKey || c == juce::KeyPress::backspaceKey) { tl.deleteSelected(); return true; }
-    return c >= '0' && c <= '9';
+    return (c >= '0' && c <= '9') || c == 'q' || c == 'Q' || c == 'w' || c == 'W' || c == 'e' || c == 'E' || c == 'r' || c == 'R';
 }
 bool Editor::keyStateChanged (bool)
 {
     bool used = false;
     for (int f = 0; f < kNumFx; ++f)
     {
-        const bool d = juce::KeyPress::isKeyCurrentlyDown (kFx[f].key);
+        const bool d = juce::KeyPress::isKeyCurrentlyDown (kFx[f].key) || juce::KeyPress::isKeyCurrentlyDown (juce::CharacterFunctions::toLowerCase ((juce::juce_wchar) kFx[f].key));
         if (d && ! keysDown.count (f)) { keysDown.insert (f); proc.uiPad[f] = true; select (f); used = true; }
         else if (! d && keysDown.count (f)) { keysDown.erase (f); proc.uiPad[f] = false; used = true; }
     }

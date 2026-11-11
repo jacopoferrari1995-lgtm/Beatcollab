@@ -7,7 +7,9 @@
 
 namespace jt
 {
-enum Fx { STOP, START, SPIN, HALF, REV, STUT, LOOP, GLITCH, GATE, CRUSH, kNumFx };
+enum Fx { STOP, START, SPIN, HALF, REV, STUT, LOOP, GLITCH, GATE, CRUSH, SWEEP, ECHO, THROW, RISER, kNumFx };
+// effetti "sopra" il nastro: non spostano la testina
+inline bool isOverlay (int f) { return f == GATE || f == CRUSH || f >= SWEEP; }
 constexpr int kMaxSteps = 128;   // 8 battute in sedicesimi
 constexpr int kCols = 512;       // risoluzione della traccia nel display
 
@@ -49,7 +51,7 @@ public:
     const juce::String getName() const override { return "Jackpot Tape"; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.5; }
+    double getTailLengthSeconds() const override { return 6.0; }
     int getNumPrograms() override;
     int getCurrentProgram() override { return presetIndex; }
     void setCurrentProgram (int) override;
@@ -81,7 +83,7 @@ public:
     std::atomic<float> meterL { 0 }, meterR { 0 }, uiSpeed { 1 };
 
 private:
-    std::atomic<float>* paramPtr[64] = {};
+    std::atomic<float>* paramPtr[160] = {};
     std::atomic<float>* padPtr[kNumFx] = {};
     std::atomic<float>* onPtr[kNumFx] = {};
     juce::AudioBuffer<float> hist; int HL = 1 << 21, HM = (1 << 21) - 1;
@@ -101,6 +103,11 @@ private:
     float lpIcL[2] = {}, lpIcR[2] = {}, lpZL = 0, lpZR = 0, cutoffSm = 20000, dgSm = 1, outSm = 1;
     float speedAcc = 0; int speedN = 0; float volSm = 1, hissLp = 0, stLp[2] = {};
     float mixSm = 1, crFade = 0, crHold[2] = {}, crLp[2] = {}; int crCnt = 0;
+    // sweep, eco, lancio di riverbero, riser
+    float swFade = 0, swIc[2][2] = {}, swCut = 1000; double swProg = 0;
+    juce::AudioBuffer<float> eBuf; int eW = 0; float eSend = 0, eCut = 0, eLp[2] = {}, eHp[2] = {}, eTime = 0;
+    juce::Reverb verb; juce::AudioBuffer<float> vPre; int vW = 0; float vSend = 0, vCut = 0, vHp[2] = {}; int vIdle = 1 << 30;
+    juce::AudioBuffer<float> rBuf; int rW = 0; double rPh = 0; float rFade = 0, rHp[2] = {}, rNoiseLp = 0, rSt = 0;
 
     float rd (double pos, int ch) const;
     void activate (int fx, double bf, double beatAtT, juce::int64 t);

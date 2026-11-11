@@ -13,7 +13,11 @@ const FxInfo kFx[kNumFx] = {
     { "loop",   "Ripeti zona", "il beat si ferma sulla zona e la ripete",   0xff2dd4bf, '7' },
     { "glitch", "Glitch",      "frammenti ripetuti, girati, saltati",       0xffa3e635, '8' },
     { "gate",   "Gate",        "taglia il volume a tempo",                  0xfffacc15, '9' },
-    { "crush",  "Crush",       "saturazione, distorsione e bitcrusher per lo stacco", 0xffff8a3d, '0' } };
+    { "crush",  "Crush",       "saturazione, distorsione e bitcrusher per lo stacco", 0xffff8a3d, '0' },
+    { "sweep",  "Sweep",       "filtro che si chiude (passa basso) o si apre (passa alto) sulla zona", 0xff38bdf8, 'Q' },
+    { "echo",   "Eco coda",    "manda l'ultimo colpo in un eco a tempo che resta dopo la zona", 0xffe879f9, 'W' },
+    { "throw",  "Lancio rev",  "lancia la zona in un riverbero che resta in coda", 0xff94a3b8, 'E' },
+    { "riser",  "Riser",       "sale di tono (e si apre) per il build-up", 0xfffde047, 'R' } };
 
 const Step kDur[6]  = { { 0.25, "1/16" }, { 0.5, "1/8" }, { 1, "1/4" }, { 2, "1/2" }, { 4, "1 bar" }, { 8, "2 bar" } };
 const Step kSize[6] = { { 0.125, "1/32" }, { 1.0 / 6, "1/16T" }, { 0.25, "1/16" }, { 1.0 / 3, "1/8T" }, { 0.5, "1/8" }, { 1, "1/4" } };
@@ -39,7 +43,16 @@ const PSpec kParams[] = {
     { "stop_mix", "Mix", STOP, 0, 1, 1, 0, 0 },  { "start_mix", "Mix", START, 0, 1, 1, 0, 0 },  { "spin_mix", "Mix", SPIN, 0, 1, 1, 0, 0 },
     { "half_mix", "Mix", HALF, 0, 1, 1, 0, 0 },  { "rev_mix", "Mix", REV, 0, 1, 1, 0, 0 },      { "stut_mix", "Mix", STUT, 0, 1, 1, 0, 0 },
     { "loop_mix", "Mix", LOOP, 0, 1, 1, 0, 0 },  { "glitch_mix", "Mix", GLITCH, 0, 1, 1, 0, 0 }, { "gate_mix", "Mix", GATE, 0, 1, 1, 0, 0 },
-    { "crush_mix", "Mix", CRUSH, 0, 1, 1, 0, 0 } };
+    { "crush_mix", "Mix", CRUSH, 0, 1, 1, 0, 0 },
+    { "sweep_len", "Durata", SWEEP, 0, 5, 4, 1, 0 },     { "sweep_dir", "Direzione", SWEEP, -1, 1, 1, 0, 11 }, { "sweep_reso", "Risonanza", SWEEP, 0, 1, 0.35f, 0, 0 },
+    { "sweep_depth", "Quanto", SWEEP, 0, 1, 0.85f, 0, 0 }, { "sweep_vol", "Volume", SWEEP, -18, 6, 0, 0, 6 },  { "sweep_mix", "Mix", SWEEP, 0, 1, 1, 0, 0 },
+    { "echo_time", "Tempo", ECHO, 0, 5, 4, 2, 0 },       { "echo_fb", "Ripetizioni", ECHO, 0, 0.95f, 0.55f, 0, 0 }, { "echo_cut", "Taglia dry", ECHO, 0, 1, 1, 0, 0 },
+    { "echo_tone", "Tono", ECHO, 0, 1, 0.55f, 0, 0 },    { "echo_vol", "Volume", ECHO, -18, 6, 0, 0, 6 },    { "echo_mix", "Mix", ECHO, 0, 1, 0.8f, 0, 0 },
+    { "throw_size", "Stanza", THROW, 0, 1, 0.8f, 0, 0 }, { "throw_tone", "Tono", THROW, 0, 1, 0.5f, 0, 0 }, { "throw_cut", "Taglia dry", THROW, 0, 1, 0.6f, 0, 0 },
+    { "throw_pre", "Pre-delay", THROW, 0, 200, 30, 0, 3 }, { "throw_vol", "Volume", THROW, -18, 6, 0, 0, 6 }, { "throw_mix", "Mix", THROW, 0, 1, 0.8f, 0, 0 },
+    { "riser_len", "Durata", RISER, 0, 5, 5, 1, 0 },     { "riser_pitch", "Sale di", RISER, 0, 24, 12, 0, 4 }, { "riser_curve", "Curva", RISER, -1, 1, 0.4f, 0, 1 },
+    { "riser_open", "Apre", RISER, 0, 1, 0.5f, 0, 0 },   { "riser_noise", "Rumore", RISER, 0, 1, 0.2f, 0, 0 }, { "riser_vol", "Volume", RISER, -18, 6, 0, 0, 6 },
+    { "riser_mix", "Mix", RISER, 0, 1, 1, 0, 0 } };
 const int kNumParams = (int) (sizeof (kParams) / sizeof (kParams[0]));
 
 static const juce::StringArray kModes { "HOLD", "ONE-SHOT" }, kQuant { "OFF", "1/16", "1/4", "BAR" }, kBars { "1", "2", "4", "8" };
@@ -117,6 +130,10 @@ void Processor::prepareToPlay (double s, int)
     for (auto& f : F) f = FxState();
     juce::dsp::ProcessSpec spec { sr, 4096, 1 };
     bumpL.prepare (spec); bumpR.prepare (spec);
+    eBuf.setSize (2, (int) (sr * 4.5) + 8); eBuf.clear(); eW = 0; eSend = eCut = 0; eTime = 0;
+    verb.setSampleRate (sr); verb.reset(); vPre.setSize (2, (int) (sr * 0.25) + 8); vPre.clear(); vW = 0; vSend = vCut = 0;
+    rBuf.setSize (2, 8192); rBuf.clear(); rW = 0; rPh = 0; rFade = 0;
+    swFade = 0; for (auto& a : swIc) a[0] = a[1] = 0;
 }
 
 float Processor::rd (double pos, int ch) const
@@ -191,6 +208,17 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     const float crDrive = fxValue (CRUSH, "drive"), crChar = fxValue (CRUSH, "char"), crBits = fxValue (CRUSH, "bits"), crTone = fxValue (CRUSH, "tone");
     const int crRate = juce::jmax (1, juce::roundToInt (fxValue (CRUSH, "rate")));
     const float crA = (float) std::exp (-juce::MathConstants<double>::twoPi * (900.0 * std::pow (20000.0 / 900.0, (double) crTone)) / sr);
+    const float swLen = fxValue (SWEEP, "len"), swDir = fxValue (SWEEP, "dir"), swRes = fxValue (SWEEP, "reso"), swDepth = fxValue (SWEEP, "depth");
+    const float eTimeT = (float) (fxValue (ECHO, "time") * bf), eFb = fxValue (ECHO, "fb"), eCutP = fxValue (ECHO, "cut"), eTone = fxValue (ECHO, "tone");
+    const float vCutP = fxValue (THROW, "cut"), vPreN = fxValue (THROW, "pre") * 0.001f * (float) sr;
+    const float rLen = fxValue (RISER, "len"), rPitch = fxValue (RISER, "pitch"), rCurve = fxValue (RISER, "curve"), rOpen = fxValue (RISER, "open"), rNoise = fxValue (RISER, "noise");
+    {
+        juce::Reverb::Parameters vp; vp.roomSize = 0.55f + fxValue (THROW, "size") * 0.43f; vp.damping = 0.85f - fxValue (THROW, "tone") * 0.75f;
+        vp.wetLevel = 1.0f; vp.dryLevel = 0.0f; vp.width = 1.0f; vp.freezeMode = 0.0f; verb.setParameters (vp);
+    }
+    const float eLpA = (float) std::exp (-juce::MathConstants<double>::twoPi * (1200.0 * std::pow (12.0, (double) eTone)) / sr), eHpA = (float) std::exp (-juce::MathConstants<double>::twoPi * 120.0 / sr);
+    const float vHpA = (float) std::exp (-juce::MathConstants<double>::twoPi * 180.0 / sr);
+    if (eTime <= 0) eTime = eTimeT;
     const float wow = value ("wow"), flut = value ("flut"), tone = value ("tone"), drive = value ("drive"), hiss = value ("hiss"), drop = value ("drop"), mix = value ("mix");
     const float outG = juce::Decibels::decibelsToGain (value ("out"));
     const double dt = 1.0 / sr;
@@ -245,7 +273,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 if (! shotMode) X.pad = true;
                 else
                 {
-                    const double L = f == STOP ? stopLen + 1 : f == START ? startLen : f == SPIN ? spinLen + 1 : f == LOOP ? fxValue (LOOP, "size") : 2.0;
+                    const double L = f == STOP ? stopLen + 1 : f == START ? startLen : f == SPIN ? spinLen + 1 : f == LOOP ? fxValue (LOOP, "size") : f == SWEEP ? fxValue (SWEEP, "len") : f == RISER ? fxValue (RISER, "len") : f == ECHO ? 1.0 : f == THROW ? 1.0 : 2.0;
                     X.shot = t + (juce::int64) (L * bf);
                 }
             }
@@ -264,7 +292,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             auto& X = F[f]; const bool want = (X.pad || X.seqOn || t < X.shot) && onPtr[f]->load() > 0.5f;
             if (want && ! X.on) { X.on = true; activate (f, bf, beat, t); changed = true; }
             else if (! want && X.on) { X.on = false; changed = true; }
-            if (X.on) { mask |= 1 << f; if (f != GATE && f != CRUSH) anyMover = true; }
+            if (X.on) { mask |= 1 << f; if (! isOverlay (f)) anyMover = true; }
         }
         // velocità
         const float hf = F[HALF].on ? halfSpeed : 1.0f, gk = halfGlide > 0 ? (float) juce::jmin (1.0, dt * 1000.0 / halfGlide * 3.0) : 1.0f;
@@ -362,7 +390,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         else dropG = 1;
         // volume per effetto (prodotto dei volumi degli effetti attivi, smussato)
         // mix per effetto: quanto del segnale trattato rispetto all'originale (media degli effetti di movimento attivi)
-        { float vt = 1.0f, mt = 0.0f; int nm = 0; for (int f = 0; f < kNumFx; ++f) if (F[f].on && f != CRUSH) { vt *= fxVol[f]; if (f != GATE) { mt += fxMix[f]; ++nm; } }
+        { float vt = 1.0f, mt = 0.0f; int nm = 0; for (int f = 0; f < kNumFx; ++f) if (F[f].on && f != CRUSH && f < SWEEP) { vt *= fxVol[f]; if (f != GATE) { mt += fxMix[f]; ++nm; } }
           volSm += (vt - volSm) * 0.002f; mixSm += ((nm > 0 ? mt / nm : 1.0f) - mixSm) * 0.003f; }
         float wL = l * amp * volSm, wR = r * amp * volSm;
         if (mixSm < 0.999f) { wL = wL * mixSm + inL * (1 - mixSm); wR = wR * mixSm + inR * (1 - mixSm); }
@@ -382,6 +410,89 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             }
             const float k = crFade * fxMix[CRUSH];
             wL += (cv[0] - wL) * k; wR += (cv[1] - wR) * k;
+        }
+        // riser: sale di tono lungo la zona (pitch shifter a due teste), si apre e aggiunge rumore
+        rFade += ((F[RISER].on ? 1.0f : 0.0f) - rFade) * (F[RISER].on ? 0.01f : 0.0015f);
+        {
+            float* rb0 = rBuf.getWritePointer (0); float* rb1 = rBuf.getWritePointer (1); const int RL = rBuf.getNumSamples();
+            rb0[rW] = wL; rb1[rW] = wR;
+            if (rFade > 0.0005f)
+            {
+                const float pr = F[RISER].on ? (float) juce::jmin (1.0, ((double) t - F[RISER].t0) / (rLen * bf)) : 1.0f;
+                rSt += ((F[RISER].on ? shape (pr, rCurve) * rPitch : rSt) - rSt) * 0.02f;
+                const double ratio = std::pow (2.0, rSt / 12.0), win = 0.06 * sr;
+                rPh += (1.0 - ratio) / win; rPh -= std::floor (rPh);
+                float ps[2] = {};
+                for (int k = 0; k < 2; ++k)
+                {
+                    const double ph = std::fmod (rPh + k * 0.5, 1.0), d = 4.0 + ph * win;
+                    const float w = (float) std::sin (juce::MathConstants<double>::pi * ph); const float w2 = w * w;
+                    double rp = rW - d; while (rp < 0) rp += RL; const int i0 = (int) rp; const float fr = (float) (rp - i0); const int i1 = (i0 + 1) % RL;
+                    ps[0] += (rb0[i0] + (rb0[i1] - rb0[i0]) * fr) * w2; ps[1] += (rb1[i0] + (rb1[i1] - rb1[i0]) * fr) * w2;
+                }
+                // apertura: passa alto che sale + rumore che cresce
+                const float hfc = 20.0f * std::pow (60.0f, pr * rOpen), ha = (float) std::exp (-juce::MathConstants<double>::twoPi * hfc / sr);
+                rNoiseLp = rNoiseLp * 0.5f + (rng.nextFloat() * 2 - 1) * 0.5f;
+                const float nz = rNoise * pr * pr * 0.12f * rNoiseLp;
+                for (int k = 0; k < 2; ++k) { rHp[k] = (1 - ha) * ps[k] + ha * rHp[k]; ps[k] = (ps[k] - rHp[k]) * (1.0f + pr * 0.25f) + nz; }
+                const float k2 = rFade * fxMix[RISER], g2 = fxVol[RISER];
+                wL += (ps[0] * g2 - wL) * k2; wR += (ps[1] * g2 - wR) * k2;
+            }
+            else { rSt = 0; rHp[0] = rHp[1] = 0; }
+            if (++rW >= RL) rW = 0;
+        }
+        // sweep: passa basso che si chiude (direzione +) o passa alto che si apre (-)
+        swFade += ((F[SWEEP].on ? 1.0f : 0.0f) - swFade) * 0.003f;
+        if (swFade > 0.0005f)
+        {
+            if (F[SWEEP].on) swProg = juce::jmin (1.0, ((double) t - F[SWEEP].t0) / (swLen * bf));
+            const float pr = (float) swProg * swDepth;
+            const bool lp = swDir >= 0;
+            const float fcT = lp ? 20000.0f * std::pow (0.006f, pr * (0.4f + 0.6f * std::abs (swDir))) : 20.0f * std::pow (220.0f, pr * (0.4f + 0.6f * std::abs (swDir)));
+            swCut += (fcT - swCut) * 0.01f;
+            const float gg2 = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) swCut, sr * 0.45) / sr), kk = 2.0f - 1.85f * swRes;
+            float sv[2] = { wL, wR };
+            for (int k = 0; k < 2; ++k)
+            {
+                auto* ic = swIc[k]; const float v3 = sv[k] - ic[1], v1 = (ic[0] + gg2 * v3) / (1 + gg2 * (gg2 + kk)), v2 = ic[1] + gg2 * v1;
+                ic[0] = 2 * v1 - ic[0]; ic[1] = 2 * v2 - ic[1];
+                const float y = lp ? v2 : sv[k] - kk * v1 - v2;
+                sv[k] = y * fxVol[SWEEP];
+            }
+            const float k2 = swFade * fxMix[SWEEP];
+            wL += (sv[0] - wL) * k2; wR += (sv[1] - wR) * k2;
+        }
+        else { swProg = 0; swCut = swDir >= 0 ? 20000.0f : 20.0f; swIc[0][0] = swIc[0][1] = swIc[1][0] = swIc[1][1] = 0; }
+        // eco sull'ultimo colpo: manda in un delay a tempo; la coda resta dopo la zona
+        {
+            eSend += ((F[ECHO].on ? 1.0f : 0.0f) - eSend) * 0.004f;
+            eCut += ((F[ECHO].on ? eCutP : 0.0f) - eCut) * 0.004f;
+            eTime += (eTimeT - eTime) * 0.0005f;
+            const int EL = eBuf.getNumSamples(); float* e0 = eBuf.getWritePointer (0); float* e1 = eBuf.getWritePointer (1);
+            double rp = eW - juce::jlimit (16.0f, (float) EL - 8, eTime); while (rp < 0) rp += EL;
+            const int i0 = (int) rp; const float fr = (float) (rp - i0); const int i1 = (i0 + 1) % EL;
+            const float d0 = e0[i0] + (e0[i1] - e0[i0]) * fr, d1 = e1[i0] + (e1[i1] - e1[i0]) * fr;
+            float fbv[2] = { d0, d1 };
+            for (int k = 0; k < 2; ++k) { eLp[k] = (1 - eLpA) * fbv[k] + eLpA * eLp[k]; eHp[k] = (1 - eHpA) * eLp[k] + eHpA * eHp[k]; fbv[k] = std::tanh ((eLp[k] - eHp[k]) * 1.1f) / 1.1f; }
+            e0[eW] = wL * eSend + fbv[0] * eFb; e1[eW] = wR * eSend + fbv[1] * eFb;
+            if (++eW >= EL) eW = 0;
+            const float ret = fxMix[ECHO] * fxVol[ECHO];
+            wL = wL * (1.0f - eCut) + d0 * ret; wR = wR * (1.0f - eCut) + d1 * ret;
+        }
+        // lancio di riverbero
+        {
+            vSend += ((F[THROW].on ? 1.0f : 0.0f) - vSend) * 0.004f;
+            vCut += ((F[THROW].on ? vCutP : 0.0f) - vCut) * 0.004f;
+            const int VL = vPre.getNumSamples(); float* p0 = vPre.getWritePointer (0); float* p1 = vPre.getWritePointer (1);
+            float sL = wL * vSend, sR = wR * vSend;
+            vHp[0] = (1 - vHpA) * sL + vHpA * vHp[0]; vHp[1] = (1 - vHpA) * sR + vHpA * vHp[1];
+            p0[vW] = sL - vHp[0]; p1[vW] = sR - vHp[1];
+            int rp = vW - (int) vPreN; while (rp < 0) rp += VL;
+            float vl = p0[rp], vr = p1[rp];
+            if (++vW >= VL) vW = 0;
+            if (vSend > 1e-5f || vIdle < (int) sr * 12) { verb.processStereo (&vl, &vr, 1); vIdle = vSend > 1e-5f ? 0 : vIdle + 1; } else { vl = vr = 0; }
+            const float ret = fxMix[THROW] * fxVol[THROW] * 1.0f;
+            wL = wL * (1.0f - vCut) + vl * ret; wR = wR * (1.0f - vCut) + vr * ret;
         }
         float oL = wL * mix + inL * (1 - mix), oR = wR * mix + inR * (1 - mix);
         // nastro: bump, saturazione (asimmetrica quando spinta), passa basso, uscita
@@ -456,6 +567,19 @@ static const std::vector<Preset>& presets()
         { "Nastro saturo", "Colore", 2, {}, { { "drive", 0.85f }, { "tone", 0.78f }, { "out", -2 } }, 0 },
         { "Stacco distorto", "Crush", 2, { { CRUSH, E8 (14, 15) } }, { { "crush_drive", 0.7f }, { "crush_char", 0.45f }, { "crush_bits", 16 }, { "crush_vol", -2 } }, 0 },
         { "Bitcrush sul fill", "Crush", 2, { { CRUSH, E8 (12, 15) }, { STUT, E8 (14, 15) } }, { { "crush_drive", 0.35f }, { "crush_bits", 6 }, { "crush_rate", 6 }, { "stut_size", 0.25f }, { "stut_gate", 0.8f } }, 0 },
+        { "Filtro che chiude", "Sweep", 4, { { SWEEP, Q4 (12, 15) } }, { { "sweep_len", 4 }, { "sweep_dir", 1 }, { "sweep_reso", 0.4f }, { "sweep_depth", 0.85f } }, 0 },
+        { "Passa alto che sale", "Sweep", 4, { { SWEEP, Q4 (8, 15) } }, { { "sweep_len", 8 }, { "sweep_dir", -1 }, { "sweep_reso", 0.5f }, { "sweep_depth", 0.8f } }, 0 },
+        { "Filtro a mezza battuta", "Sweep", 2, { { SWEEP, E8 (12, 15) } }, { { "sweep_len", 2 }, { "sweep_dir", 0.6f }, { "sweep_reso", 0.25f }, { "sweep_depth", 0.6f } }, 0 },
+        { "Eco sull'ultimo colpo", "Eco", 2, { { ECHO, E8 (15, 15) } }, { { "echo_time", 0.5f }, { "echo_fb", 0.6f }, { "echo_cut", 1 }, { "echo_tone", 0.5f } }, 0 },
+        { "Eco terzinato", "Eco", 2, { { ECHO, E8 (14, 15) } }, { { "echo_time", 1.0f / 3 }, { "echo_fb", 0.55f }, { "echo_cut", 1 }, { "echo_tone", 0.4f } }, 0 },
+        { "Eco dub lungo", "Eco", 4, { { ECHO, Q4 (15, 15) } }, { { "echo_time", 1 }, { "echo_fb", 0.78f }, { "echo_cut", 1 }, { "echo_tone", 0.3f }, { "echo_mix", 0.9f } }, 0.2f },
+        { "Lancio di riverbero", "Riverbero", 2, { { THROW, E8 (15, 15) } }, { { "throw_size", 0.8f }, { "throw_tone", 0.5f }, { "throw_cut", 0.7f }, { "throw_pre", 30 } }, 0 },
+        { "Rullante in cattedrale", "Riverbero", 2, { { THROW, { 28 } } }, { { "throw_size", 1 }, { "throw_tone", 0.65f }, { "throw_cut", 0.0f }, { "throw_pre", 15 }, { "throw_mix", 0.9f } }, 0 },
+        { "Riverbero che chiude", "Riverbero", 4, { { THROW, Q4 (15, 15) }, { SWEEP, Q4 (14, 15) } }, { { "throw_size", 0.9f }, { "throw_cut", 1 }, { "sweep_len", 2 }, { "sweep_dir", 1 } }, 0 },
+        { "Riser 2 battute", "Build-up", 2, { { RISER, E8 (0, 15) } }, { { "riser_len", 8 }, { "riser_pitch", 12 }, { "riser_curve", 0.5f }, { "riser_open", 0.6f }, { "riser_noise", 0.3f } }, 0 },
+        { "Riser veloce", "Build-up", 1, { { RISER, { 8, 9, 10, 11, 12, 13, 14, 15 } } }, { { "riser_len", 2 }, { "riser_pitch", 7 }, { "riser_curve", 0.2f }, { "riser_open", 0.4f } }, 0 },
+        { "Build-up completo", "Build-up", 4, { { RISER, Q4 (8, 15) }, { SWEEP, Q4 (8, 15) }, { STUT, Q4 (14, 15) }, { ECHO, Q4 (15, 15) } },
+          { { "riser_len", 8 }, { "riser_pitch", 12 }, { "riser_noise", 0.35f }, { "sweep_len", 8 }, { "sweep_dir", -1 }, { "sweep_depth", 0.7f }, { "stut_size", 0.25f }, { "stut_roll", 0.6f }, { "echo_time", 0.5f } }, 0 },
         { "Fuzz che sporca", "Crush", 1, { { CRUSH, { 8, 9, 10, 11, 12, 13, 14, 15 } } }, { { "crush_drive", 0.85f }, { "crush_char", 0.9f }, { "crush_tone", 0.6f }, { "crush_mix", 0.7f } }, 0 } };
     return P;
 }
@@ -518,7 +642,7 @@ void Processor::generate()
     auto put = [&] (int fx, int a, int len)
     {
         if (a < 0 || a + len > S) return false;
-        const bool over = fx == GATE || fx == CRUSH;
+        const bool over = isOverlay (fx);
         if (! over) for (int k = a; k < a + len; ++k) if (busy[(size_t) k]) return false;
         for (int k = a; k < a + len; ++k) { seq[fx][k] = true; if (! over) busy[(size_t) k] = true; }
         return true;
@@ -541,6 +665,7 @@ void Processor::generate()
             if (mid2) { put (REV, 30, 2); }
             if (bars == 4 && mid2) { put (HALF, 40, 8); P ("half_div", 2.00f); P ("half_glide", 80); }
             if (mid2 && r.nextBool()) { put (CRUSH, end - 4, 4); P ("crush_drive", 0.6f); P ("crush_char", 0.4f); }
+            else if (mid && r.nextBool()) { put (ECHO, end - 2, 2); P ("echo_time", 0.5f); P ("echo_fb", 0.55f); }
             break;
         }
         case 1: // DRILL
@@ -594,6 +719,8 @@ void Processor::generate()
             put (STUT, 48, 12); P ("stut_size", 1); P ("stut_roll", 0.9f); P ("stut_pitch", 7); P ("stut_gate", 0.85f); P ("stut_decay", 0.0f); P ("stut_filt", -0.6f);
             put (STOP, 60, 4); P ("stop_len", 1); P ("stop_curve", -0.6f);
             put (CRUSH, 56, 8); P ("crush_drive", 0.3f + amt * 0.4f); P ("crush_bits", amt > 0.6f ? 8.0f : 16.0f);
+            put (RISER, 32, 28); P ("riser_len", 8); P ("riser_pitch", amt > 0.5f ? 12.0f : 7.0f); P ("riser_noise", 0.2f + amt * 0.3f);
+            put (SWEEP, 32, 32); P ("sweep_len", 8); P ("sweep_dir", -1); P ("sweep_depth", 0.5f + amt * 0.35f);
             if (mid2) { put (HALF, 24, 8); P ("half_div", 2.00f); P ("half_glide", 120); }
             break;
         }
