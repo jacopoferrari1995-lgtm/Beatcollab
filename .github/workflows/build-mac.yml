@@ -30,10 +30,11 @@ jobs:
           cmake --build build --config Release --target JackpotPreamp_AU -- -quiet
           cmake --build build --config Release --target JackpotPhase_AU -- -quiet
           cmake --build build --config Release --target JackpotTube_AU -- -quiet
+          cmake --build build --config Release --target JackpotRewind_AU -- -quiet
       - name: Firma, validazione, zip
         run: |
           mkdir -p out ~/Library/Audio/Plug-Ins/Components
-          for NAME in "Jackpot Tape" "Jackpot Sampler" "Jackpot Butter Rack" "Jackpot Studio Comp" "Jackpot Metering Hub" "Jackpot Alter Drive" "Jackpot Master" "Jackpot Motion" "Jackpot Dust" "Jackpot Clip" "Jackpot Preamp EQ" "Jackpot Phase" "Jackpot Tube Box"; do
+          for NAME in "Jackpot Tape" "Jackpot Sampler" "Jackpot Butter Rack" "Jackpot Studio Comp" "Jackpot Metering Hub" "Jackpot Alter Drive" "Jackpot Master" "Jackpot Motion" "Jackpot Dust" "Jackpot Clip" "Jackpot Preamp EQ" "Jackpot Phase" "Jackpot Tube Box" "Jackpot Rewind"; do
             C="$(find build -name "$NAME.component" -type d | head -1)"
             echo "trovato: $C"
             codesign --force --deep -s - "$C"
@@ -57,6 +58,7 @@ jobs:
           auval -v aufx Jpre Jkpt | tail -5 || true
           auval -v aufx Jphs Jkpt | tail -5 || true
           auval -v aufx Jtbx Jkpt | tail -5 || true
+          auval -v aufx Jrwd Jkpt | tail -5 || true
           cd out
           ditto -c -k --keepParent "Jackpot Tape.component" "JackpotTape-AU.zip"
           ditto -c -k --keepParent "Jackpot Sampler.component" "JackpotSampler-AU.zip"
@@ -72,6 +74,7 @@ jobs:
           ditto -c -k --keepParent "Jackpot Preamp EQ.component" "JackpotPreampEQ-AU.zip"
           ditto -c -k --keepParent "Jackpot Phase.component" "JackpotPhase-AU.zip"
           ditto -c -k --keepParent "Jackpot Tube Box.component" "JackpotTubeBox-AU.zip"
+          ditto -c -k --keepParent "Jackpot Rewind.component" "JackpotRewind-AU.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: Jackpot-Plugins
@@ -81,6 +84,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="plugins-v1.1.${{ github.run_number }}"
-          gh release create "$TAG" out/JackpotTape-AU.zip out/JackpotSampler-AU.zip out/JackpotSampler-VST3.zip out/JackpotButterRack-AU.zip out/JackpotStudioComp-AU.zip out/JackpotMeteringHub-AU.zip out/JackpotAlterDrive-AU.zip out/JackpotMaster-AU.zip out/JackpotMotion-AU.zip out/JackpotDust-AU.zip out/JackpotClip-AU.zip out/JackpotPreampEQ-AU.zip out/JackpotPhase-AU.zip out/JackpotTubeBox-AU.zip \
+          gh release create "$TAG" out/JackpotTape-AU.zip out/JackpotSampler-AU.zip out/JackpotSampler-VST3.zip out/JackpotButterRack-AU.zip out/JackpotStudioComp-AU.zip out/JackpotMeteringHub-AU.zip out/JackpotAlterDrive-AU.zip out/JackpotMaster-AU.zip out/JackpotMotion-AU.zip out/JackpotDust-AU.zip out/JackpotClip-AU.zip out/JackpotPreampEQ-AU.zip out/JackpotPhase-AU.zip out/JackpotTubeBox-AU.zip out/JackpotRewind-AU.zip \
             --target "${{ github.sha }}" --title "Jackpot Plugins $TAG" \
             --notes "Plugin per macOS (Apple Silicon e Intel). Copia i .component in ~/Library/Audio/Plug-Ins/Components (e il .vst3 in ~/Library/Audio/Plug-Ins/VST3), poi: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Jackpot*.component"
