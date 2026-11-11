@@ -1171,6 +1171,8 @@ void Processor::loadFactoryKit (int k)
             const auto& kp = *lay[(size_t) p];
             setSample (p, makeDrum (kp.d)); setLayer (p, nullptr); pad[p].colour = kp.colour; padCat[p] = categoryOf (kp.d);
             for (auto& [i, v] : kp.p) pad[p].v[i] = v;
+            // i volumi dei kit erano tarati quando i suoni uscivano tutti a picco pieno; ora sono gia bilanciati in loudness: non abbassarli due volte
+            if (pad[p].get (LEVEL) < 1.0f) pad[p].v[LEVEL] = 0.55f + 0.45f * pad[p].get (LEVEL);
         }
         else { setSample (p, nullptr); padCat[p] = {}; }
     }

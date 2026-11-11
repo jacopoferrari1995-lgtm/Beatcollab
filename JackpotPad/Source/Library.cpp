@@ -206,7 +206,7 @@ void randomKit (Processor& P, int mode)
     }
     if (! invent)
     {   // pad 9 sempre 808/basso, poi almeno altri 3 campioni (melodie, loop, voci, texture, fx); one shot da 0 a 4, mai fissi
-        const int oneShots = r.nextInt (5), samples = 8 - oneShots;
+        const int oneShots = r.nextInt (3), samples = 8 - oneShots;   // almeno 6 campioni lunghi su 8
         roles[8] = { "808", "KICK" };
         for (int q = 9; q < 8 + samples; ++q) roles[(size_t) q] = { pick ({ "MELODICI", "LOOP", "VOCI", "TEXTURE", "FX", "MELODICI", "LOOP" }), "MELODICI", "TEXTURE" };
         for (int q = 8 + samples; q < 16; ++q) roles[(size_t) q] = { pick ({ "PERC", "TOM", "CLAP / SNAP", "CYMBAL", "KICK", "SNARE", "HAT", "OPEN HAT" }), "PERC", "FX" };
@@ -221,18 +221,27 @@ void randomKit (Processor& P, int mode)
     {
         auto& pd = P.pad[p]; pd.reset(); P.setLayer (p, nullptr);
         bool done = false; juce::String cat;
-        for (auto& c : roles[(size_t) p])
-        {
-            auto& v = pool (c); if (v.empty()) continue;
-            for (int t = 0; t < 8 && ! done; ++t)
+        // pad 9-16 dei ruoli "campione": serve un suono lungo (loop, frase, melodia), non un altro one shot
+        const bool wantLong = p >= 9 && ! invent && roles[(size_t) p].contains ("MELODICI") && roles[(size_t) p].size() == 3 && roles[(size_t) p][1] == "MELODICI";
+        auto lenOf = [&P, p] { auto s = P.getSample (p); return s ? s->buf.getNumSamples() / s->sr : 0.0; };
+        for (int pass = wantLong ? 0 : 1; pass < 2 && ! done; ++pass)
+            for (auto& c : roles[(size_t) p])
             {
-                const auto& it = v[(size_t) r.nextInt ((int) v.size())];
-                const auto key = it.user ? it.file.getFullPathName() : descToPath (it.d);
-                if (used.contains (key) && t < 7) continue;
-                if (loadLibItem (P, it, p)) { used.add (key); done = true; cat = c; }
+                auto& v = pool (c); if (v.empty()) continue;
+                for (int t = 0; t < (pass == 0 ? 14 : 8) && ! done; ++t)
+                {
+                    const auto& it = v[(size_t) r.nextInt ((int) v.size())];
+                    if (pass == 0 && it.scanned && it.dur > 0 && it.dur < 1.5f) continue;   // durata gia nota: scarta subito
+                    const auto key = it.user ? it.file.getFullPathName() : descToPath (it.d);
+                    if (used.contains (key) && t < 7) continue;
+                    if (loadLibItem (P, it, p))
+                    {
+                        if (pass == 0 && lenOf() < 1.5) continue;   // troppo corto: prova un altro
+                        used.add (key); done = true; cat = c;
+                    }
+                }
+                if (done) break;
             }
-            if (done) break;
-        }
         if (! done && mode == 2)
         {   // niente dei tuoi per questo ruolo: suono di fabbrica dello stesso ruolo
             for (auto& c : roles[(size_t) p])

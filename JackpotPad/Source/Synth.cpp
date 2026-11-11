@@ -204,11 +204,11 @@ SamplePtr makeDrum (const DrumDesc& d)
         {
             case S_KICK: target = -10.0f; break;   case S_808: target = -10.0f; break;
             case S_SNARE: target = -12.5f; break;  case S_CLAP: case S_SNAP: target = -13.0f; break;
-            case S_HAT: target = open ? -16.0f : -17.0f; break;
-            case S_TOM: target = -12.5f; break;    case S_CYMBAL: target = -18.0f; break;
+            case S_HAT: target = open ? -14.0f : -14.5f; break;
+            case S_TOM: target = -12.5f; break;    case S_CYMBAL: target = -15.0f; break;
             case S_STAB: case S_PLUCK: target = -14.0f; break;
-            case S_NOISE: target = -24.0f; break;
-            default: target = -15.0f; break;      // rim, shaker, bell, conga, clave
+            case S_NOISE: target = -22.0f; break;
+            default: target = -13.5f; break;      // rim, shaker, bell, conga, clave
         }
         const float extraDb = juce::jlimit (-12.0f, 9.0f, target - rmsDb);
         k *= juce::Decibels::decibelsToGain (extraDb);

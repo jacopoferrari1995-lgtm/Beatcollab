@@ -193,6 +193,25 @@ int main (int argc, char** argv)
         } }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "outlvl")
+    {   // picco in uscita di ogni pad dei kit di fabbrica, colpo a velocity 110
+        Processor p; p.setPlayConfigDetails (0, 2, 44100, 512); p.prepareToPlay (44100, 512);
+        for (int kit : { 1, 3, 5 })
+        {
+            p.loadFactoryKit (kit); std::printf ("KIT %s\n", p.kitName.toRawUTF8());
+            for (int k = 0; k < kPads; ++k)
+            {
+                auto s = p.getSample (k); if (! s) continue;
+                const float spk = s->buf.getMagnitude (0, s->buf.getNumSamples());
+                juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; float pk = 0;
+                p.uiNoteOn (k, 110);
+                for (int q = 0; q < 60; ++q) { b.clear(); p.processBlock (b, m); pk = juce::jmax (pk, b.getMagnitude (0, 512)); }
+                p.uiNoteOff (k); for (int q = 0; q < 200; ++q) { b.clear(); p.processBlock (b, m); }
+                std::printf ("  %2d %-22s campione %6.1f dBFS  uscita %6.1f dBFS\n", k + 1, s->name.toRawUTF8(), juce::Decibels::gainToDecibels (spk), juce::Decibels::gainToDecibels (pk));
+            }
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "levels")
     {
         std::vector<std::pair<float, juce::String>> all;

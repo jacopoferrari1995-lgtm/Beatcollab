@@ -2338,7 +2338,6 @@ bool Editor::keyPressed (const juce::KeyPress& k)
     if (c == 'x') { octave = juce::jmin (7, octave + 1); root.repaint(); return true; }
     if (c == 'c') { velStep (-1); return true; }
     if (c == 'v') { velStep (1); return true; }
-    if (k == juce::KeyPress::spaceKey) { proc.requestPlay (! proc.uiRunning.load()); return true; }
     return keyNoteOffset (c) >= 0;
 }
 bool Editor::keyStateChanged (bool)
