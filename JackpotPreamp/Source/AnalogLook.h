@@ -2,6 +2,7 @@
 // Linea grafica "analogica crema": pannelli verniciati, serigrafie, manopole in bachelite, deviatori a leva, spie a gemma.
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "JackpotLook.h"
+#include "PreArt.h"
 
 namespace alook
 {
@@ -35,8 +36,8 @@ inline void faceplate (juce::Graphics& g, juce::Rectangle<float> r, bool screws 
     juce::ColourGradient pg (base.brighter (0.06f), r.getX(), r.getY(), base.darker (0.1f), r.getRight(), r.getBottom(), false); g.setGradientFill (pg); g.fillRoundedRectangle (r, 4);
     // patina: macchie leggere e grana
     juce::Random rnd ((juce::int64) (r.getX() * 31 + r.getY() * 7));
-    for (int i = 0; i < 40; ++i) { const float x = r.getX() + rnd.nextFloat() * r.getWidth(), y = r.getY() + rnd.nextFloat() * r.getHeight(), s = 20 + rnd.nextFloat() * 80;
-        juce::ColourGradient m (juce::Colour (0xff8a6a3a).withAlpha (0.035f), x, y, juce::Colours::transparentBlack, x + s, y, true); g.setGradientFill (m); g.fillEllipse (x - s, y - s, s * 2, s * 2); }
+    for (int i = 0; i < 14; ++i) { const float x = r.getX() + rnd.nextFloat() * r.getWidth(), y = r.getY() + rnd.nextFloat() * r.getHeight(), s = 20 + rnd.nextFloat() * 80;
+        juce::ColourGradient m (juce::Colour (0xff8a6a3a).withAlpha (0.02f), x, y, juce::Colours::transparentBlack, x + s, y, true); g.setGradientFill (m); g.fillEllipse (x - s, y - s, s * 2, s * 2); }
     jlook::grain (g, r.toNearestInt(), 0.05f);
     g.setColour (juce::Colours::white.withAlpha (0.5f)); g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + 3, r.getRight() - 3);
     g.setColour (juce::Colours::black.withAlpha (0.35f)); g.drawRoundedRectangle (r, 4, 1.0f);
@@ -54,44 +55,75 @@ inline void jewel (juce::Graphics& g, float cx, float cy, float r, juce::Colour 
     g.setColour (juce::Colours::white.withAlpha (on ? 0.55f : 0.2f)); g.fillEllipse (cx - r * 0.55f, cy - r * 0.6f, r * 0.5f, r * 0.35f);
 }
 
-// manopola in bachelite con gonna zigrinata e scala serigrafata 0-10 sul pannello
+
+// ======================================================================= comandi renderizzati
+// Le manopole sono modelli 3D renderizzati con Blender Cycles: una striscia di fotogrammi per ogni angolo.
+struct Art
+{
+    static juce::Image get (const char* data, int size) { return juce::ImageCache::getFromMemory (data, size); }
+    static juce::Image knob (int style)
+    {
+        switch (style)
+        {
+            case 0:  return get (PreArt::knob_red_png, PreArt::knob_red_pngSize);
+            case 1:  return get (PreArt::knob_grey_png, PreArt::knob_grey_pngSize);
+            default: return get (PreArt::knob_black_png, PreArt::knob_black_pngSize);
+        }
+    }
+    static juce::Image chicken() { return get (PreArt::chicken_png, PreArt::chicken_pngSize); }
+    static juce::Image jewel (int col, bool on)
+    {
+        if (col == 0) return on ? get (PreArt::jewel_red_on_png, PreArt::jewel_red_on_pngSize) : get (PreArt::jewel_red_png, PreArt::jewel_red_pngSize);
+        if (col == 1) return on ? get (PreArt::jewel_amber_on_png, PreArt::jewel_amber_on_pngSize) : get (PreArt::jewel_amber_png, PreArt::jewel_amber_pngSize);
+        return on ? get (PreArt::jewel_green_on_png, PreArt::jewel_green_on_pngSize) : get (PreArt::jewel_green_png, PreArt::jewel_green_pngSize);
+    }
+    static juce::Image toggle (bool up) { return up ? get (PreArt::toggle_up_png, PreArt::toggle_up_pngSize) : get (PreArt::toggle_down_png, PreArt::toggle_down_pngSize); }
+    // un fotogramma di una striscia verticale
+    static void frame (juce::Graphics& g, const juce::Image& strip, int idx, juce::Rectangle<float> dst)
+    {
+        const int w = strip.getWidth(), n = juce::jmax (1, strip.getHeight() / juce::jmax (1, w)); idx = juce::jlimit (0, n - 1, idx);
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality); g.setOpacity (1.0f);
+        g.drawImage (strip, dst.getX(), dst.getY(), dst.getWidth(), dst.getHeight(), 0, idx * w, w, w);
+    }
+    static void contactShadow (juce::Graphics& g, float cx, float cy, float r)
+    {
+        // ombra morbida verso il basso a destra (la luce arriva da in alto a sinistra)
+        for (int i = 6; i >= 1; --i) { const float e = r * 0.035f * i; g.setColour (juce::Colours::black.withAlpha (0.06f)); g.fillEllipse (cx - r * 0.96f - e + r * 0.1f, cy - r * 0.96f - e + r * 0.16f, (r * 0.96f + e) * 2, (r * 0.96f + e) * 2); }
+    }
+};
+// spia a gemma (0 rossa, 1 ambra, 2 verde)
+inline void jewelImg (juce::Graphics& g, float cx, float cy, float r, int col, bool on)
+{
+    const float s = r * 2.67f;
+    if (on) { const juce::Colour c = col == 0 ? A::red : col == 1 ? A::amberLamp : A::greenLamp; juce::ColourGradient hg (c.withAlpha (0.35f), cx, cy, c.withAlpha (0.0f), cx + r * 4, cy, true); g.setGradientFill (hg); g.fillEllipse (cx - r * 4, cy - r * 4, r * 8, r * 8); }
+    Art::frame (g, Art::jewel (col, on), 0, { cx - s / 2, cy - s / 2, s, s });
+}
+
+// manopola: scala serigrafata sul pannello + render 3D
 class Knob : public juce::Component
 {
 public:
-    Knob (juce::RangedAudioParameter* p, juce::String l, juce::Colour cap = juce::Colour (0xff1d1915)) : param (p), label (std::move (l)), capCol (cap) {}
+    Knob (juce::RangedAudioParameter* p, juce::String l, int st = 2) : param (p), label (std::move (l)), style (st) {}
     void paint (juce::Graphics& g) override
     {
         const float lh = 16.0f, vh = 14.0f, S = juce::jmin ((float) getWidth(), getHeight() - lh - vh);
         const float cx = getWidth() * 0.5f, cy = lh + S * 0.5f, R = S * 0.5f;
-        const float a0 = -2.36f, a1 = 2.36f, v = param->getValue();
+        const float a0 = -2.356f, a1 = 2.356f, v = param->getValue();
         engrave (g, label, { 0, 0, (float) getWidth(), lh - 2 }, serif (big ? 11.0f : 9.5f));
-        // scala
-        const int n = ticks;
-        for (int i = 0; i <= n; ++i)
+        for (int i = 0; i <= ticks; ++i)
         {
-            const float a = a0 + (a1 - a0) * i / n, ro = R - 1, ri = R - (i % (n / 2 == 0 ? 1 : n / 2) == 0 ? 7.0f : 4.5f);
-            g.setColour (A::ink.withAlpha (0.85f)); g.drawLine (cx + std::sin (a) * ri, cy - std::cos (a) * ri, cx + std::sin (a) * ro, cy - std::cos (a) * ro, 1.1f);
-            if (numbers && (i % 2 == 0)) { g.setFont (typed (big ? 8.5f : 7.5f)); g.drawText (juce::String (i * 10 / n), juce::Rectangle<float> (cx + std::sin (a) * (R + 7) - 9, cy - std::cos (a) * (R + 7) - 5, 18, 10), juce::Justification::centred); }
+            const float a = a0 + (a1 - a0) * i / ticks, ro = R - 1, ri = R - (i % 5 == 0 ? 6.5f : 4.0f);
+            g.setColour (A::ink.withAlpha (0.85f)); g.drawLine (cx + std::sin (a) * ri, cy - std::cos (a) * ri, cx + std::sin (a) * ro, cy - std::cos (a) * ro, 1.0f);
+            if (numbers && i % 2 == 0) { g.setFont (typed (big ? 8.5f : 7.5f)); g.drawText (juce::String (i), juce::Rectangle<float> (cx + std::sin (a) * (R + 7) - 9, cy - std::cos (a) * (R + 7) - 5, 18, 10), juce::Justification::centred); }
         }
-        const float rk = R - 9;   // raggio della manopola
-        // ombra e gonna metallica zigrinata
-        g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillEllipse (cx - rk + 1.5f, cy - rk + 3.5f, rk * 2, rk * 2);
-        juce::ColourGradient sk (juce::Colour (0xffd9d5cc), cx - rk, cy - rk, juce::Colour (0xff6e6a62), cx + rk, cy + rk, false); g.setGradientFill (sk); g.fillEllipse (cx - rk, cy - rk, rk * 2, rk * 2);
-        const float av = a0 + (a1 - a0) * v;
-        g.setColour (juce::Colours::black.withAlpha (0.25f));
-        for (int i = 0; i < 48; ++i) { const float a = av + i * juce::MathConstants<float>::twoPi / 48; g.drawLine (cx + std::sin (a) * rk * 0.84f, cy - std::cos (a) * rk * 0.84f, cx + std::sin (a) * rk, cy - std::cos (a) * rk, 0.7f); }
-        // cappello in bachelite
-        const float rc = rk * 0.74f;
-        juce::ColourGradient cg (capCol.brighter (0.55f), cx - rc * 0.5f, cy - rc * 0.7f, capCol.darker (0.4f), cx + rc * 0.6f, cy + rc, true); g.setGradientFill (cg); g.fillEllipse (cx - rc, cy - rc, rc * 2, rc * 2);
-        g.setColour (juce::Colours::white.withAlpha (0.18f)); g.fillEllipse (cx - rc * 0.6f, cy - rc * 0.75f, rc * 0.8f, rc * 0.45f);
-        g.setColour (juce::Colours::black.withAlpha (0.5f)); g.drawEllipse (cx - rc, cy - rc, rc * 2, rc * 2, 0.8f);
-        // indice bianco
-        g.setColour (juce::Colour (0xfff4efe2)); g.drawLine (cx + std::sin (av) * rc * 0.25f, cy - std::cos (av) * rc * 0.25f, cx + std::sin (av) * rk * 0.97f, cy - std::cos (av) * rk * 0.97f, big ? 2.6f : 2.0f);
-        // valore, come scritto a matita su un nastro
+        const float rk = R - 8;                      // raggio della manopola sul pannello
+        const float fs = rk * 2.0f / 0.713f;          // il fotogramma e piu grande della manopola
+        Art::contactShadow (g, cx, cy, rk);
+        Art::frame (g, Art::knob (style), juce::roundToInt (v * 63), { cx - fs / 2, cy - fs / 2 - rk * 0.02f, fs, fs });
         const juce::String t = text ? text() : param->getCurrentValueAsText();
         g.setColour (drag || hover ? A::maroon : A::inkSoft); g.setFont (typed (big ? 10.0f : 8.8f));
         g.drawText (t, juce::Rectangle<float> (-10, (float) getHeight() - vh, getWidth() + 20.0f, vh), juce::Justification::centred);
-        if (! lit) { g.setColour (A::cream.withAlpha (0.45f)); g.fillRect (getLocalBounds()); }
+        if (! lit) { g.setColour (A::cream.withAlpha (0.4f)); g.fillRect (getLocalBounds()); }
     }
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -107,14 +139,14 @@ public:
     { if (onTouch) onTouch(); param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + (w.deltaY > 0 ? 0.01f : -0.01f))); }
     void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::UpDownResizeCursor); repaint(); }
     void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
-    juce::RangedAudioParameter* param; juce::String label; juce::Colour capCol;
+    juce::RangedAudioParameter* param; juce::String label; int style;
     std::function<juce::String()> text; std::function<void()> onTouch;
     bool big = false, numbers = true, lit = true; int ticks = 10; float shown = -1;
 private:
     float start = 0; bool drag = false, hover = false;
 };
 
-// selettore rotativo a scatti con le posizioni scritte intorno
+// selettore a scatti con testa a pollo in bachelite
 class Rotary : public juce::Component
 {
 public:
@@ -129,28 +161,19 @@ public:
         for (int k = 0; k < items.size(); ++k)
         {
             const float a = angleOf (k), rl = rk + labelGap;
-            g.setColour (A::ink); g.drawLine (c.x + std::sin (a) * (rk + 2), c.y - std::cos (a) * (rk + 2), c.x + std::sin (a) * (rk + 7), c.y - std::cos (a) * (rk + 7), 1.2f);
-            auto r = juce::Rectangle<float> (c.x + std::sin (a) * rl - 34, c.y - std::cos (a) * rl - 7, 68, 14);
-            engrave (g, items[k], r, serif (fontSize), juce::Justification::centred, k == cur ? A::maroon : A::ink);
+            g.setColour (A::ink); g.drawLine (c.x + std::sin (a) * (rk + 3), c.y - std::cos (a) * (rk + 3), c.x + std::sin (a) * (rk + 8), c.y - std::cos (a) * (rk + 8), 1.2f);
+            engrave (g, items[k], { c.x + std::sin (a) * rl - 34, c.y - std::cos (a) * rl - 7, 68, 14 }, serif (fontSize), juce::Justification::centred, k == cur ? A::maroon : A::ink);
         }
-        // piastra di fondo cromata
-        juce::ColourGradient cg (juce::Colour (0xffe6e2d9), c.x - rk * 0.6f, c.y - rk * 0.6f, juce::Colour (0xff77736b), c.x + rk * 0.7f, c.y + rk, false); g.setGradientFill (cg); g.fillEllipse (c.x - rk * 0.75f, c.y - rk * 0.75f, rk * 1.5f, rk * 1.5f);
-        // testa a "becco": la manopola a forma di freccia dei selettori d'epoca
-        const float a = angleOf (cur);
-        // testa a pollo: corpo tondo e becco lungo che si assottiglia
-        juce::Path ptr; ptr.startNewSubPath (-rk * 0.12f, -rk * 1.18f); ptr.lineTo (rk * 0.12f, -rk * 1.18f); ptr.lineTo (rk * 0.5f, rk * 0.1f); ptr.lineTo (-rk * 0.5f, rk * 0.1f); ptr.closeSubPath();
-        ptr.addEllipse (-rk * 0.58f, -rk * 0.58f, rk * 1.16f, rk * 1.16f); ptr.startNewSubPath (-rk * 0.2f, rk * 0.5f); ptr.lineTo (rk * 0.2f, rk * 0.5f); ptr.lineTo (rk * 0.12f, rk * 0.85f); ptr.lineTo (-rk * 0.12f, rk * 0.85f); ptr.closeSubPath();
-        ptr.applyTransform (juce::AffineTransform::rotation (a).translated (c.x, c.y));
-        g.setColour (juce::Colours::black.withAlpha (0.4f)); g.fillPath (ptr, juce::AffineTransform::translation (1.5f, 2.5f));
-        juce::ColourGradient pg (juce::Colour (0xff4a3b31), c.x - rk, c.y - rk, juce::Colour (0xff0d0a08), c.x + rk, c.y + rk, false); g.setGradientFill (pg); g.fillPath (ptr);
-        g.setColour (juce::Colours::white.withAlpha (0.12f)); g.strokePath (ptr, juce::PathStrokeType (0.8f));
-        g.setColour (juce::Colour (0xfff4efe2)); g.drawLine (c.x + std::sin (a) * rk * 0.35f, c.y - std::cos (a) * rk * 0.35f, c.x + std::sin (a) * rk * 1.1f, c.y - std::cos (a) * rk * 1.1f, 1.8f);
-        if (! lit) { g.setColour (A::cream.withAlpha (0.45f)); g.fillRect (getLocalBounds()); }
+        // la testa a pollo e lunga 1.06 contro una base di 0.62: il fotogramma (2.75) va scalato sulla base
+        const float fs = rk * 2.75f / 1.06f;
+        Art::contactShadow (g, c.x, c.y, rk * 0.6f);
+        const float deg = juce::radiansToDegrees (angleOf (cur));
+        Art::frame (g, Art::chicken(), juce::roundToInt ((deg + 150.0f) / 300.0f * 119.0f), { c.x - fs / 2, c.y - fs / 2, fs, fs });
+        if (! lit) { g.setColour (A::cream.withAlpha (0.4f)); g.fillRect (getLocalBounds()); }
     }
     void mouseDown (const juce::MouseEvent& e) override
     {
         if (onTouch) onTouch();
-        // clic su una scritta: va li; altrimenti trascina
         const auto c = centre(); const float rl = radius() + labelGap;
         for (int k = 0; k < items.size(); ++k) { const float a = angleOf (k); if (e.position.getDistanceFrom ({ c.x + std::sin (a) * rl, c.y - std::cos (a) * rl }) < 16) { set (k); return; } }
         startIdx = juce::roundToInt (param->convertFrom0to1 (param->getValue()));
@@ -164,25 +187,17 @@ private:
     int startIdx = 0;
 };
 
-// deviatore a leva (bat toggle) con le scritte sopra e sotto
+// deviatore a leva cromato
 class Toggle : public juce::Component
 {
 public:
     Toggle (juce::RangedAudioParameter* p, juce::String l, juce::String up = "ON", juce::String down = "OFF") : param (p), label (std::move (l)), upT (std::move (up)), dnT (std::move (down)) {}
     void paint (juce::Graphics& g) override
     {
-        const bool on = param->getValue() > 0.5f; const float cx = 22, cy = getHeight() * 0.5f;
-        engrave (g, upT, { 0, 0, 44, 12 }, serif (8.0f)); engrave (g, dnT, { 0, (float) getHeight() - 12, 44, 12 }, serif (8.0f));
-        // dado cromato
-        juce::ColourGradient ng (juce::Colour (0xffeeebe4), cx - 8, cy - 8, juce::Colour (0xff6e6a63), cx + 8, cy + 8, false); g.setGradientFill (ng); g.fillEllipse (cx - 9, cy - 9, 18, 18);
-        g.setColour (juce::Colour (0xff2e2c28)); g.fillEllipse (cx - 4, cy - 4, 8, 8);
-        // leva
-        const float ty = on ? cy - 15 : cy + 15;
-        g.setColour (juce::Colours::black.withAlpha (0.35f)); g.drawLine (cx + 1.5f, cy + 2, cx + 1.5f, ty + 2, 5.0f);
-        juce::ColourGradient lg (juce::Colour (0xfff2efe8), cx - 3, 0, juce::Colour (0xff8b877f), cx + 3, 0, false); g.setGradientFill (lg);
-        juce::Path lev; lev.startNewSubPath (cx, cy); lev.lineTo (cx, ty); g.strokePath (lev, juce::PathStrokeType (4.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.fillEllipse (cx - 4, ty - 4, 8, 8);
-        engrave (g, label, { 46, 0, (float) getWidth() - 46, (float) getHeight() }, serif (9.5f), juce::Justification::centredLeft);
+        const bool on = param->getValue() > 0.5f; const float cy = getHeight() * 0.5f;
+        engrave (g, upT, { 0, 0, 44, 11 }, serif (8.0f)); engrave (g, dnT, { 0, (float) getHeight() - 11, 44, 11 }, serif (8.0f));
+        const float s = 58; Art::frame (g, Art::toggle (on), 0, { -7, cy - s / 2, s, s });
+        engrave (g, label, { 48, 0, (float) getWidth() - 48, (float) getHeight() }, serif (9.5f), juce::Justification::centredLeft);
     }
     void mouseDown (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getValue() > 0.5f ? 0.0f : 1.0f); if (onPick) onPick(); repaint(); }
     juce::RangedAudioParameter* param; juce::String label, upT, dnT; std::function<void()> onPick;

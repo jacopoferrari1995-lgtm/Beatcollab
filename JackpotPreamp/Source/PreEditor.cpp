@@ -126,8 +126,8 @@ void Graph::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDet
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
     setLookAndFeel (&lnf);
-    const juce::Colour black (0xff1d1915), maroonCap (0xff6e1d18), greyCap (0xff5c5952);
-    auto knob = [&] (const juce::String& id, const juce::String& label, std::function<juce::String()> txt, int stage, int group, juce::Colour cap = juce::Colour (0xff1d1915)) -> alook::Knob*
+    const int black = 2, maroonCap = 0, greyCap = 1;
+    auto knob = [&] (const juce::String& id, const juce::String& label, std::function<juce::String()> txt, int stage, int group, int cap = 2) -> alook::Knob*
     {
         auto k = std::make_unique<alook::Knob> (P (id), label, cap); k->text = std::move (txt);
         k->onTouch = [this, stage] { if (stage >= 0) turnOn (stage); };
@@ -254,8 +254,8 @@ void Editor::paint (juce::Graphics& g)
             juce::ColourGradient cg (juce::Colour (0xffeeebe4), b.getX(), b.getY(), juce::Colour (0xff7a766e), b.getRight(), b.getBottom(), false); g.setGradientFill (cg); g.fillEllipse (b);
             g.setColour (A::ink); g.setFont (alook::serif (16.0f)); g.drawText (b == prevR ? juce::String::fromUTF8 ("\xe2\x80\xb9") : juce::String::fromUTF8 ("\xe2\x80\xba"), b, juce::Justification::centred);
         }
-        alook::jewel (g, abA.getCentreX(), abA.getCentreY(), 8, A::amberLamp, proc.ab.cur == 0);
-        alook::jewel (g, abB.getCentreX(), abB.getCentreY(), 8, A::amberLamp, proc.ab.cur == 1);
+        alook::jewelImg (g, abA.getCentreX(), abA.getCentreY(), 10, 1, proc.ab.cur == 0);
+        alook::jewelImg (g, abB.getCentreX(), abB.getCentreY(), 10, 1, proc.ab.cur == 1);
         alook::engrave (g, "A", { abA.getX(), abA.getY() - 14, abA.getWidth(), 12 }, alook::serif (9.0f)); alook::engrave (g, "B", { abB.getX(), abB.getY() - 14, abB.getWidth(), 12 }, alook::serif (9.0f));
         alook::engrave (g, "MEMORIA", { abA.getX() - 10, abA.getBottom() + 2, abB.getRight() - abA.getX() + 20, 12 }, alook::serif (7.5f));
     }
@@ -269,23 +269,27 @@ void Editor::paint (juce::Graphics& g)
     for (int k = 0; k < 3; ++k)
     {
         const auto c = card (k); alook::faceplate (g, c);
-        alook::jewel (g, c.getX() + 38, c.getY() + 32, 7, k == 0 ? A::red : k == 1 ? A::amberLamp : A::greenLamp, stageOn (k));
+        alook::jewelImg (g, c.getX() + 38, c.getY() + 32, 10, k == 0 ? 0 : k == 1 ? 1 : 2, stageOn (k));
         alook::engrave (g, juce::String (k + 1) + "   " + names[k], { c.getX() + 56, c.getY() + 22, c.getWidth() - 80, 20 }, alook::serif (12.5f), juce::Justification::centredLeft);
         alook::engrave (g, subs[k], { c.getX() + 56, c.getY() + 40, 200, 12 }, alook::typed (8.5f), juce::Justification::centredLeft, A::inkSoft);
         g.setColour (A::ink.withAlpha (0.5f)); g.drawHorizontalLine ((int) c.getY() + 56, c.getX() + 24, c.getRight() - 24);
         // freccia del segnale stampata
         if (k < 2) { juce::Path a; a.addTriangle (c.getRight() + 1, c.getCentreY() - 6, c.getRight() + 7, c.getCentreY(), c.getRight() + 1, c.getCentreY() + 6); g.setColour (A::chrome); g.fillPath (a); }
     }
-    // pulsanti delle bande del sottrattivo
+    // pulsanti delle bande del sottrattivo: tasti quadrati con cornice cromata, premuto = piu basso
     for (int k = 0; k < 4; ++k)
     {
         const auto r = bandBtn (k); const bool sel = k == band;
         const float gdb = proc.apvts.getRawParameterValue ("b" + juce::String (k + 1) + "g")->load();
-        g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (r.translated (0, 2), 5);
-        juce::ColourGradient bgc (sel ? juce::Colour (0xff3a2e26) : juce::Colour (0xfff4efe2), r.getX(), r.getY(), sel ? juce::Colour (0xff15100c) : juce::Colour (0xffcfc6b0), r.getX(), r.getBottom(), false);
-        g.setGradientFill (bgc); g.fillRoundedRectangle (r, 5); g.setColour (A::ink.withAlpha (0.6f)); g.drawRoundedRectangle (r, 5, 1.0f);
-        g.setColour (sel ? A::cream : A::ink); g.setFont (alook::serif (11.0f)); g.drawText ("CUT " + juce::String (k + 1), r.withTrimmedRight (12), juce::Justification::centred);
-        alook::jewel (g, r.getRight() - 9, r.getCentreY(), 3.5f, A::red, gdb < -0.05f && stageOn (0));
+        g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillRect (r.expanded (3).translated (0, 1));
+        juce::ColourGradient bz (juce::Colour (0xffe9e6df), r.getX(), r.getY() - 3, juce::Colour (0xff6b6861), r.getX(), r.getBottom() + 3, false); g.setGradientFill (bz); g.fillRect (r.expanded (3));
+        auto face = r.reduced (sel ? 3.0f : 1.5f).translated (0, sel ? 1.5f : 0.0f);
+        g.setColour (juce::Colour (0xff1a1714)); g.fillRect (r);
+        juce::ColourGradient fc (sel ? juce::Colour (0xffd8cfb8) : juce::Colour (0xfff5f0e2), face.getX(), face.getY(), sel ? juce::Colour (0xffb9ae94) : juce::Colour (0xffd9d0b8), face.getX(), face.getBottom(), false);
+        g.setGradientFill (fc); g.fillRect (face);
+        if (! sel) { g.setColour (juce::Colours::white.withAlpha (0.6f)); g.drawHorizontalLine ((int) face.getY(), face.getX(), face.getRight()); g.setColour (juce::Colours::black.withAlpha (0.25f)); g.drawHorizontalLine ((int) face.getBottom() - 1, face.getX(), face.getRight()); }
+        alook::engrave (g, "CUT " + juce::String (k + 1), face.withTrimmedRight (14), alook::serif (10.5f), juce::Justification::centred, sel ? A::maroon : A::ink);
+        alook::jewelImg (g, face.getRight() - 9, face.getCentreY(), 4.5f, 0, gdb < -0.05f && stageOn (0));
     }
     auto c0 = card (0), c1 = card (1), c2 = card (2);
     alook::engrave (g, "BAND", { c0.getX() + 24, c0.getY() + 216, 200, 14 }, alook::serif (9.0f), juce::Justification::centredLeft);

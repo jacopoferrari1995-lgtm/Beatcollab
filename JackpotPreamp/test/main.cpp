@@ -11,6 +11,7 @@ int main (int argc, char** argv)
         p.loadPreset (juce::SystemStats::getEnvironmentVariable ("JPRESET", "0").getIntValue());
         juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; juce::Random r;
         for (int k = 0; k < 100; ++k) { for (int i = 0; i < 512; ++i) { const float v = (r.nextFloat() - 0.5f) * 0.3f; b.setSample (0, i, v); b.setSample (1, i, v); } p.processBlock (b, m); }
+        { auto im = alook::Art::knob (0), jw = alook::Art::jewel (1, true); std::printf ("knob %d %dx%d  jewel %d %dx%d\n", (int) im.isValid(), im.getWidth(), im.getHeight(), (int) jw.isValid(), jw.getWidth(), jw.getHeight()); }
         Editor ed (p); ed.setSize (Editor::W, Editor::H);
         if (auto* e = std::getenv ("JBAND")) ed.selectBand (atoi (e));
         for (int i = 0; i < 20; ++i) { for (int k = 0; k < 4; ++k) { for (int j = 0; j < 512; ++j) { const float v = (r.nextFloat() - 0.5f) * 0.3f; b.setSample (0, j, v); b.setSample (1, j, v); } p.processBlock (b, m); } }
