@@ -169,7 +169,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             const bool needDry = send || mix < 0.999f;
             if (needDry) for (int i = 0; i < m; ++i) { float a = l[i], b = r[i]; dryD[k].run (a, b, Lk); scL[(size_t) i] = a; scR[(size_t) i] = b; }
             e->process (l, r, m, vbuf[k], ctx);
-            if (send) for (int i = 0; i < m; ++i) { l[i] = scL[(size_t) i] + l[i] * mix; r[i] = scR[(size_t) i] + r[i] * mix; }
+            if (send) { const float wg = mix * mod (t).wetGain; for (int i = 0; i < m; ++i) { l[i] = scL[(size_t) i] + l[i] * wg; r[i] = scR[(size_t) i] + r[i] * wg; } }
             else if (needDry) for (int i = 0; i < m; ++i) { l[i] = scL[(size_t) i] + (l[i] - scL[(size_t) i]) * mix; r[i] = scR[(size_t) i] + (r[i] - scR[(size_t) i]) * mix; }
         }
         const float og = juce::Decibels::decibelsToGain (value ("out"));

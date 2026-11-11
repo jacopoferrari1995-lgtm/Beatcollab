@@ -16,7 +16,8 @@ juce_add_plugin(JackpotMix
 juce_add_binary_data(JackpotMixArt HEADER_NAME PreArt.h NAMESPACE PreArt SOURCES
   Art/knob_red.png Art/knob_grey.png Art/knob_black.png Art/chicken.png
   Art/jewel_red.png Art/jewel_red_on.png Art/jewel_amber.png Art/jewel_amber_on.png Art/jewel_green.png Art/jewel_green_on.png
-  Art/toggle_up.png Art/toggle_down.png)
+  Art/toggle_up.png Art/toggle_down.png
+  Art/k2_bigblack.png Art/k2_chicken.png Art/k2_davies.png Art/k2_fet.png Art/k2_ivory.png Art/k2_neve_blue.png Art/k2_neve_grey.png Art/k2_neve_red.png Art/k2_pedal.png Art/k2_silver.png Art/k2_ssl_blue.png Art/k2_ssl_green.png Art/k2_ssl_red.png Art/k2_ssl_white.png Art/k2_ssl_yellow.png)
 set_target_properties(JackpotMixArt PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 set(MIX_INC ${CMAKE_SOURCE_DIR}/Common ${CMAKE_SOURCE_DIR}/JackpotButter/Source ${CMAKE_SOURCE_DIR}/JackpotComp/Source

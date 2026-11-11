@@ -32,6 +32,13 @@ struct Scaler
         ed.setResizeLimits (W / 4, H / 4, W * 3 / 2, H * 3 / 2);
         if (auto* c = ed.getConstrainer()) c->setFixedAspectRatio ((double) W / H);
         s = loadScale (id);
+        // mai piu grande dello schermo: la finestra deve stare tutta dentro (barra del menu e titolo compresi)
+        if (auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        {
+            const auto ua = d->userArea;
+            const float fit = juce::jmin ((ua.getHeight() - 70.0f) / (float) H, (ua.getWidth() - 20.0f) / (float) W);
+            if (fit > 0.2f && s > fit) s = fit;
+        }
         ed.setSize (juce::roundToInt (W * s), juce::roundToInt (H * s));
     }
     float update() { s = juce::jlimit (0.2f, 2.0f, ed.getWidth() / (float) W); return s; }

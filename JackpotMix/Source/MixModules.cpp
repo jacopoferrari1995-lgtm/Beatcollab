@@ -1,3 +1,4 @@
+#include <map>
 #include "MixModules.h"
 
 namespace jmx
@@ -268,6 +269,11 @@ const std::vector<ModDef>& mods()
                        S ("SCAMBIA", 0, 1, 0, F_BOOL), S ("LOW CUT", 10, 1000, 10, F_HZ), S ("HIGH CUT", 1000, 22000, 22000, F_HZ) };
             u.spec.resize (kP); add (u);
         }
+        // effetto tarato: con MANDATA al 100% il ritorno suona forte quanto il dry (delay un filo sotto)
+        static const std::map<juce::String, float> trim { { "PLATE 140", 0.0f }, { "LUSH PLATE", 0.9f }, { "HALL 480", 2.3f }, { "ROOM", -7.0f }, { "CHAMBER", 1.0f },
+            { "BLACKHOLE", 3.9f }, { "SPRING", 10.0f }, { "CONVOLUTION", 10.4f }, { "TAPE ECHO", 2.4f }, { "BBD ECHO", 3.6f }, { "DIGITAL 2290", -1.3f },
+            { "PING PONG", 0.6f }, { "DUB DELAY", 2.5f }, { "SLAPBACK", 3.3f } };
+        for (auto& d : v) if (d.send) { auto it = trim.find (d.name); d.wetGain = juce::Decibels::decibelsToGain (it != trim.end() ? it->second : 0.0f); d.defMix = 0.3f; }
         return v;
     }();
     return all;

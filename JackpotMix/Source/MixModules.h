@@ -41,7 +41,7 @@ struct ModDef
     juce::String name, inspired, desc;
     int cat = 0, kind = K_NONE, sub = 0;
     Look look; std::vector<PSpec> spec;
-    float defMix = 1; bool send = false;   // send: il dry resta intero e MIX dosa solo l'effetto (riverberi, delay)
+    float defMix = 1, wetGain = 1; bool send = false;   // send: il dry resta intero e MIX dosa solo l'effetto (riverberi, delay)
     std::function<juce::String (int, float)> custom;   // testo dei comandi F_CUSTOM (indice, valore 0..1)
 };
 const std::vector<ModDef>& mods();
