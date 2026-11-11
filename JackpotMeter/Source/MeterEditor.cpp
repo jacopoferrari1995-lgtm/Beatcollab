@@ -53,18 +53,20 @@ float SpecEq::ySpec (float db) const { auto p = plot(); return p.getBottom() - j
 void SpecEq::analyse()
 {
     auto& P = ed.proc; const int w = P.ringW.load(); const bool ms = P.value ("spec") < 0.5f; const double sr = P.getSr();
-    for (int pass = 0; pass < 2; ++pass)
+    const bool frozen = P.frozen.load(), sc = P.hasSc.load() && P.value ("scShow") > 0.5f;
+    if (frozen) return;   // fermo: lo spettro resta l'istantanea
+    for (int pass = 0; pass < (sc ? 3 : 2); ++pass)
     {
         for (int i = 0; i < kN; ++i)
         {
             const int k = (w - kN + i) & (Processor::kRing - 1);
             const float l = P.ringL[k], r = P.ringR[k];
-            fbuf[(size_t) i] = ms ? (pass == 0 ? 0.5f * (l + r) : 0.5f * (l - r)) : (pass == 0 ? l : r);
+            fbuf[(size_t) i] = pass == 2 ? P.ringS[k] : ms ? (pass == 0 ? 0.5f * (l + r) : 0.5f * (l - r)) : (pass == 0 ? l : r);
         }
         std::fill (fbuf.begin() + kN, fbuf.end(), 0.0f);
         win.multiplyWithWindowingTable (fbuf.data(), (size_t) kN);
         fft.performFrequencyOnlyForwardTransform (fbuf.data());
-        float* dst = pass == 0 ? specA : specB;
+        float* dst = pass == 0 ? specA : pass == 1 ? specB : specC;
         const float norm = 4.0f / kN;
         for (int i = 0; i < kPts; ++i)
         {
@@ -77,24 +79,35 @@ void SpecEq::analyse()
             if (pass == 0) peak[i] = juce::jmax (db, peak[i] - 0.25f);
         }
         if (pass == 0)
-        {   // energia per banda (per il bilanciamento), compensata come il rosa: per ottava
-            double e[kBal] = {};
-            for (int b = 1; b < kN / 2; ++b)
+        {   // energia media per banda pesata f^1.5 (= pendenza di 4.5 dB/ott di un mix bilanciato): un mix bilanciato da barre a zero
+            for (int k = 0; k < kBal; ++k) { bandRaw[k] = 0; bandN[k] = 0; }
+            for (int bn = 1; bn < kN / 2; ++bn)
             {
-                const double f = b * sr / kN; if (f < 20 || f > 20000) continue;
+                const double f = bn * sr / kN; if (f < 20 || f >= 20000) continue;
                 int k = 0; while (k < kBal - 1 && f >= bandEdge (k + 1)) ++k;
-                e[k] += (double) fbuf[(size_t) b] * fbuf[(size_t) b] * f;   // x f = pendenza rosa
+                bandRaw[k] += (double) fbuf[(size_t) bn] * fbuf[(size_t) bn] * std::pow (f / 1000.0, 1.5); ++bandN[k];
             }
-            for (int k = 0; k < kBal; ++k)
-            {
-                const double oct = std::log2 (bandEdge (k + 1) / bandEdge (k)), bins = (bandEdge (k + 1) - bandEdge (k)) / sr * kN;
-                const float db = (float) (10 * std::log10 (e[k] / juce::jmax (1.0, bins) + 1e-20)); juce::ignoreUnused (oct);
-                bandE[k] = bandInit ? bandE[k] * 0.96f + db * 0.04f : db;
-            }
-            bandInit = true;
         }
     }
+    // bilanciamento: media di potenza dello spettro (gia compensato 4.5 dB/ott) dentro ogni banda, solo quando c'e musica
+    if (P.lufsS.load() > -50)
+    {
+        for (int k = 0; k < kBal; ++k)
+        {
+            const float db = bandN[k] > 0 ? (float) (10 * std::log10 (bandRaw[k] / bandN[k] + 1e-20)) : -120.0f;
+            bandE[k] = bandInit ? bandE[k] * 0.97f + db * 0.03f : db;
+        }
+        bandInit = true;
+    }
 }
+
+int SpecEq::snapPeak (float x) const
+{
+    auto p = plot(); const int c = juce::jlimit (0, kPts - 1, (int) ((x - p.getX()) / p.getWidth() * kPts));
+    int best = c; for (int i = juce::jmax (0, c - 6); i <= juce::jmin (kPts - 1, c + 6); ++i) if (specA[i] > specA[best]) best = i;
+    return best;
+}
+static juce::String noteOf (float f) { static const char* n[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }; const int m = juce::roundToInt (69 + 12 * std::log2 (f / 440.0f)); return juce::String (n[((m % 12) + 12) % 12]) + juce::String (m / 12 - 1); }
 
 int SpecEq::nodeAt (juce::Point<float> pt) const
 {
@@ -113,9 +126,15 @@ void SpecEq::paint (juce::Graphics& g)
     auto& P = ed.proc; const double sr = P.getSr();
     auto b = getLocalBounds().toFloat().reduced (1);
     jlook::card (g, b, 14, C::phos, true, false, false);
-    glowText (g, "SPETTRO  +  EQ DINAMICO", { 18, 8, 300, 22 }, C::text, uf (12.0f));
-    g.setFont (mf (9.5f)); g.setColour (C::dim);
-    g.drawText (P.value ("spec") < 0.5f ? "ciano = mid   magenta = side   pendenza 4.5 dB/ott" : "ciano = sinistro   magenta = destro   pendenza 4.5 dB/ott", juce::Rectangle<float> (b.getRight() - 470, 8, 456, 22), juce::Justification::centredRight);
+    glowText (g, "SPETTRO  +  EQ DINAMICO", { 18, 8, 220, 22 }, C::text, uf (12.0f));
+    const bool frozen = P.frozen.load(), hasSc = P.hasSc.load();
+    freezeR = { 230, 7, 92, 24 }; scR = { 328, 7, 112, 24 }; dynScR = { 446, 7, 132, 24 }; clearR = { 584, 7, 70, 24 };
+    jlook::button (g, freezeR, C::amber, frozen, false, frozen && ! P.freezeBtn.load() ? "FERMO (STOP)" : "FREEZE", uf (10.5f));
+    jlook::button (g, scR, C::amber, P.value ("scShow") > 0.5f, false, hasSc ? "CURVA SIDECHAIN" : "SC NON COLLEGATO", uf (10.0f));
+    jlook::button (g, dynScR, C::magenta, P.value ("dynSc") > 0.5f, false, "EQ DIN. DA SIDECHAIN", uf (10.0f));
+    if (! pins.empty()) jlook::button (g, clearR, C::red, false, false, "TOGLI PIN", uf (10.0f));
+    g.setFont (mf (9.0f)); g.setColour (C::dim);
+    g.drawText (P.value ("spec") < 0.5f ? "ciano mid  magenta side  arancio sidechain" : "ciano sx  magenta dx  arancio sidechain", juce::Rectangle<float> (b.getRight() - 250, 8, 236, 22), juce::Justification::centredRight);
     auto p = plot();
     lcd (g, p, 6);
     // griglia
@@ -140,6 +159,7 @@ void SpecEq::paint (juce::Graphics& g)
     g.setColour (C::phos.withAlpha (0.9f)); g.strokePath (path (specA, false), juce::PathStrokeType (1.2f));
     g.setColour (C::magenta.withAlpha (0.75f)); g.strokePath (path (specB, false), juce::PathStrokeType (1.0f));
     g.setColour (juce::Colours::white.withAlpha (0.25f)); g.strokePath (path (peak, false), juce::PathStrokeType (0.8f));
+    if (hasSc && P.value ("scShow") > 0.5f) { g.setColour (juce::Colour (0xffff8a3d).withAlpha (0.25f)); g.strokePath (path (specC, false), juce::PathStrokeType (3.5f)); g.setColour (juce::Colour (0xffff8a3d)); g.strokePath (path (specC, false), juce::PathStrokeType (1.3f)); }
     // curva EQ
     const bool eqOn = P.value ("eqOn") > 0.5f;
     Biq tmp[kBands]; bool on[kBands];
@@ -186,18 +206,48 @@ void SpecEq::paint (juce::Graphics& g)
             jlook::valueBubble (g, { x - 60, y + 16, 120, 18 }, t2, C::band[k]);
         }
     }
-    if (hoverBand < 0 && hoverF > 0) { g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText (fmtF (hoverF) + "   clic = nuova banda", juce::Rectangle<float> (p.getX() + 8, p.getY() + 6, 260, 12), juce::Justification::centredLeft); }
+    // pin sui picchi
+    for (auto& pn : pins)
+    {
+        const int i = juce::jlimit (0, kPts - 1, (int) (std::log (pn.f / 20.0f) / std::log (1000.0f) * kPts));
+        const float x = xOf (pn.f), y = ySpec (pn.db + tilt (pn.f)); juce::ignoreUnused (i);
+        g.setColour (C::amber.withAlpha (0.35f)); g.drawVerticalLine ((int) x, y, p.getBottom());
+        g.setColour (C::amber); g.fillEllipse (x - 4, y - 4, 8, 8);
+        jlook::valueBubble (g, { x - 62, y - 26, 124, 18 }, fmtF (pn.f) + "  " + noteOf (pn.f) + "  " + juce::String (pn.db, 1), C::amber);
+    }
+    // lettura al mouse: si aggancia al picco piu vicino (come Pro-Q)
+    if (hoverBand < 0 && hoverF > 0 && hoverPt.x > 0)
+    {
+        const int i = snapPeak (hoverPt.x); const float f = ptF (i), db = specA[i] - tilt (f), x = xOf (f), y = ySpec (specA[i]);
+        g.setColour (C::text.withAlpha (0.5f)); g.drawEllipse (x - 6, y - 6, 12, 12, 1.4f);
+        g.setColour (C::dim); g.setFont (mf (9.5f));
+        g.drawText (fmtF (f) + "  " + noteOf (f) + "  " + juce::String (db, 1) + " dB   " + (frozen ? "clic = segna il punto, doppio clic sul punto = banda EQ" : "clic = nuova banda   (in stop o FREEZE: segna i picchi)"),
+                    juce::Rectangle<float> (p.getX() + 8, p.getY() + 6, p.getWidth() - 16, 12), juce::Justification::centredLeft);
+    }
+    if (frozen) { g.setColour (C::amber.withAlpha (0.8f)); g.setFont (uf (10.0f)); g.drawText (P.freezeBtn.load() ? "SPETTRO CONGELATO" : "TRASPORTO FERMO: ISTANTANEA", juce::Rectangle<float> (p.getRight() - 230, p.getY() + 20, 220, 14), juce::Justification::centredRight); }
     scan (g, p);
 }
 
 void SpecEq::mouseMove (const juce::MouseEvent& e)
 {
-    const int h = nodeAt (e.position); hoverF = plot().contains (e.position) ? fOf (e.position.x) : 0;
+    const int h = nodeAt (e.position); hoverF = plot().contains (e.position) ? fOf (e.position.x) : 0; hoverPt = e.position;
     if (h != hoverBand) hoverBand = h;
     setMouseCursor (h >= 0 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::CrosshairCursor);
 }
 void SpecEq::mouseDown (const juce::MouseEvent& e)
 {
+    auto& P = ed.proc;
+    if (freezeR.contains (e.position)) { P.freezeBtn = ! P.freezeBtn.load(); repaint(); return; }
+    if (scR.contains (e.position)) { ed.setP (ed.P ("scShow"), P.value ("scShow") > 0.5f ? 0.0f : 1.0f); return; }
+    if (dynScR.contains (e.position)) { ed.setP (ed.P ("dynSc"), P.value ("dynSc") > 0.5f ? 0.0f : 1.0f); return; }
+    if (! pins.empty() && clearR.contains (e.position)) { pins.clear(); return; }
+    // pin: tasto destro lo toglie
+    for (size_t k = 0; k < pins.size(); ++k)
+        if (juce::Point<float> (xOf (pins[k].f), ySpec (pins[k].db + tilt (pins[k].f))).getDistanceFrom (e.position) < 10)
+        {
+            if (e.mods.isPopupMenu()) pins.erase (pins.begin() + (long) k);
+            return;
+        }
     const int n = nodeAt (e.position);
     if (n >= 0)
     {
@@ -214,6 +264,13 @@ void SpecEq::mouseDown (const juce::MouseEvent& e)
         return;
     }
     if (! plot().contains (e.position) || e.mods.isPopupMenu()) return;
+    if (P.frozen.load())
+    {   // spettro fermo: il clic segna il picco
+        const int i = snapPeak (e.position.x); const float f = ptF (i);
+        if (pins.size() >= 8) pins.erase (pins.begin());
+        pins.push_back ({ f, specA[i] - tilt (f) });
+        return;
+    }
     for (int k = 0; k < kBands; ++k)
         if (ed.bp (k, "on") < 0.5f)
         {
@@ -236,7 +293,19 @@ void SpecEq::mouseUp (const juce::MouseEvent&)
     if (dragBand >= 0) { ed.bpar (dragBand, "freq")->endChangeGesture(); ed.bpar (dragBand, "gain")->endChangeGesture(); }
     dragBand = -1;
 }
-void SpecEq::mouseDoubleClick (const juce::MouseEvent& e) { const int n = nodeAt (e.position); if (n >= 0) ed.setP (ed.bpar (n, "on"), 0); }
+void SpecEq::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    for (auto& pn : pins)
+        if (juce::Point<float> (xOf (pn.f), ySpec (pn.db + tilt (pn.f))).getDistanceFrom (e.position) < 10)
+        {   // doppio clic su un pin: banda a campana stretta che lo taglia di 3 dB
+            for (int k = 0; k < kBands; ++k) if (ed.bp (k, "on") < 0.5f)
+            {
+                ed.setP (ed.bpar (k, "on"), 1); ed.setP (ed.bpar (k, "type"), BELL); ed.setP (ed.bpar (k, "freq"), pn.f); ed.setP (ed.bpar (k, "gain"), -3); ed.setP (ed.bpar (k, "q"), 4);
+                ed.selBand = k; ed.band.bind(); return;
+            }
+        }
+    const int n = nodeAt (e.position); if (n >= 0) ed.setP (ed.bpar (n, "on"), 0);
+}
 void SpecEq::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
     const int n = nodeAt (e.position); if (n < 0) return;
@@ -530,8 +599,8 @@ void Editor::resized()
 {
     const float sc = scaler.update();
     specRect = { 470, 15, 220, 36 }; eqRect = { 700, 15, 120, 36 }; abRect = { 830, 15, 110, 36 };
-    spec.setBounds (18, 80, 820, 410); loud.setBounds (850, 80, 372, 410);
-    bal.setBounds (18, 502, 250, 284); st.setBounds (278, 502, 560, 284); band.setBounds (850, 502, 372, 284);
+    spec.setBounds (18, 80, 820, 510); loud.setBounds (850, 80, 372, 510);
+    bal.setBounds (18, 602, 250, 284); st.setBounds (278, 602, 560, 284); band.setBounds (850, 602, 372, 284);
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     jlook::scaleChildren (*this, sc);
 }
@@ -544,7 +613,7 @@ void Editor::paint (juce::Graphics& g)
     for (auto* c : std::initializer_list<juce::Component*> { &spec, &loud, &bal, &st, &band }) jlook::softShadow (g, c->getBounds().toFloat(), 14);
     jlook::button (g, specRect.toFloat(), C::phos, true, false, proc.value ("spec") < 0.5f ? "SPETTRO: MID + SIDE" : "SPETTRO: L + R", uf (11.5f));
     jlook::button (g, eqRect.toFloat(), C::magenta, proc.value ("eqOn") > 0.5f, false, proc.value ("eqOn") > 0.5f ? "EQ ATTIVO" : "EQ BYPASS", uf (11.5f));
-    jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, false, "CONFRONTO " + proc.ab.label(), uf (11.5f));
+    jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, false, "MEMORIA " + proc.ab.label(), uf (11.5f));
     g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText ("analisi: latenza zero", juce::Rectangle<float> (Wf - 250, 20, 230, 24), juce::Justification::centredRight);
 }
 void Editor::mouseDown (const juce::MouseEvent& e0)

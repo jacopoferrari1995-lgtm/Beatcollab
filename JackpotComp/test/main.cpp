@@ -9,7 +9,7 @@ int main (int argc, char** argv)
     {
         juce::ScopedJuceInitialiser_GUI gui2;
         Processor p; p.prepareToPlay (48000, 480);
-        for (int i = 0; i < p.getNumPrograms(); ++i) if (p.getProgramName (i).contains ("Voce a 4")) p.loadPreset (i);
+        for (int i = 0; i < p.getNumPrograms(); ++i) if (p.getProgramName (i).contains (std::getenv ("JPRESET") ? std::getenv ("JPRESET") : "Voce a 4")) p.loadPreset (i);
         Editor ed (p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer m; juce::Random r (5); double ph = 0;
@@ -32,6 +32,19 @@ int main (int argc, char** argv)
     }
     juce::ScopedJuceInitialiser_GUI gui;
     const double sr = 44100;
+    {   // multibanda senza compressione: la somma delle bande deve restare piatta
+        std::printf ("multibanda piatto:");
+        for (float f : { 50.0f, 120.0f, 400.0f, 1000.0f, 3000.0f, 6000.0f, 12000.0f })
+        {
+            Processor p; p.prepareToPlay (sr, 512);
+            auto set = [&p] (const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
+            set ("a_on", 1); set ("a_model", MULTI); set ("a_ratio", 2); set ("a_color", 0); for (int b = 1; b <= 4; ++b) set (("mb_b" + juce::String (b) + "_thr").toRawUTF8(), 0);
+            juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mi; double ph = 0, ei = 0, eo = 0;
+            for (int k = 0; k < 100; ++k) { for (int i = 0; i < 512; ++i) { const float v = 0.1f * (float) std::sin (ph); ph += 2 * 3.14159 * f / sr; b.setSample (0, i, v); b.setSample (1, i, v); if (k > 50) ei += v * v; } p.processBlock (b, mi); if (k > 50) for (int i = 0; i < 512; ++i) eo += b.getSample (0, i) * b.getSample (0, i); }
+            std::printf (" %g Hz %+.2f dB;", f, 10 * std::log10 (eo / ei));
+        }
+        std::printf ("\n");
+    }
     // per ogni modello: sinusoide a -12 dBFS con burst a -3 dBFS, misura GR e NaN
     for (int m = 0; m < kNumModels; ++m)
     {

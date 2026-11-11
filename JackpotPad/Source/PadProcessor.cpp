@@ -30,7 +30,9 @@ const PInfo kPInfo[kNumPadParams] = {
     { "srev",   "REVERB",    0, 1, 0, 0 },          { "sdly",  "DELAY",     0, 1, 0, 0 },
     { "mute",   "MUTE",      0, 1, 0, 8 },          { "solo",  "SOLO",      0, 1, 0, 8 },          { "slice", "SLICE",     0, 64, 0, 7 },
     { "skey",   "TONALITA",  -2, 35, -1, 7 },
-    { "dtype",  "SATURAZIONE", 0, kDriveTypes - 1, 0, 6 } };
+    { "dtype",  "SATURAZIONE", 0, kDriveTypes - 1, 0, 6 },
+    { "lgain",  "LAYER GAIN", -24, 24, 0, 11 },  { "ltune", "LAYER TUNE", -24, 24, 0, 2 },  { "lpan", "LAYER PAN", -1, 1, 0, 9 },
+    { "lvel",   "LAYER VEL", 0, 127, 0, 7 },      { "lmode", "LAYER MODO", 0, 1, 0, 6 } };
 
 const char* eqTypeName (int t) { static const char* n[] = { "TAGLIO BASSI 12", "TAGLIO BASSI 24", "SHELF BASSI", "CAMPANA", "NOTCH", "SHELF ALTI", "TAGLIO ALTI 12", "TAGLIO ALTI 24" }; return n[juce::jlimit (0, kEqTypes - 1, t)]; }
 const char* driveTypeName (int t) { static const char* n[] = { "MORBIDA", "NASTRO", "VALVOLA", "CONSOLE", "OVERDRIVE", "DISTORSIONE", "FUZZ" }; return n[juce::jlimit (0, kDriveTypes - 1, t)]; }
@@ -82,6 +84,7 @@ juce::String formatPadParam (int i, float v)
             if (i == WARP) { const char* t[] = { "OFF", "REPITCH", "STRETCH" }; return t[juce::jlimit (0, 2, k)]; }
             if (i == CMODE) { const char* t[] = { "OFF", "SOFT", "MEDIUM", "HARD" }; return t[juce::jlimit (0, 3, k)]; }
             if (i == DTYPE) return driveTypeName (k);
+            if (i == LMODE) return k ? "VEL SWITCH" : "INSIEME";
             if (i >= B1ON && i <= B6Q) return eqTypeName (k);
             return k ? "GATE" : "ONE SHOT";
         }
@@ -265,28 +268,45 @@ void Processor::uiNoteOff (int p)
 
 void Processor::startVoice (int p, int vel, float r0, float r1)
 {
-    auto s = getSample (p);
+    auto s = getSample (p); auto s2 = r0 >= 0 ? SamplePtr() : getLayer (p);
     hits[p] = hits[p].load() + 1; lastVel[p] = vel; colHits |= 1 << p; colVel = juce::jmax (colVel, vel);
-    if (s == nullptr || s->buf.getNumSamples() < 8) return;
+    const bool okA = s != nullptr && s->buf.getNumSamples() >= 8, okB = s2 != nullptr && s2->buf.getNumSamples() >= 8;
+    if (! okA && ! okB) return;
     auto& P = pad[p];
     const int choke = juce::roundToInt (P.get (CHOKE));
     const bool loop = P.get (LOOP) > 0.5f;
     for (auto& v : voices)
         if (v.active && (v.pad == p || (choke > 0 && v.pad != p && juce::roundToInt (pad[v.pad].get (CHOKE)) == choke)))
             if (v.pad != p || P.get (MODE) < 0.5f || loop) v.choking = true;
+    // layer: INSIEME = il secondo campione suona con il primo (sopra la soglia di velocity se impostata)
+    //        VEL SWITCH = sotto la soglia suona il primo, sopra solo il layer
+    const int thr = juce::roundToInt (P.get (LVEL)); const bool sw = P.get (LMODE) > 0.5f;
+    bool playA = okA, playB = okB && vel >= thr;
+    if (sw && okB && thr > 0) { playA = okA && vel < thr; playB = vel >= thr; }
+    if (! playA && ! playB) playA = okA;
+    if (playA) launch (p, vel, r0, r1, s, false);
+    if (playB) launch (p, vel, -1, -1, s2, true);
+    chain[p].active = (int) (sr * 1.5);
+}
+
+void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, bool layer)
+{
+    auto& P = pad[p];
+    const bool loop = P.get (LOOP) > 0.5f;
     Voice* v = nullptr;
     for (auto& x : voices) if (! x.active) { v = &x; break; }
     if (v == nullptr) { int oldest = -1; for (auto& x : voices) if (x.age > oldest) { oldest = x.age; v = &x; } }
     const float vv = velCurve (vel);
     const int n = s->buf.getNumSamples();
-    double a0 = (r0 >= 0 ? r0 : P.get (START)) * n, a1 = (r1 >= 0 ? r1 : P.get (END)) * n; if (a1 - a0 < 32) a1 = juce::jmin ((double) n, a0 + 32);
+    double a0 = (layer ? 0.0 : (r0 >= 0 ? r0 : P.get (START))) * n, a1 = (layer ? 1.0 : (r1 >= 0 ? r1 : P.get (END))) * n; if (a1 - a0 < 32) a1 = juce::jmin ((double) n, a0 + 32);
     const double sa0 = a0;
     a0 += (1.0 - vv) * P.get (VSTART) * 0.2 * (a1 - a0);
-    const double semis = P.get (TUNE) + P.get (FINE) / 100.0 + (vv - 0.75) * P.get (VPITCH) * 4.0;
+    const double semis = P.get (TUNE) + P.get (FINE) / 100.0 + (vv - 0.75) * P.get (VPITCH) * 4.0 + (layer ? P.get (LTUNE) : 0.0f);
     const double pitch = std::pow (2.0, semis / 12.0) * s->sr / sr;
-    const int warp = juce::roundToInt (P.get (WARP)); const float sb = P.get (SBPM);
+    const int warp = layer ? 0 : juce::roundToInt (P.get (WARP)); const float sb = layer ? 0.0f : P.get (SBPM);
     const double tempo = (warp > 0 && sb > 40.0f) ? curBpm / sb : 1.0;
     v->active = true; v->rel = false; v->choking = false; v->pad = p; v->age = 0; v->s = s; v->loop = loop;
+    v->layer = layer; v->panOff = layer ? P.get (LPAN) : 0.0f;
     v->dir = P.get (REVERSE) > 0.5f ? -1 : 1;
     v->a0 = loop ? sa0 : a0; v->a1 = a1;
     v->warp = (warp == 2 && sb > 40.0f) ? 2 : (warp == 1 && sb > 40.0f ? 1 : 0);
@@ -301,7 +321,7 @@ void Processor::startVoice (int p, int vel, float r0, float r1)
         v->gr[1] = { v->pos, 0.0 };
     }
     else v->inc = pitch * (v->warp == 1 ? tempo : 1.0);
-    v->gain = 0.5f * juce::Decibels::decibelsToGain (P.get (GAIN) - (1.0f - vv) * 30.0f * P.get (VLEVEL));   // -6 dB di headroom
+    v->gain = 0.5f * juce::Decibels::decibelsToGain ((layer ? P.get (LGAIN) : P.get (GAIN)) - (1.0f - vv) * 30.0f * P.get (VLEVEL));   // -6 dB di headroom
     const float atk = P.get (ATTACK);
     v->env = atk < 0.5f ? 1.0f : 0.0f; v->atkDone = atk < 0.5f; v->atkInc = atk < 0.5f ? 1.0f : (float) (1.0 / (atk * 0.001 * sr));
     const float dec = P.get (DECAY); v->hold = dec >= 3990 || loop;
@@ -316,7 +336,6 @@ void Processor::startVoice (int p, int vel, float r0, float r1)
     v->fk = 2.0f - 1.94f * P.get (RESO);
     v->fg = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) v->cutBase, sr * 0.45) / sr);
     for (int c = 0; c < 2; ++c) { v->ic1[c] = 0; v->ic2[c] = 0; }
-    chain[p].active = (int) (sr * 1.5);
 }
 
 void Processor::releasePad (int p) { for (auto& v : voices) if (v.active && v.pad == p && v.gate > 0) v.rel = true; }
@@ -373,7 +392,12 @@ void Processor::render (Voice& v, float* L, float* R, int i)
         }
     }
     const float g = v.gain * v.env * edge;
-    L[i] += out[0] * g; R[i] += out[1] * g;
+    if (v.panOff != 0.0f)
+    {
+        const float a = (v.panOff + 1) * juce::MathConstants<float>::pi * 0.25f;
+        L[i] += out[0] * g * std::cos (a) * 1.41421f; R[i] += out[1] * g * std::sin (a) * 1.41421f;
+    }
+    else { L[i] += out[0] * g; R[i] += out[1] * g; }
 }
 
 double Processor::swingTick (double t) const
@@ -956,12 +980,12 @@ void Processor::transposeTo (int p, int key)
 Processor::Snap Processor::capture() const
 {
     Snap n;
-    for (int p = 0; p < kPads; ++p) { for (int i = 0; i < kNumPadParams; ++i) n.v[p][i] = pad[p].get (i); n.col[p] = pad[p].colour.load(); n.s[p] = getSample (p); }
+    for (int p = 0; p < kPads; ++p) { for (int i = 0; i < kNumPadParams; ++i) n.v[p][i] = pad[p].get (i); n.col[p] = pad[p].colour.load(); n.s[p] = getSample (p); n.s2[p] = getLayer (p); }
     n.kit = kitName; return n;
 }
 void Processor::restore (const Snap& n)
 {
-    for (int p = 0; p < kPads; ++p) { for (int i = 0; i < kNumPadParams; ++i) pad[p].v[i] = n.v[p][i]; pad[p].colour = n.col[p]; setSample (p, n.s[p]); }
+    for (int p = 0; p < kPads; ++p) { for (int i = 0; i < kNumPadParams; ++i) pad[p].v[i] = n.v[p][i]; pad[p].colour = n.col[p]; setSample (p, n.s[p]); setLayer (p, n.s2[p]); }
     kitName = n.kit;
 }
 bool Processor::same (const Snap& a, const Snap& b)
@@ -969,7 +993,7 @@ bool Processor::same (const Snap& a, const Snap& b)
     if (a.kit != b.kit) return false;
     for (int p = 0; p < kPads; ++p)
     {
-        if (a.col[p] != b.col[p] || a.s[p] != b.s[p]) return false;
+        if (a.col[p] != b.col[p] || a.s[p] != b.s[p] || a.s2[p] != b.s2[p]) return false;
         for (int i = 0; i < kNumPadParams; ++i) if (i != MUTE && i != SOLO && std::abs (a.v[p][i] - b.v[p][i]) > 1e-6f) return false;
     }
     return true;
@@ -1045,6 +1069,31 @@ static SamplePtr sampleFromPath (Processor& P, const juce::String& path, int p)
     }
     return nullptr;
 }
+static SamplePtr readSampleFile (Processor& P, const juce::File& f)
+{
+    std::unique_ptr<juce::AudioFormatReader> rd (P.formats.createReaderFor (f));
+    if (rd == nullptr || rd->lengthInSamples < 8) return nullptr;
+    const int len = (int) std::min<long long> ((long long) rd->lengthInSamples, (long long) (rd->sampleRate * 60));
+    auto s = std::make_shared<SampleData>();
+    s->buf.setSize (2, len); rd->read (&s->buf, 0, len, 0, true, true);
+    if (rd->numChannels == 1) s->buf.copyFrom (1, 0, s->buf, 0, 0, len);
+    s->sr = rd->sampleRate; s->name = f.getFileNameWithoutExtension(); s->path = f.getFullPathName();
+    return s;
+}
+static SamplePtr layerFromPath (Processor& P, const juce::String& path)
+{
+    if (path.isEmpty()) return nullptr;
+    DrumDesc d;
+    if (pathToDesc (path, d)) return makeDrum (d);
+    if (path.startsWith ("builtin:")) return makeBuiltin (path.fromFirstOccurrenceOf (":", false, false).getIntValue());
+    if (juce::File (path).existsAsFile()) return readSampleFile (P, juce::File (path));
+    return nullptr;
+}
+bool Processor::loadLayerFile (const juce::File& f, int p)
+{
+    auto s = readSampleFile (*this, f); if (s == nullptr) return false;
+    setLayer (p, s); return true;
+}
 std::unique_ptr<juce::XmlElement> Processor::padsToXml() const
 {
     auto x = std::make_unique<juce::XmlElement> ("PADS");
@@ -1054,6 +1103,7 @@ std::unique_ptr<juce::XmlElement> Processor::padsToXml() const
         for (int i = 0; i < kNumPadParams; ++i) e->setAttribute (kPInfo[i].id, pad[p].get (i));
         e->setAttribute ("colour", pad[p].colour.load());
         if (auto s = getSample (p)) e->setAttribute ("path", s->path);
+        if (auto s = getLayer (p)) e->setAttribute ("path2", s->path);
     }
     return x;
 }
@@ -1068,6 +1118,7 @@ void Processor::padsFromXml (const juce::XmlElement& pads)
         const auto path = e->getStringAttribute ("path");
         if (path.isEmpty()) setSample (p, nullptr);
         else { auto s = sampleFromPath (*this, path, p); setSample (p, s); }
+        setLayer (p, layerFromPath (*this, e->getStringAttribute ("path2")));
         ++p;
     }
 }
@@ -1106,7 +1157,7 @@ void Processor::loadFactoryKit (int k)
         if (lay[(size_t) p] != nullptr)
         {
             const auto& kp = *lay[(size_t) p];
-            setSample (p, makeDrum (kp.d)); pad[p].colour = kp.colour;
+            setSample (p, makeDrum (kp.d)); setLayer (p, nullptr); pad[p].colour = kp.colour;
             for (auto& [i, v] : kp.p) pad[p].v[i] = v;
         }
         else setSample (p, nullptr);
@@ -1192,7 +1243,7 @@ void Processor::assignSlice (int src, float s0, float s1, int dst, int sliceNo)
     const int col = pad[src].colour.load(); const float gain = pad[src].get (GAIN), sb = pad[src].get (SBPM), wp = pad[src].get (WARP), sk = pad[src].get (SKEY), tu = pad[src].get (TUNE);
     pad[dst].reset(); pad[dst].colour = col; pad[dst].v[GAIN] = gain; pad[dst].v[SBPM] = sb; pad[dst].v[WARP] = wp; pad[dst].v[SKEY] = sk; pad[dst].v[TUNE] = tu;
     pad[dst].v[START] = s0; pad[dst].v[END] = s1; pad[dst].v[SLICE] = (float) sliceNo; pad[dst].v[DECAY] = 4000;
-    setSample (dst, s);
+    setSample (dst, s); setLayer (dst, nullptr);
 }
 void Processor::chopToPads (int src, const std::vector<float>& pts, int firstPad)
 {

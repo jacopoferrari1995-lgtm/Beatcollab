@@ -1453,7 +1453,7 @@ void Editor::paint (juce::Graphics& g)
     glowText (g, proc.getProgramName (proc.preset).toUpperCase(), presetRect.toFloat(), C::amber, mf (12.5f), juce::Justification::centred);
     g.setColour (C::phos); g.setFont (uf (20.0f));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
-    jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, abHover, "CONFRONTO " + proc.ab.label(), uf (11.5f));
+    jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, abHover, "MEMORIA " + proc.ab.label(), uf (11.5f));
     jlook::button (g, balRect.toFloat(), C::green, sel == TOOL_BAL, false, "BILANCIO TONALE", uf (11.0f));
     jlook::button (g, refRect.toFloat(), C::phos, sel == TOOL_REF || proc.refListen.load(), false, proc.refListen.load() ? "RIFERIMENTO IN ASCOLTO" : "RIFERIMENTO", uf (11.0f));
     if (proc.value ("compare") > 0.5f) jlook::button (g, { 900, 742, 352, 30 }, C::phos, true, false, "ASCOLTI L'ORIGINALE A VOLUME UGUALE", uf (11.0f));

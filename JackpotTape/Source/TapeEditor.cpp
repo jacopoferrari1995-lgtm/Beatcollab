@@ -589,8 +589,8 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
                                     [this] (int i) { proc.apvts.getParameter ("genAmt")->setValueNotifyingHost (i == 0 ? 0.2f : i == 1 ? 0.5f : 0.9f); });
     genBtn = std::make_unique<TextBtn> ("Genera", [this] { pushUndo(); tl.selLane = -1; proc.generate(); fxEd.rebuild(); tl.repaint(); });
     genBtn->accent = true;
-    abBtn = std::make_unique<TextBtn> ("A / B", [this] { pushUndo(); proc.ab.toggle (proc); abBtn->text = juce::String ("CONFRONTO ") + proc.ab.label(); fxEd.rebuild(); tl.repaint(); root.repaint(); });
-    abBtn->text = "CONFRONTO A"; root.addAndMakeVisible (*abBtn);
+    abBtn = std::make_unique<TextBtn> ("A / B", [this] { pushUndo(); proc.ab.toggle (proc); abBtn->text = juce::String ("MEMORIA ") + proc.ab.label(); fxEd.rebuild(); tl.repaint(); root.repaint(); });
+    abBtn->text = "MEMORIA A"; root.addAndMakeVisible (*abBtn);
     for (auto* c : std::initializer_list<juce::Component*> { modeSeg.get(), qSeg.get(), barsSeg.get(), resSeg.get(), seqTog.get(), clearBtn.get(), styleBtn.get(), genSeg.get(), genBtn.get() }) root.addAndMakeVisible (c);
     // preset
     auto showName = [this] { const auto n = proc.getProgramName (proc.presetIndex); pName->text = n.isEmpty() ? juce::String ("Init") : n; pName->repaint(); };

@@ -46,8 +46,13 @@ public:
     Editor& ed;
     static constexpr int kOrder = 13, kN = 1 << kOrder, kPts = 320;
     juce::dsp::FFT fft { kOrder }; juce::dsp::WindowingFunction<float> win { (size_t) kN, juce::dsp::WindowingFunction<float>::hann };
-    std::vector<float> fbuf; float specA[kPts] {}, specB[kPts] {}, peak[kPts] {}; float bandE[kBal] {}; bool bandInit = false;
-    int dragBand = -1, hoverBand = -1; float hoverF = 0;
+    std::vector<float> fbuf; float specA[kPts] {}, specB[kPts] {}, specC[kPts] {}, peak[kPts] {}; float bandE[kBal] {}; double bandRaw[kBal] {}; int bandN[kBal] {}; bool bandInit = false;
+    int dragBand = -1, hoverBand = -1; float hoverF = 0; juce::Point<float> hoverPt { -1, -1 };
+    struct Pin { float f, db; }; std::vector<Pin> pins;   // punti segnati sullo spettro fermo
+    juce::Rectangle<float> freezeR, scR, dynScR, clearR;
+    int snapPeak (float x) const;                        // indice del picco piu vicino al mouse
+    static float tilt (float f) { return 4.5f * std::log2 (f / 1000.0f); }
+    static float ptF (int i) { return 20.0f * std::pow (1000.0f, (i + 0.5f) / kPts); }
     juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (14, 10).withTrimmedTop (30).withTrimmedBottom (16); }
     float xOf (float f) const; float fOf (float x) const; float yOf (float db) const; float dbOf (float y) const;
     float ySpec (float db) const;
@@ -105,7 +110,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
-    static constexpr int W = 1240, H = 800;
+    static constexpr int W = 1240, H = 900;
     jlook::LnF lnf;
     Processor& proc;
     jlook::Scaler scaler { *this, "meter", W, H };

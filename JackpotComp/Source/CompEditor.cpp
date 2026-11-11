@@ -148,13 +148,64 @@ StageEditor::StageEditor (Editor& e) : ed (e)
     drive = mk ("drive", "INPUT"); drive->big = true;
     att = mk ("att", "ATTACK"); rel = mk ("rel", "RELEASE"); out = mk ("out", "OUTPUT"); color = mk ("color", "COLOR"); mix = mk ("mix", "MIX");
     drive->text = [this] { return fmtDrive ((int) ed.sv (s, "model"), ed.sv (s, "drive")); };
-    att->text = [this] { const int m = (int) ed.sv (s, "model"); return info (m).attKnob ? fmtTime (attMs (m, ed.sv (s, "att"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "AUTO"); };
-    rel->text = [this] { const int m = (int) ed.sv (s, "model"); return info (m).relKnob ? fmtTime (relMs (m, ed.sv (s, "rel"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "120 dB/s"); };
+    att->text = [this] { const int m = (int) ed.sv (s, "model"); if (m == VC670) return juce::String (t670Thr (ed.sv (s, "att")), 1) + " dB"; return info (m).attKnob ? fmtTime (attMs (m, ed.sv (s, "att"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "AUTO"); };
+    rel->text = [this] { const int m = (int) ed.sv (s, "model"); if (m == VC670) return juce::String (ed.sv (s, "rel") > 0.5f ? "LAT/VERT" : "L/R"); return info (m).relKnob ? fmtTime (relMs (m, ed.sv (s, "rel"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "120 dB/s"); };
     out->text = [this] { const float v = ed.sv (s, "out"); return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; };
     color->text = [this] { return juce::String (juce::roundToInt (ed.sv (s, "color") * 100)) + "%"; };
     mix->text = [this] { return juce::String (juce::roundToInt (ed.sv (s, "mix") * 100)) + "%"; };
+    auto mkb = [&] (const char* lab) { auto k = std::make_unique<Knob> (ed.P ("mb_b1_thr"), C::stage[0]); k->label = lab; addAndMakeVisible (*k); return k; };
+    bThr = mkb ("SOGLIA"); bRatio = mkb ("RATIO"); bAtt = mkb ("ATTACCO"); bRel = mkb ("RILASCIO"); bGain = mkb ("GUADAGNO"); bGain->bipolar = true;
+    auto bp = [this] (const char* k) { return ed.proc.value (("mb_b" + juce::String (mbSel + 1) + "_" + k).toRawUTF8()); };
+    bThr->text = [bp] { return juce::String (bp ("thr"), 1) + " dB"; };
+    bRatio->text = [bp] { return juce::String (bp ("ratio"), 1) + ":1"; };
+    bAtt->text = [bp] { return fmtTime (bp ("att")); };
+    bRel->text = [bp] { return fmtTime (bp ("rel")); };
+    bGain->text = [bp] { const float v = bp ("gain"); return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; };
     addAndMakeVisible (*power); addAndMakeVisible (*ratio);
     bind (0);
+}
+bool StageEditor::isMb() const { return (int) ed.sv (s, "model") == MULTI; }
+void StageEditor::bindBand (int b)
+{
+    mbSel = juce::jlimit (0, 3, b); const juce::String p = "mb_b" + juce::String (mbSel + 1) + "_";
+    bThr->param = ed.P (p + "thr"); bRatio->param = ed.P (p + "ratio"); bAtt->param = ed.P (p + "att"); bRel->param = ed.P (p + "rel"); bGain->param = ed.P (p + "gain");
+    repaint();
+}
+void StageEditor::mbBounds (float* e, int& nb) const
+{
+    nb = 2 + juce::jlimit (0, 2, (int) ed.sv (s, "ratio"));
+    const float x1 = ed.proc.value ("mb_x1"), x2 = ed.proc.value ("mb_x2"), x3 = ed.proc.value ("mb_x3");
+    e[0] = 20;
+    if (nb == 2) { e[1] = x2; e[2] = 20000; }
+    else if (nb == 3) { e[1] = x1; e[2] = x3; e[3] = 20000; }
+    else { e[1] = x1; e[2] = x2; e[3] = x3; e[4] = 20000; }
+}
+void StageEditor::layoutKnobs()
+{
+    const bool mb = isMb();
+    for (auto* k : { bThr.get(), bRatio.get(), bAtt.get(), bRel.get(), bGain.get() }) k->setVisible (mb);
+    out->setVisible (! mb); att->setVisible (! mb); rel->setVisible (! mb);
+    const int x0 = 370;
+    if (mb)
+    {
+        const int cw = (getWidth() - x0 - 14) / 4;
+        Knob* r1[4] = { bThr.get(), bRatio.get(), bAtt.get(), bRel.get() }; Knob* r2[4] = { bGain.get(), drive.get(), color.get(), mix.get() };
+        for (int i = 0; i < 4; ++i) { r1[i]->setBounds (x0 + i * cw + (cw - 82) / 2, 52, 82, 82 + 27); r2[i]->setBounds (x0 + i * cw + (cw - 76) / 2, 180, 76, 76 + 27); }
+        drive->big = false;
+        return;
+    }
+    drive->big = true;
+    const int cw = (getWidth() - x0 - 14) / 3;
+    drive->setBounds (x0 + (cw - 104) / 2, 44, 104, 104 + 30);
+    att->setBounds (x0 + cw + (cw - 84) / 2, 52, 84, 84 + 27); rel->setBounds (x0 + cw * 2 + (cw - 84) / 2, 52, 84, 84 + 27);
+    out->setBounds (x0 + (cw - 76) / 2, 186, 76, 76 + 27); color->setBounds (x0 + cw + (cw - 76) / 2, 186, 76, 76 + 27); mix->setBounds (x0 + cw * 2 + (cw - 76) / 2, 186, 76, 76 + 27);
+}
+void StageEditor::mouseDrag (const juce::MouseEvent& e)
+{
+    if (xDrag < 0) return;
+    static const char* ids[3] = { "mb_x1", "mb_x2", "mb_x3" };
+    auto* pr = ed.P (ids[xDrag]); pr->setValueNotifyingHost (pr->convertTo0to1 (hzOf (e.position.x)));
+    repaint();
 }
 void StageEditor::bind (int st)
 {
@@ -165,21 +216,44 @@ void StageEditor::bind (int st)
     out->param = ed.P (pfx + "out"); color->param = ed.P (pfx + "color"); mix->param = ed.P (pfx + "mix");
     const int m = (int) ed.sv (s, "model"); const auto& I = info (m);
     drive->label = I.driveLabel; att->enabled = I.attKnob; rel->enabled = I.relKnob;
-    att->stepped = rel->stepped = m == VCABUS; att->steps = 6; rel->steps = 5;
-    color->label = m == DISTRESS ? (ed.sv (s, "color") < 0.5f ? "DIST 2" : "DIST 3") : m == FET76 ? "GRINTA" : (m <= OPTO3A || m == VARIMU) ? "VALVOLA" : "COLOR";
+    att->stepped = rel->stepped = m == VCABUS || m == VC670; att->steps = 6; rel->steps = 5;
+    if (m == VC670) { att->stepped = false; rel->steps = 2; }
+    att->label = m == VC670 ? "THRESHOLD" : "ATTACK"; rel->label = m == VC670 ? "STEREO" : "RELEASE";
+    for (auto* k : { bThr.get(), bRatio.get(), bAtt.get(), bRel.get(), bGain.get() }) k->col = c;
+    drive->label = m == MULTI ? "SOGLIE +/-" : I.driveLabel;
+    if (m == MULTI) { color->label = "WARM"; bindBand (mbSel); }
+    layoutKnobs();
+    color->label = m == MULTI ? "WARM" : m == DISTRESS ? (ed.sv (s, "color") < 0.5f ? "DIST 2" : "DIST 3") : m == FET76 ? "GRINTA" : (m <= OPTO3A || m == VARIMU) ? "VALVOLA" : "COLOR";
     lastModel = m; repaint();
 }
 void StageEditor::resized()
 {
     power->setBounds (16, 13, 38, 22);
     ratio->setBounds (16, 236, 330, 30);
-    const int x0 = 370, cw = (getWidth() - x0 - 14) / 3;
-    drive->setBounds (x0 + (cw - 104) / 2, 44, 104, 104 + 30);
-    att->setBounds (x0 + cw + (cw - 84) / 2, 52, 84, 84 + 27); rel->setBounds (x0 + cw * 2 + (cw - 84) / 2, 52, 84, 84 + 27);
-    out->setBounds (x0 + (cw - 76) / 2, 186, 76, 76 + 27); color->setBounds (x0 + cw + (cw - 76) / 2, 186, 76, 76 + 27); mix->setBounds (x0 + cw * 2 + (cw - 76) / 2, 186, 76, 76 + 27);
+    layoutKnobs();
 }
 void StageEditor::mouseDown (const juce::MouseEvent& e)
 {
+    if (isMb() && vuRect().contains (e.position))
+    {
+        float edg[5]; int nb; mbBounds (edg, nb);
+        // tagli trascinabili
+        static const int xid2[1] = { 1 }, xid3[2] = { 0, 2 }, xid4[3] = { 0, 1, 2 };
+        const int* xid = nb == 2 ? xid2 : nb == 3 ? xid3 : xid4;
+        for (int k = 1; k < nb; ++k) if (std::abs (e.position.x - xOf (edg[k])) < 6) { xDrag = xid[k - 1]; return; }
+        for (int b = 0; b < nb; ++b)
+        {
+            const float a = xOf (edg[b]), z = xOf (edg[b + 1]); if (e.position.x < a || e.position.x >= z) continue;
+            auto r = vuRect(); const float by = r.getBottom() - 22;
+            if (e.position.y > by)
+            {
+                const juce::String p = "mb_b" + juce::String (b + 1) + "_";
+                auto* t = ed.P (p + (e.position.x < (a + z) / 2 ? "solo" : "byp")); t->setValueNotifyingHost (t->getValue() > 0.5f ? 0.0f : 1.0f);
+            }
+            bindBand (b); return;
+        }
+        return;
+    }
     if (soloRect().contains (e.getPosition())) { auto* so = ed.P (pfx + "solo"); so->setValueNotifyingHost (so->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); ed.rack.repaint(); return; }
     if (modelRect().contains (e.getPosition()))
     {
@@ -206,6 +280,33 @@ void StageEditor::paint (juce::Graphics& g)
     g.setColour (C::dim); g.setFont (uf (11.0f, false)); g.drawText (I.inspired, juce::Rectangle<float> (170, 10, b.getWidth() - 470, 28), juce::Justification::centredLeft);
     jlook::button (g, modelRect().toFloat(), juce::Colour (I.accent), true, false, juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), uf (13.0f));
     jlook::button (g, soloRect().toFloat(), C::amber, ed.sv (s, "solo") > 0.5f, false, "SOLO", uf (11.5f));
+    if (m == MULTI)
+    {
+        auto r = vuRect(); lcd (g, r, 8);
+        float edg[5]; int nb; mbBounds (edg, nb);
+        for (float hz : { 100.0f, 1000.0f, 10000.0f }) { g.setColour (C::phos.withAlpha (0.1f)); g.drawVerticalLine ((int) xOf (hz), r.getY(), r.getBottom()); g.setColour (C::faint); g.setFont (mf (8.5f)); g.drawText (hz >= 1000 ? juce::String ((int) hz / 1000) + "k" : juce::String ((int) hz), juce::Rectangle<float> (xOf (hz) + 2, r.getY() + 2, 30, 10), juce::Justification::centredLeft); }
+        static const juce::uint32 bc[4] = { 0xffff7a3d, 0xffffd23f, 0xff7dff5a, 0xff5ef2ff };
+        for (int b = 0; b < nb; ++b)
+        {
+            const float a = xOf (edg[b]), z = xOf (edg[b + 1]); const auto col = juce::Colour (bc[b]); const bool sel = b == mbSel;
+            const juce::String p = "mb_b" + juce::String (b + 1) + "_";
+            const bool so = ed.proc.value ((p + "solo").toRawUTF8()) > 0.5f, by = ed.proc.value ((p + "byp").toRawUTF8()) > 0.5f;
+            auto br = juce::Rectangle<float> (a + 1, r.getY() + 14, z - a - 2, r.getHeight() - 38);
+            g.setColour (col.withAlpha (sel ? 0.16f : 0.06f)); g.fillRect (br);
+            const float grv = ed.proc.mbGr[b].load(), h = juce::jlimit (0.0f, 1.0f, grv / 18.0f) * br.getHeight();
+            if (! by) { g.setColour (col.withAlpha (0.75f)); g.fillRect (br.withHeight (h).reduced (br.getWidth() * 0.25f, 0)); }
+            g.setColour (sel ? col : col.withAlpha (0.6f)); g.setFont (mf (9.0f));
+            g.drawText (by ? juce::String ("BYPASS") : "-" + juce::String (grv, 1), br.withTrimmedTop (br.getHeight() - 14), juce::Justification::centred);
+            g.drawText (juce::String (ed.proc.value ((p + "thr").toRawUTF8()), 0) + " / " + juce::String (ed.proc.value ((p + "ratio").toRawUTF8()), 1), br.withHeight (12).translated (0, h > 14 ? h - 13 : 2), juce::Justification::centred);
+            auto bb = juce::Rectangle<float> (a + 2, r.getBottom() - 21, (z - a - 4) / 2 - 1, 17);
+            jlook::button (g, bb, C::amber, so, false, "S", uf (9.5f)); jlook::button (g, bb.translated (bb.getWidth() + 2, 0), C::red, by, false, "B", uf (9.5f));
+            if (sel) { g.setColour (col); g.drawRect (br, 1.5f); }
+        }
+        for (int k = 1; k < nb; ++k) { const float x = xOf (edg[k]); g.setColour (C::text.withAlpha (0.8f)); g.fillRect (x - 1, r.getY(), 2.0f, r.getHeight() - 24); g.setFont (mf (8.5f)); g.drawText (edg[k] >= 1000 ? juce::String (edg[k] / 1000, 1) + "k" : juce::String ((int) edg[k]), juce::Rectangle<float> (x - 20, r.getY() + 2, 40, 10), juce::Justification::centred); }
+        g.setColour (C::dim); g.setFont (uf (10.0f)); g.drawText ("BANDA " + juce::String (mbSel + 1) + ": clic per scegliere, trascina i tagli, S solo, B bypass", juce::Rectangle<float> (16, 202, 340, 12), juce::Justification::centredLeft);
+    }
+    else
+    {
     // VU analogico
     auto vu = vuRect();
     jlook::softShadow (g, vu, 8, 12, 0.65f, 4);
@@ -237,6 +338,7 @@ void StageEditor::paint (juce::Graphics& g)
         g.restoreState();
     }
     jlook::glass (g, vu, 8);
+    }
     g.setColour (C::dim); g.setFont (uf (10.5f)); g.drawText (I.ratioLabel, juce::Rectangle<float> (16, 214, 200, 20), juce::Justification::centredLeft);
     if (! on) { g.setColour (juce::Colour (0xff101216).withAlpha (0.6f)); g.fillRoundedRectangle (b.withTrimmedTop (46), 14); g.setColour (C::dim); g.setFont (uf (13.0f)); g.drawText ("stadio spento: accendilo con il pulsante in alto a sinistra", b.withTrimmedTop (46), juce::Justification::centred); }
 }
@@ -419,7 +521,7 @@ void Editor::paint (juce::Graphics& g)
     glowText (g, proc.getProgramName (proc.preset).toUpperCase(), presetRect.toFloat(), C::amber, mf (12.5f), juce::Justification::centred);
     g.setColour (C::phos); g.setFont (uf (20.0f));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
-    jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, abHover, "CONFRONTO " + proc.ab.label(), uf (11.5f));
+    jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, abHover, "MEMORIA " + proc.ab.label(), uf (11.5f));
     if (proc.anySolo()) { auto sr = juce::Rectangle<float> (Wf - 250, 18, 230, 30); jlook::button (g, sr, C::amber, true, false, "SOLO ATTIVO: ascolti cosa toglie", uf (11.0f)); }
     else for (int i = 0; i < 9; ++i) { auto r = juce::Rectangle<float> (Wf - 120 + i * 11.0f, 18, 5, 26); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 2.5f); }
     const float rx = 818, rw = 404;
@@ -501,7 +603,8 @@ void Editor::timerCallback()
     const float g = proc.gr[focus].load();
     stage.needle += (g - stage.needle) * (g > stage.needle ? 0.5f : 0.18f);
     stage.repaint (stage.vuRect().toNearestInt().expanded (8));
-    for (auto* k : { stage.drive.get(), stage.att.get(), stage.rel.get(), stage.out.get(), stage.color.get(), stage.mix.get(), scHpf.get(), gMix.get(), gOut.get() }) k->repaint();
+    for (auto* k : { stage.drive.get(), stage.att.get(), stage.rel.get(), stage.out.get(), stage.color.get(), stage.mix.get(), scHpf.get(), gMix.get(), gOut.get(), stage.bThr.get(), stage.bRatio.get(), stage.bAtt.get(), stage.bRel.get(), stage.bGain.get() }) if (k->isVisible()) k->repaint();
+    if (stage.isMb()) stage.repaint (stage.vuRect().toNearestInt().expanded (4));
     rack.repaint(); graph.repaint();
     repaint (scaler.map ({ 818, 354, 404, 136 }));
     if (++tick % 15 == 0) { computeTips(); guide.repaint(); repaint (scaler.map ({ W - 260, 10, 250, 44 })); }

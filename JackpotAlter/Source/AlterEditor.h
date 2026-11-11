@@ -101,7 +101,10 @@ public:
     void analyse();
     float xOf (float hz) const { return (float) (std::log (hz / 20.0) / std::log (1000.0) * getWidth()); }
     float hzOf (float x) const { return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, x / (float) getWidth())); }
-    Editor& ed; int drag = 0, hovH = 0; float spIn[256] {}, spOut[256] {};
+    void edges (float* e, int& nb) const;          // bordi delle bande in Hz
+    int xParam (int k, int nb) const;              // quale parametro "x" usa il taglio k
+    int bandAt (float x) const;
+    Editor& ed; int drag = -1, hovH = -1; float spIn[256] {}, spOut[256] {};
     std::unique_ptr<juce::dsp::FFT> fft;
 };
 
@@ -124,7 +127,11 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void tickForTest() { for (int i = 0; i < 12; ++i) timerCallback(); }
-    static constexpr int W = 1200, H = 790;
+    static constexpr int W = 1200, H = 930;
+    int band = 0;   // banda del multibanda in modifica
+    juce::String bp (const char* k) const { return "b" + juce::String (band + 1) + "_" + k; }
+    float bv (const char* k) const { return proc.value (bp (k).toRawUTF8()); }
+    void selectBand (int b);
     jlook::LnF lnf;
     Processor& proc;
     jlook::Scaler scaler { *this, "alter", W, H };
@@ -137,9 +144,10 @@ public:
     DriftView driftView { *this };
 private:
     void timerCallback() override;
-    std::unique_ptr<Knob> kPitch, kFormant, kDrift, kRate, kDrive, kTone, kMix, kOut;
+    std::unique_ptr<Knob> kPitch, kFormant, kPMix, kDrift, kRate, kDrive, kTone, kBMix, kBLvl, kMix, kOut;
+    std::unique_ptr<Knob> kEDiv, kEMs, kEFb, kEMix, kELo, kEHi, kESat;
     std::unique_ptr<Segs> sMode, sKey, sScale, sDriftT, sOrder;
-    std::unique_ptr<Switch> wLink, wFocus, wListen, wAuto;
+    std::unique_ptr<Switch> wLink, wSolo, wByp, wAuto, wEOn, wESync, wEPing;
     juce::Rectangle<int> presetRect, prevRect, nextRect, abRect; bool abHover = false; int tick = 0;
 };
 }

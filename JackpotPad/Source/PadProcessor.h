@@ -20,7 +20,7 @@ enum PadParam { GAIN, LEVEL, PAN, TUNE, FINE, START, END, ATTACK, DECAY, RELEASE
                 EQON, B1ON, B1T, B1F, B1G, B1Q, B2ON, B2T, B2F, B2G, B2Q, B3ON, B3T, B3F, B3G, B3Q,
                 B4ON, B4T, B4F, B4G, B4Q, B5ON, B5T, B5F, B5G, B5Q, B6ON, B6T, B6F, B6G, B6Q,
                 CMODE, CAMT, CMAKEUP, CMIX,
-                DRIVE, BITS, RATE, SREV, SDLY, MUTE, SOLO, SLICE, SKEY, DTYPE, kNumPadParams,
+                DRIVE, BITS, RATE, SREV, SDLY, MUTE, SOLO, SLICE, SKEY, DTYPE, LGAIN, LTUNE, LPAN, LVEL, LMODE, kNumPadParams,
                 // nomi storici dell'EQ a 3 bande (kit e progetti vecchi): banda 2 = bassi, 3 = medi, 5 = alti
                 LOWG = B2G, LOWF = B2F, MIDG = B3G, MIDF = B3F, MIDQ = B3Q, HIGHG = B5G, HIGHF = B5F };
 // EQ a 6 bande per pad: parametro k (0 on, 1 tipo, 2 freq, 3 gain, 4 Q) della banda b
@@ -101,13 +101,16 @@ public:
     std::atomic<int> eqSoloPad { -1 }, eqSoloBand { -1 };   // ascolto di una sola banda dell'EQ di un pad   // dall'interfaccia: aggiorna anche il parametro di Ableton
     SamplePtr getSample (int p) const { const juce::SpinLock::ScopedLockType l (sLock); return smp[p]; }
     void setSample (int p, SamplePtr s) { const juce::SpinLock::ScopedLockType l (sLock); smp[p] = std::move (s); }
+    SamplePtr getLayer (int p) const { const juce::SpinLock::ScopedLockType l (sLock); return smp2[p]; }
+    void setLayer (int p, SamplePtr s) { const juce::SpinLock::ScopedLockType l (sLock); smp2[p] = std::move (s); }
+    bool loadLayerFile (const juce::File&, int p);
     bool loadFile (const juce::File&, int p, bool analyse = true);
     void detectKey (int p, bool audio = true);    // tonalita del campione (nome, poi ascolto)
     void transposeTo (int p, int key);            // porta il campione nella tonalita scelta (stretch se e un loop)
     // ascolto di prova dalla banca, senza caricarlo sul pad
     void preview (SamplePtr s) { { const juce::SpinLock::ScopedLockType l (sLock); prevNext = std::move (s); } prevReq = prevReq.load() + 1; }
     // annulla / ripeti: istantanee dei pad prese dall'editor quando cambia qualcosa
-    struct Snap { float v[kPads][kNumPadParams]; int col[kPads]; SamplePtr s[kPads]; juce::String kit; };
+    struct Snap { float v[kPads][kNumPadParams]; int col[kPads]; SamplePtr s[kPads], s2[kPads]; juce::String kit; };
     Snap capture() const;
     void restore (const Snap&);
     static bool same (const Snap&, const Snap&);
@@ -121,7 +124,7 @@ public:
     void stopAll() { stopReq = true; }
     static float estimateBpmAudio (const juce::AudioBuffer<float>& b, double sampleRate, double& strength);
     double hostBpm() const { return curBpm; }
-    void clearPad (int p) { setSample (p, nullptr); }
+    void clearPad (int p) { setSample (p, nullptr); setLayer (p, nullptr); }
     void detectBpm (int p);
     static float estimateBpm (const juce::String& name, double seconds, bool& confident);
 
@@ -178,7 +181,7 @@ private:
     {
         bool active = false, rel = false, choking = false, loop = false; int pad = 0, age = 0, gate = -1, warp = 0;
         SamplePtr s; double pos = 0, inc = 1, a0 = 0, a1 = 0, tRate = 1, pRate = 1, G = 2048, sbpm = 0, pitch = 1; int dir = 1;
-        float velSemis = 0, velDb = 0, velCut = 1;
+        float velSemis = 0, velDb = 0, velCut = 1, panOff = 0; bool layer = false;
         Grain gr[2];
         float gain = 1, env = 0, atkInc = 1, decCoef = 1, relCoef = 1, fEnv = 1, fEnvCoef = 1, cutBase = 20000, fenvAmt = 0, reso = 0.1f; bool atkDone = false, hold = false;
         float ic1[2] = {}, ic2[2] = {}, fg = 0, fk = 1; int ftype = 0, fCount = 0; bool filt = false;
@@ -192,7 +195,7 @@ private:
     };
     Voice voices[kVoices];
     PadChain chain[kPads];
-    SamplePtr smp[kPads];
+    SamplePtr smp[kPads], smp2[kPads];
     mutable juce::SpinLock sLock;
     double sr = 44100, curBpm = 120;
     std::atomic<int> audP { -1 }, audReq { 0 }; std::atomic<float> audS0 { 0 }, audS1 { 1 }; int audSeen = 0; std::atomic<bool> stopReq { false };
@@ -214,6 +217,7 @@ private:
     juce::Random rng;
     float busEnv = 0;
     void startVoice (int p, int vel, float r0 = -1, float r1 = -1);
+    void launch (int p, int vel, float r0, float r1, const SamplePtr& s, bool layer);
     void releasePad (int p);
     void render (Voice& v, float* L, float* R, int i);
 

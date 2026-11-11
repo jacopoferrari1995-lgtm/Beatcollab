@@ -12,6 +12,7 @@ juce::File libFolder (const juce::String& category);
 std::vector<LibItem> libItems (const juce::String& category);          // fabbrica + utente
 juce::String categoryOf (const DrumDesc&);
 bool loadLibItem (Processor&, const LibItem&, int pad);
+bool loadLibLayer (Processor&, const LibItem&, int pad);   // secondo campione sullo stesso pad
 SamplePtr libItemSample (Processor&, const LibItem&);   // per l'ascolto di prova
 bool addFileToLibrary (const juce::File& src, const juce::String& category);
 bool savePadToLibrary (Processor&, int pad, const juce::String& category);

@@ -8,9 +8,8 @@ int main (int argc, char** argv)
     {
         juce::ScopedJuceInitialiser_GUI gui3;
         jb::Processor p; p.prepareToPlay (48000, 480);
-        for (int i = 0; i < p.getNumPrograms(); ++i) if (p.getProgramName (i).contains ("Punch Moderno")) p.setCurrentProgram (i);
-        auto set = [&p] (const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
-        set ("u_spAmt", 0.3f); set ("u_xAmt", 0.2f); set ("u_fLp", 9000); set ("u_fHp", 60); set ("u_e2g", -3); set ("u_e4g", 3);
+        const char* pn = std::getenv ("JPRESET") ? std::getenv ("JPRESET") : "Punch Moderno";
+        for (int i = 0; i < p.getNumPrograms(); ++i) if (p.getProgramName (i).contains (pn)) p.setCurrentProgram (i);
         jb::Editor ed (p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer m; juce::Random r (5);
@@ -53,6 +52,17 @@ int main (int argc, char** argv)
         return 0;
     }
     juce::ScopedJuceInitialiser_GUI gui;
+    {   // appena caricato: neutro
+        Processor q; q.prepareToPlay (44100, 512); juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mm; double e = 0; juce::Random r (2);
+        for (int k = 0; k < 100; ++k) { juce::AudioBuffer<float> in (2, 512); for (int i = 0; i < 512; ++i) { const float x = r.nextFloat() - 0.5f; in.setSample (0, i, x); in.setSample (1, i, x * 0.7f); } b.makeCopyOf (in); q.processBlock (b, mm); for (int c = 0; c < 2; ++c) for (int i = 0; i < 512; ++i) e += std::pow (b.getSample (c, i) - in.getSample (c, i), 2.0); }
+        std::printf ("neutro: differenza %.1f dB\n", 10 * std::log10 (e / 102400 + 1e-30));
+    }
+    {   // formante: sinusoide + rumore, pitch 0 e formante +7: niente NaN, energia simile
+        Processor q; q.prepareToPlay (44100, 512); auto set = [&q] (const char* id, float v) { auto* r = q.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
+        set ("u_shAmt", 1); set ("u_shForm", 7); juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mm; double ei = 0, eo = 0; bool nan = false; juce::Random r (4); double ph = 0;
+        for (int k = 0; k < 300; ++k) { for (int i = 0; i < 512; ++i) { const float x = 0.3f * (float) std::sin (ph) + 0.05f * (r.nextFloat() - 0.5f); ph += 0.0314; b.setSample (0, i, x); b.setSample (1, i, x); if (k > 50) ei += x * x; } q.processBlock (b, mm); for (int i = 0; i < 512; ++i) { if (! std::isfinite (b.getSample (0, i))) nan = true; if (k > 50) eo += b.getSample (0, i) * b.getSample (0, i); } }
+        std::printf ("formante +7: uscita/ingresso %+.1f dB nan %d\n", 10 * std::log10 (eo / ei), (int) nan);
+    }
     Processor p; const double sr = 44100; p.prepareToPlay (sr, 512);
     juce::AudioBuffer<float> blk (2, 512); juce::MidiBuffer m;
     for (int pr = 0; pr < p.getNumPrograms(); ++pr)

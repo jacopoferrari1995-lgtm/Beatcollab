@@ -66,7 +66,12 @@ public:
     Processor();
     void prepareToPlay (double, int) override;
     void releaseResources() override {}
-    bool isBusesLayoutSupported (const BusesLayout& l) const override { return l.getMainOutputChannelSet() == juce::AudioChannelSet::stereo() && l.getMainInputChannelSet() == l.getMainOutputChannelSet(); }
+    bool isBusesLayoutSupported (const BusesLayout& l) const override
+    {
+        if (l.getMainOutputChannelSet() != juce::AudioChannelSet::stereo() || l.getMainInputChannelSet() != l.getMainOutputChannelSet()) return false;
+        if (l.inputBuses.size() > 1) { const auto sc = l.getChannelSet (true, 1); if (! sc.isDisabled() && sc != juce::AudioChannelSet::stereo() && sc != juce::AudioChannelSet::mono()) return false; }
+        return true;
+    }
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -89,7 +94,8 @@ public:
 
     // anello per FFT e goniometro (post EQ = cio che esce)
     static constexpr int kRing = 16384;
-    float ringL[kRing] {}, ringR[kRing] {}; std::atomic<int> ringW { 0 };
+    float ringL[kRing] {}, ringR[kRing] {}, ringS[kRing] {}; std::atomic<int> ringW { 0 };
+    std::atomic<bool> frozen { false }, freezeBtn { false }, hasSc { false }, playing { false };   // spettro fermo quando l'host e in stop
     // EQ: dati per l'interfaccia
     std::atomic<float> dynGain[kBands] {};
     std::atomic<int> soloBand { -1 };   // ascolto di una sola banda dell'EQ

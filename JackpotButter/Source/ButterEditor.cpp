@@ -39,6 +39,7 @@ void PKnob::paint (juce::Graphics& g)
     actSm += ((activity ? juce::jlimit (0.0f, 1.0f, activity()) : 0.0f) - actSm) * 0.35f;
     jlook::KnobLook kl; kl.big = isBig; kl.bipolar = bipolar; kl.hover = hover ? 1.0f : 0.0f; kl.active = active ? 1.0f : 0.0f; kl.activity = actSm;
     jlook::drawKnob (g, { (getWidth() - size) * 0.5f, 0, size, size }, v, col, kl);
+    if (dynLabel) label = dynLabel();
     g.setColour (BC::dim); g.setFont (bf (isBig ? 10.5f : 9.0f, true)); g.drawText (label, juce::Rectangle<float> (0, size + 2, (float) getWidth(), 12), juce::Justification::centred);
     glow (g, fmt ? fmt (param->convertFrom0to1 (v)) : param->getCurrentValueAsText(), juce::Rectangle<float> (0, size + 14, (float) getWidth(), 13), active ? col.brighter (0.4f) : col, bf (isBig ? 11.5f : 10.0f, true, true), juce::Justification::centred);
 }
@@ -108,6 +109,9 @@ static float satCurve (int type, float x, float a, float st)
         case 3: { const float k = 0.55f + 0.45f * (1 - st); y = X > 0 ? std::tanh (X) : std::tanh (X * k) / k * 0.8f; y += 0.12f * st * y * y; break; }
         case 4: { const float q = std::pow (2.0f, 4.0f - st * 2.5f); y = std::round (juce::jlimit (-1.0f, 1.0f, X) * q) / q; break; }
         case 5: y = std::sin (X * (1.0f + st * 2.0f)) * 0.9f; break;
+        case 6: { const float xx = X * 1.4f; y = xx > 0 ? std::tanh (xx) : std::tanh (xx * 0.75f) / 0.75f * 0.9f; break; }
+        case 7: { const float xx = X * (2.0f + st * 4.0f); y = juce::jlimit (-1.0f, 1.0f, xx); y = (y - y * y * y / 3.0f) * 1.3f; break; }
+        case 8: { const float xx = X * (3.0f + st * 6.0f); y = std::copysign (1.0f - std::exp (-std::abs (xx)), xx) * 0.85f; break; }
         default: y = std::tanh (X + st * 0.3f * X * X / (1 + std::abs (X))); break;
     }
     const float w = juce::jmin (1.0f, a * 3.0f);
@@ -135,6 +139,8 @@ Module::Module (Editor& e, int m) : ed (e), mod (m)
             big = std::make_unique<PKnob> (P ("u_boom"), "BOOM", c, true, pct);
             addSmall (P ("u_bTone"), "FREQ", [] (float v) { return juce::String (juce::roundToInt (v)) + " Hz"; });
             addSmall (P ("u_noise"), "NOISE", pct);
+            addSmall (P ("u_bDecay"), "DECAY", [] (float v) { return juce::String (juce::roundToInt (40 + v * 450)) + " ms"; });
+            addSmall (P ("u_bPunch"), "PUNCH", pct);
             extra = std::make_unique<Switch> (P ("u_acid"), "ACID", c);
             extraPill = std::make_unique<Pill> (C ("u_nType"), c);
             break;
@@ -142,6 +148,7 @@ Module::Module (Editor& e, int m) : ed (e), mod (m)
             power = std::make_unique<Switch> (P ("u_shOn"), "", c);
             big = std::make_unique<PKnob> (P ("u_shAmt"), "MIX", c, true, pct);
             addSmall (P ("u_shPitch"), "PITCH", [] (float v) { return (v > 0 ? "+" : "") + juce::String (v, 1) + " st"; }, true);
+            addSmall (P ("u_shForm"), "FORMANTE", [] (float v) { return std::abs (v) < 0.05f ? juce::String ("SEGUE") : (v > 0 ? "+" : "") + juce::String (v, 1) + " st"; }, true);
             focus = std::make_unique<Segs> (C ("u_shFoc"), c); target = std::make_unique<Target> (P ("u_shTgt"), c);
             break;
         case 2:
@@ -213,7 +220,7 @@ void Module::resized()
         for (int i = 0; i < smalls.size(); ++i) { const int k = mod == 6 ? order6[i] : i; smalls[i]->setBounds (4 + (k % 3) * s3, y0 + (k / 3) * 70, s3, 68); }
     }
     else for (int i = 0; i < smalls.size(); ++i) smalls[i]->setBounds (6 + (i % 2) * sw, y0 + (i / 2) * 78, sw, 76);
-    if (mod == 0) { extra->setBounds (12, 358, sw - 4, 22); extraPill->setBounds (6 + sw + 2, 358, sw - 6, 22); }
+    if (mod == 0) { extra->setBounds (12, 432, sw - 4, 22); extraPill->setBounds (6 + sw + 2, 432, sw - 6, 22); }
     if (mod == 5) extraPill->setBounds (6 + sw + 6, y0 + 22, sw - 12, 22);
     if (focus) focus->setBounds (10, getHeight() - 62, w - 20, 20);
     if (target) target->setBounds (6, getHeight() - 36, w - 12, 28);
@@ -408,18 +415,57 @@ void Module::mouseDown (const juce::MouseEvent& e)
 void Module::mouseDrag (const juce::MouseEvent& e) { if (dragging) { setTopLeftPosition (dragX + e.getDistanceFromDragStartX(), getY()); ed.repaint(); } }
 void Module::mouseUp (const juce::MouseEvent&) { if (dragging) { dragging = false; ed.moduleDropped (*this); } }
 
-// ======================= EQ + analizzatore =======================
+// ======================= EQ analogico + analizzatore =======================
 static float f2x (float f, juce::Rectangle<float> r) { return r.getX() + r.getWidth() * std::log (f / 20.0f) / std::log (1000.0f); }
 static float x2f (float x, juce::Rectangle<float> r) { return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, (x - r.getX()) / r.getWidth())); }
-static const char* kEqF[4] = { "u_e1f", "u_e2f", "u_e3f", "u_e4f" };
-static const char* kEqG[4] = { "u_e1g", "u_e2g", "u_e3g", "u_e4g" };
 static const juce::Colour kEqC[4] = { juce::Colour (0xffff6a3d), juce::Colour (0xffffd23f), juce::Colour (0xff2de2e6), juce::Colour (0xffa66bff) };
+static juce::String hzTxt (float f) { return f <= 1 ? juce::String ("OFF") : f >= 1000 ? juce::String (f / 1000, f >= 10000 ? 0 : 1) + "k" : juce::String (juce::roundToInt (f)); }
+static AeSettings aeNow (juce::AudioProcessorValueTreeState& A)
+{
+    auto v = [&A] (const juce::String& id) { return A.getRawParameterValue (id)->load(); };
+    AeSettings S; S.model = (int) v ("u_aeModel"); S.q = v ("u_aeQ"); S.drive = v ("u_aeDrive");
+    for (int k = 0; k < 4; ++k) { S.g[k] = v ("u_ae" + juce::String (k + 1) + "g"); S.f[k] = v ("u_ae" + juce::String (k + 1) + "f"); }
+    return S;
+}
 
 EqPanel::EqPanel (Editor& e) : ed (e)
 {
     fftBuf.assign (4096, 0.0f); specIn.assign (1024, -100.0f); specOut.assign (1024, -100.0f);
-    on = std::make_unique<Switch> (ed.proc.apvts.getParameter ("u_eqOn"), "EQ", BC::phos); addAndMakeVisible (*on);
+    auto& A = ed.proc.apvts;
+    on = std::make_unique<Switch> (A.getParameter ("u_eqOn"), "EQ", BC::phos); addAndMakeVisible (*on);
+    for (int k = 0; k < 4; ++k)
+    {
+        const juce::String id = "u_ae" + juce::String (k + 1);
+        auto* g = knobs.add (new PKnob (A.getParameter (id + "g"), "", kEqC[k], false, {})); g->bipolar = true;
+        g->dynLabel = [this, k] { return juce::String (aeInfo ((int) ed.proc.apvts.getRawParameterValue ("u_aeModel")->load()).b[k].name); };
+        g->fmt = [this, k] (float v) { const auto& B = aeInfo ((int) ed.proc.apvts.getRawParameterValue ("u_aeModel")->load()).b[k];
+            if (B.type == Bq::HP) return juce::String ("-"); const float gg = B.boostOnly ? juce::jmax (0.0f, v) : B.cutOnly ? juce::jmin (0.0f, v) : v; return (gg > 0 ? "+" : "") + juce::String (gg, 1); };
+        auto* f = knobs.add (new PKnob (A.getParameter (id + "f"), "FREQ", kEqC[k], false, {}));
+        f->fmt = [this, k] (float v) { const int m = (int) ed.proc.apvts.getRawParameterValue ("u_aeModel")->load(); const auto& I = aeInfo (m);
+            if (m == AE_PE1C && k == 1) return juce::String ("= LF"); const auto& B = I.b[k]; return hzTxt (B.freqs[(size_t) aeIndex (B, v)]); };
+    }
+    auto* dr = knobs.add (new PKnob (A.getParameter ("u_aeDrive"), "DRIVE", BC::amber, false, pct));
+    juce::ignoreUnused (dr);
+    auto* q = knobs.add (new PKnob (A.getParameter ("u_aeQ"), "Q", BC::amber, false, {}));
+    q->dynLabel = [this] { const int m = (int) ed.proc.apvts.getRawParameterValue ("u_aeModel")->load(); return juce::String (m == AE_SSL || m == AE_LIND81 ? "Q MEDI" : m == AE_NEVE84 ? "HI-Q" : m == AE_PE1C ? "BANDA" : "-"); };
+    q->fmt = [this] (float v) { const int m = (int) ed.proc.apvts.getRawParameterValue ("u_aeModel")->load();
+        if (m == AE_NEVE84) return juce::String (v > 0.5f ? "ON" : "OFF"); if (m == AE_PE1C) return juce::String (v < 0.33f ? "LARGA" : v < 0.66f ? "MEDIA" : "STRETTA");
+        if (m == AE_SSL) return juce::String (0.5f + v * 2.5f, 1); if (m == AE_LIND81) return juce::String (0.6f + v * 1.6f, 1); return juce::String ("-"); };
+    for (auto* k : knobs) addAndMakeVisible (k);
+}
+void EqPanel::resized()
+{
     on->setBounds (14, 6, 60, 20);
+    const int y = 126, kw = 52, x0 = 14;
+    for (int k = 0; k < 4; ++k) { knobs[k * 2]->setBounds (x0 + k * 112, y, kw, 80); knobs[k * 2 + 1]->setBounds (x0 + k * 112 + kw + 2, y, kw, 80); }
+    knobs[8]->setBounds (x0 + 4 * 112 + 4, y, kw, 80); knobs[9]->setBounds (x0 + 4 * 112 + 4 + kw + 4, y, kw, 80);
+}
+void EqPanel::mouseDown (const juce::MouseEvent& e)
+{
+    if (! modelRect().contains (e.getPosition())) return;
+    auto* pr = dynamic_cast<juce::AudioParameterChoice*> (ed.proc.apvts.getParameter ("u_aeModel"));
+    juce::PopupMenu m; for (int i = 0; i < kAeModels; ++i) m.addItem (i + 1, juce::String (aeInfo (i).name) + "   -   " + aeInfo (i).desc, true, i == pr->getIndex());
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this, pr] (int r) { if (r > 0) { pr->setValueNotifyingHost (pr->convertTo0to1 ((float) (r - 1))); repaint(); } });
 }
 void EqPanel::updateSpectrum()
 {
@@ -441,45 +487,43 @@ void EqPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
     jlook::card (g, b.reduced (1), 12, BC::phos, true, false, false);
-    glow (g, "EQ MASTER  +  ANALIZZATORE", juce::Rectangle<float> (84, 6, 300, 20), BC::text, bf (11.0f, true));
-    g.setFont (bf (9.5f, false, true)); g.setColour (BC::dim);
-    g.drawText ("grigio = entrata   ciano = uscita   trascina i punti, rotella = Q, doppio clic = 0 dB", juce::Rectangle<float> (b.getRight() - 470, 6, 456, 20), juce::Justification::centredRight);
+    const auto S = aeNow (ed.proc.apvts); const auto& I = aeInfo (S.model);
+    glow (g, "EQ ANALOGICO", juce::Rectangle<float> (84, 6, 140, 20), BC::text, bf (11.0f, true));
+    g.setFont (bf (9.0f, false, true)); g.setColour (BC::dim);
+    g.drawFittedText (I.desc, juce::Rectangle<int> (190, 6, getWidth() - 390, 20), juce::Justification::centredLeft, 1, 0.8f);
+    jlook::button (g, modelRect().toFloat(), BC::amber, true, false, juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), bf (11.0f, true));
     auto r = plot(); inset (g, r, 8); auto p = r.reduced (4);
     const double sr = ed.proc.getSampleRate() > 0 ? ed.proc.getSampleRate() : 44100.0;
-    // griglia
     for (float f : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
     {
         const float x = f2x (f, p); g.setColour (BC::phos.withAlpha (0.07f)); g.drawVerticalLine ((int) x, p.getY(), p.getBottom());
-        g.setColour (BC::phos.withAlpha (0.35f)); g.setFont (bf (8.5f, false, true)); g.drawText (f >= 1000 ? juce::String ((int) (f / 1000)) + "k" : juce::String ((int) f), juce::Rectangle<float> (x + 2, p.getBottom() - 11, 30, 10), juce::Justification::centredLeft);
+        g.setColour (BC::phos.withAlpha (0.35f)); g.setFont (bf (8.0f, false, true)); g.drawText (f >= 1000 ? juce::String ((int) (f / 1000)) + "k" : juce::String ((int) f), juce::Rectangle<float> (x + 2, p.getBottom() - 10, 30, 10), juce::Justification::centredLeft);
     }
-    for (int db = -12; db <= 12; db += 6) { const float y = p.getCentreY() - db / 15.0f * p.getHeight() * 0.5f; g.setColour (BC::phos.withAlpha (db == 0 ? 0.2f : 0.06f)); g.drawHorizontalLine ((int) y, p.getX(), p.getRight()); }
-    // spettri
+    g.setColour (BC::phos.withAlpha (0.2f)); g.drawHorizontalLine ((int) p.getCentreY(), p.getX(), p.getRight());
     auto specPath = [&] (const std::vector<float>& sp, bool close)
     {
         juce::Path path; bool started = false;
-        for (int x = 0; x < (int) p.getWidth(); x += 2)
+        for (int x = 0; x < (int) p.getWidth(); x += 3)
         {
             const float f = x2f (p.getX() + x, p); const int bin = juce::jlimit (1, 1023, (int) (f / sr * 2048));
-            const float db = sp[(size_t) bin] + 3.0f * std::log2 (f / 1000.0f + 1e-3f);   // pendenza per leggere meglio
+            const float db = sp[(size_t) bin] + 3.0f * std::log2 (f / 1000.0f + 1e-3f);
             const float y = p.getBottom() - juce::jlimit (0.0f, 1.0f, (db + 90.0f) / 84.0f) * p.getHeight();
             if (! started) { path.startNewSubPath (p.getX() + x, close ? p.getBottom() : y); if (close) path.lineTo (p.getX() + x, y); started = true; } else path.lineTo (p.getX() + x, y);
         }
         if (close) { path.lineTo (p.getRight(), p.getBottom()); path.closeSubPath(); }
         return path;
     };
-    g.setColour (juce::Colours::white.withAlpha (0.10f)); g.fillPath (specPath (specIn, true));
-    auto so = specPath (specOut, false);
-    g.setColour (BC::phos.withAlpha (0.18f)); g.strokePath (so, juce::PathStrokeType (4.0f)); g.setColour (BC::phos.withAlpha (0.85f)); g.strokePath (so, juce::PathStrokeType (1.3f));
-    // curva EQ
-    auto v = [this] (const char* id) { return ed.proc.apvts.getRawParameterValue (id)->load(); };
-    const bool eqOn = v ("u_eqOn") > 0.5f;
+    g.setColour (juce::Colours::white.withAlpha (0.08f)); g.fillPath (specPath (specIn, true));
+    g.setColour (BC::phos.withAlpha (0.6f)); g.strokePath (specPath (specOut, false), juce::PathStrokeType (1.1f));
+    // curva del modello (PE 1C: compreso il taglio dei bassi)
+    const bool eqOn = ed.proc.apvts.getRawParameterValue ("u_eqOn")->load() > 0.5f;
+    Bq f[4]; bool act[4]; for (int k = 0; k < 4; ++k) aeBandFilter (S, k, sr, f[k], act[k]);
     juce::Path cv, fill;
     for (int x = 0; x <= (int) p.getWidth(); x += 2)
     {
-        const float f = x2f (p.getX() + x, p);
-        float db = Biq::magDb (0, sr, v ("u_e1f"), v ("u_e1g"), 0.707, f) + Biq::magDb (1, sr, v ("u_e2f"), v ("u_e2g"), v ("u_e2q"), f) + Biq::magDb (1, sr, v ("u_e3f"), v ("u_e3g"), v ("u_e3q"), f) + Biq::magDb (2, sr, v ("u_e4f"), v ("u_e4g"), 0.707, f);
-        if (! eqOn) db = 0;
-        const float y = p.getCentreY() - juce::jlimit (-15.0f, 15.0f, db) / 15.0f * p.getHeight() * 0.5f;
+        const float hz = x2f (p.getX() + x, p); double db = 0;
+        if (eqOn) for (int k = 0; k < 4; ++k) if (act[k]) db += f[k].magDb (hz, sr);
+        const float y = p.getCentreY() - juce::jlimit (-18.0f, 18.0f, (float) db) / 18.0f * p.getHeight() * 0.5f;
         if (x == 0) { cv.startNewSubPath (p.getX(), y); fill.startNewSubPath (p.getX(), p.getCentreY()); fill.lineTo (p.getX(), y); } else { cv.lineTo (p.getX() + x, y); fill.lineTo (p.getX() + x, y); }
     }
     fill.lineTo (p.getRight(), p.getCentreY()); fill.closeSubPath();
@@ -487,84 +531,57 @@ void EqPanel::paint (juce::Graphics& g)
     g.setColour (BC::magenta.withAlpha (0.3f)); g.strokePath (cv, juce::PathStrokeType (5.0f)); g.setColour (eqOn ? BC::magenta : BC::magenta.withAlpha (0.3f)); g.strokePath (cv, juce::PathStrokeType (2.0f));
     for (int k = 0; k < 4; ++k)
     {
-        const float x = f2x (v (kEqF[k]), p), y = p.getCentreY() - v (kEqG[k]) / 15.0f * p.getHeight() * 0.5f;
-        g.setColour (kEqC[k].withAlpha (0.25f)); g.fillEllipse (x - 11, y - 11, 22, 22);
-        g.setColour (BC::lcd2); g.fillEllipse (x - 7, y - 7, 14, 14); g.setColour (kEqC[k]); g.drawEllipse (x - 7, y - 7, 14, 14, 2.0f);
-        g.setFont (bf (8.5f, true, true)); g.drawText (juce::String (k + 1), juce::Rectangle<float> (x - 7, y - 7, 14, 14), juce::Justification::centred);
-        if (k == dragNode)
-        {
-            const float f = v (kEqF[k]);
-            glow (g, (f >= 1000 ? juce::String (f / 1000, 2) + "k" : juce::String (juce::roundToInt (f))) + "  " + juce::String (v (kEqG[k]), 1) + " dB", juce::Rectangle<float> (x - 60, y - 26, 120, 12), kEqC[k], bf (9.5f, true, true), juce::Justification::centred);
-        }
+        const auto& B = I.b[k]; int idx = aeIndex (B, S.f[k]); if (S.model == AE_PE1C && k == 1) idx = aeIndex (I.b[0], S.f[0]);
+        const float fr = B.freqs[(size_t) idx]; if (fr <= 1) continue;
+        const float x = f2x (juce::jlimit (20.0f, 20000.0f, fr), p);
+        g.setColour (kEqC[k].withAlpha (act[k] ? 0.9f : 0.35f)); g.fillEllipse (x - 3.5f, p.getY() + 3, 7, 7);
     }
     scan (g, p);
 }
-int EqPanel::nodeAt (juce::Point<float> pt) const
-{
-    auto p = plot().reduced (4); auto v = [this] (const char* id) { return ed.proc.apvts.getRawParameterValue (id)->load(); };
-    int best = -1; float bd = 18;
-    for (int k = 0; k < 4; ++k) { const juce::Point<float> c (f2x (v (kEqF[k]), p), p.getCentreY() - v (kEqG[k]) / 15.0f * p.getHeight() * 0.5f); if (c.getDistanceFrom (pt) < bd) { bd = c.getDistanceFrom (pt); best = k; } }
-    return best;
-}
-void EqPanel::mouseDown (const juce::MouseEvent& e) { dragNode = nodeAt (e.position); if (dragNode >= 0) { auto* on2 = ed.proc.apvts.getParameter ("u_eqOn"); if (on2->getValue() < 0.5f) on2->setValueNotifyingHost (1); } }
-void EqPanel::mouseDrag (const juce::MouseEvent& e)
-{
-    if (dragNode < 0) return;
-    auto p = plot().reduced (4); auto* pf = ed.proc.apvts.getParameter (kEqF[dragNode]); auto* pg = ed.proc.apvts.getParameter (kEqG[dragNode]);
-    pf->setValueNotifyingHost (pf->convertTo0to1 (pf->getNormalisableRange().snapToLegalValue (x2f (e.position.x, p))));
-    pg->setValueNotifyingHost (pg->convertTo0to1 (juce::jlimit (-15.0f, 15.0f, std::round ((p.getCentreY() - e.position.y) / (p.getHeight() * 0.5f) * 15.0f * 2) / 2)));
-}
-void EqPanel::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
-{
-    const int n = nodeAt (e.position); if (n != 1 && n != 2) return;
-    auto* q = ed.proc.apvts.getParameter (n == 1 ? "u_e2q" : "u_e3q");
-    q->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, q->getValue() + (w.deltaY > 0 ? 0.04f : -0.04f)));
-}
-void EqPanel::mouseDoubleClick (const juce::MouseEvent& e) { const int n = nodeAt (e.position); if (n >= 0) { auto* pg = ed.proc.apvts.getParameter (kEqG[n]); pg->setValueNotifyingHost (pg->convertTo0to1 (0)); } }
 
-// ======================= Filtro =======================
-FilterPanel::FilterPanel (Editor& e) : ed (e)
+// ======================= Pultec =======================
+PultecPanel::PultecPanel (Editor& e) : ed (e)
 {
     auto& A = ed.proc.apvts; const auto c = BC::amber;
-    on = std::make_unique<Switch> (A.getParameter ("u_fOn"), "", c);
-    slope = std::make_unique<Switch> (A.getParameter ("u_fSlope"), "24 dB", c);
-    hp = std::make_unique<PKnob> (A.getParameter ("u_fHp"), "LOW CUT", c, false, hzFmt);
-    lp = std::make_unique<PKnob> (A.getParameter ("u_fLp"), "HIGH CUT", c, false, hzFmt);
-    res = std::make_unique<PKnob> (A.getParameter ("u_fRes"), "RISON.", c, false, pct);
-    for (juce::Component* k : std::initializer_list<juce::Component*> { on.get(), slope.get(), hp.get(), lp.get(), res.get() }) addAndMakeVisible (k);
+    on = std::make_unique<Switch> (A.getParameter ("u_pOn"), "", c); addAndMakeVisible (*on);
+    auto ten = [] (float v) { return juce::String (v, 1); };
+    struct K { const char* id; const char* l; std::function<juce::String (float)> f; };
+    const K ks[8] = { { "u_pLF", "LF FREQ", [] (float v) { static const char* n[] = { "20", "30", "60", "100" }; return juce::String (n[juce::jlimit (0, 3, juce::roundToInt (v))]) + " Hz"; } },
+                      { "u_pLB", "BOOST", ten }, { "u_pLA", "ATTEN", ten },
+                      { "u_pAS", "ATT SEL", [] (float v) { static const char* n[] = { "5k", "10k", "20k" }; return juce::String (n[juce::jlimit (0, 2, juce::roundToInt (v))]); } },
+                      { "u_pHF", "HF FREQ", [] (float v) { static const char* n[] = { "3k", "4k", "5k", "8k", "10k", "12k", "16k" }; return juce::String (n[juce::jlimit (0, 6, juce::roundToInt (v))]); } },
+                      { "u_pHB", "BOOST", ten }, { "u_pBW", "BANDA", [] (float v) { return v < 3.3f ? juce::String ("STRETTA") : v < 6.6f ? juce::String ("MEDIA") : juce::String ("LARGA"); } }, { "u_pHA", "ATTEN", ten } };
+    for (auto& k : ks) { auto* pk = knobs.add (new PKnob (A.getParameter (k.id), k.l, c, false, k.f)); addAndMakeVisible (pk); }
 }
-void FilterPanel::resized()
+void PultecPanel::resized()
 {
-    on->setBounds (12, 8, 20, 20); slope->setBounds (getWidth() - 74, 8, 64, 20);
-    const int w = (getWidth() - 12) / 3;
-    hp->setBounds (6, 128, w, 74); lp->setBounds (6 + w, 128, w, 74); res->setBounds (6 + 2 * w, 128, w, 74);
+    on->setBounds (12, 8, 20, 20);
+    const int w = (getWidth() - 12) / 4;
+    for (int i = 0; i < 8; ++i) knobs[i]->setBounds (6 + (i % 4) * w, 106 + (i / 4) * 68, w, 66);
 }
-void FilterPanel::paint (juce::Graphics& g)
+void PultecPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1); const bool o = on->param->getValue() > 0.5f;
     jlook::card (g, b, 12, BC::amber, o, false, false);
-    glow (g, "FILTRO", { 38, 6, 80, 24 }, o ? BC::text : BC::dim, bf (11.5f, true));
-    auto d = juce::Rectangle<float> (12, 38, b.getWidth() - 22, 82); inset (g, d, 6);
+    glow (g, "PULTEC EQP-1A", { 38, 6, 160, 24 }, o ? BC::text : BC::dim, bf (11.5f, true));
+    g.setColour (BC::dim); g.setFont (bf (8.5f, false, true)); g.drawText ("boost e atten insieme = il trucco", juce::Rectangle<float> (b.getRight() - 190, 8, 180, 20), juce::Justification::centredRight);
+    auto d = juce::Rectangle<float> (12, 34, b.getWidth() - 22, 66); inset (g, d, 6);
     auto v = [this] (const char* id) { return ed.proc.apvts.getRawParameterValue (id)->load(); };
-    const double sr = 48000; const float q = 0.707f + v ("u_fRes") * v ("u_fRes") * 7.0f; const bool s24 = v ("u_fSlope") > 0.5f;
-    auto in = d.reduced (6, 8);
-    auto xOf = [&in] (float f) { return in.getX() + std::log (f / 20.0f) / std::log (1000.0f) * in.getWidth(); };
-    juce::Path p, fill; fill.startNewSubPath (in.getX(), in.getBottom());
-    for (int k = 0; k <= 80; ++k)
+    PultecSettings P; P.lb = v ("u_pLB"); P.la = v ("u_pLA"); P.lf = (int) v ("u_pLF"); P.hb = v ("u_pHB"); P.bw = v ("u_pBW"); P.hf = (int) v ("u_pHF"); P.ha = v ("u_pHA"); P.as = (int) v ("u_pAS");
+    Bq f[4]; pultecFilters (P, 48000, f);
+    auto in = d.reduced (6, 6);
+    juce::Path p, fill; fill.startNewSubPath (in.getX(), in.getCentreY());
+    for (int k = 0; k <= 90; ++k)
     {
-        const float f = 20.0f * std::pow (1000.0f, k / 80.0f); float db = 0;
-        if (v ("u_fHp") > 21) { db += Biq::magDb (3, sr, v ("u_fHp"), 0, q, f); if (s24) db += Biq::magDb (3, sr, v ("u_fHp"), 0, 0.707, f); }
-        if (v ("u_fLp") < 19900) { db += Biq::magDb (4, sr, v ("u_fLp"), 0, q, f); if (s24) db += Biq::magDb (4, sr, v ("u_fLp"), 0, 0.707, f); }
-        const float y = in.getY() + in.getHeight() * 0.35f - juce::jlimit (-36.0f, 18.0f, db) / 36.0f * in.getHeight() * 0.62f;
-        if (k == 0) p.startNewSubPath (xOf (f), y); else p.lineTo (xOf (f), y);
-        fill.lineTo (xOf (f), y);
+        const float hz = 20.0f * std::pow (1000.0f, k / 90.0f); double db = 0; for (auto& q : f) db += q.magDb (hz, 48000);
+        const float x = in.getX() + in.getWidth() * k / 90.0f, y = in.getCentreY() - juce::jlimit (-18.0f, 18.0f, (float) db) / 18.0f * in.getHeight() * 0.5f;
+        if (k == 0) p.startNewSubPath (x, y); else p.lineTo (x, y); fill.lineTo (x, y);
     }
-    fill.lineTo (in.getRight(), in.getBottom()); fill.closeSubPath();
+    fill.lineTo (in.getRight(), in.getCentreY()); fill.closeSubPath();
     const auto c = o ? BC::amber : BC::dim;
-    juce::ColourGradient fg (c.withAlpha (0.3f), 0, in.getY(), c.withAlpha (0.02f), 0, in.getBottom(), false); g.setGradientFill (fg); g.fillPath (fill);
+    g.setColour (BC::phos.withAlpha (0.1f)); g.drawHorizontalLine ((int) in.getCentreY(), in.getX(), in.getRight());
+    g.setColour (c.withAlpha (0.18f)); g.fillPath (fill);
     g.setColour (c.withAlpha (0.35f)); g.strokePath (p, juce::PathStrokeType (4.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (1.5f));
-    g.setColour (juce::Colours::black.withAlpha (0.18f)); for (float y = d.getY(); y < d.getBottom(); y += 3) g.drawHorizontalLine ((int) y, d.getX() + 2, d.getRight() - 2);
-    g.setColour (BC::dim); g.setFont (bf (8.5f, false, true)); g.drawText ("taglia bassi e alti dopo i moduli", juce::Rectangle<float> (10, b.getHeight() - 30, b.getWidth() - 20, 24), juce::Justification::centred);
 }
 
 // ======================= Imager =======================
@@ -622,7 +639,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     setLookAndFeel (&lnf);
     for (int m = 0; m < 7; ++m) addAndMakeVisible (modules.add (new Module (*this, m)));
     eq = std::make_unique<EqPanel> (*this); addAndMakeVisible (*eq);
-    filt = std::make_unique<FilterPanel> (*this); addAndMakeVisible (*filt);
+    pultec = std::make_unique<PultecPanel> (*this); addAndMakeVisible (*pultec);
     imager = std::make_unique<ImagerPanel> (*this); addAndMakeVisible (*imager);
     auto& A = proc.apvts; const auto mc = BC::amber;
     auto add = [this] (juce::RangedAudioParameter* pr, const char* l, juce::Colour c, bool big, std::function<juce::String (float)> f, bool bp = false) { auto* k = master.add (new PKnob (pr, l, c, big, std::move (f))); k->bipolar = bp; addAndMakeVisible (k); };
@@ -633,7 +650,8 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     add (A.getParameter ("u_mag"), "MAGNITUDE", BC::magenta, true, pct);
     add (A.getParameter ("u_in"), "INPUT", BC::phos, false, [] (float v) { return juce::String (v, 1) + " dB"; }, true);
     add (A.getParameter ("u_out"), "OUTPUT", BC::phos, false, [] (float v) { return juce::String (v, 1) + " dB"; });
-    clip = std::make_unique<Switch> (A.getParameter ("u_clip"), "CLIP", BC::magenta); addAndMakeVisible (*clip);
+    clip = std::make_unique<Switch> (A.getParameter ("u_clip"), "LIMITE", BC::magenta); addAndMakeVisible (*clip);
+    limType = std::make_unique<Pill> (dynamic_cast<juce::AudioParameterChoice*> (A.getParameter ("u_limType")), BC::magenta); addAndMakeVisible (*limType);
     addAndMakeVisible (sizeChip);
     scaler.setup();
     startTimerHz (30);
@@ -648,11 +666,11 @@ void Editor::resized()
 {
     const float sc = scaler.update();
     layoutModules();
-    eq->setBounds (18, 560, 722, 244);
-    filt->setBounds (750, 560, 180, 244); imager->setBounds (938, 560, 180, 244);
+    eq->setBounds (18, 560, 574, 244);
+    pultec->setBounds (600, 560, 322, 244); imager->setBounds (930, 560, 188, 244);
     const int mx = MX;
     for (int i = 0; i < 4; ++i) master[i]->setBounds (mx + 18 + (i % 2) * 104, 120 + (i / 2) * 98, 96, 94);
-    clip->setBounds (mx + 30, 318, 120, 22);
+    clip->setBounds (mx + 18, 318, 100, 22); limType->setBounds (mx + 122, 317, 96, 24);
     master[4]->setBounds (mx + 39, 352, 160, 186);
     master[5]->setBounds (mx + 18, 560, 96, 94); master[6]->setBounds (mx + 122, 560, 96, 94);
     presetRect = { 500, 15, 340, 36 }; prevRect = { 462, 15, 36, 36 }; nextRect = { 842, 15, 36, 36 }; randRect = { 896, 15, 120, 36 }; abRect = { 1026, 15, 100, 36 };
@@ -679,12 +697,12 @@ void Editor::paint (juce::Graphics& g)
     jlook::header (g, { 0, 0, Wf, 64 }, "BUTTER RACK", BC::amber, "JB-7  DRUM BUS", BC::magenta, BC::phos);
     // ombre morbide dietro le schede (disegnate dal genitore per non essere tagliate)
     for (auto* m : modules) jlook::softShadow (g, m->getBounds().toFloat().reduced (1), 12, m->dragging ? 26.0f : 16.0f, m->dragging ? 0.75f : 0.6f, m->dragging ? 12.0f : 6.0f);
-    for (juce::Component* c : std::initializer_list<juce::Component*> { eq.get(), filt.get(), imager.get() }) jlook::softShadow (g, c->getBounds().toFloat().reduced (1), 12);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { eq.get(), pultec.get(), imager.get() }) jlook::softShadow (g, c->getBounds().toFloat().reduced (1), 12);
     // preset
     inset (g, presetRect.toFloat(), 8); jlook::glass (g, presetRect.toFloat(), 8);
     glow (g, proc.getProgramName (proc.preset).toUpperCase(), presetRect.toFloat(), BC::amber, bf (12.5f, true, true), juce::Justification::centred);
     jlook::button (g, randRect.toFloat(), BC::magenta, true, randHover, "RANDOM", bf (12.5f, true));
-    jlook::button (g, abRect.toFloat(), BC::phos, proc.ab.cur == 1, abHover, "CONFRONTO " + proc.ab.label(), bf (11.5f, true));
+    jlook::button (g, abRect.toFloat(), BC::phos, proc.ab.cur == 1, abHover, "MEMORIA " + proc.ab.label(), bf (11.5f, true));
     g.setColour (BC::phos); g.setFont (bf (20.0f, true));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
     // griglia di aerazione
@@ -746,10 +764,20 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
 
 void Editor::timerCallback()
 {
-    eq->updateSpectrum(); eq->repaint(); filt->repaint(); imager->repaint();
-    for (auto* m : modules) m->repaint();
-    for (auto* k : master) k->repaint();
-    clip->repaint();
+    // si ridisegna solo cio che si muove: display dei moduli, manopole cambiate, analizzatori
+    static int tick = 0; ++tick;
+    auto knobDirty = [] (PKnob* k) { const float v = k->param->getValue(); if (v != k->lastV || k->activity) { k->lastV = v; k->repaint(); } };
+    if (tick % 2 == 0) { eq->updateSpectrum(); eq->repaint (eq->plot().toNearestInt().expanded (2)); }
+    if (tick % 3 == 0) imager->repaint();
+    for (auto* m : modules)
+    {
+        m->repaint (m->displayRect().toNearestInt().expanded (2)); m->repaint (0, 0, m->getWidth(), 40);
+        if (m->big) knobDirty (m->big.get()); for (auto* k : m->smalls) knobDirty (k);
+    }
+    for (auto* k : master) knobDirty (k);
+    for (auto* k : eq->knobs) { const float v = k->param->getValue(); if (v != k->lastV) { k->lastV = v; k->repaint(); eq->repaint(); } }
+    for (auto* k : pultec->knobs) { const float v = k->param->getValue(); if (v != k->lastV) { k->lastV = v; k->repaint(); pultec->repaint(); } }
+    clip->repaint(); limType->repaint();
     repaint (scaler.map ({ MX, 660, 238, 140 })); repaint (scaler.map (presetRect));
 }
 }

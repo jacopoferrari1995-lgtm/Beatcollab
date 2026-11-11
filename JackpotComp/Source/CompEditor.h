@@ -78,10 +78,19 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override { xDrag = -1; }
     void bind (int s);
-    Editor& ed; int s = 0; juce::String pfx = "a_";
+    void bindBand (int b);
+    void layoutKnobs();
+    bool isMb() const;
+    // multibanda: posizione delle frequenze nel display
+    float xOf (float hz) const { auto r = vuRect(); return r.getX() + r.getWidth() * std::log (juce::jlimit (20.0f, 20000.0f, hz) / 20.0f) / std::log (1000.0f); }
+    float hzOf (float x) const { auto r = vuRect(); return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, (x - r.getX()) / r.getWidth())); }
+    void mbBounds (float* edges, int& nb) const;
+    Editor& ed; int s = 0; juce::String pfx = "a_"; int mbSel = 0, xDrag = -1;
     std::unique_ptr<Switch> power; std::unique_ptr<Segs> ratio;
-    std::unique_ptr<Knob> drive, att, rel, out, color, mix;
+    std::unique_ptr<Knob> drive, att, rel, out, color, mix, bThr, bRatio, bAtt, bRel, bGain;
     float needle = 0; int lastModel = -1;
     juce::Rectangle<float> vuRect() const { return { 16, 52, 330, 150 }; }
     juce::Rectangle<int> modelRect() const { return { getWidth() - 186, 10, 170, 28 }; }

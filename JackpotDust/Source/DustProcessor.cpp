@@ -21,7 +21,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     B ("c_on", "Comp on", false); Cc ("c_style", "Comp tipo", cm, C_FET); F ("c_amt", "Compressione", { 0, 1 }, 0.4f); F ("c_att", "Attacco", skew (0.1f, 50, 8), 10); F ("c_rel", "Rilascio", skew (20, 1000, 150), 120);
     F ("c_punch", "Punch", { -1, 1 }, 0); F ("c_mix", "Comp mix", { 0, 1 }, 1);
     B ("f_on", "Filtri on", false); F ("f_hp", "Passa alto", skew (20, 1000, 120), 20); F ("f_lp", "Passa basso", skew (500, 20000, 4000), 20000); F ("f_res", "Risonanza", { 0, 1 }, 0);
-    B ("f_24", "Pendenza 24", false); F ("f_boom", "Boom", { -12, 12 }, 0); F ("f_crack", "Crack", { -12, 12 }, 0);
+    B ("f_24", "Pendenza 24", false); F ("f_boom", "Boom", { -12, 12 }, 0); F ("f_crack", "Crack", { -12, 12 }, 0); F ("f_warm", "Caldo", { 0, 1 }, 0); F ("f_air", "Aria", { 0, 1 }, 0);
     B ("t_on", "Nastro on", false); F ("t_age", "Eta nastro", { 0, 1 }, 0.4f); F ("t_wow", "Wow", { 0, 1 }, 0.2f); F ("t_flut", "Flutter", { 0, 1 }, 0.2f); F ("t_drop", "Dropout", { 0, 1 }, 0);
     B ("n_on", "Polvere on", false); F ("n_vinyl", "Vinile", { 0, 1 }, 0.4f); F ("n_pops", "Pop", { 0, 1 }, 0.3f); F ("n_hiss", "Hiss", { 0, 1 }, 0.2f); F ("n_hum", "Ronzio", { 0, 1 }, 0); B ("n_follow", "Segue la batteria", true);
     F ("amount", "Intensita", { 0, 1.5f }, 1); F ("mix", "Mix", { 0, 1 }, 1); F ("out", "Output", { -12, 12 }, 0); B ("mono", "Mono", false); B ("auto", "Volume automatico", false);
@@ -49,7 +49,7 @@ Settings Processor::settings() const
     S.sOn = b ("s_on"); S.sModel = (int) value ("s_model"); S.sBits = value ("s_bits"); S.sRate = value ("s_rate"); S.sMix = value ("s_mix");
     S.dOn = b ("d_on"); S.dModel = (int) value ("d_model"); S.dDrive = value ("d_drive"); S.dTone = value ("d_tone"); S.dMix = value ("d_mix");
     S.cOn = b ("c_on"); S.cStyle = (int) value ("c_style"); S.cAmt = value ("c_amt"); S.cAtt = value ("c_att"); S.cRel = value ("c_rel"); S.cPunch = value ("c_punch"); S.cMix = value ("c_mix");
-    S.fOn = b ("f_on"); S.fHp = value ("f_hp"); S.fLp = value ("f_lp"); S.fRes = value ("f_res"); S.f24 = b ("f_24"); S.fBoom = value ("f_boom"); S.fCrack = value ("f_crack");
+    S.fOn = b ("f_on"); S.fHp = value ("f_hp"); S.fLp = value ("f_lp"); S.fRes = value ("f_res"); S.f24 = b ("f_24"); S.fBoom = value ("f_boom"); S.fCrack = value ("f_crack"); S.fWarm = value ("f_warm"); S.fAir = value ("f_air");
     S.tOn = b ("t_on"); S.tAge = value ("t_age"); S.tWow = value ("t_wow"); S.tFlut = value ("t_flut"); S.tDrop = value ("t_drop");
     S.nOn = b ("n_on"); S.nVinyl = value ("n_vinyl"); S.nPops = value ("n_pops"); S.nHiss = value ("n_hiss"); S.nHum = value ("n_hum"); S.nFollow = b ("n_follow");
     S.amount = value ("amount"); S.mix = value ("mix"); S.outDb = value ("out"); S.mono = b ("mono"); S.autoGain = b ("auto");
@@ -139,7 +139,27 @@ const std::vector<Preset>& presets()
         { "Effetti | Radio AM", "Batteria da radio: stretta, sporca, ronzio.", cat ({ sam (S_CRUSH, 8, 8000, 0.8f), sat (D_PUSH, 10), flt (400, 3500, 0, 0, 0.3f, true), dst (0, 0, 0.5f, 0.3f), PV { { "mono", 1 }, { "auto", 1 } } }) },
         { "Effetti | Vinile 78 giri", "Gommalacca: banda stretta, tanto crackle.", cat ({ sam (S_CLEAN, 10, 16000), flt (250, 5000), tap (0.3f, 0.3f, 0.2f), dst (0.9f, 0.7f, 0.4f), PV { { "mono", 1 }, { "auto", 1 } } }) },
         { "Effetti | Nastro che muore", "Wow, flutter e dropout al massimo.", cat ({ tap (1.0f, 0.9f, 0.7f, 0.7f), dst (0, 0, 0.6f), PV { { "amount", 1.2f } } }) },
-        { "Effetti | Solo vinile", "Aggiunge solo la polvere del disco, sempre accesa.", cat ({ dst (0.5f, 0.3f, 0.15f, 0, false) }) } };
+        { "Effetti | Solo vinile", "Aggiunge solo la polvere del disco, sempre accesa.", cat ({ dst (0.5f, 0.3f, 0.15f, 0, false) }) },
+        // ---- trap: aperto e liscio, il vintage solo come colore
+        { "Trap | Aperto e liscio", "Per la trap: niente filtri che chiudono, nastro pulito per arrotondare i picchi, bus leggero, un filo di calore sotto e aria sopra.",
+          cat ({ sat (D_TAPE, 3, 0.2f), cmp (C_BUS, 0.3f, 20, 120, 0.2f), flt (20, 20000), PV { { "f_warm", 0.3f }, { "f_air", 0.45f } } }) },
+        { "Trap | 808 e cassa lucidi", "Console leggera e punch: transienti netti, bassi pieni, alti aperti. Nessun rumore.",
+          cat ({ sat (D_CONSOLE, 4, 0.15f), cmp (C_FET, 0.3f, 12, 90, 0.35f), flt (20, 20000, 1.5f, 1), PV { { "f_air", 0.35f } } }) },
+        { "Trap | Hat setosi", "Hat moderni senza durezza: nastro sulla cima, un pelo di 12 bit in parallelo, aria.",
+          cat ({ sam (S_SP12, 12, 26040, 0.2f), sat (D_TAPE, 4, 0.1f), flt (250, 20000), PV { { "f_air", 0.5f }, { "f_warm", 0.15f } } }) },
+        { "Drill | Scura ma pulita", "Drill UK: punch FET, console, poco colore, sub tenuto al centro.",
+          cat ({ sat (D_CONSOLE, 5), cmp (C_FET, 0.4f, 6, 80, 0.3f), flt (20, 16000, 2, 1.5f), PV { { "mono", 0 }, { "f_warm", 0.25f } } }) },
+        // ---- calore e colore
+        { "Calore | EQ caldo e pieno", "Solo l'EQ caldo: bassi rotondi col trucco del Pultec, medi morbidi, trasformatore che aggiunge armoniche.",
+          cat ({ flt (20, 20000), PV { { "f_warm", 0.7f }, { "f_air", 0.2f } } }) },
+        { "Calore | Valvola + EQ caldo", "Valvola e EQ caldo insieme: il colore piu spesso, per boom bap e soul.",
+          cat ({ sat (D_TUBE, 7, -0.1f), cmp (C_BUS, 0.35f, 15, 180), flt (30, 16000), PV { { "f_warm", 0.6f }, { "f_air", 0.25f } } }) },
+        { "Boom Bap | Caldo e asciutto", "Senza rumori: SP-12 al 50%, valvola e tanto calore, punch.",
+          cat ({ sam (S_SP12, 12, 26040, 0.5f), sat (D_TUBE, 7), cmp (C_FET, 0.45f, 6, 110, 0.3f), flt (30, 13000, 2, 1.5f), PV { { "f_warm", 0.55f } } }) },
+        { "Lo-fi | Morbido con aria", "Lo-fi che non affoga: nastro e polvere, ma la cima resta aperta con un filo d'aria.",
+          cat ({ sat (D_TAPE, 6, -0.2f), cmp (C_BUS, 0.35f, 18, 220), flt (40, 12000), tap (0.4f, 0.25f, 0.2f), dst (0.25f, 0.15f, 0.1f), PV { { "f_warm", 0.4f }, { "f_air", 0.2f } } }) },
+        { "Trip Hop | Calore enorme", "Trip hop con l'EQ caldo al massimo e pump lento.",
+          cat ({ sat (D_TUBE, 9, -0.3f), cmp (C_PUMP, 0.5f, 25, 280), flt (25, 7000, 4), PV { { "f_warm", 0.9f }, { "mono", 1 } } }) } };
     return p;
 }
 }

@@ -42,12 +42,12 @@ public:
     // misure per l'interfaccia
     static constexpr int kHist = 400;
     std::atomic<float> hIn[kHist], hOut[kHist], hGr[kStages][kHist]; std::atomic<int> hW { 0 };
-    std::atomic<float> gr[kStages] {}, avgGr[kStages] {}, inPk[2] {}, outPk[2] {}, inRms { 0 }, outRms { 0 };
+    std::atomic<float> mbGr[4] {}, gr[kStages] {}, avgGr[kStages] {}, inPk[2] {}, outPk[2] {}, inRms { 0 }, outRms { 0 };
     bool anySolo() const { for (int s = 0; s < kStages; ++s) if (value ((juce::String (stagePfx (s)) + "solo").toRawUTF8()) > 0.5f) return true; return false; }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
-    Stage st[kStages]; double sr = 44100;
+    Stage st[kStages]; double sr = 44100; MbParams mbNow;
     juce::AudioBuffer<float> dry, det, aux, acc, dlt;
     juce::dsp::IIR::Filter<float> hp[kStages][2];  // per stadio, per canale
     float lastHp = -1; std::atomic<bool> extSc { false };

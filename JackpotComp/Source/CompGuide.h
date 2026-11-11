@@ -30,8 +30,14 @@ inline const Guide& guide (int m)
           "Ratio 4, attacco 5-10 ms, rilascio 200-400 ms. Per lo smash parallelo: ratio 20 o NUKE, COLOR 0.6, MIX 25-35%." },
         { "Multibanda su tre bande: schiaccia le parti forti e alza quelle deboli (compressione verso l'alto). Tutto diventa denso, brillante e in faccia. DEPTH dosa l'effetto, ATTACK e RELEASE scalano i tempi delle tre bande.",
           "Hat, synth, pad, voci di sfondo, 808 che deve uscire sulle casse piccole, bus FX. Sul master solo pochissimo.",
-          "UP + DOWN, DEPTH 20-40% (100% e l'effetto famoso, molto estremo). Usa MIX 30-50% per tenere la dinamica. Attento al rumore di fondo: l'UP lo alza." } };
-    return G[juce::jlimit (0, 7, m)];
+          "UP + DOWN, DEPTH 20-40% (100% e l'effetto famoso, molto estremo). Usa MIX 30-50% per tenere la dinamica. Attento al rumore di fondo: l'UP lo alza." },
+        { "Il compressore a valvole per eccellenza: 6386 a pendenza variabile, trasformatori grossi. Piu spingi l'INPUT piu il rapporto cresce (da circa 1.3:1 a 20:1), ginocchio larghissimo, attacco rapido ma rotondo. Il trasformatore d'ingresso arrotonda i bassi, la valvola aggiunge 2a armonica che cresce con la riduzione, l'uscita ha un filo di brillantezza: caldo e lucido insieme. STEREO: L/R collegati oppure LAT/VERT (comprime separatamente centro e lati).",
+          "Master e mix bus, bus voci, voce solista, batteria intera, basso, pianoforte. Anche solo per il colore con 0-1 dB di riduzione.",
+          "TC2 per batteria e voce, TC5 o TC6 (automatici) per master e bus. INPUT per il colore, THRESHOLD per quanto comprime: sul master 1-2 dB, sui bus 2-4. LAT/VERT sul master per tenere fermo il centro e lasciare respirare i lati." },
+        { "Multibanda a 2, 3 o 4 bande con crossover Linkwitz-Riley a fase compensata (da spento a 1:1 la somma e piatta). Ogni banda ha soglia, ratio, attacco, rilascio e guadagno suoi, solo e bypass. SOGLIE +/- sposta tutte le soglie insieme, ATTACK e RELEASE dello stadio scalano i tempi di tutte le bande, WARM ammorbidisce l'attacco e scalda come il modo Warm dell'alpha.",
+          "Master, mix bus, voce (de-essing largo e controllo del fango), 808 con i bassi che ballano, bus di batteria, chitarre acustiche.",
+          "Parti da 3 bande. Bassa: soglia per 2-3 dB, ratio 3, attacco 30 ms, rilascio 200 ms. Media: piu gentile (1-2 dB). Alta: attacco 5 ms per domare le S. Ascolta in SOLO ogni banda mentre regoli." } };
+    return G[juce::jlimit (0, 9, m)];
 }
 
 // consigli generali sulle tecniche

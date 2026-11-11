@@ -49,6 +49,8 @@ struct Biquad
     void bell (double f, double q, double db, double sr) { const double A = std::pow (10.0, db / 40), w = 2 * kPi * std::min (f, sr * 0.49) / sr, c = std::cos (w), al = std::sin (w) / (2 * q), a0 = 1 + al / A; b0 = (1 + al * A) / a0; b1 = -2 * c / a0; b2 = (1 - al * A) / a0; a1 = b1; a2 = (1 - al / A) / a0; }
     void lowShelf (double f, double db, double sr) { const double A = std::pow (10.0, db / 40), w = 2 * kPi * f / sr, c = std::cos (w), s = std::sin (w), al = s / 2 * std::sqrt (2.0), sq = 2 * std::sqrt (A) * al, a0 = (A + 1) + (A - 1) * c + sq;
                                                      b0 = A * ((A + 1) - (A - 1) * c + sq) / a0; b1 = 2 * A * ((A - 1) - (A + 1) * c) / a0; b2 = A * ((A + 1) - (A - 1) * c - sq) / a0; a1 = -2 * ((A - 1) + (A + 1) * c) / a0; a2 = ((A + 1) + (A - 1) * c - sq) / a0; }
+    void highShelf (double f, double db, double sr) { const double A = std::pow (10.0, db / 40), w = 2 * kPi * std::min (f, sr * 0.45) / sr, c = std::cos (w), s = std::sin (w), al = s / 2 * std::sqrt (2.0), sq = 2 * std::sqrt (A) * al, a0 = (A + 1) - (A - 1) * c + sq;
+                                                      b0 = A * ((A + 1) + (A - 1) * c + sq) / a0; b1 = -2 * A * ((A - 1) + (A + 1) * c) / a0; b2 = A * ((A + 1) + (A - 1) * c - sq) / a0; a1 = 2 * ((A - 1) - (A + 1) * c) / a0; a2 = ((A + 1) - (A - 1) * c - sq) / a0; }
 };
 // filtro a stato variabile (TPT): passa basso e passa alto risonanti
 struct Svf
@@ -86,7 +88,7 @@ struct Settings
     bool sOn = false; int sModel = S_SP12; float sBits = 12, sRate = 26040, sMix = 1;
     bool dOn = false; int dModel = D_TAPE; float dDrive = 6, dTone = 0, dMix = 1;
     bool cOn = false; int cStyle = C_FET; float cAmt = 0.4f, cAtt = 10, cRel = 120, cPunch = 0, cMix = 1;
-    bool fOn = false; float fHp = 20, fLp = 20000, fRes = 0, fBoom = 0, fCrack = 0; bool f24 = false;
+    bool fOn = false; float fHp = 20, fLp = 20000, fRes = 0, fBoom = 0, fCrack = 0, fWarm = 0, fAir = 0; bool f24 = false;
     bool tOn = false; float tAge = 0.4f, tWow = 0.2f, tFlut = 0.2f, tDrop = 0;
     bool nOn = false; float nVinyl = 0.4f, nPops = 0.3f, nHiss = 0.2f, nHum = 0; bool nFollow = true;
     float amount = 1, mix = 1, outDb = 0; bool mono = false, autoGain = false;
@@ -209,6 +211,17 @@ public:
                     if (S.fLp < 19900) { C.lp1.tick (v, lp, hp); v = lp; if (S.f24) { C.lp2.tick (v, lp, hp); v = lp; } }
                     if (std::abs (S.fBoom) > 0.05f) v = C.boom.run (v);
                     if (std::abs (S.fCrack) > 0.05f) v = C.crack.run (v);
+                    if (S.fWarm > 0.001f)
+                    {   // EQ caldo: bassi col trucco del Pultec (boost a 70 + dip a 300), alti arrotondati, trasformatore e valvola
+                        v = C.wLo.run (v); v = C.wDip.run (v); v = C.wHi.run (v);
+                        const float w = S.fWarm;
+                        C.wLp += (v - C.wLp) * wLpA; const float lo = C.wLp, kd = 1.0f + w * 2.5f;
+                        v += std::tanh (lo * kd) / kd - lo;
+                        const float b = 0.18f * w, d = 1.0f + w * 1.2f, nn = d * (1 - std::tanh (b) * std::tanh (b));
+                        v = (std::tanh (d * v + b) - std::tanh (b)) / nn;
+                        C.wDc += (v - C.wDc) * 0.0004f; v -= C.wDc;
+                    }
+                    if (S.fAir > 0.001f) { v = C.air.run (v); }
                     io[c][i] = v;
                 }
             }
@@ -344,25 +357,28 @@ public:
 private:
     void updateFilters (const Settings& S, bool force)
     {
-        if (! force && S.fHp == fk[0] && S.fLp == fk[1] && S.fRes == fk[2] && S.fBoom == fk[3] && S.fCrack == fk[4]) return;
-        fk[0] = S.fHp; fk[1] = S.fLp; fk[2] = S.fRes; fk[3] = S.fBoom; fk[4] = S.fCrack;
+        if (! force && S.fHp == fk[0] && S.fLp == fk[1] && S.fRes == fk[2] && S.fBoom == fk[3] && S.fCrack == fk[4] && S.fWarm == fk[5] && S.fAir == fk[6]) return;
+        fk[0] = S.fHp; fk[1] = S.fLp; fk[2] = S.fRes; fk[3] = S.fBoom; fk[4] = S.fCrack; fk[5] = S.fWarm; fk[6] = S.fAir;
+        wLpA = (float) (1.0 - std::exp (-2 * kPi * 100.0 / sr));
         for (auto& C : ch)
         {
             C.hp1.set (S.fHp, S.fRes * 0.6f, sr); C.hp2.set (S.fHp, 0.0f, sr);
             C.lp1.set (S.fLp, S.fRes, sr); C.lp2.set (S.fLp, 0.0f, sr);
             C.boom.bell (70, 0.9, S.fBoom, sr); C.crack.bell (2600, 1.0, S.fCrack, sr);
+            C.wLo.lowShelf (85, S.fWarm * 4.5, sr); C.wDip.bell (320, 0.8, -S.fWarm * 2.5, sr); C.wHi.highShelf (9000, -S.fWarm * 3.0, sr);
+            C.air.highShelf (11000, S.fAir * 7.0, sr);
         }
     }
     struct Ch
     {
-        Biquad aa[3], post[2], tiltLo, tiltHi, boom, crack, bump, tLp1; Svf hp1, hp2, lp1, lp2;
+        Biquad aa[3], post[2], tiltLo, tiltHi, boom, crack, bump, tLp1, wLo, wDip, wHi, air; Svf hp1, hp2, lp1, lp2; float wLp = 0, wDc = 0;
         float pre = 0, held = 0, pink = 0, popLp = 0, hissHp = 0; Dl satDl;
         Ch() { satDl.prepare (2048); }
     };
     double sr = 44100, wowPh = 0, flPh = 0, fl2Ph = 0, humPh = 0;
     int maxBlock = 512, osLat = 0, lastModel = -1, dropT = 0, lastDModel = -1;
     float holdPh = 1, lastRate = -1, lastDrive = -100, driveMk = 1, env = 0, rms = 0, envF = 0, envS = 0, inRms = 1e-6f, outRms = 1e-6f, dropG = 1, wowTarget = 0, wowDrift = 0, noiseEnv = 0;
-    float fk[5] { -1, -1, -1, -1, -1 }, crackLp[2] {}, popZ[2] {};
+    float fk[7] { -1, -1, -1, -1, -1, -1, -1 }, crackLp[2] {}, popZ[2] {}, wLpA = 0.01f;
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
     Dl dryDl[2], tapeDl[2]; Ch ch[2]; Rng rng;
     juce::AudioBuffer<float> dry, tmp;

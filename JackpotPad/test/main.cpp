@@ -145,6 +145,7 @@ int main (int argc, char** argv)
         { juce::WavAudioFormat wav; std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (wf), sr, 2, 16, {}, 0)); w->writeFromAudioSampleBuffer (b, 0, len); }
         Processor p; p.prepareToPlay (48000, 480);
         p.loadFile (wf, 0);
+        if (std::getenv ("JLAYER")) { p.loadLayerFile (wf, 0); p.pad[0].v[LGAIN] = -4; p.pad[0].v[LTUNE] = 12; }
         std::printf ("BPM rilevato %.2f  warp %d  mode %d\n", p.pad[0].get (SBPM), (int) p.pad[0].get (WARP), (int) p.pad[0].get (MODE));
         Editor ed (p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
@@ -232,6 +233,22 @@ int main (int argc, char** argv)
         std::printf ("note repeat: %d colpi in ~1 battuta\n", (int) (p.hits[3].load() - before));
         p.apvts.getParameter ("nrOn")->setValueNotifyingHost (0);
     }
+    // layer: kick + secondo campione sullo stesso pad
+    {
+        p.loopOn = false; p.requestPlay (false); p.loadFactoryKit (0);
+        { auto c0 = libItems (libCategories()[0]); auto c1 = libItems (libCategories()[1]); loadLibItem (p, c0.front(), 0); loadLibItem (p, c1.front(), 1); p.pad[0].v[DECAY] = 4000; }
+        std::printf ("pad1 %s\n", p.getSample (0) ? p.getSample (0)->name.toRawUTF8() : "-");
+        for (int k = 0; k < kPads; ++k) p.pad[k].v[MUTE] = 0;
+        auto hit = [&] (int vel) { juce::MidiBuffer m; m.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) vel), 0); float pk = 0; bool nn = false;
+                                   for (int b = 0; b < 30; ++b) { p.processBlock (blk, m); m.clear(); for (int i = 0; i < 512; ++i) { const float x = blk.getSample (0, i); if (! std::isfinite (x)) nn = true; pk = std::max (pk, std::abs (x)); } }
+                                   for (int b = 0; b < 200; ++b) { juce::MidiBuffer e; p.processBlock (blk, e); } return nn ? -1.0f : pk; };
+        const float a = hit (110);
+        p.setLayer (0, p.getSample (1)); p.pad[0].v[LGAIN] = 0; p.pad[0].v[LPAN] = 0.6f;
+        const float b = hit (110);
+        p.pad[0].v[LVEL] = 100; p.pad[0].v[LMODE] = 1; const float sl = hit (60), sh = hit (120);
+        p.pad[0].v[LMODE] = 0; p.pad[0].v[LVEL] = 0; p.pad[0].v[LPAN] = 0;
+        std::printf ("layer: solo %.2f con layer %.2f | switch piano %.2f forte %.2f\n", a, b, sl, sh);
+    }
     juce::MemoryBlock mb; p.getStateInformation (mb); Processor q; q.setStateInformation (mb.getData(), (int) mb.getSize());
-    std::printf ("stato ricaricato: eventi %d, nome pad1 %s\n", (int) q.events.size(), q.getSample (0) ? q.getSample (0)->name.toRawUTF8() : "-");
+    std::printf ("stato ricaricato: eventi %d, nome pad1 %s, layer pad1 %s\n", (int) q.events.size(), q.getSample (0) ? q.getSample (0)->name.toRawUTF8() : "-", q.getLayer (0) ? q.getLayer (0)->name.toRawUTF8() : "-");
 }

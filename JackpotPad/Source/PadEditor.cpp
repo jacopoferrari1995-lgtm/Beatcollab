@@ -306,12 +306,14 @@ void Screen::itemMenu (int i)
     for (int k = 0; k < cs.size(); ++k) cats.addItem (100 + k, cs[k], it.user && cs[k] != it.category, cs[k] == it.category);
     m.addSubMenu ("Sposta in categoria", cats, it.user);
     m.addItem (1, "Carica sul pad selezionato");
+    m.addItem (4, "Carica come LAYER sul pad selezionato");
     m.addItem (2, "Mostra nel Finder", it.user);
     if (it.scanned) m.addItem (3, "Togli dall'indice (il file resta)");
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this, it] (int r)
     {
         if (r >= 100) { moveLibItem (it, libCategories()[r - 100]); browseDirty = true; }
         else if (r == 1) { loadLibItem (ed.proc, it, ed.sel); ed.playPad (ed.sel, 100); ed.kitChanged(); }
+        else if (r == 4) { loadLibLayer (ed.proc, it, ed.sel); ed.playPad (ed.sel, 100); ed.kitChanged(); }
         else if (r == 2) it.file.revealToUser();
         else if (r == 3) { ed.proc.sampleIndex->remove (it.file.getFullPathName()); browseDirty = true; }
         repaint();
@@ -583,7 +585,63 @@ void Screen::pageSample (juce::Graphics& g, juce::Rectangle<float> c)
 {
     auto& P = ed.proc; const int p = ed.sel; auto smp = P.getSample (p); const auto pc = padColour (P.pad[p].colour.load()); auto& pd = P.pad[p];
     auto chips = c.removeFromBottom (38); c.removeFromBottom (8);
+    auto lay = chopMode == 0 ? c.removeFromBottom (30) : juce::Rectangle<float>(); if (chopMode == 0) c.removeFromBottom (4);
     auto w = c.reduced (6, 10);
+    if (chopMode == 0)
+    {   // LAYER: secondo campione sullo stesso pad
+        auto l2 = P.getLayer (p); const bool has = l2 != nullptr;
+        const auto lc = Col::cyan;
+        auto nameR = lay.removeFromLeft (lay.getWidth() * 0.34f); lay.removeFromLeft (5);
+        g.setColour (lc.withAlpha (has ? 0.14f : 0.05f)); g.fillRoundedRectangle (nameR, 4); g.setColour (lc.withAlpha (has ? 0.7f : 0.3f)); g.drawRoundedRectangle (nameR, 4, 1.0f);
+        if (has)
+        {   // mini onda del layer
+            auto wr = nameR.reduced (4, 5).withTrimmedRight (22); wr = wr.removeFromRight (wr.getWidth() * 0.38f); const int nn = l2->buf.getNumSamples(), W = juce::jmax (1, (int) wr.getWidth()); const float* d = l2->buf.getReadPointer (0);
+            g.setColour (lc.withAlpha (0.45f));
+            for (int x = 0; x < W; ++x) { float mx = 0; const int a = (int) ((double) x / W * nn), b = juce::jmin (nn, (int) ((double) (x + 1) / W * nn)); for (int i = a; i < b; i += 4) mx = juce::jmax (mx, std::abs (d[i])); const float h = juce::jmin (1.0f, mx) * wr.getHeight() * 0.5f; g.drawVerticalLine ((int) wr.getX() + x, wr.getCentreY() - h, wr.getCentreY() + h + 1); }
+        }
+        glowText (g, "LAYER", nameR.withWidth (56).withTrimmedLeft (8), lc, ft (10.0f, true, true));
+        glowText (g, has ? l2->name.toUpperCase() : juce::String::fromUTF8 ("NESSUNO  \xc2\xb7  CLIC = CARICA"), nameR.withTrimmedLeft (58).withTrimmedRight (has ? nameR.getWidth() * 0.4f + 10 : 24), has ? Col::phos : Col::phos.withAlpha (0.45f), ft (9.0f, false, true));
+        if (has)
+        {
+            auto x = nameR.removeFromRight (22).reduced (3, 6);
+            glowText (g, "X", x, Col::red, ft (10.0f, true, true), juce::Justification::centred);
+            hots.push_back ({ x.expanded (2), [this] (const juce::MouseEvent&) { ed.proc.setLayer (ed.sel, nullptr); ed.kitChanged(); }, nullptr, nullptr, nullptr });
+            hots.back().tip = "Togli il layer da questo pad.";
+        }
+        hots.push_back ({ nameR, [this] (const juce::MouseEvent&)
+                          {
+                              const int pp = ed.sel;
+                              ed.chooser = std::make_unique<juce::FileChooser> ("Layer per il pad " + juce::String (pp + 1), juce::File(), ed.proc.formats.getWildcardForAllFormats());
+                              ed.chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                                       [this, pp] (const juce::FileChooser& fc) { const auto f = fc.getResult(); if (f.existsAsFile() && ed.proc.loadLayerFile (f, pp)) { ed.playPad (pp, 100); ed.kitChanged(); } });
+                          }, nullptr, nullptr, nullptr });
+        hots.back().tip = "LAYER: un secondo campione che suona insieme al primo sullo stesso pad (es. kick + sub, clap + snare). Clic = carica un file; dal BROWSER: clic destro su un suono > Carica come LAYER.";
+        const float uw = (lay.getWidth() - 20) / 5;
+        auto knobChip = [&] (int id, const char* lab, float sens, float wheelStep)
+        {
+            auto r = lay.removeFromLeft (uw); lay.removeFromLeft (5);
+            const float v = pd.get (id); const bool on = has && std::abs (v - kPInfo[id].def) > 1e-4f;
+            chip (g, r, lab, formatPadParam (id, v), on, nullptr, lc);
+            hots.push_back ({ r, [] (const juce::MouseEvent&) {}, [this, id, sens, start = v] (const juce::MouseEvent& ev)
+                              {
+                                  const auto& in = kPInfo[id]; const float s = (in.max - in.min) * sens * (ev.mods.isShiftDown() ? 0.1f : 1.0f);
+                                  float nv = juce::jlimit (in.min, in.max, start - ev.getDistanceFromDragStartY() * s);
+                                  if (in.kind == 2 || in.kind == 7) nv = std::round (nv);
+                                  ed.proc.pad[ed.sel].v[id] = nv;
+                              },
+                              [this, id, wheelStep] (float d) { const auto& in = kPInfo[id]; auto& vv = ed.proc.pad[ed.sel].v[id]; vv = juce::jlimit (in.min, in.max, vv.load() + (d > 0 ? wheelStep : -wheelStep)); },
+                              [this, id] { ed.proc.pad[ed.sel].v[id] = kPInfo[id].def; } });
+        };
+        knobChip (LGAIN, "LAYER GAIN", 0.004f, 0.5f);   hots.back().tip = "Volume del layer rispetto al campione principale. Doppio clic = 0 dB.";
+        knobChip (LTUNE, "LAYER TUNE", 0.004f, 1.0f);   hots.back().tip = "Intonazione del layer in semitoni (si somma al TUNE del pad).";
+        knobChip (LPAN,  "LAYER PAN", 0.005f, 0.05f);   hots.back().tip = "Posizione stereo del layer (il PAN del pad sposta tutto).";
+        knobChip (LVEL,  "SOGLIA VEL", 0.004f, 1.0f);   hots.back().tip = "OFF = il layer suona sempre. Con un valore: in INSIEME il layer entra solo dai colpi piu forti; in VEL SWITCH sotto la soglia suona il principale, sopra solo il layer.";
+        {
+            auto r = lay; const bool sw = pd.get (LMODE) > 0.5f;
+            chip (g, r, "MODO", formatPadParam (LMODE, pd.get (LMODE)), sw, [this] (const juce::MouseEvent&) { auto& vv = ed.proc.pad[ed.sel].v[LMODE]; vv = vv.load() > 0.5f ? 0.0f : 1.0f; }, lc);
+            hots.back().tip = "INSIEME: i due campioni suonano insieme. VEL SWITCH: la SOGLIA VEL decide quale dei due suona.";
+        }
+    }
     g.setColour (Col::phos.withAlpha (0.12f)); g.drawHorizontalLine ((int) w.getCentreY(), w.getX(), w.getRight());
     if (smp)
     {

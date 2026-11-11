@@ -147,11 +147,13 @@ void ModView::paint (juce::Graphics& g)
             Biquad hp2, lp2;
             hp.hp (fh, 1.0 / (1.4142 - 1.33 * res * 0.6), sr); lp.lp (fl, 1.0 / (1.4142 - 1.33 * res), sr); hp2.hp (fh, 0.7071, sr); lp2.lp (fl, 0.7071, sr);
             bo.bell (70, 0.9, P.value ("f_boom"), sr); cr.bell (2600, 1.0, P.value ("f_crack"), sr);
+            Biquad w1, w2, w3, ai; const float wm = P.value ("f_warm"), am = P.value ("f_air");
+            w1.lowShelf (85, wm * 4.5, sr); w2.bell (320, 0.8, -wm * 2.5, sr); w3.highShelf (9000, -wm * 3.0, sr); ai.highShelf (11000, am * 7.0, sr);
             juce::Path p;
             for (int i = 0; i <= 140; ++i)
             {
                 const double f = 20 * std::pow (1000.0, i / 140.0);
-                double m = biqMag (bo, f, sr) * biqMag (cr, f, sr);
+                double m = biqMag (bo, f, sr) * biqMag (cr, f, sr) * biqMag (w1, f, sr) * biqMag (w2, f, sr) * biqMag (w3, f, sr) * biqMag (ai, f, sr);
                 if (fh > 21) m *= biqMag (hp, f, sr) * (s24 ? biqMag (hp2, f, sr) : 1.0);
                 if (fl < 19900) m *= biqMag (lp, f, sr) * (s24 ? biqMag (lp2, f, sr) : 1.0);
                 const float db = (float) juce::jlimit (-30.0, 18.0, 20 * std::log10 (m + 1e-9));
@@ -245,6 +247,8 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     knob (M_FILT, "f_res", "RISONANZA", pct ("f_res"));
     knob (M_FILT, "f_boom", "BOOM 70", db ("f_boom"), true);
     knob (M_FILT, "f_crack", "CRACK 2.6k", db ("f_crack"), true);
+    knob (M_FILT, "f_warm", "CALDO", pct ("f_warm"));
+    knob (M_FILT, "f_air", "ARIA", pct ("f_air"));
     // nastro
     knob (M_TAPE, "t_age", "ETA", pct ("t_age"));
     knob (M_TAPE, "t_wow", "WOW", pct ("t_wow"));
@@ -319,7 +323,7 @@ void Editor::paint (juce::Graphics& g)
     glowText (g, proc.getProgramName (proc.preset).toUpperCase(), presetRect.toFloat(), C::amber, mf (12.5f), juce::Justification::centred);
     g.setColour (C::amber); g.setFont (uf (20.0f));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
-    jlook::button (g, abRect.toFloat(), C::amber, proc.ab.cur == 1, abHover, "CONFRONTO " + proc.ab.label(), uf (11.5f));
+    jlook::button (g, abRect.toFloat(), C::amber, proc.ab.cur == 1, abHover, "MEMORIA " + proc.ab.label(), uf (11.5f));
     for (int m = 0; m < kMods; ++m)
     {
         const auto c = card (m); const bool on = isOn (m); const auto col = modCol[m];

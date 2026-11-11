@@ -29,7 +29,8 @@ public:
     void mouseDoubleClick (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getDefaultValue()); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + (w.deltaY > 0 ? 0.01f : -0.01f))); }
     juce::RangedAudioParameter* param; juce::String label; juce::Colour col; bool isBig; std::function<juce::String (float)> fmt; float start = 0; bool active = false, hover = false; bool bipolar = false;
-    std::function<float()> activity; float actSm = 0;
+    std::function<float()> activity; float actSm = 0; float lastV = -9;
+    std::function<juce::String()> dynLabel;   // etichetta che dipende dal modello
 };
 
 class Pill : public juce::Component
@@ -88,15 +89,14 @@ public:
     juce::Rectangle<float> displayRect() const { return { 8, 40, getWidth() - 16.0f, 80 }; }
 };
 
-// EQ grafico con analizzatore di spettro
-// filtro passa alto / passa basso risonante e imager stereo, sotto i moduli
-class FilterPanel : public juce::Component
+// Pultec EQP-1A (al posto del filtro)
+class PultecPanel : public juce::Component
 {
 public:
-    explicit FilterPanel (Editor& e);
+    explicit PultecPanel (Editor& e);
     void paint (juce::Graphics&) override;
     void resized() override;
-    Editor& ed; std::unique_ptr<Switch> on, slope; std::unique_ptr<PKnob> hp, lp, res;
+    Editor& ed; std::unique_ptr<Switch> on; juce::OwnedArray<PKnob> knobs;
 };
 class ImagerPanel : public juce::Component
 {
@@ -107,22 +107,21 @@ public:
     Editor& ed; std::unique_ptr<Switch> on; std::unique_ptr<PKnob> width, mono;
 };
 
+// EQ analogico: modelli MAAG / SSL / NEVE / LINDELL 81 / 73 / PE 1C, con analizzatore
 class EqPanel : public juce::Component
 {
 public:
     explicit EqPanel (Editor& e);
     void paint (juce::Graphics&) override;
+    void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
-    void mouseDoubleClick (const juce::MouseEvent&) override;
     void updateSpectrum();
-    juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (14).withTrimmedTop (26).withTrimmedBottom (4); }
-    int nodeAt (juce::Point<float>) const;
-    Editor& ed; int dragNode = -1;
+    juce::Rectangle<float> plot() const { return { 14, 30, (float) getWidth() - 28, 92 }; }
+    juce::Rectangle<int> modelRect() const { return { getWidth() - 190, 4, 176, 22 }; }
+    Editor& ed;
     juce::dsp::FFT fft { 11 };
     std::vector<float> fftBuf, specIn, specOut;
-    std::unique_ptr<Switch> on;
+    std::unique_ptr<Switch> on; juce::OwnedArray<PKnob> knobs;   // 4 x (gain, freq), drive, q
 };
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
@@ -144,7 +143,7 @@ public:
     juce::OwnedArray<PKnob> master;
     std::unique_ptr<Switch> clip;
     std::unique_ptr<EqPanel> eq;
-    std::unique_ptr<FilterPanel> filt; std::unique_ptr<ImagerPanel> imager;
+    std::unique_ptr<PultecPanel> pultec; std::unique_ptr<ImagerPanel> imager; std::unique_ptr<Pill> limType;
     juce::Rectangle<int> presetRect, prevRect, nextRect, randRect, abRect; bool randHover = false, abHover = false;
     void mouseMove (const juce::MouseEvent&) override;
 private:

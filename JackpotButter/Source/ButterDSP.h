@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_basics/juce_audio_basics.h>
+#include "ButterAnalog.h"
 
 // BURRO BUS: catena di effetti per batteria ispirata alla logica dei bus multi-modulo
 // Ordine: BOOM/NOISE -> SHIFT -> COMPRESS -> SATURATE -> SPACE -> CLIP -> MASTER, con MAGNITUDE dry/wet globale.
@@ -61,13 +62,13 @@ private:
     std::vector<float> dryL, dryR, trW;
     // rilevatore transienti condiviso
     float envF = 0, envS = 0;
-    // boom
-    float bIc1[2] = {}, bIc2[2] = {}, acidEnv = 0;
+    // boom / impact
+    float bIc1[2] = {}, bIc2[2] = {}, acidEnv = 0, thPh = 0, thEnv = 0, thPitch = 0, bLow[2] = {}; bool thArmed = true;
     // noise
     float pinkB[2][3] = {}, nLp[2] = {}, nBp1[2] = {}, nBp2[2] = {}; int crackle = 0; float crackleV = 0;
     juce::Random rng;
     // shift
-    juce::AudioBuffer<float> shBuf; int shW = 0; double shPh = 0;
+    juce::AudioBuffer<float> shBuf; int shW = 0; double shPh = 0; Formant form;
     // focus
     float fLo[3][2] = {}, fHi[3][2] = {};
     // compressore
@@ -83,7 +84,8 @@ private:
     // master
     float tLp[2] = {}, aLp[2] = {}, mEnvF = 0, mEnvS = 0;
     int lastSpType = -1;
-    Biq eq[4]; float lastEq[11] = { 99 };
+    Bq ae[4]; bool aeAct[4] {}; AeColour aeCol; float lastAe[12] = { 99 };
+    Bq pu[4]; PultecSettings puLast; bool puInit = false; AeColour puCol; Maxx maxx;
     // modulo EXTRA
     juce::AudioBuffer<float> xBuf; int xW = 0; float xLp[2] = {}, xHold[2] = {}; double xPh = 0, xLfo = 0, xDrift = 0, xDt = 0; juce::Random xr; int lastXType = -1;
     float accIn = 0, accOut = 0, accGr = 0, accTr = 0; int accN = 0;

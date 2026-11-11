@@ -7,7 +7,7 @@ using namespace juce;
 static const StringArray kNoise { "WHITE", "PINK", "VINILE", "NASTRO", "METALLO", "SABBIA" };
 static const StringArray kFocus { "FULL", "LOW", "MID", "HIGH" };
 static const StringArray kComp { "PUNCH", "WARM", "GLUE", "GENTLE", "SMACK", "OTT" };
-static const StringArray kSat { "CONSOLE", "4 TRACK", "TAPE", "TUBE", "DIGITAL", "FLUB" };
+static const StringArray kSat { "CONSOLE", "4 TRACK", "TAPE", "TUBE", "DIGITAL", "FLUB", "OVERDRIVE", "DISTORSORE", "FUZZ" };
 static const StringArray kSpace { "ROOM", "HALL", "PLATE", "SPRING" };
 static const StringArray kStages { "1", "2", "3", "4" };
 
@@ -18,25 +18,32 @@ void Burro::addParams (AudioProcessorValueTreeState::ParameterLayout& l)
     auto C = [&l] (const char* id, const char* n, const StringArray& c, int d) { l.add (std::make_unique<AudioParameterChoice> (ParameterID { id, 1 }, n, c, d)); };
     F ("u_mag", "Magnitude", 0, 1, 1);
     B ("u_bOn", "Boom On", true); F ("u_boom", "Boom", 0, 1, 0); F ("u_bTone", "Boom Tone", 30, 120, 55); B ("u_acid", "Boom Acid", false);
+    F ("u_bDecay", "Boom Decay", 0, 1, 0.35f); F ("u_bPunch", "Boom Punch", 0, 1, 0);
     F ("u_noise", "Noise", 0, 1, 0); C ("u_nType", "Noise Type", kNoise, 1);
-    B ("u_shOn", "Shift On", true); F ("u_shAmt", "Shift Mix", 0, 1, 0); F ("u_shPitch", "Shift Pitch", -12, 12, 0); F ("u_shTgt", "Shift Target", -1, 1, 0); C ("u_shFoc", "Shift Focus", kFocus, 0);
+    B ("u_shOn", "Shift On", true); F ("u_shAmt", "Shift Mix", 0, 1, 0); F ("u_shPitch", "Shift Pitch", -12, 12, 0); F ("u_shForm", "Shift Formant", -12, 12, 0); F ("u_shTgt", "Shift Target", -1, 1, 0); C ("u_shFoc", "Shift Focus", kFocus, 0);
     B ("u_cOn", "Comp On", true); C ("u_cType", "Comp Type", kComp, 0); F ("u_cAmt", "Comp Amount", -1, 1, 0); F ("u_cBands", "Comp Bands", 0, 1, 0);
     B ("u_sOn", "Sat On", true); C ("u_sType", "Sat Type", kSat, 0); F ("u_sAmt", "Sat Amount", 0, 1, 0); F ("u_sStyle", "Sat Style", 0, 1, 0.5f); F ("u_sTgt", "Sat Target", -1, 1, 0); C ("u_sFoc", "Sat Focus", kFocus, 0);
     B ("u_spOn", "Space On", true); C ("u_spType", "Space Type", kSpace, 0); F ("u_spAmt", "Space Amount", 0, 1, 0); F ("u_spDecay", "Space Decay", 0, 1, 0.5f);
     F ("u_spPre", "Space Predelay", 0, 120, 10); F ("u_spDuck", "Space Duck", 0, 1, 0); F ("u_spWidth", "Space Width", 0, 1, 0.8f);
     B ("u_mOn", "Clip On", true); F ("u_mAmt", "Clip Drive", 0, 1, 0); C ("u_mStages", "Clip Stages", kStages, 1); F ("u_mTone", "Clip Tone", -1, 1, 0); F ("u_mTgt", "Clip Target", -1, 1, 0); C ("u_mFoc", "Clip Focus", kFocus, 0);
     B ("u_eqOn", "EQ On", true);
-    F ("u_e1g", "EQ Low Gain", -15, 15, 0); F ("u_e1f", "EQ Low Freq", 30, 400, 90);
-    F ("u_e2g", "EQ LoMid Gain", -15, 15, 0); F ("u_e2f", "EQ LoMid Freq", 120, 2000, 400); F ("u_e2q", "EQ LoMid Q", 0.3f, 6, 1);
-    F ("u_e3g", "EQ HiMid Gain", -15, 15, 0); F ("u_e3f", "EQ HiMid Freq", 800, 10000, 3000); F ("u_e3q", "EQ HiMid Q", 0.3f, 6, 1);
-    F ("u_e4g", "EQ High Gain", -15, 15, 0); F ("u_e4f", "EQ High Freq", 3000, 18000, 9000);
+    C ("u_aeModel", "EQ Modello", StringArray { "MAAG EQ4", "SSL E", "NEVE 1084", "LINDELL 81", "73", "PE 1C" }, 2);
+    for (int k = 1; k <= 4; ++k)
+    {
+        const String id = "u_ae" + String (k);
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "g", 1 }, "EQ banda " + String (k) + " gain", NormalisableRange<float> (-15, 15), 0));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "f", 1 }, "EQ banda " + String (k) + " freq", NormalisableRange<float> (0, 1), k == 4 ? 0.0f : 0.5f));
+    }
+    F ("u_aeQ", "EQ Q / Bandwidth", 0, 1, 0.5f); F ("u_aeDrive", "EQ Drive", 0, 1, 0.0f);
+    B ("u_pOn", "Pultec On", true); F ("u_pLB", "Pultec LF Boost", 0, 10, 0); F ("u_pLA", "Pultec LF Atten", 0, 10, 0);
+    C ("u_pLF", "Pultec LF Freq", StringArray { "20", "30", "60", "100" }, 2); F ("u_pHB", "Pultec HF Boost", 0, 10, 0); F ("u_pBW", "Pultec Bandwidth", 0, 10, 5);
+    C ("u_pHF", "Pultec HF Freq", StringArray { "3k", "4k", "5k", "8k", "10k", "12k", "16k" }, 4); F ("u_pHA", "Pultec HF Atten", 0, 10, 0); C ("u_pAS", "Pultec Atten Sel", StringArray { "5k", "10k", "20k" }, 1);
+    C ("u_limType", "Limite", StringArray { "CLIP", "MAXX" }, 0);
     B ("u_xOn", "Extra On", true); C ("u_xType", "Extra Type", StringArray { "DELAY", "BITCRUSH", "WOBBLE" }, 0);
     F ("u_xAmt", "Extra Amount", 0, 1, 0); F ("u_xP1", "Extra P1", 0, 1, 0.5f); F ("u_xP2", "Extra P2", 0, 1, 0.4f); F ("u_xTgt", "Extra Target", -1, 1, 0);
     auto FS = [&l] (const char* id, const char* n, float a, float b, float d, float skew) { l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, n, NormalisableRange<float> (a, b, 0, skew), d)); };
     FS ("u_spLo", "Space Low Cut", 20, 1000, 20, 0.4f); FS ("u_spHi", "Space High Cut", 1000, 20000, 20000, 0.5f);
     FS ("u_xLo", "Extra Low Cut", 20, 1000, 20, 0.4f); FS ("u_xHi", "Extra High Cut", 1000, 20000, 20000, 0.5f);
-    B ("u_fOn", "Filter On", true); FS ("u_fHp", "Filter Low Cut", 20, 2000, 20, 0.35f); FS ("u_fLp", "Filter High Cut", 300, 20000, 20000, 0.35f);
-    F ("u_fRes", "Filter Resonance", 0, 1, 0); B ("u_fSlope", "Filter 24 dB", false);
     B ("u_iOn", "Imager On", true); F ("u_iWidth", "Imager Width", 0, 2, 1); FS ("u_iMono", "Imager Mono Bass", 20, 400, 20, 0.5f);
     F ("u_tone", "Master Tone", -1, 1, 0); F ("u_air", "Master Air", 0, 1, 0); F ("u_att", "Master Attack", -1, 1, 0); F ("u_sus", "Master Sustain", -1, 1, 0); B ("u_clip", "Master Clip", false);
 }
@@ -80,27 +87,51 @@ const std::vector<BurroPreset>& burroPresets()
         { "Bus | Lo-fi Wobble", { { "u_xType", 2 }, { "u_xAmt", 0.5f }, { "u_xP1", 0.15f }, { "u_xP2", 0.35f }, { "u_noise", 0.2f }, { "u_nType", 2 }, { "u_cType", 1 }, { "u_cAmt", 0.4f }, { "u_sType", 1 }, { "u_sAmt", 0.35f }, { "u_tone", -0.4f } } },
         { "Bus | Memphis Crush", { { "u_xType", 1 }, { "u_xAmt", 0.4f }, { "u_xP1", 0.45f }, { "u_xP2", 0.5f }, { "u_cType", 4 }, { "u_cAmt", 0.55f }, { "u_mAmt", 0.35f }, { "u_mStages", 2 }, { "u_boom", 0.3f }, { "u_clip", 1 } } },
         { "Bus | Rage Wide", { { "u_cType", 5 }, { "u_cAmt", 0.45f }, { "u_sType", 4 }, { "u_sAmt", 0.3f }, { "u_xType", 2 }, { "u_xAmt", 0.3f }, { "u_xP1", 0.6f }, { "u_xP2", 0.2f }, { "u_boom", 0.4f }, { "u_bTone", 48 }, { "u_clip", 1 } } },
-        { "Lo-fi | Radio AM", { { "u_fHp", 400 }, { "u_fLp", 3500 }, { "u_fRes", 0.3f }, { "u_fSlope", 1 }, { "u_sType", 1 }, { "u_sAmt", 0.35f }, { "u_noise", 0.12f }, { "u_nType", 3 }, { "u_cType", 1 }, { "u_cAmt", 0.3f }, { "u_iWidth", 0.4f } } },
-        { "Lo-fi | Cassetta Scura", { { "u_fHp", 60 }, { "u_fLp", 4500 }, { "u_xType", 2 }, { "u_xAmt", 0.45f }, { "u_xP1", 0.2f }, { "u_xP2", 0.35f }, { "u_sType", 2 }, { "u_sAmt", 0.4f }, { "u_noise", 0.15f }, { "u_nType", 3 }, { "u_tone", -0.3f } } },
-        { "Lo-fi | Vinile Filtrato", { { "u_fHp", 120 }, { "u_fLp", 6000 }, { "u_noise", 0.25f }, { "u_nType", 2 }, { "u_sType", 1 }, { "u_sAmt", 0.35f }, { "u_cType", 1 }, { "u_cAmt", 0.3f }, { "u_iMono", 150 } } },
-        { "Lo-fi | Sotto l'Acqua", { { "u_fLp", 900 }, { "u_fRes", 0.5f }, { "u_fSlope", 1 }, { "u_spType", 1 }, { "u_spAmt", 0.3f }, { "u_spDecay", 0.6f }, { "u_spHi", 3000 }, { "u_iWidth", 1.3f } } },
-        { "Lo-fi | Telefono", { { "u_fHp", 700 }, { "u_fLp", 3000 }, { "u_fSlope", 1 }, { "u_fRes", 0.2f }, { "u_sType", 4 }, { "u_sAmt", 0.3f }, { "u_sStyle", 0.6f }, { "u_iWidth", 0.0f } } },
-        { "Drum Bus | Glue Pulito", { { "u_cType", 2 }, { "u_cAmt", 0.3f }, { "u_sType", 0 }, { "u_sAmt", 0.2f }, { "u_att", 0.15f }, { "u_iMono", 120 }, { "u_fHp", 30 } } },
+        { "Lo-fi | Radio AM", { { "u_sType", 1 }, { "u_sAmt", 0.35f }, { "u_noise", 0.12f }, { "u_nType", 3 }, { "u_cType", 1 }, { "u_cAmt", 0.3f }, { "u_iWidth", 0.4f }, { "u_aeModel", 4 }, { "u_ae4f", 1.00f }, { "u_pHA", 10.0f }, { "u_pAS", 0 } } },
+        { "Lo-fi | Cassetta Scura", { { "u_xType", 2 }, { "u_xAmt", 0.45f }, { "u_xP1", 0.2f }, { "u_xP2", 0.35f }, { "u_sType", 2 }, { "u_sAmt", 0.4f }, { "u_noise", 0.15f }, { "u_nType", 3 }, { "u_tone", -0.3f }, { "u_aeModel", 4 }, { "u_ae4f", 0.25f }, { "u_pHA", 10.0f }, { "u_pAS", 0 } } },
+        { "Lo-fi | Vinile Filtrato", { { "u_noise", 0.25f }, { "u_nType", 2 }, { "u_sType", 1 }, { "u_sAmt", 0.35f }, { "u_cType", 1 }, { "u_cAmt", 0.3f }, { "u_iMono", 150 }, { "u_aeModel", 4 }, { "u_ae4f", 0.50f }, { "u_pHA", 6.0f }, { "u_pAS", 0 } } },
+        { "Lo-fi | Sotto l'Acqua", { { "u_spType", 1 }, { "u_spAmt", 0.3f }, { "u_spDecay", 0.6f }, { "u_spHi", 3000 }, { "u_iWidth", 1.3f }, { "u_pHA", 10.0f }, { "u_pAS", 0 } } },
+        { "Lo-fi | Telefono", { { "u_sType", 4 }, { "u_sAmt", 0.3f }, { "u_sStyle", 0.6f }, { "u_iWidth", 0.0f }, { "u_aeModel", 4 }, { "u_ae4f", 1.00f }, { "u_pHA", 10.0f }, { "u_pAS", 0 } } },
+        { "Drum Bus | Glue Pulito", { { "u_cType", 2 }, { "u_cAmt", 0.3f }, { "u_sType", 0 }, { "u_sAmt", 0.2f }, { "u_att", 0.15f }, { "u_iMono", 120 }, { "u_aeModel", 4 }, { "u_ae4f", 0.25f } } },
         { "Drum Bus | Punch Moderno", { { "u_cType", 0 }, { "u_cAmt", 0.45f }, { "u_sType", 3 }, { "u_sAmt", 0.3f }, { "u_att", 0.35f }, { "u_sus", -0.1f }, { "u_boom", 0.15f }, { "u_bTone", 50 }, { "u_air", 0.2f }, { "u_clip", 1 }, { "u_iMono", 150 } } },
         { "Drum Bus | Room Vintage", { { "u_cType", 1 }, { "u_cAmt", 0.4f }, { "u_sType", 2 }, { "u_sAmt", 0.35f }, { "u_spType", 0 }, { "u_spAmt", 0.25f }, { "u_spDecay", 0.35f }, { "u_spLo", 200 }, { "u_spHi", 8000 }, { "u_tone", -0.2f }, { "u_iWidth", 1.2f } } },
-        { "Chitarra | Acustica Aria", { { "u_cType", 3 }, { "u_cAmt", 0.35f }, { "u_air", 0.3f }, { "u_fHp", 80 }, { "u_spType", 2 }, { "u_spAmt", 0.2f }, { "u_spDecay", 0.4f }, { "u_spLo", 300 }, { "u_iWidth", 1.25f } } },
-        { "Chitarra | Elettrica Crunch", { { "u_sType", 3 }, { "u_sAmt", 0.45f }, { "u_sStyle", 0.6f }, { "u_cType", 1 }, { "u_cAmt", 0.35f }, { "u_fHp", 90 }, { "u_fLp", 9000 }, { "u_spType", 0 }, { "u_spAmt", 0.15f } } },
+        { "Chitarra | Acustica Aria", { { "u_cType", 3 }, { "u_cAmt", 0.35f }, { "u_air", 0.3f }, { "u_spType", 2 }, { "u_spAmt", 0.2f }, { "u_spDecay", 0.4f }, { "u_spLo", 300 }, { "u_iWidth", 1.25f }, { "u_aeModel", 4 }, { "u_ae4f", 0.50f } } },
+        { "Chitarra | Elettrica Crunch", { { "u_sType", 3 }, { "u_sAmt", 0.45f }, { "u_sStyle", 0.6f }, { "u_cType", 1 }, { "u_cAmt", 0.35f }, { "u_spType", 0 }, { "u_spAmt", 0.15f }, { "u_aeModel", 4 }, { "u_ae4f", 0.50f }, { "u_pHA", 6.0f }, { "u_pAS", 1 } } },
         { "Chitarra | Clean con Delay", { { "u_xType", 0 }, { "u_xAmt", 0.25f }, { "u_xP1", 0.67f }, { "u_xP2", 0.35f }, { "u_xLo", 300 }, { "u_xHi", 5000 }, { "u_cType", 3 }, { "u_cAmt", 0.3f }, { "u_spType", 1 }, { "u_spAmt", 0.2f }, { "u_spLo", 250 }, { "u_iWidth", 1.3f } } },
-        { "Basso | 808 Pieno", { { "u_cType", 0 }, { "u_cAmt", 0.4f }, { "u_sType", 2 }, { "u_sAmt", 0.3f }, { "u_iMono", 200 }, { "u_iWidth", 0.8f }, { "u_fLp", 12000 } } },
-        { "Basso | Elettrico Rotondo", { { "u_cType", 1 }, { "u_cAmt", 0.45f }, { "u_sType", 2 }, { "u_sAmt", 0.3f }, { "u_tone", -0.2f }, { "u_iMono", 150 }, { "u_fHp", 30 } } },
+        { "Basso | 808 Pieno", { { "u_cType", 0 }, { "u_cAmt", 0.4f }, { "u_sType", 2 }, { "u_sAmt", 0.3f }, { "u_iMono", 200 }, { "u_iWidth", 0.8f }, { "u_pHA", 6.0f }, { "u_pAS", 1 } } },
+        { "Basso | Elettrico Rotondo", { { "u_cType", 1 }, { "u_cAmt", 0.45f }, { "u_sType", 2 }, { "u_sAmt", 0.3f }, { "u_tone", -0.2f }, { "u_iMono", 150 }, { "u_aeModel", 4 }, { "u_ae4f", 0.25f } } },
         { "Basso | Synth Grinta", { { "u_sType", 3 }, { "u_sAmt", 0.55f }, { "u_mAmt", 0.3f }, { "u_cType", 0 }, { "u_cAmt", 0.35f }, { "u_iMono", 180 } } },
-        { "Voce | Rap Davanti", { { "u_cType", 0 }, { "u_cAmt", 0.45f }, { "u_sType", 0 }, { "u_sAmt", 0.25f }, { "u_air", 0.25f }, { "u_fHp", 100 }, { "u_spType", 2 }, { "u_spAmt", 0.12f }, { "u_spDecay", 0.3f }, { "u_spLo", 400 }, { "u_spHi", 8000 } } },
+        { "Voce | Rap Davanti", { { "u_cType", 0 }, { "u_cAmt", 0.45f }, { "u_sType", 0 }, { "u_sAmt", 0.25f }, { "u_air", 0.25f }, { "u_spType", 2 }, { "u_spAmt", 0.12f }, { "u_spDecay", 0.3f }, { "u_spLo", 400 }, { "u_spHi", 8000 }, { "u_aeModel", 4 }, { "u_ae4f", 0.50f } } },
         { "Voce | Ritornello Largo", { { "u_cType", 2 }, { "u_cAmt", 0.35f }, { "u_xType", 0 }, { "u_xAmt", 0.2f }, { "u_xP1", 0.67f }, { "u_xP2", 0.35f }, { "u_xLo", 400 }, { "u_xHi", 5000 }, { "u_spType", 1 }, { "u_spAmt", 0.25f }, { "u_spLo", 350 }, { "u_spHi", 9000 }, { "u_air", 0.3f }, { "u_iWidth", 1.3f } } },
-        { "Voce | Adlib Filtrati", { { "u_fHp", 500 }, { "u_fLp", 4000 }, { "u_fSlope", 1 }, { "u_sType", 1 }, { "u_sAmt", 0.4f }, { "u_xType", 0 }, { "u_xAmt", 0.3f }, { "u_xP1", 0.33f }, { "u_xP2", 0.4f }, { "u_iWidth", 1.4f } } },
-        { "Voce | Intima Asciutta", { { "u_cType", 3 }, { "u_cAmt", 0.4f }, { "u_sType", 2 }, { "u_sAmt", 0.15f }, { "u_tone", 0.1f }, { "u_fHp", 80 }, { "u_spType", 0 }, { "u_spAmt", 0.08f }, { "u_spDecay", 0.2f } } },
+        { "Voce | Adlib Filtrati", { { "u_sType", 1 }, { "u_sAmt", 0.4f }, { "u_xType", 0 }, { "u_xAmt", 0.3f }, { "u_xP1", 0.33f }, { "u_xP2", 0.4f }, { "u_iWidth", 1.4f }, { "u_aeModel", 4 }, { "u_ae4f", 1.00f }, { "u_pHA", 10.0f }, { "u_pAS", 0 } } },
+        { "Voce | Intima Asciutta", { { "u_cType", 3 }, { "u_cAmt", 0.4f }, { "u_sType", 2 }, { "u_sAmt", 0.15f }, { "u_tone", 0.1f }, { "u_spType", 0 }, { "u_spAmt", 0.08f }, { "u_spDecay", 0.2f }, { "u_aeModel", 4 }, { "u_ae4f", 0.50f } } },
         { "Voce | Plate Anni 80", { { "u_spType", 2 }, { "u_spAmt", 0.3f }, { "u_spDecay", 0.55f }, { "u_spPre", 40 }, { "u_spLo", 500 }, { "u_spHi", 10000 }, { "u_cType", 2 }, { "u_cAmt", 0.3f }, { "u_air", 0.2f } } },
-        { "Voce | Slap Delay", { { "u_xType", 0 }, { "u_xAmt", 0.22f }, { "u_xP1", 0.0f }, { "u_xP2", 0.15f }, { "u_cType", 3 }, { "u_cAmt", 0.4f }, { "u_spType", 2 }, { "u_spAmt", 0.15f }, { "u_air", 0.25f } } } };
-    return P;
+        { "Voce | Slap Delay", { { "u_xType", 0 }, { "u_xAmt", 0.22f }, { "u_xP1", 0.0f }, { "u_xP2", 0.15f }, { "u_cType", 3 }, { "u_cAmt", 0.4f }, { "u_spType", 2 }, { "u_spAmt", 0.15f }, { "u_air", 0.25f } } },
+        // ---- novita: impact, formanti, distorsori, Pultec, EQ analogici, MAXX
+        { "Impact | Cassa che sfonda", { { "u_boom", 0.45f }, { "u_bTone", 48 }, { "u_bDecay", 0.3f }, { "u_bPunch", 0.5f }, { "u_cType", 0 }, { "u_cAmt", 0.35f }, { "u_clip", 1 }, { "u_limType", 1 } } },
+        { "Impact | 808 Thump", { { "u_boom", 0.6f }, { "u_bTone", 42 }, { "u_bDecay", 0.65f }, { "u_bPunch", 0.25f }, { "u_sType", 3 }, { "u_sAmt", 0.25f }, { "u_sFoc", 1 }, { "u_iMono", 160 } } },
+        { "Impact | Punch senza boom", { { "u_bPunch", 0.4f }, { "u_cType", 2 }, { "u_cAmt", 0.3f }, { "u_att", 0.2f } } },
+        { "Impact | Boom bap pieno", { { "u_boom", 0.3f }, { "u_bTone", 55 }, { "u_bDecay", 0.25f }, { "u_bPunch", 0.35f }, { "u_cType", 1 }, { "u_cAmt", 0.4f }, { "u_sType", 1 }, { "u_sAmt", 0.35f },
+                                       { "u_aeModel", 4 }, { "u_ae1g", 2.5f }, { "u_ae1f", 0.33f }, { "u_ae2g", -2 }, { "u_ae2f", 0.2f }, { "u_aeDrive", 0.5f } } },
+        { "Shift | Snare grosso (formante giu)", { { "u_shAmt", 0.6f }, { "u_shPitch", 0 }, { "u_shForm", -5 }, { "u_shTgt", 0.3f }, { "u_shFoc", 2 }, { "u_cType", 0 }, { "u_cAmt", 0.3f } } },
+        { "Shift | Pitch giu formante fermo", { { "u_shAmt", 0.8f }, { "u_shPitch", -5 }, { "u_shForm", 5 }, { "u_cType", 2 }, { "u_cAmt", 0.25f } } },
+        { "Shift | Voci chipmunk", { { "u_shAmt", 1.0f }, { "u_shPitch", 0 }, { "u_shForm", 7 } } },
+        { "Shift | Mostro", { { "u_shAmt", 1.0f }, { "u_shPitch", -12 }, { "u_shForm", -4 }, { "u_sType", 7 }, { "u_sAmt", 0.3f } } },
+        { "Drive | Overdrive caldo", { { "u_sType", 6 }, { "u_sAmt", 0.45f }, { "u_sStyle", 0.4f }, { "u_cType", 1 }, { "u_cAmt", 0.3f } } },
+        { "Drive | Distorsore sul rullante", { { "u_sType", 7 }, { "u_sAmt", 0.45f }, { "u_sStyle", 0.5f }, { "u_sTgt", 0.7f }, { "u_sFoc", 2 }, { "u_cType", 4 }, { "u_cAmt", 0.35f } } },
+        { "Drive | Fuzz trap", { { "u_sType", 8 }, { "u_sAmt", 0.4f }, { "u_sStyle", 0.5f }, { "u_cType", 5 }, { "u_cAmt", 0.35f }, { "u_clip", 1 }, { "u_limType", 1 } } },
+        { "Pultec | Trucco dei bassi (60 Hz)", { { "u_pLB", 5 }, { "u_pLA", 3 }, { "u_pLF", 2 }, { "u_cType", 2 }, { "u_cAmt", 0.25f } } },
+        { "Pultec | Aria 10k", { { "u_pHB", 4 }, { "u_pHF", 4 }, { "u_pBW", 7 }, { "u_pHA", 1.5f }, { "u_pAS", 2 } } },
+        { "Pultec | Batteria completa", { { "u_pLB", 4 }, { "u_pLA", 2.5f }, { "u_pLF", 2 }, { "u_pHB", 3 }, { "u_pHF", 3 }, { "u_pBW", 6 }, { "u_cType", 2 }, { "u_cAmt", 0.35f }, { "u_sType", 2 }, { "u_sAmt", 0.2f } } },
+        { "EQ | Maag aria sul bus", { { "u_aeModel", 0 }, { "u_ae4g", 4 }, { "u_ae4f", 0.75f }, { "u_ae1g", 2 }, { "u_ae1f", 0.0f } } },
+        { "EQ | SSL drum bus", { { "u_aeModel", 1 }, { "u_ae1g", 3 }, { "u_ae1f", 0.33f }, { "u_ae2g", -3 }, { "u_ae2f", 0.33f }, { "u_ae3g", 2 }, { "u_ae3f", 0.67f }, { "u_ae4g", 2.5f }, { "u_ae4f", 0.67f }, { "u_aeQ", 0.4f }, { "u_aeDrive", 0.35f }, { "u_cType", 2 }, { "u_cAmt", 0.3f } } },
+        { "EQ | Neve calda", { { "u_aeModel", 2 }, { "u_ae1g", 3 }, { "u_ae1f", 0.33f }, { "u_ae2g", 2 }, { "u_ae2f", 0.4f }, { "u_ae3g", 2 }, { "u_ae3f", 0.5f }, { "u_aeDrive", 0.6f } } },
+        { "EQ | 73 in faccia", { { "u_aeModel", 4 }, { "u_ae1g", 4 }, { "u_ae1f", 0.33f }, { "u_ae2g", 3 }, { "u_ae2f", 0.6f }, { "u_ae3g", 3 }, { "u_ae4f", 0.25f }, { "u_aeDrive", 0.75f } } },
+        { "EQ | Lindell 81 scolpito", { { "u_aeModel", 3 }, { "u_ae1g", 2.5f }, { "u_ae1f", 0.2f }, { "u_ae2g", -4 }, { "u_ae2f", 0.6f }, { "u_ae3g", 2.5f }, { "u_ae3f", 0.6f }, { "u_ae4g", 2 }, { "u_ae4f", 0.6f }, { "u_aeQ", 0.6f }, { "u_aeDrive", 0.4f } } },
+        { "EQ | PE 1C morbido", { { "u_aeModel", 5 }, { "u_ae1g", 5 }, { "u_ae1f", 0.67f }, { "u_ae2g", -3 }, { "u_ae3g", 4 }, { "u_ae3f", 0.5f }, { "u_aeQ", 0.3f }, { "u_ae4g", -2 }, { "u_ae4f", 1.0f }, { "u_aeDrive", 0.5f } } },
+        { "Master | Bus pronto (MAXX)", { { "u_cType", 2 }, { "u_cAmt", 0.3f }, { "u_sType", 0 }, { "u_sAmt", 0.2f }, { "u_pLB", 3 }, { "u_pLA", 2 }, { "u_pHB", 2.5f }, { "u_pHF", 4 }, { "u_aeModel", 1 }, { "u_aeDrive", 0.3f }, { "u_clip", 1 }, { "u_limType", 1 }, { "u_in", 3 } } },
+        { "Master | Trap moderna", { { "u_boom", 0.25f }, { "u_bTone", 45 }, { "u_bPunch", 0.3f }, { "u_cType", 0 }, { "u_cAmt", 0.35f }, { "u_sType", 2 }, { "u_sAmt", 0.2f }, { "u_aeModel", 0 }, { "u_ae4g", 3 }, { "u_ae4f", 0.5f }, { "u_iMono", 150 }, { "u_clip", 1 }, { "u_limType", 1 } } },
+        { "Master | Boom bap da 45 giri", { { "u_noise", 0.12f }, { "u_nType", 2 }, { "u_cType", 1 }, { "u_cAmt", 0.4f }, { "u_sType", 1 }, { "u_sAmt", 0.4f }, { "u_aeModel", 4 }, { "u_ae1g", 3 }, { "u_ae1f", 0.33f }, { "u_aeDrive", 0.6f }, { "u_pHA", 4 }, { "u_pAS", 1 }, { "u_clip", 1 } } } };    return P;
 }
 
 void Burro::applyPreset (AudioProcessorValueTreeState& s, int index)
@@ -120,6 +151,7 @@ void Burro::prepare (double sampleRate, int maxBlock)
     preBuf.setSize (2, (int) (sr * 0.25) + 8); preBuf.clear(); preW = 0;
     verb.prepare (sr); verb.reset(); lastSpType = -1;
     xBuf.setSize (2, (int) (sr * 2.2)); xBuf.clear(); xW = 0;
+    form.prepare (sr); for (auto& x : lastAe) x = 99; puInit = false;
 }
 
 static inline float onePole (float x, float& z, float a) { z = (1 - a) * x + a * z; return z; }
@@ -161,12 +193,27 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
     if (v ("u_bOn") > 0.5f)
     {
         const float boom = v ("u_boom"), noise = v ("u_noise"); const bool acid = v ("u_acid") > 0.5f; const int nt = (int) v ("u_nType");
-        const float bf = v ("u_bTone");
+        const float bf = v ("u_bTone"), bDec = v ("u_bDecay"), punch = v ("u_bPunch");
         const float nlpA = coef (nt == 3 ? 3000 : 9000, sr), hpA = coef (7000, sr);
+        const float thDec = (float) std::exp (-1.0 / ((0.04 + bDec * 0.45) * sr)), thPd = (float) std::exp (-1.0 / (0.014 * sr)), lowA = coef (140, sr);
         for (int i = 0; i < N; ++i)
         {
             const float tr = trW[(size_t) i];
             acidEnv = jmax (tr, acidEnv * 0.9995f);
+            // IMPACT: su ogni colpo parte un sub accordato su FREQ che scende di pitch (thump) + spinta dei transienti sotto 140 Hz
+            if (boom > 0 || punch > 0)
+            {
+                if (thArmed && tr > 0.5f) { thArmed = false; thPh = 0; thEnv = 1; thPitch = 1; }
+                if (tr < 0.15f) thArmed = true;
+                thEnv *= thDec; thPitch *= thPd;
+                thPh += (float) (bf * (1.0 + 1.8 * thPitch) / sr); thPh -= std::floor (thPh);
+                const float th = std::sin (MathConstants<float>::twoPi * thPh) * thEnv * boom * 0.55f;
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float lo = onePole (ch[c][i], bLow[c], lowA);
+                    ch[c][i] += th + lo * punch * tr * 1.1f;
+                }
+            }
             if (boom > 0)
             {
                 const float f = acid ? bf * (1.0f + acidEnv * 2.5f) : bf, q = acid ? 9.0f : 1.6f;
@@ -176,7 +223,7 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
                     const float x = ch[c][i], v3 = x - bIc2[c], v1 = (bIc1[c] + g * v3) / (1 + g * (g + k)), v2 = bIc2[c] + g * v1;
                     bIc1[c] = 2 * v1 - bIc1[c]; bIc2[c] = 2 * v2 - bIc2[c];
                     const float y = acid ? std::tanh (v1 * k * 3.0f) : v1 * k;
-                    ch[c][i] += y * boom * 2.6f;
+                    ch[c][i] += y * boom * 1.6f;
                 }
             }
             if (noise > 0)
@@ -210,6 +257,8 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
     if (v ("u_shOn") > 0.5f && v ("u_shAmt") > 0.001f)
     {
         const float amt = v ("u_shAmt"), tgt = v ("u_shTgt"); const int foc = (int) v ("u_shFoc");
+        const float fst = v ("u_shForm"); const bool useF = std::abs (fst) > 0.05f;
+        form.ratio = (float) std::pow (2.0, (v ("u_shPitch") + fst) / 12.0);
         const double ratio = std::pow (2.0, v ("u_shPitch") / 12.0), W = 0.045 * sr; const int BL = shBuf.getNumSamples();
         for (int i = 0; i < N; ++i)
         {
@@ -217,14 +266,20 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
             const double d1 = shPh, d2 = std::fmod (shPh + W * 0.5, W);
             const float g1 = 0.5f - 0.5f * std::cos ((float) (MathConstants<double>::twoPi * d1 / W)), g2 = 1 - g1;
             const float w = amt * tgtW (tgt, trW[(size_t) i]);
+            float bnd[2], rst[2], ys[2];
             for (int c = 0; c < 2; ++c)
             {
-                float band; const float rest = focusSplit (0, c, ch[c][i], foc, band);
-                shBuf.setSample (c, shW, band);
+                rst[c] = focusSplit (0, c, ch[c][i], foc, bnd[c]);
+                shBuf.setSample (c, shW, bnd[c]);
                 auto rd = [&] (double d) { double p = shW - d - 2; while (p < 0) p += BL; const int a = (int) p; const float fr = (float) (p - a); return shBuf.getSample (c, a) * (1 - fr) + shBuf.getSample (c, (a + 1) % BL) * fr; };
-                const float y = rd (d1) * g1 + rd (d2) * g2;
-                ch[c][i] = rest + band + (y - band) * w;
+                ys[c] = rd (d1) * g1 + rd (d2) * g2;
             }
+            if (useF)
+            {   // formante indipendente dal pitch
+                form.push (0.5f * (bnd[0] + bnd[1]), 0.5f * (ys[0] + ys[1]));
+                for (int c = 0; c < 2; ++c) ys[c] = form.process (ys[c], c);
+            }
+            for (int c = 0; c < 2; ++c) ch[c][i] = rst[c] + bnd[c] + (ys[c] - bnd[c]) * w;
             if (++shW >= BL) shW = 0;
         }
     }
@@ -302,6 +357,9 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
                     case 3: y = x > 0 ? std::tanh (x) : std::tanh (x * (0.55f + 0.45f * (1 - st))) / (0.55f + 0.45f * (1 - st)) * 0.8f; y += 0.12f * st * y * y; break;
                     case 4: { if (tick) holdV[c] = jlimit (-1.0f, 1.0f, x); y = std::round (holdV[c] * q) / q; break; }
                     case 5: y = std::sin (x * (1.0f + st * 2.0f)) * 0.9f; break;
+                    case 6: { const float xx = x * 1.4f; y = xx > 0 ? std::tanh (xx) : std::tanh (xx * 0.75f) / 0.75f * 0.9f; y = onePole (y, satLp[c], coef (9000 - st * 6000, sr)) * 0.95f; break; }   // overdrive: asimmetrico, medi in avanti
+                    case 7: { const float xx = x * (2.0f + st * 4.0f); y = jlimit (-1.0f, 1.0f, xx); y = y - y * y * y / 3.0f; y = onePole (y * 1.3f, satLp[c], coef (7000 - st * 4000, sr)); break; }   // distorsore: duro
+                    case 8: { const float xx = x * (3.0f + st * 6.0f); y = std::copysign (1.0f - std::exp (-std::abs (xx)), xx); y = y + 0.3f * st * (y * y - 0.3f); y = onePole (y, satLp[c], coef (6000 - st * 2500, sr)) * 0.85f; break; }   // fuzz
                     default: y = std::tanh (x + st * 0.3f * x * x / (1 + std::abs (x))); break;
                 }
                 y *= comp;
@@ -444,31 +502,28 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
     // ---- MASTER ----
     {
         const float tone = v ("u_tone"), air = v ("u_air"), att = v ("u_att"), sus = v ("u_sus"); const bool clip = v ("u_clip") > 0.5f;
-        const float tA = coef (900, sr), aA = coef (9000, sr);
+        const float tA = coef (700, sr), aA = coef (7500, sr);
         const bool eqOn = v ("u_eqOn") > 0.5f;
+        // EQ analogico: ricalcolo solo quando cambia qualcosa
+        AeSettings ae; ae.model = (int) v ("u_aeModel"); ae.q = v ("u_aeQ"); ae.drive = v ("u_aeDrive");
+        for (int k = 0; k < 4; ++k) { ae.g[k] = v (k == 0 ? "u_ae1g" : k == 1 ? "u_ae2g" : k == 2 ? "u_ae3g" : "u_ae4g"); ae.f[k] = v (k == 0 ? "u_ae1f" : k == 1 ? "u_ae2f" : k == 2 ? "u_ae3f" : "u_ae4f"); }
         {
-            const float pv[11] = { v ("u_e1g"), v ("u_e1f"), v ("u_e2g"), v ("u_e2f"), v ("u_e2q"), v ("u_e3g"), v ("u_e3f"), v ("u_e3q"), v ("u_e4g"), v ("u_e4f"), 0 };
-            if (std::memcmp (pv, lastEq, sizeof (pv)) != 0)
-            {
-                eq[0].set (0, sr, pv[1], pv[0], 0.707); eq[1].set (1, sr, pv[3], pv[2], pv[4]); eq[2].set (1, sr, pv[6], pv[5], pv[7]); eq[3].set (2, sr, pv[9], pv[8], 0.707);
-                std::memcpy (lastEq, pv, sizeof (pv));
-            }
+            const float pv[12] = { (float) ae.model, ae.g[0], ae.g[1], ae.g[2], ae.g[3], ae.f[0], ae.f[1], ae.f[2], ae.f[3], ae.q, 0, 0 };
+            if (std::memcmp (pv, lastAe, sizeof (pv)) != 0) { for (int k = 0; k < 4; ++k) aeBandFilter (ae, k, sr, this->ae[k], aeAct[k]); std::memcpy (lastAe, pv, sizeof (pv)); }
         }
-        // filtro e imager
-        const bool fOn = v ("u_fOn") > 0.5f, iOn = v ("u_iOn") > 0.5f; const float fHp = v ("u_fHp"), fLp = v ("u_fLp"), fRes = v ("u_fRes"); const bool f24 = v ("u_fSlope") > 0.5f;
-        const float fq = 0.707f + fRes * fRes * 7.0f;
-        if (fOn)
-        {
-            if (fHp != fLast[0] || fq != fLast[2]) { fF[0].set (3, sr, fHp, 0, fq); fF[1].set (3, sr, fHp, 0, 0.707); fLast[0] = fHp; }
-            if (fLp != fLast[1] || fq != fLast[2]) { fF[2].set (4, sr, fLp, 0, fq); fF[3].set (4, sr, fLp, 0, 0.707); fLast[1] = fLp; }
-            fLast[2] = fq;
-        }
+        bool aeAny = false; for (bool b2 : aeAct) aeAny |= b2;
+        // Pultec
+        PultecSettings puS; puS.lb = v ("u_pLB"); puS.la = v ("u_pLA"); puS.lf = (int) v ("u_pLF"); puS.hb = v ("u_pHB"); puS.bw = v ("u_pBW"); puS.hf = (int) v ("u_pHF"); puS.ha = v ("u_pHA"); puS.as = (int) v ("u_pAS");
+        const bool puOn = v ("u_pOn") > 0.5f && pultecActive (puS);
+        if (puOn && (! puInit || std::memcmp (&puS, &puLast, sizeof (puS)) != 0)) { pultecFilters (puS, sr, pu); puLast = puS; puInit = true; }
+        const float puDrive = juce::jmin (1.0f, (puS.lb + puS.hb) / 20.0f * 0.6f + 0.15f);
+        const bool iOn = v ("u_iOn") > 0.5f;
         const float iW = v ("u_iWidth"), iM = v ("u_iMono");
         if (iOn && iM > 21 && iM != imLast) { imB.set (4, sr, iM, 0, 0.707); imLast = iM; }
+        const int limType = (int) v ("u_limType");
         for (int i = 0; i < N; ++i)
         {
-            if (fOn && fHp > 21) for (int c = 0; c < 2; ++c) { ch[c][i] = fF[0].run (ch[c][i], c); if (f24) ch[c][i] = fF[1].run (ch[c][i], c); }
-            if (fOn && fLp < 19900) for (int c = 0; c < 2; ++c) { ch[c][i] = fF[2].run (ch[c][i], c); if (f24) ch[c][i] = fF[3].run (ch[c][i], c); }
+            if (puOn) for (int c = 0; c < 2; ++c) { float y = ch[c][i]; for (auto& f : pu) y = f.run (y, c); ch[c][i] = puCol.run (y, c, AE_PE1C, puDrive, sr); }
             if (iOn && (std::abs (iW - 1.0f) > 0.005f || iM > 21))
             {
                 const float m = 0.5f * (ch[0][i] + ch[1][i]); float sd = 0.5f * (ch[0][i] - ch[1][i]);
@@ -486,14 +541,15 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
             for (int c = 0; c < 2; ++c)
             {
                 float y = ch[c][i];
-                if (tone != 0) { const float lp = onePole (y, tLp[c], tA); y = lp * (1 - tone * 0.5f) + (y - lp) * (1 + tone * 0.5f); }
-                if (air > 0) { const float lp = onePole (y, aLp[c], aA); y += (y - lp) * air * 2.0f; }
+                if (tone != 0) { const float lp = onePole (y, tLp[c], tA); y = lp * (1 - tone * 0.8f) + (y - lp) * (1 + tone * 0.85f); }
+                if (air > 0) { const float lp = onePole (y, aLp[c], aA); y += (y - lp) * air * 3.4f; }
                 y *= g;
-                if (eqOn) for (int k = 0; k < 4; ++k) if (std::abs (lastEq[k == 0 ? 0 : k == 1 ? 2 : k == 2 ? 5 : 8]) > 0.05f) y = eq[k].run (y, c);
-                if (clip) { const float ay = std::abs (y); if (ay > 0.8f) y = std::copysign (0.8f + 0.2f * std::tanh ((ay - 0.8f) / 0.2f), y); }
-                const float dry = c == 0 ? dryL[(size_t) i] : dryR[(size_t) i];
-                ch[c][i] = dry + (y - dry) * mag;
+                if (eqOn && (aeAny || ae.drive > 0.001f)) { for (int k = 0; k < 4; ++k) if (aeAct[k]) y = this->ae[k].run (y, c); y = aeCol.run (y, c, ae.model, ae.drive, sr); }
+                if (clip && limType == 0) { const float ay = std::abs (y); if (ay > 0.8f) y = std::copysign (0.8f + 0.2f * std::tanh ((ay - 0.8f) / 0.2f), y); }
+                ch[c][i] = y;
             }
+            if (clip && limType == 1) maxx.run (ch[0][i], ch[1][i], sr, 0.966f);   // -0.3 dBFS
+            for (int c = 0; c < 2; ++c) { const float dry = c == 0 ? dryL[(size_t) i] : dryR[(size_t) i]; ch[c][i] = dry + (ch[c][i] - dry) * mag; }
             // dati per i display
             const float in = 0.5f * (std::abs (dryL[(size_t) i]) + std::abs (dryR[(size_t) i])), out = 0.5f * (std::abs (ch[0][i]) + std::abs (ch[1][i]));
             accIn = jmax (accIn, in); accOut = jmax (accOut, out); accTr = jmax (accTr, trW[(size_t) i]);

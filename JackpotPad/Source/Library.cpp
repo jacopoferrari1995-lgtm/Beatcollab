@@ -113,6 +113,12 @@ bool loadLibItem (Processor& P, const LibItem& it, int p)
     return true;
 }
 
+bool loadLibLayer (Processor& P, const LibItem& it, int p)
+{
+    if (it.user) return P.loadLayerFile (it.file, p);
+    P.setLayer (p, makeDrum (it.d)); return true;
+}
+
 SamplePtr libItemSample (Processor& P, const LibItem& it)
 {
     if (! it.user) return makeDrum (it.d);
@@ -213,7 +219,7 @@ void randomKit (Processor& P, int mode)
     const int order[] = { 9, 10, 11, 8, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7 };
     for (int p : order)
     {
-        auto& pd = P.pad[p]; pd.reset();
+        auto& pd = P.pad[p]; pd.reset(); P.setLayer (p, nullptr);
         bool done = false; juce::String cat;
         for (auto& c : roles[(size_t) p])
         {

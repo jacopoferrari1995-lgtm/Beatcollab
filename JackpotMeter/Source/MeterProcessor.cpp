@@ -21,6 +21,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "thr", 1 }, n + "Threshold", NormalisableRange<float> (-60, 0), -24));
     }
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "eqOn", 1 }, "EQ On", true));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "scShow", 1 }, "Mostra sidechain", true));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "dynSc", 1 }, "EQ dinamico da sidechain", false));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "target", 1 }, "Target", StringArray { "SPOTIFY -14", "APPLE -16", "YOUTUBE -14", "CLUB -9", "CD / LOUD -8" }, 0));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "profile", 1 }, "Profilo", StringArray { "TRAP / DRILL", "HIP HOP / BOOM BAP", "LO-FI", "POP", "ACUSTICO" }, 0));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "spec", 1 }, "Spettro", StringArray { "MID + SIDE", "L + R" }, 0));
@@ -38,7 +40,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
 }
 
 Processor::Processor()
-    : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+    : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                                       .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, nullptr, "JMH", layout())
 {
     for (int i = 0; i < kHist; ++i) { histS[i] = -100; histM[i] = -100; }
@@ -82,8 +85,21 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 {
     juce::ScopedNoDenormals nd;
     const int N = buffer.getNumSamples();
-    if (buffer.getNumChannels() < 2) return;
-    float* L = buffer.getWritePointer (0); float* R = buffer.getWritePointer (1);
+    auto mainB = getBusBuffer (buffer, true, 0);
+    if (mainB.getNumChannels() < 2) return;
+    float* L = mainB.getWritePointer (0); float* R = mainB.getWritePointer (1);
+    // sidechain (es. la cassa): seconda curva nello spettro e, se scelto, rilevatore dell'EQ dinamico
+    const float* sL = nullptr; const float* sR = nullptr;
+    if (getBusCount (true) > 1 && getBus (true, 1)->isEnabled())
+    {
+        auto sc = getBusBuffer (buffer, true, 1);
+        if (sc.getNumChannels() > 0) { sL = sc.getReadPointer (0); sR = sc.getReadPointer (juce::jmin (1, sc.getNumChannels() - 1)); }
+    }
+    hasSc = sL != nullptr;
+    bool isPlay = true;
+    if (auto* ph = getPlayHead()) if (auto pos = ph->getPosition()) isPlay = pos->getIsPlaying();
+    playing = isPlay;
+    const bool useScDyn = sL != nullptr && value ("dynSc") > 0.5f;
     if (resetReq.exchange (false)) resetLoudness();
 
     // ---------- EQ dinamico (IIR, latenza zero) ----------
@@ -112,7 +128,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                     if (std::abs (bp[b].dyn) > 0.05f && bp[b].type <= HSHELF)
                     {
                         det[b].set (9, bp[b].f, 0, juce::jmax (0.5f, bp[b].q), sr);
-                        for (int i = i0; i < i0 + n; ++i) { const float x = std::abs (det[b].tick (0.5f * (L[i] + R[i]), 0)); env[b] = x > env[b] ? at * env[b] + (1 - at) * x : rl * env[b] + (1 - rl) * x; }
+                        for (int i = i0; i < i0 + n; ++i) { const float x = std::abs (det[b].tick (useScDyn ? 0.5f * (sL[i] + sR[i]) : 0.5f * (L[i] + R[i]), 0)); env[b] = x > env[b] ? at * env[b] + (1 - at) * x : rl * env[b] + (1 - rl) * x; }
                         const float lev = juce::Decibels::gainToDecibels (env[b] * 1.414f, -100.0f);
                         dg = bp[b].dyn * juce::jlimit (0.0f, 1.0f, (lev - bp[b].thr) / 12.0f);
                     }
@@ -157,12 +173,17 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
     if (value ("monoChk") > 0.5f) for (int i = 0; i < N; ++i) { const float m = 0.5f * (L[i] + R[i]); L[i] = R[i] = m; }
     const float og = juce::Decibels::decibelsToGain (value ("out"));
-    if (std::abs (og - 1.0f) > 1.0e-4f) buffer.applyGain (0, 0, N, og);
+    if (std::abs (og - 1.0f) > 1.0e-4f) mainB.applyGain (0, 0, N, og);
 
-    // ---------- anello per spettro e goniometro ----------
-    int w = ringW.load();
-    for (int i = 0; i < N; ++i) { ringL[w] = L[i]; ringR[w] = R[i]; w = (w + 1) & (kRing - 1); }
-    ringW = w;
+    // ---------- anello per spettro e goniometro (si ferma con lo stop dell'host o con FREEZE) ----------
+    const bool fz = freezeBtn.load() || ! isPlay;
+    frozen = fz;
+    if (! fz)
+    {
+        int w = ringW.load();
+        for (int i = 0; i < N; ++i) { ringL[w] = L[i]; ringR[w] = R[i]; ringS[w] = sL ? 0.5f * (sL[i] + sR[i]) : 0.0f; w = (w + 1) & (kRing - 1); }
+        ringW = w;
+    }
 
     // ---------- loudness ----------
     for (int i = 0; i < N; ++i)
