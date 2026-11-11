@@ -107,8 +107,8 @@ bool loadLibItem (Processor& P, const LibItem& it, int p)
     auto& pd = P.pad[p];
     pd.v[START] = 0; pd.v[END] = 1; pd.v[SLICE] = 0; pd.v[WARP] = 0; pd.v[SBPM] = 0; pd.v[LOOP] = 0;
     pd.v[SKEY] = -1;
-    if (it.user) return P.loadFile (it.file, p);
-    P.setSample (p, makeDrum (it.d));
+    if (it.user) { const bool ok = P.loadFile (it.file, p); if (ok) P.padCat[p] = it.category; return ok; }
+    P.setSample (p, makeDrum (it.d)); P.padCat[p] = it.category;
     P.detectKey (p);
     return true;
 }

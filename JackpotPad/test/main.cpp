@@ -3,6 +3,9 @@
 #include "../Source/PadEditor.h"
 #include "../Source/Library.h"
 #include "../Source/KeyDetect.h"
+#include "../Source/Generator.h"
+#include <map>
+#include <set>
 using namespace jp;
 int main (int argc, char** argv)
 {
@@ -156,6 +159,60 @@ int main (int argc, char** argv)
         return 0;
     }
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String (argv[1]) == "gen")
+    {
+        Processor p; p.prepareToPlay (48000, 480);
+        int bad = 0, total = 0;
+        for (int kit = 0; kit < 6; ++kit)
+        {
+            if (kit < 4) p.loadFactoryKit (kit * 3); else randomKit (p, 0);
+            juce::String roles; for (int k = 0; k < kPads; ++k) roles << (k + 1) << ":" << roleName (padRole (p, k)) << " ";
+            std::printf ("\nKIT %s\n  %s\n", p.kitName.toRawUTF8(), roles.toRawUTF8());
+            for (int st = 0; st < (int) genStyles().size(); ++st)
+            {
+                for (int seed = 1; seed <= 3; ++seed)
+                {
+                    if (kit < 4) p.loadFactoryKit (kit * 3);
+                    const auto msg = generate (p, st, (juce::uint32) (seed * 977 + st), -1); ++total;
+                    // doppioni: due pad dello stesso ruolo batteria nello stesso istante
+                    std::map<long long, std::set<int>> at; int dbl = 0, n = 0;
+                    for (auto& e : p.events) { const int ro = padRole (p, e.pad); if (ro == R_KICK || ro == R_SNARE || ro == R_CLAP || ro == R_HAT) { auto& v = at[(long long) std::llround (e.tick)]; if (v.count (ro)) ++dbl; v.insert (ro); } ++n; }
+                    std::set<int> used; for (auto& e : p.events) used.insert (e.pad);
+                    if (dbl) ++bad;
+                    if (seed == 1) std::printf ("  %-22s ev %3d pad %2d dbl %d  %s\n", genStyles()[(size_t) st].name.toRawUTF8(), n, (int) used.size(), dbl, msg.toRawUTF8());
+                }
+            }
+        }
+        std::printf ("\npattern con doppioni: %d / %d\n", bad, total);
+        // ascii del primo stile boom bap sul kit 0
+        for (int sx : { 0, 4, 8 }) { p.loadFactoryKit (3); generate (p, sx, 5, -1); std::printf ("\n== %s\n", genStyles()[(size_t) sx].name.toRawUTF8());
+        for (int k = 0; k < kPads; ++k)
+        {
+            juce::String row; for (int st = 0; st < p.patternBars.load() * 16; ++st) { char c = '.'; for (auto& e : p.events) if (e.pad == k && e.tick >= st * 24.0 && e.tick < st * 24.0 + 24) c = e.vel > 100 ? 'X' : 'x'; row << c << (st % 16 == 15 ? "|" : ""); }
+            if (row.containsAnyOf ("Xx")) std::printf ("%2d %-9s %s\n", k + 1, roleName (padRole (p, k)), row.toRawUTF8());
+        } }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "levels")
+    {
+        std::vector<std::pair<float, juce::String>> all;
+        for (auto& cat : libCategories())
+            for (auto& it : libItems (cat))
+            {
+                if (it.user) continue;
+                auto s = makeDrum (it.d); if (s == nullptr) continue;
+                const int n = s->buf.getNumSamples(); const float pk = s->buf.getMagnitude (0, n);
+                const int m = juce::jmin (n, (int) (s->sr * 0.3)); double e = 0; for (int i = 0; i < m; ++i) e += s->buf.getSample (0, i) * s->buf.getSample (0, i);
+                const float rms = (float) juce::Decibels::gainToDecibels (std::sqrt (e / juce::jmax (1, m)));
+                all.push_back ({ juce::Decibels::gainToDecibels (pk), cat + " / " + it.name + "  rms300ms " + juce::String (rms, 1) });
+            }
+        for (auto& a : all) a.first = a.second.fromFirstOccurrenceOf ("rms300ms ", false, false).getFloatValue(); std::sort (all.begin(), all.end(), [] (auto& a, auto& b) { return a.first < b.first; });
+        std::printf ("suoni: %d\n", (int) all.size());
+        for (size_t i = 0; i < all.size(); ++i) if (i < 25 || i + 5 > all.size()) std::printf ("%7.1f dB  %s\n", all[i].first, all[i].second.toRawUTF8());
+        int under12 = 0, under20 = 0; for (auto& a : all) { if (a.first < -12) ++under12; if (a.first < -20) ++under20; }
+        std::printf ("sotto -12 dB: %d   sotto -20 dB: %d\n", under12, under20);
+        return 0;
+    }
     Processor p; const double sr = 44100; p.prepareToPlay (sr, 512);
     juce::AudioBuffer<float> blk (2, 512); float peak = 0; bool nan = false;
     // velocity: picco del kick a diverse velocity

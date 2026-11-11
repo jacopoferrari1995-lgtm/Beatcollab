@@ -47,7 +47,8 @@ public:
     Selector (juce::String l) : label (std::move (l)) {}
     std::function<int()> get; std::function<void (int)> set; std::function<int()> count; std::function<juce::String (int)> name;
     void paint (juce::Graphics&) override; int shown = -1;
-    void mouseDown (const juce::MouseEvent& e) override { const int n = count(); set ((get() + (e.mods.isPopupMenu() || e.mods.isShiftDown() ? n - 1 : 1)) % n); repaint(); }
+    std::function<void (Selector&)> menu; std::function<juce::String()> labelFn;   // se c'e, il click apre un menu invece di scorrere
+    void mouseDown (const juce::MouseEvent& e) override { if (menu) { menu (*this); return; } const int n = count(); set ((get() + (e.mods.isPopupMenu() || e.mods.isShiftDown() ? n - 1 : 1)) % n); repaint(); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { const int n = count(); set ((get() + (w.deltaY > 0 ? 1 : n - 1)) % n); repaint(); }
     juce::String label; juce::Colour col { Col::cyan };
 };
@@ -152,13 +153,16 @@ class PatternView : public juce::Component
 public:
     explicit PatternView (Editor& e) : ed (e) {}
     void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
-    juce::Rectangle<float> grid() const { return getLocalBounds().toFloat().reduced (4).withTrimmedTop (22).withTrimmedLeft (52); }
+    juce::Rectangle<float> grid() const { return getLocalBounds().toFloat().reduced (4).withTrimmedTop (40).withTrimmedLeft (52); }
+    juce::Rectangle<float> mini() const { return getLocalBounds().toFloat().reduced (4, 0).withY (23).withHeight (15).withTrimmedLeft (52); }
     juce::Rectangle<float> labels() const { auto g = grid(); return { 4, g.getY(), 48, g.getHeight() }; }
     bool cellAt (juce::Point<float>, int& pad, int& step) const;
-    Editor& ed; int bank = 0, barPage = 0; int paintMode = -1; int lastCell = -1;
+    Editor& ed; int bank = 0, barPage = 0; int paintMode = -1; int lastCell = -1; bool follow = true;
+    juce::String info; juce::uint32 infoT = 0;   // messaggio del generatore, per qualche secondo
     std::vector<std::pair<juce::Rectangle<float>, std::function<void()>>> heads;
 };
 
@@ -246,7 +250,8 @@ public:
     Processor& proc;
     jlook::Scaler scaler { *this, "pad", W, H };
     jlook::SizeChip sizeChip { scaler };
-    int sel = 0, page = PG_KIT, octave = 1, kbVel = 100, genre = 0, undoTick = 0;
+    int sel = 0, page = PG_KIT, octave = 1, kbVel = 100, genre = 0, undoTick = 0, genPreset = 0;
+    void runGen (juce::uint32 seed);   // genera nello stile scelto e mostra cosa ha fatto
     bool fullLevel = false, kbOn = false, exportSwing = false;
     std::set<int> keysDown;
     std::unique_ptr<juce::FileChooser> chooser;

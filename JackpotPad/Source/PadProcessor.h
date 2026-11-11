@@ -124,7 +124,9 @@ public:
     void stopAll() { stopReq = true; }
     static float estimateBpmAudio (const juce::AudioBuffer<float>& b, double sampleRate, double& strength);
     double hostBpm() const { return curBpm; }
-    void clearPad (int p) { setSample (p, nullptr); setLayer (p, nullptr); }
+    void clearPad (int p) { setSample (p, nullptr); setLayer (p, nullptr); padCat[p] = {}; }
+    juce::String padCat[kPads];               // categoria della banca da cui arriva il suono (serve al generatore)
+    int genStyle = 0; juce::uint32 genSeed = 1; juce::String genInfo;
     void detectBpm (int p);
     static float estimateBpm (const juce::String& name, double seconds, bool& confident);
 

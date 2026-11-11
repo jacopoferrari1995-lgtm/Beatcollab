@@ -191,13 +191,36 @@ SamplePtr makeDrum (const DrumDesc& d)
         }
         default: break;
     }
+    // livello: non sul picco ma su quanto suona forte (RMS dei primi 300 ms), con un bersaglio per tipo di suono.
+    // Cosi hat, snap e rim non restano 20 dB sotto cassa e 808.
     float peak = 0; for (auto v : y) peak = juce::jmax (peak, std::abs (v));
-    const float k = peak > 0 ? 0.9f / peak : 1.0f;
+    float k = peak > 0 ? 0.9f / peak : 1.0f;
+    {
+        const int m = juce::jmin (n, (int) (SR * 0.3)); double e = 0; for (int i = 0; i < m; ++i) e += (double) y[(size_t) i] * y[(size_t) i];
+        const float rmsDb = juce::Decibels::gainToDecibels ((float) std::sqrt (e / juce::jmax (1, m)) * k, -100.0f);
+        const bool open = d.name.toLowerCase().contains ("open");
+        float target = -14.0f;
+        switch (d.type)
+        {
+            case S_KICK: target = -10.0f; break;   case S_808: target = -10.0f; break;
+            case S_SNARE: target = -12.5f; break;  case S_CLAP: case S_SNAP: target = -13.0f; break;
+            case S_HAT: target = open ? -16.0f : -17.0f; break;
+            case S_TOM: target = -12.5f; break;    case S_CYMBAL: target = -18.0f; break;
+            case S_STAB: case S_PLUCK: target = -14.0f; break;
+            case S_NOISE: target = -24.0f; break;
+            default: target = -15.0f; break;      // rim, shaker, bell, conga, clave
+        }
+        const float extraDb = juce::jlimit (-12.0f, 9.0f, target - rmsDb);
+        k *= juce::Decibels::decibelsToGain (extraDb);
+    }
+    // limitatore morbido: i transienti che superano il tetto vengono arrotondati, non tagliati
+    const float ceil = 0.97f, th = 0.75f;
+    auto soft = [=] (float v) { const float a = std::abs (v); if (a <= th) return v; const float o = th + (ceil - th) * std::tanh ((a - th) / (ceil - th)); return v < 0 ? -o : o; };
     auto s = std::make_shared<SampleData>();
     s->sr = SR; s->name = d.name; s->path = descToPath (d);
     s->buf.setSize (2, n);
     const int fade = juce::jmin (400, n / 4);
-    for (int i = 0; i < n; ++i) { float v = y[(size_t) i] * k; if (i >= n - fade) v *= (float) (n - 1 - i) / fade; s->buf.setSample (0, i, v); s->buf.setSample (1, i, v); }
+    for (int i = 0; i < n; ++i) { float v = soft (y[(size_t) i] * k); if (i >= n - fade) v *= (float) (n - 1 - i) / fade; s->buf.setSample (0, i, v); s->buf.setSample (1, i, v); }
     return s;
 }
 

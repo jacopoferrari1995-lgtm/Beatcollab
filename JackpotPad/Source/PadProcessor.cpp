@@ -5,6 +5,7 @@
 #include <complex>
 #include "KeyDetect.h"
 #include "Library.h"
+#include "Generator.h"
 
 namespace jp
 {
@@ -15,7 +16,7 @@ const PInfo kPInfo[kNumPadParams] = {
     { "attack", "ATTACK",    0, 200, 0, 4 },        { "decay", "DECAY",     10, 4000, 4000, 4 },   { "release","RELEASE",  5, 2000, 60, 4 },
     { "mode",   "MODE",      0, 1, 0, 6 },          { "reverse","REVERSE",  0, 1, 0, 8 },          { "choke", "CHOKE",     0, 8, 0, 7 },
     { "loop",   "LOOP",      0, 1, 0, 8 },          { "warp",  "SYNC BPM",  0, 2, 0, 6 },          { "sbpm",  "BPM SAMPLE", 0, 240, 0, 10 },
-    { "vlevel", "VEL>VOL",   0, 1, 0.75f, 0 },      { "vfilt", "VEL>FILT",  0, 1, 0, 0 },          { "vstart","VEL>START", 0, 1, 0, 0 },     { "vpitch","VEL>PITCH",-1, 1, 0, 1 },
+    { "vlevel", "VEL>VOL",   0, 1, 0.6f, 0 },      { "vfilt", "VEL>FILT",  0, 1, 0, 0 },          { "vstart","VEL>START", 0, 1, 0, 0 },     { "vpitch","VEL>PITCH",-1, 1, 0, 1 },
     { "ftype",  "TIPO",      0, 2, 0, 6 },          { "cutoff","CUTOFF",    40, 20000, 20000, 5 }, { "reso",  "RESO",      0, 1, 0.1f, 0 },
     { "fenv",   "ENV AMT",   -1, 1, 0, 1 },         { "fdecay","ENV DECAY", 5, 2000, 200, 4 },
     { "eqon",   "EQ",        0, 1, 1, 8 },
@@ -311,7 +312,7 @@ void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, 
     v->a0 = loop ? sa0 : a0; v->a1 = a1;
     v->warp = (warp == 2 && sb > 40.0f) ? 2 : (warp == 1 && sb > 40.0f ? 1 : 0);
     v->sbpm = sb; v->pitch = pitch;
-    v->velSemis = (float) ((vv - 0.75) * P.get (VPITCH) * 4.0); v->velDb = -(1.0f - vv) * 30.0f * P.get (VLEVEL); v->velCut = std::pow (2.0f, (vv - 1.0f) * P.get (VFILTER) * 5.0f);
+    v->velSemis = (float) ((vv - 0.75) * P.get (VPITCH) * 4.0); v->velDb = -(1.0f - vv) * 18.0f * P.get (VLEVEL); v->velCut = std::pow (2.0f, (vv - 1.0f) * P.get (VFILTER) * 5.0f);
     v->pos = v->dir > 0 ? a0 : a1 - 2;
     if (v->warp == 2)
     {
@@ -321,7 +322,7 @@ void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, 
         v->gr[1] = { v->pos, 0.0 };
     }
     else v->inc = pitch * (v->warp == 1 ? tempo : 1.0);
-    v->gain = 0.5f * juce::Decibels::decibelsToGain ((layer ? P.get (LGAIN) : P.get (GAIN)) - (1.0f - vv) * 30.0f * P.get (VLEVEL));   // -6 dB di headroom
+    v->gain = 0.708f * juce::Decibels::decibelsToGain ((layer ? P.get (LGAIN) : P.get (GAIN)) - (1.0f - vv) * 18.0f * P.get (VLEVEL));   // -3 dB di margine
     const float atk = P.get (ATTACK);
     v->env = atk < 0.5f ? 1.0f : 0.0f; v->atkDone = atk < 0.5f; v->atkInc = atk < 0.5f ? 1.0f : (float) (1.0 / (atk * 0.001 * sr));
     const float dec = P.get (DECAY); v->hold = dec >= 3990 || loop;
@@ -450,19 +451,27 @@ void Processor::randomPattern (const juce::String& genre)
     loadPattern (pick); varyPattern();
 }
 void Processor::varyPattern()
-{
+{   // variazione per ruoli: tocca solo cassa e hat del kit attuale, mai pad a caso
+    int kick = -1, hat = -1;
+    for (int p = 0; p < kPads; ++p) { const auto ro = jp::padRole (*this, p); if (ro == jp::R_KICK && kick < 0) kick = p; if (ro == jp::R_HAT && hat < 0) hat = p; }
     juce::Random r; const juce::SpinLock::ScopedLockType l (recLock);
     std::vector<PatEv> out;
-    bool hasHat = false; for (auto& e : events) if (e.pad == 2) hasHat = true;
     for (auto e : events)
     {
-        if (e.pad == 0 && e.tick > 0 && r.nextFloat() < 0.12f) continue;             // toglie qualche cassa
-        if (e.pad == 2 && r.nextFloat() < 0.15f) { out.push_back ({ e.tick + 12, 2, juce::jmax (40, e.vel - 40) }); }   // terzina/32esimo sugli hat
-        e.vel = juce::jlimit (30, 127, e.vel + r.nextInt ({ -14, 8 }));
+        if (e.pad == kick && std::fmod (e.tick, (double) kBar) > 1 && r.nextFloat() < 0.12f) continue;   // toglie qualche cassa (mai sull'uno)
+        if (e.pad == hat && r.nextFloat() < 0.12f) out.push_back ({ e.tick + 12, hat, juce::jmax (40, e.vel - 40) });
+        e.vel = juce::jlimit (30, 127, e.vel + r.nextInt ({ -12, 8 }));
         out.push_back (e);
     }
-    for (int k = 0; k < 2; ++k) if (r.nextFloat() < 0.6f) out.push_back ({ (double) (r.nextInt (patternBars.load() * 16) * 24), 0, 90 });   // cassa in più
-    if (hasHat && r.nextFloat() < 0.5f) { const int st = patternBars.load() * 16 - 8 + r.nextInt (6); for (int q = 0; q < 4; ++q) out.push_back ({ (st + q * 0.5) * 24.0, 2, 70 + q * 10 }); }   // roll
+    const int bars = patternBars.load();
+    if (kick >= 0) for (int k = 0; k < 2; ++k) if (r.nextFloat() < 0.5f)
+    {   // cassa in piu su un ottavo libero
+        const double t = r.nextInt (bars * 8) * 48.0 + (r.nextBool() ? 24 : 0);
+        bool busy = false; for (auto& e : out) if (std::abs (e.tick - t) < 12 && e.pad == kick) busy = true;
+        if (! busy) out.push_back ({ t, kick, 88 });
+    }
+    if (hat >= 0 && r.nextFloat() < 0.5f) { const int st = bars * 16 - 8 + r.nextInt (6); for (int q = 0; q < 4; ++q) out.push_back ({ (st + q * 0.5) * 24.0, hat, 70 + q * 10 }); }
+    std::sort (out.begin(), out.end(), [] (const PatEv& a, const PatEv& b) { return a.tick < b.tick; });
     events = std::move (out);
 }
 
@@ -602,7 +611,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         const double tempo = (v.warp > 0 && v.sbpm > 40) ? curBpm / v.sbpm : 1.0;
         if (v.warp == 2) { v.tRate = tempo * v.s->sr / sr; v.inc = v.tRate; v.pRate = v.pitch; }
         else v.inc = v.pitch * (v.warp == 1 ? tempo : 1.0);
-        v.gain = 0.5f * juce::Decibels::decibelsToGain (P.get (GAIN) + v.velDb);
+        v.gain = 0.708f * juce::Decibels::decibelsToGain (P.get (GAIN) + v.velDb);
         v.cutBase = juce::jlimit (30.0f, 20000.0f, P.get (CUTOFF) * v.velCut); v.reso = P.get (RESO); v.fk = 2.0f - 1.94f * P.get (RESO);
         const bool wantF = ! (v.ftype == 0 && v.cutBase >= 19500.0f && std::abs (v.fenvAmt) < 0.01f);
         if (wantF && ! v.filt) for (int c = 0; c < 2; ++c) { v.ic1[c] = 0; v.ic2[c] = 0; }
@@ -1030,6 +1039,7 @@ bool Processor::loadFile (const juce::File& f, int p, bool analyse)
     s->buf.setSize (2, len); rd->read (&s->buf, 0, len, 0, true, true);
     if (rd->numChannels == 1) s->buf.copyFrom (1, 0, s->buf, 0, 0, len);
     s->sr = rd->sampleRate; s->name = f.getFileNameWithoutExtension(); s->path = f.getFullPathName();
+    padCat[p] = {};
     pad[p].v[START] = 0; pad[p].v[END] = 1; pad[p].v[WARP] = 0; pad[p].v[SBPM] = 0; pad[p].v[LOOP] = 0;
     setSample (p, s);
     if (analyse) { detectBpm (p); detectKey (p); }
@@ -1104,6 +1114,7 @@ std::unique_ptr<juce::XmlElement> Processor::padsToXml() const
         e->setAttribute ("colour", pad[p].colour.load());
         if (auto s = getSample (p)) e->setAttribute ("path", s->path);
         if (auto s = getLayer (p)) e->setAttribute ("path2", s->path);
+        if (padCat[p].isNotEmpty()) e->setAttribute ("cat", padCat[p]);
     }
     return x;
 }
@@ -1119,6 +1130,7 @@ void Processor::padsFromXml (const juce::XmlElement& pads)
         if (path.isEmpty()) setSample (p, nullptr);
         else { auto s = sampleFromPath (*this, path, p); setSample (p, s); }
         setLayer (p, layerFromPath (*this, e->getStringAttribute ("path2")));
+        padCat[p] = e->getStringAttribute ("cat");
         ++p;
     }
 }
@@ -1157,10 +1169,10 @@ void Processor::loadFactoryKit (int k)
         if (lay[(size_t) p] != nullptr)
         {
             const auto& kp = *lay[(size_t) p];
-            setSample (p, makeDrum (kp.d)); setLayer (p, nullptr); pad[p].colour = kp.colour;
+            setSample (p, makeDrum (kp.d)); setLayer (p, nullptr); pad[p].colour = kp.colour; padCat[p] = categoryOf (kp.d);
             for (auto& [i, v] : kp.p) pad[p].v[i] = v;
         }
-        else setSample (p, nullptr);
+        else { setSample (p, nullptr); padCat[p] = {}; }
     }
     if (K.pads.empty())   // kit vuoto: anche la sezione master torna ai valori di partenza
         for (auto id : { "revSize", "revDamp", "revRet", "revLo", "revHi", "revPre", "dlyDiv", "dlyMs", "dlyFb", "dlyLo", "dlyHi", "dlyRet", "busMode", "busAmt", "clip", "out", "revKit", "dlyKit", "satAmt" })
@@ -1207,7 +1219,7 @@ void Processor::getStateInformation (juce::MemoryBlock& dest)
     x.addChildElement (padsToXml().release());
     juce::String ev; { const juce::SpinLock::ScopedLockType l (recLock); for (auto& e : events) ev << juce::String (e.tick, 2) << "," << e.pad << "," << e.vel << ";"; }
     x.createNewChildElement ("PATTERN")->addTextElement (ev);
-    x.setAttribute ("pattern", patternIndex); x.setAttribute ("bars", patternBars.load()); x.setAttribute ("loopOn", loopOn.load() ? 1 : 0);
+    x.setAttribute ("pattern", patternIndex); x.setAttribute ("genStyle", genStyle); x.setAttribute ("bars", patternBars.load()); x.setAttribute ("loopOn", loopOn.load() ? 1 : 0);
     copyXmlToBinary (x, dest);
 }
 void Processor::setStateInformation (const void* data, int size)
@@ -1217,7 +1229,7 @@ void Processor::setStateInformation (const void* data, int size)
     if (auto* pads = x->getChildByName ("PADS")) padsFromXml (*pads);
     for (int p = 0; p < kPads; ++p) for (int k = 0; k < kAutoN; ++k) lastHost[p][k] = hpRaw[p][k]->load();   // i pad salvati vincono; il timer riallinea Ableton
     kitName = x->getStringAttribute ("kit", kitName);
-    patternIndex = x->getIntAttribute ("pattern", 0); loopOn = x->getIntAttribute ("loopOn", 0) != 0; patternBars = x->getIntAttribute ("bars", 2);
+    patternIndex = x->getIntAttribute ("pattern", 0); loopOn = x->getIntAttribute ("loopOn", 0) != 0; patternBars = juce::jlimit (1, 8, x->getIntAttribute ("bars", 2)); genStyle = x->getIntAttribute ("genStyle", 0);
     const auto kf = x->getStringAttribute ("kitFile"); kitFile = kf.isNotEmpty() ? juce::File (kf) : juce::File();
     if (auto* pt = x->getChildByName ("PATTERN"))
     {

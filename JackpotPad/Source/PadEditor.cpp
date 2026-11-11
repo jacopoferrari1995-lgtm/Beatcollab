@@ -1,3 +1,4 @@
+#include "Generator.h"
 #include "PadEditor.h"
 #include "KeyDetect.h"
 
@@ -55,11 +56,13 @@ void Knob::paint (juce::Graphics& g)
 void Selector::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
-    if (label.isNotEmpty()) { g.setFont (ft (9.0f, true)); g.setColour (Col::dim); g.drawText (label, b.removeFromTop (13), juce::Justification::centredLeft); }
+    const auto lb = labelFn ? labelFn() : label;
+    if (lb.isNotEmpty()) { g.setFont (ft (9.0f, true)); g.setColour (Col::dim); g.drawText (lb, b.removeFromTop (13), juce::Justification::centredLeft); }
     insetPanel (g, b, 4);
     juce::ColourGradient cg (Col::lcd1, 0, b.getY(), Col::lcd2, 0, b.getBottom(), false); g.setGradientFill (cg); g.fillRoundedRectangle (b.reduced (1), 4);
     glowText (g, name (get()), b.reduced (6, 0), col, ft (11.5f, true, true), juce::Justification::centred);
     g.setColour (col.withAlpha (0.4f)); g.setFont (ft (8.0f));
+    if (menu) { g.drawText (juce::String::fromUTF8 ("\xe2\x96\xbc"), b.reduced (4, 0), juce::Justification::centredRight); return; }
     g.drawText (juce::String::fromUTF8 ("\xe2\x97\x80"), b.reduced (4, 0), juce::Justification::centredLeft);
     g.drawText (juce::String::fromUTF8 ("\xe2\x96\xb6"), b.reduced (4, 0), juce::Justification::centredRight);
 }
@@ -1308,7 +1311,11 @@ bool PatternView::cellAt (juce::Point<float> pt, int& pad, int& step) const
 void PatternView::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat(); auto& P = ed.proc;
-    const int bars = P.patternBars.load(); barPage = juce::jlimit (0, bars - 1, barPage);
+    const int bars = P.patternBars.load();
+    const bool running = P.uiRunning.load();
+    const double playT = running ? std::fmod (P.uiTick.load(), (double) P.loopTicks()) : -1.0;
+    if (follow && running && playT >= 0) barPage = (int) (playT / kBar);   // la pagina segue la battuta che suona
+    barPage = juce::jlimit (0, bars - 1, barPage);
     heads.clear();
     // intestazione: banco di pad, battuta, lunghezza, pulisci
     auto hd = b.reduced (4, 0).withHeight (20).withY (1);
@@ -1323,13 +1330,34 @@ void PatternView::paint (juce::Graphics& g)
     chipH (hd.removeFromLeft (44).reduced (1, 2), "1-8", bank == 0, Col::magenta, [this] { bank = 0; }); 
     chipH (hd.removeFromLeft (44).reduced (1, 2), "9-16", bank == 1, Col::magenta, [this] { bank = 1; });
     hd.removeFromLeft (8);
-    for (int k = 0; k < bars; ++k) chipH (hd.removeFromLeft (30).reduced (1, 2), "B" + juce::String (k + 1), barPage == k, Col::cyan, [this, k] { barPage = k; });
-    hd.removeFromLeft (8);
-    for (int L : { 1, 2, 4 }) chipH (hd.removeFromLeft (28).reduced (1, 2), juce::String (L), bars == L, Col::amber, [this, L] { ed.proc.patternBars = L; barPage = juce::jmin (barPage, L - 1); });
-    chipH (hd.removeFromRight (62).reduced (1, 2), "PULISCI", false, Col::red, [this] { const juce::SpinLock::ScopedLockType l (ed.proc.recLock); ed.proc.events.clear(); });
+    for (int L : { 1, 2, 4, 8 }) chipH (hd.removeFromLeft (24).reduced (1, 2), juce::String (L), bars == L, Col::amber, [this, L] { ed.proc.patternBars = L; barPage = juce::jmin (barPage, L - 1); });
+    chipH (hd.removeFromRight (56).reduced (1, 2), "PULISCI", false, Col::red, [this] { const juce::SpinLock::ScopedLockType l (ed.proc.recLock); ed.proc.events.clear(); });
+    chipH (hd.removeFromRight (50).reduced (1, 2), "SEGUI", follow, Col::green, [this] { follow = ! follow; });
+    // panoramica di tutte le battute: colpi del banco visibile, pagina aperta e testina che scorre
+    {
+        auto mr = mini(); const float bw = mr.getWidth() / (float) bars;
+        g.setColour (Col::phos.withAlpha (0.6f)); g.setFont (ft (7.5f, true, true));
+        g.drawText (juce::String (barPage + 1) + "/" + juce::String (bars), juce::Rectangle<float> (6, mr.getY(), 46, mr.getHeight()), juce::Justification::centredLeft);
+        for (int k = 0; k < bars; ++k)
+        {
+            auto sr = juce::Rectangle<float> (mr.getX() + k * bw, mr.getY(), bw, mr.getHeight()).reduced (1, 0);
+            g.setColour (k == barPage ? Col::cyan.withAlpha (0.22f) : Col::phos.withAlpha (0.05f)); g.fillRoundedRectangle (sr, 2);
+            g.setColour (k == barPage ? Col::cyan : Col::phos.withAlpha (0.2f)); g.drawRoundedRectangle (sr, 2, 1.0f);
+            heads.push_back ({ sr, [this, k] { barPage = k; follow = false; } });
+        }
+        const juce::SpinLock::ScopedLockType l (P.recLock);
+        for (auto& e : P.events)
+        {
+            if (e.pad / 8 != bank || e.tick >= bars * (double) kBar) continue;
+            const float x = mr.getX() + (float) (e.tick / (bars * (double) kBar)) * mr.getWidth();
+            const float y = mr.getY() + 1.5f + (7 - e.pad % 8) * (mr.getHeight() - 3) / 8.0f;
+            g.setColour (padColour (P.pad[e.pad].colour.load()).withAlpha (0.85f)); g.fillRect (x, y, 1.6f, 1.6f);
+        }
+        if (playT >= 0) { const float x = mr.getX() + (float) (playT / (bars * (double) kBar)) * mr.getWidth(); g.setColour (Col::magenta); g.fillRect (x - 0.5f, mr.getY() - 1, 2.0f, mr.getHeight() + 2); }
+    }
     // griglia
     auto gr = grid(); const float rh = gr.getHeight() / 8, cw = gr.getWidth() / 16;
-    g.setColour (Col::lcd2); g.fillRoundedRectangle (b.withTrimmedTop (21), 5);
+    g.setColour (Col::lcd2); g.fillRoundedRectangle (b.withTrimmedTop (39), 5);
     for (int r = 0; r < 8; ++r)
     {
         const int pad = bank * 8 + (7 - r); auto smp = P.getSample (pad); const auto pc = padColour (P.pad[pad].colour.load());
@@ -1360,6 +1388,13 @@ void PatternView::paint (juce::Graphics& g)
         const double t = std::fmod (P.uiTick.load(), (double) P.loopTicks());
         if (t >= t0 && t < t0 + kBar) { const float x = gr.getX() + gr.getWidth() * (float) ((t - t0) / kBar); g.setColour (Col::magenta.withAlpha (0.8f)); g.drawVerticalLine ((int) x, gr.getY(), gr.getBottom()); }
     }
+}
+void PatternView::paintOverChildren (juce::Graphics& g)
+{
+    if (info.isEmpty() || juce::Time::getMillisecondCounter() - infoT > 4500) return;
+    auto r = grid().removeFromBottom (18).reduced (2, 1);
+    g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 3);
+    g.setColour (Col::amber); g.setFont (ft (8.5f, true, true)); g.drawFittedText (info, r.reduced (4, 0).toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
 }
 void PatternView::mouseDown (const juce::MouseEvent& e)
 {
@@ -1965,20 +2000,45 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     choice ("swGrid", "SWING SU", Col::magenta);
     choice ("nrRate", "RATE", Col::magenta);
     {
-        auto* s = selectors.add (new Selector ("GENERE")); s->setName ("genre"); s->col = Col::magenta;
-        s->get = [this] { return genre; };
-        s->set = [this] (int v) { genre = v; const auto g = patternGenres()[v]; for (int i = 0; i < (int) patternBank().size(); ++i) if (g == patternBank()[(size_t) i].genre) { proc.loadPattern (i); break; } };
-        s->count = [] { return patternGenres().size(); };
-        s->name = [] (int v) { return patternGenres()[v].toUpperCase(); };
+        auto* s = selectors.add (new Selector ("STILE")); s->setName ("genre"); s->col = Col::magenta;
+        s->get = [this] { return proc.genStyle; };
+        s->set = [this] (int v) { proc.genStyle = v; genPreset = 0; runGen (juce::Random::getSystemRandom().nextInt() | 1); };
+        s->count = [] { return (int) jp::genStyles().size(); };
+        s->name = [] (int v) { return jp::genStyles()[(size_t) v].name.toUpperCase(); };
+        s->labelFn = [this] { return juce::String ("STILE  ") + jp::genCatName (jp::genStyles()[(size_t) juce::jlimit (0, (int) jp::genStyles().size() - 1, proc.genStyle)].cat); };
+        s->menu = [this] (Selector& sl)
+        {
+            juce::PopupMenu m;
+            for (int c = 0; c < jp::kGenCats; ++c)
+            {
+                juce::PopupMenu sub; std::vector<int> ids; jp::stylesInCat (c, ids);
+                for (int i : ids) sub.addItem (i + 1, jp::genStyles()[(size_t) i].name + "   -   " + jp::genStyles()[(size_t) i].desc, true, i == proc.genStyle);
+                m.addSubMenu (jp::genCatName (c), sub, true, nullptr, jp::genStyles()[(size_t) proc.genStyle].cat == c);
+            }
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&sl), [this, &sl] (int r) { if (r > 0) { sl.set (r - 1); sl.repaint(); } });
+        };
         root.addAndMakeVisible (s);
     }
     {
-        auto* s = selectors.add (new Selector ("LOOP")); s->setName ("pattern"); s->col = Col::cyan;
-        auto list = [this] { juce::Array<int> a; const auto g = patternGenres()[genre]; for (int i = 0; i < (int) patternBank().size(); ++i) if (g == patternBank()[(size_t) i].genre) a.add (i); return a; };
-        s->get = [this, list] { return juce::jmax (0, list().indexOf (proc.patternIndex)); };
-        s->set = [this, list] (int v) { proc.loadPattern (list()[v]); };
-        s->count = [list] { return juce::jmax (1, list().size()); };
-        s->name = [list] (int v) { const int i = list()[v]; return juce::String (patternBank()[(size_t) i].name).toUpperCase(); };
+        auto* s = selectors.add (new Selector ("PRESET")); s->setName ("pattern"); s->col = Col::cyan;
+        auto apply = [this] (int v)
+        {
+            const auto ps = jp::genPresets (proc.genStyle); if (ps.empty()) return;
+            genPreset = juce::jlimit (0, (int) ps.size() - 1, v); const auto& pr = ps[(size_t) genPreset];
+            if (pr.bankIndex >= 0) { jp::loadBankByRoles (proc, pr.bankIndex); proc.loopOn = true; pattern.info = pr.name; pattern.infoT = juce::Time::getMillisecondCounter(); pattern.repaint(); }
+            else runGen (pr.seed);
+        };
+        s->get = [this] { return genPreset; };
+        s->set = apply;
+        s->count = [this] { return juce::jmax (1, (int) jp::genPresets (proc.genStyle).size()); };
+        s->name = [this] (int v) { const auto ps = jp::genPresets (proc.genStyle); return v < (int) ps.size() ? ps[(size_t) v].name.toUpperCase() : juce::String ("-"); };
+        s->menu = [this, apply] (Selector& sl)
+        {
+            juce::PopupMenu m; const auto ps = jp::genPresets (proc.genStyle);
+            m.addSectionHeader (jp::genStyles()[(size_t) proc.genStyle].name);
+            for (int i = 0; i < (int) ps.size(); ++i) m.addItem (i + 1, ps[(size_t) i].name, true, i == genPreset);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&sl), [apply, &sl] (int r) { if (r > 0) { apply (r - 1); sl.repaint(); } });
+        };
         root.addAndMakeVisible (s);
     }
     {
@@ -1998,7 +2058,13 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     auto btn = [this] (const juce::String& t, juce::Colour c, std::function<bool()> lit, std::function<void()> click)
     { auto* b = btns.add (new Btn (t, c)); b->lit = std::move (lit); b->click = std::move (click); root.addAndMakeVisible (b); return b; };
     btn ("LOOP", Col::magenta, [this] { return proc.loopOn.load(); }, [this] { proc.loopOn = ! proc.loopOn.load(); })->setName ("loop");
-    btn ("GENERA", Col::amber, [] { return false; }, [this] { proc.randomPattern (patternGenres()[genre]); proc.loopOn = true; })->setName ("random");
+    btn ("GENERA", Col::amber, [] { return false; }, [this] { runGen (juce::Random::getSystemRandom().nextInt() | 1); })->setName ("random");
+    btn ("RANDOM", Col::magenta, [] { return false; }, [this]
+    {   // stile a caso (quasi sempre batteria) e un groove nuovo
+        auto& r = juce::Random::getSystemRandom(); const int c = r.nextFloat() < 0.7f ? jp::GC_DRUM : (r.nextBool() ? jp::GC_MPC : jp::GC_PROG);
+        std::vector<int> ids; jp::stylesInCat (c, ids); proc.genStyle = ids[(size_t) r.nextInt ((int) ids.size())]; genPreset = 0;
+        runGen (r.nextInt() | 1); for (auto* sl : selectors) sl->repaint();
+    })->setName ("rnd");
     btn ("VARIA", Col::amber, [] { return false; }, [this] { proc.varyPattern(); })->setName ("vary");
     btn ("PLAY", Col::green, [this] { return proc.uiRunning.load(); }, [this] { proc.requestPlay (! proc.intPlay.load()); })->setName ("play");
     btn ("SWING MIDI", Col::magenta, [this] { return proc.apvts.getRawParameterValue ("swMidi")->load() > 0.5f; },
@@ -2020,6 +2086,13 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     root.addAndMakeVisible (sizeChip);
     scaler.setup();
     startTimerHz (30);
+}
+
+void Editor::runGen (juce::uint32 seed)
+{
+    proc.genSeed = seed;
+    pattern.info = jp::generate (proc, proc.genStyle, seed, sel); pattern.infoT = juce::Time::getMillisecondCounter();
+    proc.loopOn = true; pattern.repaint(); for (auto* pd : pads) pd->repaint();
 }
 
 static juce::Component* named (juce::Component& parent, const char* n) { for (auto* c : parent.getChildren()) if (c->getName() == n) return c; return nullptr; }
@@ -2045,8 +2118,8 @@ void Editor::resized()
     globalKnobs[3]->setBounds (950, 650, 92, 84);
     named (root, "genre")->setBounds (452, 598, 146, 40);
     named (root, "pattern")->setBounds (604, 598, 148, 40);
-    const char* tb[] = { "loop", "random", "vary", "play" };
-    for (int i = 0; i < 4; ++i) named (root, tb[i])->setBounds (452 + i * 75, 642, 72, 30);
+    const char* tb[] = { "loop", "random", "rnd", "vary", "play" };
+    for (int i = 0; i < 5; ++i) named (root, tb[i])->setBounds (452 + i * 60, 642, 57, 30);
     named (root, "swGrid")->setBounds (626, 680, 60, 40);
     named (root, "swmidi")->setBounds (690, 684, 62, 32);
     pattern.setBounds (30, 592, 416, 178);
