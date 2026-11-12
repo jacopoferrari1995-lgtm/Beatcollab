@@ -108,6 +108,11 @@ int main (int argc, char** argv)
             const auto r = run ([&] (Processor& p) { setp (p, c.id, c.v); }, false);
             std::printf ("%-9s %5.2f  rms %.4f (%+.1f dB)  nan %d\n", c.id, c.v, r.first, 20 * std::log10 (r.first / ref.first + 1e-9f), (int) r.second);
         }
+        {
+            Processor p; p.prepareToPlay (48000, 512); p.learnSlot = 5;
+            juce::AudioBuffer<float> blk (2, 512); juce::MidiBuffer m; m.addEvent (juce::MidiMessage::controllerEvent (1, 21, 100), 0); p.processBlock (blk, m);
+            std::printf ("MIDI learn: CC21 -> slot 5: %d, valore in arrivo %.2f\n", p.ccMap[5].load(), p.ccPend[5].load());
+        }
         const auto rc = run ([] (Processor&) {}, true);
         std::printf ("CC 75 (tape stop) dal controller: rms %.4f (%+.1f dB)\n", rc.first, 20 * std::log10 (rc.first / ref.first + 1e-9f));
         return 0;

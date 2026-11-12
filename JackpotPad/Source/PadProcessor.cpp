@@ -206,7 +206,7 @@ Processor::Processor()
     for (int i = 0; i < kPads; ++i) { padGlow[i] = 0; padMeter[i] = 0; padGr[i] = 0; lastVel[i] = 0; hits[i] = 0; pad[i].colour = i; }
     for (int i = 0; i < kScope; ++i) { scPk[i] = 0; scHit[i] = 0; scVel[i] = 0; }
     for (int i = 0; i < kPads; ++i) padPos[i] = -1.0f;
-    for (int k = 0; k < kFx; ++k) ccPend[k] = -1.0f;
+    for (int k = 0; k < kFx; ++k) { ccPend[k] = -1.0f; ccMap[k] = 70 + k; }
     trigs.reserve (1024); events.reserve (1024); pend.reserve (512);
     for (int p = 0; p < kPads; ++p)
         for (int k = 0; k < kAutoN; ++k)
@@ -552,11 +552,13 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         if (msg.isAllNotesOff() || msg.isAllSoundOff()) { for (auto& v : voices) if (v.active) v.choking = true; continue; }
         if (msg.isController())
         {   // MPK: le 8 manopole mandano CC 70-77 -> effetti da performance
-            const int k = msg.getControllerNumber() - 70;
+            const int cc = msg.getControllerNumber();
+            if (const int ls = learnSlot.load(); ls >= 0 && ls < kFx) { for (int j = 0; j < kFx; ++j) if (ccMap[j].load() == cc) ccMap[j] = -1; ccMap[ls] = cc; learnSlot = -1; }
+            int k = -1; for (int j = 0; j < kFx; ++j) if (ccMap[j].load() == cc) k = j;
             if (k >= 0 && k < kFx)
             {
                 float v = msg.getControllerValue() / 127.0f;
-                if (k == 0 && std::abs (msg.getControllerValue() - 64) <= 1) v = 0.5f;   // filtro: zona morta al centro
+                if (k == 0 && std::abs (msg.getControllerValue() - 64) <= 2) v = 0.5f;   // filtro: zona morta al centro
                 ccPend[k] = v;
             }
             continue;
@@ -1414,6 +1416,7 @@ void Processor::getStateInformation (juce::MemoryBlock& dest)
     juce::String ev; { const juce::SpinLock::ScopedLockType l (recLock); for (auto& e : events) ev << juce::String (e.tick, 2) << "," << e.pad << "," << e.vel << ";"; }
     x.createNewChildElement ("PATTERN")->addTextElement (ev);
     x.setAttribute ("pattern", patternIndex); x.setAttribute ("genStyle", genStyle); x.setAttribute ("bars", patternBars.load()); x.setAttribute ("loopOn", loopOn.load() ? 1 : 0); x.setAttribute ("qFx", qFx.load() ? 1 : 0);
+    { juce::String m; for (int k = 0; k < kFx; ++k) m << ccMap[k].load() << (k < kFx - 1 ? "," : ""); x.setAttribute ("ccMap", m); }
     copyXmlToBinary (x, dest);
 }
 void Processor::setStateInformation (const void* data, int size)
@@ -1423,7 +1426,8 @@ void Processor::setStateInformation (const void* data, int size)
     if (auto* pads = x->getChildByName ("PADS")) padsFromXml (*pads);
     for (int p = 0; p < kPads; ++p) for (int k = 0; k < kAutoN; ++k) lastHost[p][k] = hpRaw[p][k]->load();   // i pad salvati vincono; il timer riallinea Ableton
     kitName = x->getStringAttribute ("kit", kitName);
-    patternIndex = x->getIntAttribute ("pattern", 0); qFx = x->getIntAttribute ("qFx", 0) != 0; loopOn = false; patternBars = juce::jlimit (1, 8, x->getIntAttribute ("bars", 2)); genStyle = x->getIntAttribute ("genStyle", 0);   // il loop interno parte solo a mano
+    patternIndex = x->getIntAttribute ("pattern", 0); qFx = x->getIntAttribute ("qFx", 0) != 0;
+    { const auto t = juce::StringArray::fromTokens (x->getStringAttribute ("ccMap"), ",", ""); if (t.size() == kFx) for (int k = 0; k < kFx; ++k) ccMap[k] = t[k].getIntValue(); } loopOn = false; patternBars = juce::jlimit (1, 8, x->getIntAttribute ("bars", 2)); genStyle = x->getIntAttribute ("genStyle", 0);   // il loop interno parte solo a mano
     const auto kf = x->getStringAttribute ("kitFile"); kitFile = kf.isNotEmpty() ? juce::File (kf) : juce::File();
     if (auto* pt = x->getChildByName ("PATTERN"))
     {
