@@ -613,3 +613,77 @@ void loadBankByRoles (Processor& P, int index)
     const juce::SpinLock::ScopedLockType l (P.recLock); P.events = c.ev;
 }
 }
+
+namespace jp
+{
+// Allunga il pattern (es. 2 -> 4 o 4 -> 8 battute) tenendo quello che c'e: le battute si ripetono e
+// l'ultima di ogni giro da 4 cambia un po' (fill di rullante, rullata di hat, stacco, cassa spostata),
+// come si fa a mano. Se oltre la lunghezza attuale c'erano gia note (pattern accorciato prima) non tocca nulla.
+void extendPattern (Processor& P, int newBars, juce::uint32 seed)
+{
+    const int cur = juce::jmax (1, P.patternBars.load());
+    if (newBars <= cur) { P.patternBars = newBars; return; }
+    std::vector<PatEv> ev; { const juce::SpinLock::ScopedLockType l (P.recLock); ev = P.events; }
+    for (auto& e : ev) if (e.tick >= cur * (double) kBar) { P.patternBars = newBars; return; }
+    if (ev.empty()) { P.patternBars = newBars; return; }
+    juce::Random r ((juce::int64) seed);
+    constexpr double st = kBar / 16.0;
+    int padOf[kRoles]; for (auto& x : padOf) x = -1;
+    for (int p = 0; p < kPads; ++p) { const int ro = padRole (P, p); if (padOf[ro] < 0) padOf[ro] = p; }
+    auto used = [&ev] (int p) { if (p < 0) return false; for (auto& e : ev) if (e.pad == p) return true; return false; };
+    const int snare = used (padOf[R_SNARE]) ? padOf[R_SNARE] : used (padOf[R_CLAP]) ? padOf[R_CLAP] : padOf[R_SNARE];
+    const int hat = used (padOf[R_HAT]) ? padOf[R_HAT] : -1, kick = padOf[R_KICK], b808 = padOf[R_808], cym = padOf[R_CYM], tom = padOf[R_TOM];
+    std::vector<PatEv> out;
+    for (int b = 0; b < newBars; ++b)
+        for (auto& e : ev) if ((int) (e.tick / kBar) == b % cur) out.push_back ({ e.tick + (b - b % cur) * (double) kBar, e.pad, e.vel });
+    auto isDrum = [&] (int p) { const int ro = padRole (P, p); return ro >= R_KICK && ro <= R_CYM; };
+    auto clear = [&out] (double t0, double t1, std::function<bool (int)> which) { out.erase (std::remove_if (out.begin(), out.end(), [&] (const PatEv& e) { return e.tick >= t0 && e.tick < t1 && which (e.pad); }), out.end()); };
+    for (int b = 3; b < newBars; b += 4)
+    {
+        const bool big = b == newBars - 1 && newBars >= 8;   // l'ottava cambia di piu della quarta
+        const double t0 = b * (double) kBar;
+        int kind = r.nextInt (big ? 5 : 4);
+        if (snare < 0 && (kind == 0)) kind = 2;
+        if (hat < 0 && kind == 1) kind = 2;
+        switch (kind)
+        {
+            case 0:   // fill di rullante sull'ultimo mezzo giro (o sull'ultimo quarto), crescendo
+            {
+                const int from = big ? 8 : 12;
+                clear (t0 + from * st, t0 + kBar, [&] (int p) { return p == snare || p == hat || p == tom; });
+                for (int s = from; s < 16; ++s) if (big || s % 2 == 0 || s >= 14) out.push_back ({ t0 + s * st, (big && tom >= 0 && s >= 12 && s % 2) ? tom : snare, juce::jlimit (40, 127, 60 + (s - from) * 8) });
+                break;
+            }
+            case 1:   // rullata di hat in trentaduesimi sull'ultimo movimento
+            {
+                clear (t0 + 12 * st, t0 + kBar, [&] (int p) { return p == hat; });
+                for (int k = 0; k < 8; ++k) out.push_back ({ t0 + 12 * st + k * st * 0.5, hat, 50 + k * 8 });
+                break;
+            }
+            case 2:   // stacco: si ferma tutto sull'ultimo movimento (resta solo l'ultimo colpo di rullante se c'e)
+            {
+                clear (t0 + 12 * st, t0 + kBar, [&] (int p) { return isDrum (p) || p == b808; });
+                if (snare >= 0) out.push_back ({ t0 + 15 * st, snare, 96 });
+                break;
+            }
+            case 3:   // groove: la cassa (e l'808 con lei) cambia nella seconda meta della battuta
+            {
+                clear (t0 + 8 * st, t0 + kBar, [&] (int p) { return p == kick || p == b808; });
+                static const char* alt[] = { "X..X..X.", "X.X...X.", "..X.X..X", "X...X.X." };
+                const juce::String a = alt[r.nextInt (4)];
+                for (int s = 0; s < 8; ++s) if (a[s] == 'X') { if (kick >= 0) out.push_back ({ t0 + (8 + s) * st, kick, 110 }); if (used (b808)) out.push_back ({ t0 + (8 + s) * st, b808, 104 }); }
+                break;
+            }
+            default:  // svuota la seconda meta (solo hat e melodia) e riparte col piatto
+            {
+                clear (t0 + 8 * st, t0 + kBar, [&] (int p) { return p == kick || p == b808 || p == snare; });
+                if (snare >= 0) for (int s : { 12, 13, 14, 15 }) out.push_back ({ t0 + s * st, snare, 70 + (s - 12) * 15 });
+                break;
+            }
+        }
+        if (cym >= 0 && b + 1 < newBars) out.push_back ({ (b + 1) * (double) kBar, cym, 100 });   // piatto alla ripartenza
+    }
+    std::sort (out.begin(), out.end(), [] (const PatEv& a, const PatEv& b) { return a.tick < b.tick; });
+    { const juce::SpinLock::ScopedLockType l (P.recLock); P.events = out; P.patternBars = newBars; }
+}
+}

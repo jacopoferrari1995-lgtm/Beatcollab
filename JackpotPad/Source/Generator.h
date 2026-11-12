@@ -15,6 +15,7 @@ const char* genCatName (int c);
 struct GenStyle { juce::String name; int cat; int idx; juce::String desc; };
 const std::vector<GenStyle>& genStyles();
 int stylesInCat (int cat, std::vector<int>& out);
+void extendPattern (Processor&, int newBars, juce::uint32 seed);   // allunga tenendo il pattern, con variazioni sulla 4a e 8a battuta
 
 // preset di uno stile: i loop scritti a mano (se ci sono) e le varianti numerate (seme fisso)
 struct GenPreset { juce::String name; int bankIndex; juce::uint32 seed; };

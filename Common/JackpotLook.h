@@ -53,8 +53,29 @@ struct LnF : juce::LookAndFeel_V4
 // ombra morbida sotto un rettangolo arrotondato
 inline void softShadow (juce::Graphics& g, juce::Rectangle<float> r, float rad, float spread = 14.0f, float alpha = 0.55f, float dy = 6.0f)
 {
-    juce::Path p; p.addRoundedRectangle (r.translated (0, dy), rad);
-    juce::DropShadow (juce::Colours::black.withAlpha (alpha), (int) spread, {}).drawForPath (g, p);
+    // l'ombra sfocata costa molto: si salta se e fuori dalla zona da ridisegnare e si tiene in cache come immagine
+    // (prima veniva rifatta a ogni ridisegno, anche per un LED: il plugin e la DAW andavano a scatti)
+    const auto area = r.translated (0, dy).expanded (spread + 2);
+    if (! g.getClipBounds().toFloat().intersects (area)) return;
+    const float sc = juce::jlimit (1.0f, 3.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+    struct Entry { juce::String key; juce::Image img; };
+    static std::vector<Entry> cache;
+    const juce::String key = juce::String (r.getWidth(), 1) + "x" + juce::String (r.getHeight(), 1) + "/" + juce::String (rad, 1) + "/" + juce::String (spread, 1) + "/" + juce::String (alpha, 2) + "@" + juce::String (sc, 2);
+    juce::Image* img = nullptr;
+    for (auto& e : cache) if (e.key == key) { img = &e.img; break; }
+    if (img == nullptr)
+    {
+        const int iw = juce::roundToInt (area.getWidth() * sc), ih = juce::roundToInt (area.getHeight() * sc);
+        juce::Image im (juce::Image::ARGB, juce::jmax (1, iw), juce::jmax (1, ih), true);
+        {
+            juce::Graphics ig (im); ig.addTransform (juce::AffineTransform::scale (sc));
+            juce::Path p; p.addRoundedRectangle (juce::Rectangle<float> (spread + 2, spread + 2, r.getWidth(), r.getHeight()), rad);
+            juce::DropShadow (juce::Colours::black.withAlpha (alpha), (int) spread, {}).drawForPath (ig, p);
+        }
+        if (cache.size() > 64) cache.erase (cache.begin());
+        cache.push_back ({ key, im }); img = &cache.back().img;
+    }
+    g.drawImage (*img, area, juce::RectanglePlacement::stretchToFit);
 }
 // grana fine (texture cacheata) per togliere l'effetto "piatto"
 inline void grain (juce::Graphics& g, juce::Rectangle<int> r, float alpha = 0.035f)

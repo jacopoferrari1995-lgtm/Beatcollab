@@ -1352,7 +1352,7 @@ void PatternView::paint (juce::Graphics& g)
     chipH (hd.removeFromLeft (44).reduced (1, 2), "1-8", bank == 0, Col::magenta, [this] { bank = 0; }); 
     chipH (hd.removeFromLeft (44).reduced (1, 2), "9-16", bank == 1, Col::magenta, [this] { bank = 1; });
     hd.removeFromLeft (8);
-    for (int L : { 1, 2, 4, 8 }) chipH (hd.removeFromLeft (24).reduced (1, 2), juce::String (L), bars == L, Col::amber, [this, L] { ed.proc.patternBars = L; barPage = juce::jmin (barPage, L - 1); });
+    for (int L : { 1, 2, 4, 8 }) chipH (hd.removeFromLeft (24).reduced (1, 2), juce::String (L), bars == L, Col::amber, [this, L] { extendPattern (ed.proc, L, juce::Random::getSystemRandom().nextInt()); barPage = juce::jmin (barPage, L - 1); });
     chipH (hd.removeFromRight (56).reduced (1, 2), "PULISCI", false, Col::red, [this] { const juce::SpinLock::ScopedLockType l (ed.proc.recLock); ed.proc.events.clear(); });
     chipH (hd.removeFromRight (50).reduced (1, 2), "SEGUI", follow, Col::green, [this] { follow = ! follow; });
     // panoramica di tutte le battute: colpi del banco visibile, pagina aperta e testina che scorre
@@ -1467,13 +1467,12 @@ void DragMidi::mouseDrag (const juce::MouseEvent& e)
 }
 
 // ======================= Root =======================
-void Root::paint (juce::Graphics& g)
+void Root::paintStatic (juce::Graphics& g)
 {
+
     const float W = (float) Editor::W, H = (float) Editor::H;
     jlook::backdrop (g, { 0, 0, W, H }, Col::magenta, Col::cyan);
     jlook::header (g, { 0, 0, W, 66 }, "SAMPLER", Col::magenta, "JP-16  DRUM SAMPLER", Col::magenta, Col::cyan);
-    g.setFont (ft (10.0f, true, true)); g.setColour (Col::dim); g.drawText ("KIT", juce::Rectangle<float> (430, 12, 40, 40), juce::Justification::centredLeft);
-    glowText (g, ed.proc.kitName.toUpperCase(), { 462, 12, 400, 40 }, Col::amber, ft (11.0f, true, true));
     for (auto pt : { juce::Point<float> (12, 80), juce::Point<float> (W - 12, 80), juce::Point<float> (12, H - 12), juce::Point<float> (W - 12, H - 12) }) screw (g, pt.x, pt.y);
     jlook::softShadow (g, { 768, 78, 454, 452 }, 14); insetPanel (g, { 768, 78, 454, 452 }, 14);
     // fascia Q-link
@@ -1486,6 +1485,22 @@ void Root::paint (juce::Graphics& g)
 
     g.setColour (Col::dim); g.setFont (ft (9.0f));
     g.drawText ("per suonare dalla tastiera del Mac: in Ableton premi M", juce::Rectangle<float> (774, 744, 300, 14), juce::Justification::centredLeft);
+}
+void Root::paint (juce::Graphics& g)
+{
+    // lo sfondo (gradienti, grana, ombre, pannelli) non cambia: si disegna una volta in un'immagine e poi si copia.
+    // Prima veniva ridisegnato tutto a ogni aggiornamento e il plugin (e Ableton) andavano a scatti.
+    const float W = (float) Editor::W, H = (float) Editor::H;
+    const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f)
+    {
+        bgScale = sc;
+        bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false);
+        juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig);
+    }
+    { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality); g.drawImageAt (bg, 0, 0); g.restoreState(); }   // copia pixel per pixel
+    g.setFont (ft (10.0f, true, true)); g.setColour (Col::dim); g.drawText ("KIT", juce::Rectangle<float> (430, 12, 40, 40), juce::Justification::centredLeft);
+    glowText (g, ed.proc.kitName.toUpperCase(), { 462, 12, 400, 40 }, Col::amber, ft (11.0f, true, true));
     // meter master
     const float m[2] = { ed.proc.meterL.load(), ed.proc.meterR.load() };
     for (int c = 0; c < 2; ++c)

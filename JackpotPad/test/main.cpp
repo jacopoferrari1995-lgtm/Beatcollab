@@ -9,6 +9,44 @@
 using namespace jp;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "extend")
+    {
+        Processor p; p.prepareToPlay (44100, 512); p.loadFactoryKit (1);
+        generate (p, 0, 5, 0);
+        { std::vector<PatEv> e2; for (auto& e : p.events) if (e.tick < 2 * kBar) e2.push_back (e); p.events = e2; p.patternBars = 2; }
+        extendPattern (p, 8, 1234);
+        for (int pd = 0; pd < 16; ++pd)
+        {
+            juce::String row; bool any = false;
+            for (int b = 0; b < 8; ++b) { for (int s = 0; s < 16; ++s) { char c = '.'; for (auto& e : p.events) if (e.pad == pd && (int) (e.tick / (kBar / 16.0)) == b * 16 + s) c = e.vel > 90 ? 'X' : 'x'; row << c; if (c != '.') any = true; } row << "|"; }
+            if (any) std::printf ("%2d %s\n", pd + 1, row.toRawUTF8());
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "perf")
+    {
+        Processor p; p.prepareToPlay (44100, 512); p.loadFactoryKit (1);
+        Editor ed (p); ed.setSize (Editor::W, Editor::H);
+        juce::Image im (juce::Image::ARGB, Editor::W * 2, Editor::H * 2, true);
+        auto t0 = juce::Time::getMillisecondCounterHiRes();
+        for (int k = 0; k < 60; ++k) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (1056, 686, 158, 22); ed.paintEntireComponent (g, false); }
+        auto t1 = juce::Time::getMillisecondCounterHiRes();
+        for (int k = 0; k < 10; ++k) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); ed.paintEntireComponent (g, false); }
+        auto t2 = juce::Time::getMillisecondCounterHiRes();
+        std::printf ("ridisegno del meter: %.2f ms, editor intero: %.1f ms\n", (t1 - t0) / 60, (t2 - t1) / 10);
+        std::function<void (juce::Component&, int)> walk = [&] (juce::Component& c, int depth)
+        {
+            if ((depth > 0 && ! c.isVisible()) || depth > 6) return;
+            juce::Image ci (juce::Image::ARGB, juce::jmax (1, c.getWidth() * 2), juce::jmax (1, c.getHeight() * 2), true);
+            auto a = juce::Time::getMillisecondCounterHiRes();
+            for (int k = 0; k < 5; ++k) { juce::Graphics g (ci); g.addTransform (juce::AffineTransform::scale (2.0f)); c.paint (g); }
+            const double ms = (juce::Time::getMillisecondCounterHiRes() - a) / 5;
+            if (ms > 0.3) std::printf ("%*s%s %s %dx%d: %.1f ms\n", depth * 2, "", typeid (c).name(), c.getName().toRawUTF8(), c.getWidth(), c.getHeight(), ms);
+            for (auto* ch : c.getChildren()) walk (*ch, depth + 1);
+        };
+        walk (ed, 0);
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "allgen")
     {
         Processor p; p.prepareToPlay (44100, 512); p.loadFactoryKit (1);

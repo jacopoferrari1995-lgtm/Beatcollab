@@ -178,9 +178,10 @@ public:
 class Root : public juce::Component
 {
 public:
-    explicit Root (Editor& e) : ed (e) {}
+    explicit Root (Editor& e) : ed (e) { setOpaque (true); }
     void paint (juce::Graphics&) override;
-    Editor& ed;
+    void paintStatic (juce::Graphics&);
+    Editor& ed; juce::Image bg; float bgScale = 0;
 };
 
 // editor del campione a tutto schermo: BPM, zoom, chop, assegnazione delle fette ai pad
