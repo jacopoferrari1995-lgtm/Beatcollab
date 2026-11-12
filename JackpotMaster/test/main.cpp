@@ -119,6 +119,15 @@ int main (int argc, char** argv)
         Editor ed (*p);
         if (auto* v = std::getenv ("JVIEW")) ed.easyPage.view = std::atoi (v);
         for (int i = 0; i < 30; ++i) ed.tickForTest();
+        if (std::getenv ("JPERF"))
+        {
+            const double t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < 20; ++i) { ed.tickForTest(); auto im = ed.createComponentSnapshot (ed.getLocalBounds(), true, 2.0f); }
+            std::printf ("frame completo @2x: %.1f ms\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 20.0);
+            const double t1 = juce::Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < 20; ++i) { ed.tickForTest(); auto im = ed.easyPage.stage.createComponentSnapshot (ed.easyPage.stage.getLocalBounds(), true, 2.0f); }
+            std::printf ("solo onda @2x: %.1f ms\n", (juce::Time::getMillisecondCounterHiRes() - t1) / 20.0);
+        }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argc > 2 ? argv[2] : "/tmp/master.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;
@@ -145,6 +154,15 @@ int main (int argc, char** argv)
             auto rt = p->reference(); std::printf ("riferimento: %s  %.1f LUFS  %.1f dBTP\n", rt ? rt->name.toRawUTF8() : "nessuno", rt ? rt->lufs : 0.0f, rt ? rt->tp : 0.0f);
         }
         for (int i = 0; i < 30; ++i) ed.tickForTest();
+        if (std::getenv ("JPERF"))
+        {
+            const double t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < 20; ++i) { ed.tickForTest(); auto im = ed.createComponentSnapshot (ed.getLocalBounds(), true, 2.0f); }
+            std::printf ("frame completo @2x: %.1f ms\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 20.0);
+            const double t1 = juce::Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < 20; ++i) { ed.tickForTest(); auto im = ed.easyPage.stage.createComponentSnapshot (ed.easyPage.stage.getLocalBounds(), true, 2.0f); }
+            std::printf ("solo onda @2x: %.1f ms\n", (juce::Time::getMillisecondCounterHiRes() - t1) / 20.0);
+        }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argc > 2 ? argv[2] : "/tmp/master.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

@@ -1449,7 +1449,7 @@ void Editor::resized()
     for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &balPage, &refPage, &soon }) pg->setBounds (18, 154, 854, 628);
     loud.setBounds (884, 154, 378, 406);
     easyPage.setBounds (0, 64, 1280, 736); neoBg = {};
-    modeR[0] = { 282, 17, 70, 32 }; modeR[1] = { 354, 17, 76, 32 };
+    modeSeg.layout ({ 282, 18, 0, 28 }, juce::StringArray { "FACILE", "AVANZATO" }, 9.0f); modeR[0] = modeSeg.r[0].toNearestInt(); modeR[1] = modeSeg.r[1].toNearestInt();
     trim->setBounds (898, 606, 84, 84 + 27);
     compare->setBounds (996, 604, 260, 22); norm->setBounds (996, 632, 260, 22);
     dither->setBounds (996, 700, 252, 26);
@@ -1504,43 +1504,45 @@ void Editor::paintNeo (juce::Graphics& g)
         neoScale = sc; neoBg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false);
         juce::Graphics ig (neoBg); ig.addTransform (juce::AffineTransform::scale (sc));
         juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, (float) H, false); ig.setGradientFill (base); ig.fillAll();
-        auto blob = [&ig] (float x, float y, float r, juce::Colour c, float a) { juce::ColourGradient rg (c.withAlpha (a), x, y, c.withAlpha (0.0f), x + r, y, true); ig.setGradientFill (rg); ig.fillEllipse (x - r, y - r, r * 2, r * 2); };
-        blob (180, 120, 520, K::violet, 0.20f); blob (1120, 160, 560, K::pink, 0.13f); blob (640, 820, 640, K::cyan, 0.09f); blob (1240, 760, 380, K::violet, 0.10f);
-        // griglia prospettica leggerissima
-        ig.setColour (juce::Colours::white.withAlpha (0.018f));
-        for (int x = 0; x < W; x += 40) ig.drawVerticalLine (x, 64, (float) H);
-        for (int y = 64; y < H; y += 40) ig.drawHorizontalLine (y, 0, (float) W);
-        // grana
+        // aurora: grandi campi di colore sfocati, nessun bordo
+        juce::Image au (juce::Image::ARGB, W / 8, H / 8, true);
+        {
+            juce::Graphics ag (au); ag.addTransform (juce::AffineTransform::scale (1.0f / 8));
+            auto blob = [&ag] (float x, float y, float rx, float ry, juce::Colour c, float a) { ag.setColour (c.withAlpha (a)); ag.fillEllipse (x - rx, y - ry, rx * 2, ry * 2); };
+            blob (300, 190, 380, 170, K::violet, 0.28f); blob (980, 140, 300, 150, K::pink, 0.16f); blob (700, 300, 360, 90, K::blue, 0.18f);
+            blob (640, 760, 520, 120, K::violet, 0.16f); blob (90, 700, 200, 120, K::cyan, 0.06f); blob (1220, 620, 200, 160, K::pink, 0.07f);
+        }
+        neo::blur (au, 10, 3);
+        ig.setImageResamplingQuality (juce::Graphics::highResamplingQuality); ig.drawImage (au, juce::Rectangle<float> (0, 0, (float) W, (float) H));
+        // vignetta
+        juce::ColourGradient vg (juce::Colours::transparentBlack, W * 0.5f, H * 0.45f, juce::Colours::black.withAlpha (0.55f), 0, 0, true); ig.setGradientFill (vg); ig.fillAll();
+        // grana finissima
         juce::Random rnd (7);
-        for (int i = 0; i < 9000; ++i) { ig.setColour (juce::Colours::white.withAlpha (rnd.nextFloat() * 0.035f)); ig.fillRect (rnd.nextFloat() * W, rnd.nextFloat() * H, 1.0f, 1.0f); }
-        // testata
-        juce::ColourGradient hb (juce::Colours::white.withAlpha (0.045f), 0, 0, juce::Colours::white.withAlpha (0.01f), 0, 64, false); ig.setGradientFill (hb); ig.fillRect (0, 0, W, 64);
-        juce::ColourGradient hl (K::pink.withAlpha (0.0f), 0, 63, K::pink.withAlpha (0.0f), (float) W, 63, false); hl.addColour (0.25, K::pink.withAlpha (0.55f)); hl.addColour (0.6, K::violet.withAlpha (0.5f)); hl.addColour (0.85, K::cyan.withAlpha (0.45f));
-        ig.setGradientFill (hl); ig.fillRect (0.0f, 63.0f, (float) W, 1.0f);
-        // logo: anello con gradiente + scritta
-        { juce::Path ring; ring.addCentredArc (40, 32, 13, 13, 0, 0, 6.2832f, true); juce::ColourGradient lg (K::pink, 27, 45, K::cyan, 53, 19, false); ig.setGradientFill (lg); ig.strokePath (ring, juce::PathStrokeType (3.0f));
-          ig.fillEllipse (35, 27, 10, 10); }
-        glowText (ig, "JACKPOT MASTER", { 64, 14, 220, 22 }, K::ink, f (16.0f, 3));
-        ig.setFont (f (9.0f, 2)); ig.setColour (K::sub); ig.drawText ("ONE KNOB MASTERING", juce::Rectangle<float> (64, 35, 220, 14), juce::Justification::centredLeft);
+        for (int i = 0; i < 14000; ++i) { ig.setColour (juce::Colours::white.withAlpha (rnd.nextFloat() * 0.03f)); ig.fillRect (rnd.nextFloat() * W, rnd.nextFloat() * H, 1.0f, 1.0f); }
+        // logo
+        { juce::Path ring; ring.addCentredArc (38, 32, 12, 12, 0, 0.5f, 6.2832f - 0.2f, true); juce::ColourGradient lg (K::pink, 26, 44, K::cyan, 50, 20, false);
+          ig.setGradientFill (lg); ig.setOpacity (0.25f); ig.strokePath (ring, juce::PathStrokeType (7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); ig.setOpacity (1.0f);
+          ig.strokePath (ring, juce::PathStrokeType (2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); ig.fillEllipse (34, 28, 8, 8); }
+        ig.setFont (neo::num (15.0f)); ig.setColour (K::ink); ig.drawText ("JACKPOT", juce::Rectangle<float> (62, 15, 100, 20), juce::Justification::centredLeft);
+        ig.setFont (neo::big (15.0f)); ig.setColour (K::sub); ig.drawText ("Master", juce::Rectangle<float> (139, 15, 100, 20), juce::Justification::centredLeft);
+        ig.setFont (neo::cap (7.5f)); ig.setColour (K::faint); ig.drawText ("ONE KNOB MASTERING", juce::Rectangle<float> (62, 35, 200, 12), juce::Justification::centredLeft);
     }
     { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.drawImageAt (neoBg, 0, 0); g.restoreState(); }
-    // selettore di modo
-    { auto seg = modeR[0].getUnion (modeR[1]).toFloat().expanded (3); g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (seg, seg.getHeight() * 0.5f);
-      g.setColour (juce::Colours::white.withAlpha (0.08f)); g.drawRoundedRectangle (seg.reduced (0.5f), seg.getHeight() * 0.5f, 1.0f);
-      pill (g, modeR[0].toFloat(), "FACILE", proc.easy(), K::pink, 10.0f); pill (g, modeR[1].toFloat(), "AVANZATO", ! proc.easy(), K::violet, 10.0f); }
-    // preset
-    { auto pr = presetRect.toFloat(); glass (g, pr, pr.getHeight() * 0.5f, K::violet, 0.8f);
-      auto nm = proc.getProgramName (proc.preset); if (nm.contains (" | ")) nm = nm.fromFirstOccurrenceOf (" | ", false, false);
-      glowText (g, nm.toUpperCase(), pr, K::ink, f (12.0f, 2), juce::Justification::centred);
-      g.setFont (f (18.0f, 2)); g.setColour (K::sub);
+    static const juce::StringArray modes { "FACILE", "AVANZATO" };
+    modeSeg.paint (g, modes, proc.easy() ? 0 : 1, K::pink, 9.0f);
+    // preset: solo testo, frecce discrete
+    { auto nm = proc.getProgramName (proc.preset); juce::String grp;
+      if (nm.contains (" | ")) { grp = nm.upToFirstOccurrenceOf (" | ", false, false); nm = nm.fromFirstOccurrenceOf (" | ", false, false); }
+      auto pr = presetRect.toFloat();
+      g.setFont (neo::cap (7.5f)); g.setColour (K::faint); g.drawText (grp.isEmpty() ? juce::String ("PRESET") : juce::String::fromUTF8 ("PRESET  \xc2\xb7  ") + grp.toUpperCase(), pr.withHeight (12).translated (0, 1), juce::Justification::centred);
+      g.setFont (neo::f (15.0f, 1)); g.setColour (K::ink); g.drawText (nm, pr.withTrimmedTop (12), juce::Justification::centred);
+      g.setFont (neo::f (18.0f)); g.setColour (K::sub);
       g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred); }
-    pill (g, abRect.toFloat(), "MEMORIA " + proc.ab.label(), proc.ab.cur == 1, K::cyan, 10.0f, abHover);
-    // stato a destra
+    neo::chip (g, abRect.toFloat().reduced (8, 4), "MEMORIA " + proc.ab.label(), proc.ab.cur == 1, K::cyan, 9.0f, abHover);
     { const float gr = proc.grAvg.load(); const bool on = proc.lufsS.load() > -60;
-      auto r = juce::Rectangle<float> (1100, 22, 160, 20);
-      g.setColour ((on ? K::mint : K::faint).withAlpha (on ? 0.3f : 0.2f)); g.fillEllipse (r.getX(), r.getCentreY() - 6, 12, 12);
-      g.setColour (on ? K::mint : K::faint); g.fillEllipse (r.getX() + 3, r.getCentreY() - 3, 6, 6);
-      g.setFont (f (9.5f, 2)); g.setColour (K::sub); g.drawText (on ? (gr > 0.05f ? "LIMITER  -" + juce::String (gr, 1) + " dB" : juce::String ("SEGNALE OK")) : juce::String ("IN ATTESA"), r.withTrimmedLeft (20), juce::Justification::centredLeft); }
+      auto r = juce::Rectangle<float> (1100, 22, 160, 20); const auto c = on ? (gr > 3 ? K::pink : K::mint) : K::faint;
+      g.setColour (c.withAlpha (0.25f)); g.fillEllipse (r.getX() - 2, r.getCentreY() - 7, 14, 14); g.setColour (c); g.fillEllipse (r.getX() + 2, r.getCentreY() - 3, 6, 6);
+      g.setFont (neo::cap (8.5f)); g.setColour (K::sub); g.drawText (on ? (gr > 0.05f ? "LIMITER  -" + juce::String (gr, 1) + " dB" : juce::String ("SEGNALE OK")) : juce::String ("IN ATTESA"), r.withTrimmedLeft (18), juce::Justification::centredLeft); }
 }
 
 void Editor::mouseMove (const juce::MouseEvent& e0)
@@ -1589,6 +1591,7 @@ void Editor::timerCallback()
             float e = 0; for (int i = 0; i < 4096; ++i) { l[i] = 0.5f * (l[i] + r[i]); e += l[i] * l[i]; }
             if (e > 4096 * 1e-7f) { live.addFrame (l, proc.sampleRate(), live.frames < 10 ? 0.3 : 0.03); live.result (liveThirds); }
         }
+        if (modeSeg.step (0)) repaint (scaler.map ({ 270, 8, 200, 50 }));
         if (++tick % 10 == 0) repaint (scaler.map ({ 260, 8, 1020, 50 }));
         return;
     }
