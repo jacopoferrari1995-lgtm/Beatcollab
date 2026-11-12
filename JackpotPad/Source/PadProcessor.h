@@ -1,4 +1,5 @@
 #pragma once
+#include "PerfFx.h"
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <atomic>
 #include <memory>
@@ -181,6 +182,7 @@ public:
     // effetti da performance sulle 8 manopole (Q-LINK FX e manopole dell'MPK: CC 70-77)
     static constexpr int kFx = 8;
     static const char* const kFxIds[kFx];
+    static const int kFxDefault[kFx];
     std::atomic<float> ccPend[kFx];        // valore (0..1) arrivato dal controller, da passare al parametro
     std::atomic<bool> qFx { false };       // le 8 manopole sotto lo schermo fanno da effetti
     std::atomic<int> ccMap[kFx];           // quale CC muove ogni effetto (di fabbrica 70-77, l'MPK); si cambia con MIDI learn
@@ -234,11 +236,7 @@ private:
     juce::Random rng;
     float busEnv = 0;
     // effetti da performance
-    juce::AudioBuffer<float> stBuf, stuBuf; int stW = 0, stuW = 0; double stR = 0; float stSpeed = 1, stX = 0; bool stOn = false;
-    bool stuOn = false; double stuStart = 0, stuPos = 0; int stuLen = 0; float stuX = 0;
-    juce::AudioBuffer<float> scBuf; int skW = 0, scIdle = 0; double scAnchor = 0; float scV = -1, scGrab = 0, scX = 0; bool scOn = false;
-    float djIc1[2] {}, djIc2[2] {}, djFc = 1000, djMode = 0, fxG = 1; float lfHold[2] {}, lfLp[2] {}; int lfCnt = 0;
-    void performFx (float* L, float* R, int N);
+    pfx::Engine perf; std::atomic<float>* fxTypeRaw[8] {}; std::atomic<float>* fxAmtRaw[8] {};
     // loudness
     Biquad kw1, kw2; double lufsAcc = 0; int lufsN = 0; float lufsBins[30] {}; int lufsBi = 0;
     void startVoice (int p, int vel, float r0 = -1, float r1 = -1);

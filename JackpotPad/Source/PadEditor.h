@@ -29,13 +29,14 @@ public:
     std::function<juce::String()> text;
     std::function<void()> reset;
     std::function<void (bool)> gesture;   // inizio/fine del gesto per registrare le automazioni in Ableton
-    std::function<void()> popup;          // tasto destro (es. MIDI learn)
+    std::function<void()> popup;          // tasto destro o clic sul nome: menu (effetto, MIDI learn)
+    std::function<void()> released;       // mollata: per gli effetti che tornano a zero
     bool bipolar = false; float shown = -1.0f;
     void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent& e) override { if (e.mods.isPopupMenu() && popup) { popup(); return; } if (! get) return; start = get(); dragging = true; if (gesture) gesture (true); if ((e.mods.isAltDown() || e.mods.isCommandDown()) && reset) { reset(); } }
+    void mouseDown (const juce::MouseEvent& e) override { if (popup && (e.mods.isPopupMenu() || e.position.y > getHeight() - 30)) { popup(); return; } if (! get) return; start = get(); dragging = true; if (gesture) gesture (true); if ((e.mods.isAltDown() || e.mods.isCommandDown()) && reset) { reset(); } }
     void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::UpDownResizeCursor); repaint(); }
     void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
-    void mouseUp (const juce::MouseEvent& e) override { if (dragging && gesture) gesture (false); dragging = false; repaint(); juce::ignoreUnused (e); }
+    void mouseUp (const juce::MouseEvent& e) override { if (dragging && released) released(); if (dragging && gesture) gesture (false); dragging = false; repaint(); juce::ignoreUnused (e); }
     void mouseDrag (const juce::MouseEvent& e) override { if (! dragging || e.mods.isAltDown() || e.mods.isCommandDown()) return; if (set) set (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 170.0f))); repaint(); }
     void mouseDoubleClick (const juce::MouseEvent&) override { if (reset) reset(); repaint(); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { if (set) set (juce::jlimit (0.0f, 1.0f, get() + (w.deltaY > 0 ? 0.01f : -0.01f))); repaint(); }

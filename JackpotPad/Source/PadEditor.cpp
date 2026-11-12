@@ -2285,8 +2285,7 @@ void Editor::bindQlinks()
         { { DTYPE }, { DRIVE }, { BITS }, { RATE }, { SREV }, { SDLY }, { PAN }, { LEVEL } },
         { { -1, "revKit", "REV KIT" }, { -1, "revSize", "REV CODA" }, { -1, "dlyKit", "DLY KIT" }, { -1, "dlyFb", "DLY FB" },
           { -1, "satAmt", "SATURA" }, { -1, "busAmt", "BUS AMT" }, { -1, "revRet", "REV RET" }, { -1, "out", "OUTPUT" } } };
-    static const std::vector<Q> fxMap = { { -1, "fxFilter", "FILTRO" }, { -1, "revKit", "REVERB" }, { -1, "dlyKit", "DELAY" }, { -1, "satAmt", "SATURA" },
-                                          { -1, "fxScratch", "SCRATCH" }, { -1, "fxStop", "TAPE STOP" }, { -1, "fxStut", "STUTTER" }, { -1, "fxLofi", "LO-FI" } };
+    static const std::vector<Q> fxMap = { { -1, "fx1", "" }, { -1, "fx2", "" }, { -1, "fx3", "" }, { -1, "fx4", "" }, { -1, "fx5", "" }, { -1, "fx6", "" }, { -1, "fx7", "" }, { -1, "fx8", "" } };
     const bool fx = proc.qFx.load();
     auto m = fx ? fxMap : map[(size_t) page];
     if (! fx && page == PG_EQ) for (int k = 0; k < 4; ++k) m[(size_t) k].pad = bandP (screen.eqBand, k == 0 ? 2 : k == 1 ? 3 : k == 2 ? 4 : 1);
@@ -2305,43 +2304,73 @@ void Editor::bindQlinks()
             q->reset = [this, i] { setPadParam (i, kPInfo[i].def); screen.repaint(); };
             q->text = [this, i] { return formatPadParam (i, proc.pad[sel].get (i)); };
             q->gesture = [this, i] (bool b) { if (auto* h = proc.hostParam (sel, i)) { if (b) h->beginChangeGesture(); else h->endChangeGesture(); } };
-            q->popup = nullptr;
+            q->popup = nullptr; q->released = nullptr;
             q->setVisible (true);
         }
         else if (e.global != nullptr)
         {
             auto* pr = proc.apvts.getParameter (e.global);
-            const juce::String gid (e.global);
-            q->label = e.label; q->bipolar = gid == "fxFilter" || gid == "fxGain" || gid == "fxScratch"; q->col = fx ? (k < 4 ? Col::magenta : Col::amber) : Col::cyan;
+            q->released = nullptr; q->popup = nullptr;
             if (fx)
-                q->popup = [this, k, q]
-                {   // MIDI learn: qualsiasi controller (MPK, KeyLab, fader o manopole)
+            {   // slot di effetto: il tipo si sceglie dal menu (clic sul nome o tasto destro), la manopola dosa
+                auto* tp = proc.apvts.getParameter ("fx" + juce::String (k + 1) + "type");
+                const int ty = juce::roundToInt (tp->convertFrom0to1 (tp->getValue()));
+                const auto& I = pfx::info (ty);
+                q->label = juce::String (I.name) + juce::String::fromUTF8 (" \xe2\x96\xbe"); q->bipolar = I.bipolar; q->col = I.spring ? Col::amber : Col::magenta;
+                q->get = [pr] { return pr->getValue(); };
+                q->set = [this, pr] (float v) { pr->setValueNotifyingHost (v); };
+                q->reset = [pr, ty] { pr->setValueNotifyingHost (pfx::info (ty).neutral); };
+                q->gesture = [pr] (bool b) { if (b) pr->beginChangeGesture(); else pr->endChangeGesture(); };
+                q->text = [pr, ty] { return pfx::valueText (ty, pr->getValue()); };
+                if (I.spring) q->released = [pr, ty] { pr->setValueNotifyingHost (pfx::info (ty).neutral); };   // mollato: torna a zero
+                q->popup = [this, k, q, tp, pr, ty]
+                {
                     juce::PopupMenu m; const int cc = proc.ccMap[k].load();
-                    m.addSectionHeader (q->label + (cc >= 0 ? "  -  CC " + juce::String (cc) : juce::String ("  -  nessun CC")));
-                    m.addItem (1, "MIDI LEARN: muovi una manopola o un fader del controller");
-                    m.addItem (2, "Scollega");
-                    m.addItem (3, "Tutte e 8 come di fabbrica (CC 70-77, Akai MPK)");
-                    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (q), [this, k] (int r)
+                    m.addSectionHeader ("MANOPOLA " + juce::String (k + 1) + (cc >= 0 ? "  -  CC " + juce::String (cc) : juce::String ("  -  nessun CC")));
+                    std::map<juce::String, juce::PopupMenu> groups; juce::StringArray order;
+                    for (int t = 1; t < pfx::kNumTypes; ++t)
                     {
-                        if (r == 1) proc.learnSlot = k;
+                        const juce::String gname (pfx::info (t).group);
+                        if (! order.contains (gname)) order.add (gname);
+                        groups[gname].addItem (100 + t, juce::String (pfx::info (t).name) + (pfx::info (t).spring ? "   (torna a zero)" : ""), true, t == ty);
+                    }
+                    for (auto& gname : order) m.addSubMenu (gname, groups[gname]);
+                    m.addItem (100, "Vuota (OFF)", true, ty == 0);
+                    m.addSeparator();
+                    m.addItem (1, "MIDI LEARN: muovi una manopola, un fader o un pad (in modo CC)");
+                    m.addItem (2, "Scollega dal controller");
+                    m.addItem (3, "Tutte e 8 come di fabbrica (CC 70-77, Akai MPK)");
+                    m.addItem (4, "Tutti gli slot come di fabbrica");
+                    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (q), [this, k, tp, pr] (int r)
+                    {
+                        if (r >= 100)
+                        {
+                            const int t = r - 100;
+                            tp->setValueNotifyingHost (tp->convertTo0to1 ((float) t)); pr->setValueNotifyingHost (pfx::info (t).neutral); bindQlinks();
+                        }
+                        else if (r == 1) proc.learnSlot = k;
                         else if (r == 2) proc.ccMap[k] = -1;
                         else if (r == 3) for (int j = 0; j < Processor::kFx; ++j) proc.ccMap[j] = 70 + j;
+                        else if (r == 4)
+                            for (int j = 0; j < Processor::kFx; ++j)
+                            {
+                                auto* t2 = proc.apvts.getParameter ("fx" + juce::String (j + 1) + "type"); auto* a2 = proc.apvts.getParameter ("fx" + juce::String (j + 1));
+                                const int dt = Processor::kFxDefault[j]; t2->setValueNotifyingHost (t2->convertTo0to1 ((float) dt)); a2->setValueNotifyingHost (pfx::info (dt).neutral);
+                                bindQlinks();
+                            }
                     });
                 };
-            else q->popup = nullptr;
-            q->get = [pr] { return pr->getValue(); };
-            q->set = [this, pr] (float v) { pr->setValueNotifyingHost (v); screen.repaint(); };
-            q->reset = [pr] { pr->setValueNotifyingHost (pr->getDefaultValue()); };
-            q->gesture = [pr] (bool b) { if (b) pr->beginChangeGesture(); else pr->endChangeGesture(); };
-            const juce::String id (e.global);
-            q->text = [pr, id] {
-                const float v = pr->convertFrom0to1 (pr->getValue());
-                if (id == "out" || id == "fxGain") return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB";
-                if (id == "fxFilter") return std::abs (v) <= 0.02f ? juce::String ("OFF") : v < 0 ? "LP " + juce::String (juce::roundToInt (-v * 100)) + "%" : "HP " + juce::String (juce::roundToInt (v * 100)) + "%";
-                if (id == "fxScratch") return juce::String ("MUOVI");
-                if (id == "fxStut") return v <= 0.01f ? juce::String ("OFF") : v < 0.34f ? juce::String ("1/8") : v < 0.67f ? juce::String ("1/16") : juce::String ("1/32");
-                if ((id == "fxStop" || id == "fxLofi") && v <= 0.01f) return juce::String ("OFF");
-                return juce::String (juce::roundToInt (pr->getValue() * 100)) + "%"; };
+            }
+            else
+            {
+                q->label = e.label; q->bipolar = false; q->col = Col::cyan;
+                q->get = [pr] { return pr->getValue(); };
+                q->set = [this, pr] (float v) { pr->setValueNotifyingHost (v); screen.repaint(); };
+                q->reset = [pr] { pr->setValueNotifyingHost (pr->getDefaultValue()); };
+                q->gesture = [pr] (bool b) { if (b) pr->beginChangeGesture(); else pr->endChangeGesture(); };
+                const juce::String id (e.global);
+                q->text = [pr, id] { const float v = pr->convertFrom0to1 (pr->getValue()); return id == "out" ? juce::String (v, 1) + " dB" : juce::String (juce::roundToInt (pr->getValue() * 100)) + "%"; };
+            }
             q->setVisible (true);
         }
         else { q->setVisible (false); q->gesture = nullptr; }

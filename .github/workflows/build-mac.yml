@@ -14,67 +14,48 @@ jobs:
         run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
       - name: Configure
         run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DJACKPOT_VERSION=1.1.${{ github.run_number }}
-      - name: Build
+      - name: Build, firma, validazione, zip
         run: |
-          cmake --build build --config Release --target JackpotTape_AU -- -quiet
-          cmake --build build --config Release --target JackpotPad_AU -- -quiet
-          cmake --build build --config Release --target JackpotPad_VST3 -- -quiet
-          cmake --build build --config Release --target JackpotButter_AU -- -quiet
-          cmake --build build --config Release --target JackpotComp_AU -- -quiet
-          cmake --build build --config Release --target JackpotMeter_AU -- -quiet
-          cmake --build build --config Release --target JackpotAlter_AU -- -quiet
-          cmake --build build --config Release --target JackpotMaster_AU -- -quiet
-          cmake --build build --config Release --target JackpotMotion_AU -- -quiet
-          cmake --build build --config Release --target JackpotDust_AU -- -quiet
-          cmake --build build --config Release --target JackpotClip_AU -- -quiet
-          cmake --build build --config Release --target JackpotMix_AU -- -quiet
-          cmake --build build --config Release --target JackpotPhase_AU -- -quiet
-          cmake --build build --config Release --target JackpotTube_AU -- -quiet
-          cmake --build build --config Release --target JackpotRewind_AU -- -quiet
-      - name: Firma, validazione, zip
-        run: |
+          # cartella | nome del prodotto | tipo e codice per auval | nome dello zip
+          cat > plugins.txt <<'EOF'
+          JackpotTape|Jackpot Tape|aufx Jtap|JackpotTape
+          JackpotPad|Jackpot Sampler|aumu Jpad|JackpotSampler
+          JackpotButter|Jackpot Butter Rack|aufx Jbtr|JackpotButterRack
+          JackpotComp|Jackpot Studio Comp|aufx Jcmp|JackpotStudioComp
+          JackpotMeter|Jackpot Metering Hub|aufx Jmtr|JackpotMeteringHub
+          JackpotAlter|Jackpot Alter Drive|aufx Jalt|JackpotAlterDrive
+          JackpotMaster|Jackpot Master|aufx Jmst|JackpotMaster
+          JackpotMotion|Jackpot Motion|aufx Jmot|JackpotMotion
+          JackpotDust|Jackpot Dust|aufx Jdst|JackpotDust
+          JackpotClip|Jackpot Clip|aufx Jclp|JackpotClip
+          JackpotMix|Jackpot Mixology|aufx Jmix|JackpotMixology
+          JackpotPhase|Jackpot Phase|aufx Jphs|JackpotPhase
+          JackpotTube|Jackpot Tube Box|aufx Jtbx|JackpotTubeBox
+          JackpotRewind|Jackpot Rewind|aufx Jrwd|JackpotRewind
+          EOF
+          # build-only.txt: se c'e' ed e' pieno, si costruiscono solo quei plugin (piu veloce)
+          ONLY=""; [ -f build-only.txt ] && ONLY="$(tr -s ' \n' ' ' < build-only.txt)"
+          echo "solo: '$ONLY'"
           mkdir -p out ~/Library/Audio/Plug-Ins/Components
-          for NAME in "Jackpot Tape" "Jackpot Sampler" "Jackpot Butter Rack" "Jackpot Studio Comp" "Jackpot Metering Hub" "Jackpot Alter Drive" "Jackpot Master" "Jackpot Motion" "Jackpot Dust" "Jackpot Clip" "Jackpot Mixology" "Jackpot Phase" "Jackpot Tube Box" "Jackpot Rewind"; do
+          while IFS='|' read -r DIR NAME AU ZIP; do
+            DIR="$(echo $DIR)"; [ -z "$DIR" ] && continue
+            if [ -n "$ONLY" ] && ! echo " $ONLY " | grep -q " $DIR "; then continue; fi
+            cmake --build build --config Release --target "${DIR}_AU" -- -quiet
             C="$(find build -name "$NAME.component" -type d | head -1)"
-            echo "trovato: $C"
             codesign --force --deep -s - "$C"
             cp -R "$C" ~/Library/Audio/Plug-Ins/Components/
             cp -R "$C" out/
-          done
-          V="$(find build -name 'Jackpot Sampler.vst3' -type d | head -1)"
-          codesign --force --deep -s - "$V"
-          cp -R "$V" out/
+            (cd out && ditto -c -k --keepParent "$NAME.component" "$ZIP-AU.zip")
+            if [ "$DIR" = "JackpotPad" ]; then
+              cmake --build build --config Release --target JackpotPad_VST3 -- -quiet
+              V="$(find build -name 'Jackpot Sampler.vst3' -type d | head -1)"
+              codesign --force --deep -s - "$V"; cp -R "$V" out/
+              (cd out && ditto -c -k --keepParent "Jackpot Sampler.vst3" "JackpotSampler-VST3.zip")
+            fi
+            echo "$AU" >> auval.txt
+          done < plugins.txt
           killall -9 AudioComponentRegistrar || true
-          auval -v aufx Jtap Jkpt | tail -5 || true
-          auval -v aumu Jpad Jkpt | tail -5 || true
-          auval -v aufx Jbtr Jkpt | tail -5 || true
-          auval -v aufx Jcmp Jkpt | tail -5 || true
-          auval -v aufx Jmtr Jkpt | tail -5 || true
-          auval -v aufx Jalt Jkpt | tail -5 || true
-          auval -v aufx Jmst Jkpt | tail -5 || true
-          auval -v aufx Jmot Jkpt | tail -5 || true
-          auval -v aufx Jdst Jkpt | tail -5 || true
-          auval -v aufx Jclp Jkpt | tail -5 || true
-          auval -v aufx Jmix Jkpt | tail -5 || true
-          auval -v aufx Jphs Jkpt | tail -5 || true
-          auval -v aufx Jtbx Jkpt | tail -5 || true
-          auval -v aufx Jrwd Jkpt | tail -5 || true
-          cd out
-          ditto -c -k --keepParent "Jackpot Tape.component" "JackpotTape-AU.zip"
-          ditto -c -k --keepParent "Jackpot Sampler.component" "JackpotSampler-AU.zip"
-          ditto -c -k --keepParent "Jackpot Sampler.vst3" "JackpotSampler-VST3.zip"
-          ditto -c -k --keepParent "Jackpot Butter Rack.component" "JackpotButterRack-AU.zip"
-          ditto -c -k --keepParent "Jackpot Studio Comp.component" "JackpotStudioComp-AU.zip"
-          ditto -c -k --keepParent "Jackpot Metering Hub.component" "JackpotMeteringHub-AU.zip"
-          ditto -c -k --keepParent "Jackpot Alter Drive.component" "JackpotAlterDrive-AU.zip"
-          ditto -c -k --keepParent "Jackpot Master.component" "JackpotMaster-AU.zip"
-          ditto -c -k --keepParent "Jackpot Motion.component" "JackpotMotion-AU.zip"
-          ditto -c -k --keepParent "Jackpot Dust.component" "JackpotDust-AU.zip"
-          ditto -c -k --keepParent "Jackpot Clip.component" "JackpotClip-AU.zip"
-          ditto -c -k --keepParent "Jackpot Mixology.component" "JackpotMixology-AU.zip"
-          ditto -c -k --keepParent "Jackpot Phase.component" "JackpotPhase-AU.zip"
-          ditto -c -k --keepParent "Jackpot Tube Box.component" "JackpotTubeBox-AU.zip"
-          ditto -c -k --keepParent "Jackpot Rewind.component" "JackpotRewind-AU.zip"
+          while read -r T C; do auval -v $T $C Jkpt | tail -5 || true; done < auval.txt
       - uses: actions/upload-artifact@v4
         with:
           name: Jackpot-Plugins
@@ -84,6 +65,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="plugins-v1.1.${{ github.run_number }}"
-          gh release create "$TAG" out/JackpotTape-AU.zip out/JackpotSampler-AU.zip out/JackpotSampler-VST3.zip out/JackpotButterRack-AU.zip out/JackpotStudioComp-AU.zip out/JackpotMeteringHub-AU.zip out/JackpotAlterDrive-AU.zip out/JackpotMaster-AU.zip out/JackpotMotion-AU.zip out/JackpotDust-AU.zip out/JackpotClip-AU.zip out/JackpotMixology-AU.zip out/JackpotPhase-AU.zip out/JackpotTubeBox-AU.zip out/JackpotRewind-AU.zip \
+          gh release create "$TAG" out/*.zip \
             --target "${{ github.sha }}" --title "Jackpot Plugins $TAG" \
             --notes "Plugin per macOS (Apple Silicon e Intel). Copia i .component in ~/Library/Audio/Plug-Ins/Components (e il .vst3 in ~/Library/Audio/Plug-Ins/VST3), poi: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Jackpot*.component"
