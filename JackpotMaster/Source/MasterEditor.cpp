@@ -1415,9 +1415,20 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     dither = std::make_unique<Segs> (P ("dither"), C::violet, juce::StringArray { "OFF", "24 BIT", "16 BIT", "16 SHAPED" }); dither->font = 10.0f;
     for (juce::Component* c : std::initializer_list<juce::Component*> { &chain, &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &balPage, &refPage, &soon, &loud, trim.get(), compare.get(), norm.get(), dither.get() }) addAndMakeVisible (c);
     addAndMakeVisible (sizeChip);
+    addChildComponent (easyPage);
     select (MAXIM);
+    lastEasy = ! proc.easy(); applyMode();
     scaler.setup();
     startTimerHz (30);
+}
+void Editor::applyMode()
+{
+    const bool e = proc.easy(); lastEasy = e;
+    easyPage.setVisible (e);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &chain, &loud, trim.get(), compare.get(), norm.get(), dither.get() }) c->setVisible (! e);
+    if (e) for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &balPage, &refPage, &soon }) pg->setVisible (false);
+    else select (sel);
+    repaint();
 }
 void Editor::select (int m)
 {
@@ -1426,16 +1437,19 @@ void Editor::select (int m)
     maxPage.setVisible (m == MAXIM); limPage.setVisible (m == LIMIT); bassPage.setVisible (m == BASS); eqPage.setVisible (m == DYNEQ); imPage.setVisible (m == IMAGER);
     dsPage.setVisible (m == DEESS); busPage.setVisible (m == BUSCOMP); mbPage.setVisible (m == MULTI); tpPage.setVisible (m == TAPE); exPage.setVisible (m == EXCITER); balPage.setVisible (m == TOOL_BAL); refPage.setVisible (m == TOOL_REF);
     soon.setVisible (m < kNumMods && ! modInfo (m).ready); soon.mod = m < kNumMods ? m : 0;
+    if (proc.easy()) for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &balPage, &refPage, &soon }) pg->setVisible (false);
     chain.repaint(); repaint();
 }
 void Editor::resized()
 {
     const float sc = scaler.update();
-    presetRect = { 450, 15, 330, 36 }; prevRect = { 412, 15, 36, 36 }; nextRect = { 782, 15, 36, 36 }; abRect = { 830, 15, 110, 36 };
+    presetRect = { 474, 15, 300, 36 }; prevRect = { 438, 15, 34, 36 }; nextRect = { 776, 15, 34, 36 }; abRect = { 818, 15, 122, 36 };
     balRect = { 956, 15, 150, 36 }; refRect = { 1112, 15, 150, 36 };
     chain.setBounds (18, 76, 1244, 66);
     for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &balPage, &refPage, &soon }) pg->setBounds (18, 154, 854, 628);
     loud.setBounds (884, 154, 378, 406);
+    easyPage.setBounds (18, 72, 1244, 712);
+    modeR[0] = { 282, 17, 70, 32 }; modeR[1] = { 354, 17, 76, 32 };
     trim->setBounds (898, 606, 84, 84 + 27);
     compare->setBounds (996, 604, 260, 22); norm->setBounds (996, 632, 260, 22);
     dither->setBounds (996, 700, 252, 26);
@@ -1454,6 +1468,9 @@ void Editor::paint (juce::Graphics& g)
     g.setColour (C::phos); g.setFont (uf (20.0f));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
     jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, abHover, "MEMORIA " + proc.ab.label(), uf (11.5f));
+    jlook::button (g, modeR[0].toFloat(), C::amber, proc.easy(), false, "FACILE", uf (10.5f));
+    jlook::button (g, modeR[1].toFloat(), C::amber, ! proc.easy(), false, "AVANZATO", uf (10.5f));
+    if (proc.easy()) return;   // il resto della testata e dello sfondo serve solo all'AVANZATO
     jlook::button (g, balRect.toFloat(), C::green, sel == TOOL_BAL, false, "BILANCIO TONALE", uf (11.0f));
     jlook::button (g, refRect.toFloat(), C::phos, sel == TOOL_REF || proc.refListen.load(), false, proc.refListen.load() ? "RIFERIMENTO IN ASCOLTO" : "RIFERIMENTO", uf (11.0f));
     if (proc.value ("compare") > 0.5f) jlook::button (g, { 900, 742, 352, 30 }, C::phos, true, false, "ASCOLTI L'ORIGINALE A VOLUME UGUALE", uf (11.0f));
@@ -1487,7 +1504,9 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
 {
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int n = (int) presets().size();
+    if (modeR[0].contains (e.getPosition()) || modeR[1].contains (e.getPosition())) { auto* p = P ("mode"); p->setValueNotifyingHost (p->convertTo0to1 (modeR[0].contains (e.getPosition()) ? 0.0f : 1.0f)); applyMode(); return; }
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); repaint(); }
+    else if (proc.easy() && (balRect.contains (e.getPosition()) || refRect.contains (e.getPosition()))) return;
     else if (balRect.contains (e.getPosition())) select (TOOL_BAL);
     else if (refRect.contains (e.getPosition())) select (TOOL_REF);
     else if (prevRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + n - 1) % n); repaint(); }
@@ -1510,6 +1529,20 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
 
 void Editor::timerCallback()
 {
+    if (proc.easy() != lastEasy) applyMode();
+    if (proc.easy())
+    {
+        easyPage.repaint();
+        if (tick % 3 == 0)
+        {   // spettro medio dell'uscita (serve al confronto col riferimento)
+            float l[4096], r[4096]; proc.ringOut.read (l, r, 4096);
+            float e = 0; for (int i = 0; i < 4096; ++i) { l[i] = 0.5f * (l[i] + r[i]); e += l[i] * l[i]; }
+            if (e > 4096 * 1e-7f) { live.addFrame (l, proc.sampleRate(), live.frames < 10 ? 0.3 : 0.03); live.result (liveThirds); }
+        }
+        easyPage.loud->activity = juce::jlimit (0.0f, 1.0f, proc.grAvg.load() / 6.0f);
+        if (++tick % 10 == 0) repaint (scaler.map ({ 400, 8, 560, 50 }));
+        return;
+    }
     maxPage.gain->activity = juce::jlimit (0.0f, 1.0f, proc.grMax.load() / 6.0f);
     limPage.ceil->activity = juce::jlimit (0.0f, 1.0f, proc.grLim.load() / 3.0f);
     chain.repaint(); loud.repaint();

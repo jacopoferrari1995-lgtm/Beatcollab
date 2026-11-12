@@ -3,6 +3,7 @@
 #include "JackpotLook.h"
 #include "MasterColor.h"
 #include "MasterAnalysis.h"
+#include "MasterEasy.h"
 
 namespace jms
 {
@@ -95,13 +96,19 @@ public:
     StereoRing ringOut, ringIn;
     double eqRate() const { return sr; }
     std::atomic<bool> resetReq { false };
-    static constexpr int kHist = 480;
+    // modalita FACILE
+    bool easy() const { return value ("mode") < 0.5f; }
+    void autoInput();                                   // porta l'ingresso nella zona ottimale
+    static constexpr float kInOpt = -15.0f;             // LUFS short-term ideali in ingresso (prima del LOUD)
+    std::atomic<float> inAvg { -100 }, crush { 0 }, grAvg { 0 }, calmNow { 0 }, glueGr { 0 };
+    static constexpr int kHist = 800;   // 20 s a 25 ms
     std::atomic<float> hIn[kHist], hOut[kHist], hGrM[kHist], hGrL[kHist], hS[kHist]; std::atomic<int> hW { 0 };
 
 private:
     void timerCallback() override;
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100;
+    EasyEngine easyEng; double inAcc = 0; int inAccN = 0; float grSm = 0;
     BassControl bass; DynEq deq; Imager img; DeEsser dess; BusComp bus; Multiband mband; TapeMachine tape; Exciter exc; VarDelay deltaVar[2];
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2];

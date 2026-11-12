@@ -351,6 +351,26 @@ public:
     Editor& ed;
 };
 
+// modalita FACILE (stile Master Plan / ONE)
+class EasyPage : public juce::Component
+{
+public:
+    explicit EasyPage (Editor&);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    Editor& ed; int view = 0; float crushSm = 0;
+    juce::OwnedArray<Knob> knobs; Knob *low, *mid, *high, *thick, *warm, *silk, *pres, *loud, *speed, *glue, *calm, *wide, *ceil, *trim;
+    std::unique_ptr<Switch> monoB; std::unique_ptr<juce::FileChooser> chooser;
+    juce::Rectangle<float> viewR[5], targetR, cmpR, autoR, loadR, listenR;
+    Analyzer anIn, anOut; float specIn[300] {}, specOut[300] {};
+private:
+    void paintWave (juce::Graphics&, juce::Rectangle<float>);
+    void paintSpectrum (juce::Graphics&, juce::Rectangle<float>);
+    void paintGain (juce::Graphics&, juce::Rectangle<float>);
+    void paintRef (juce::Graphics&, juce::Rectangle<float>);
+};
+
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -386,6 +406,9 @@ public:
     LimPage limPage { *this };
     SoonPage soon { *this };
     LoudPanel loud { *this };
+    EasyPage easyPage { *this };
+    void applyMode();
+    juce::Rectangle<int> modeR[2]; bool lastEasy = false;
 private:
     void timerCallback() override;
     std::unique_ptr<Segs> dither; std::unique_ptr<Switch> compare, norm; std::unique_ptr<Knob> trim;

@@ -90,9 +90,42 @@ int main (int argc, char** argv)
         std::printf ("TP di riferimento (sinc 256, 32x): %.2f   stima del limiter: %.2f\n", gToDb (best), gToDb (mine));
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "easy")
+    {   // modalita FACILE: ogni preset, livello d'uscita, true peak, riduzione, indice crush; poi le manopole una alla volta
+        for (int i = 0; i < (int) presets().size(); ++i)
+        {
+            if (! juce::String (presets()[(size_t) i].name).startsWith ("Facile")) continue;
+            auto p = blank(); p->loadPreset (i); if (std::getenv ("JAUTO")) setP (*p, "trim", 7.6f);
+            std::vector<float> a, b; run (*p, [&] (int k, float& l, float& r) { beat (k, l, r); l *= 0.6f; r *= 0.6f; }, (int) sr * 14, a, b);
+            float nan = 0; for (float v : a) if (! std::isfinite (v)) nan = 1;
+            std::printf ("%-28s mode %d  in %.1f  out S %.1f I %.1f LUFS  TP %.2f (8x %.2f)  GR %.1f  crush %.2f %s\n", presets()[(size_t) i].name, (int) p->value ("mode"), p->inS.load(), p->lufsS.load(), p->lufsI.load(), p->tpMax.load(), measTP (a, (int) sr * 4), p->grAvg.load(), p->crush.load(), nan > 0 ? "NAN!" : "");
+        }
+        for (auto* id : { "e_low", "e_mid", "e_high", "e_thick", "e_warm", "e_silk", "e_glue", "e_calm", "e_wide", "e_loud" })
+        {
+            auto p0 = blank(); auto p1 = blank(); setP (*p1, id, juce::String (id) == "e_loud" ? 6.0f : (juce::String (id).startsWith ("e_l") || juce::String (id) == "e_mid" || juce::String (id) == "e_high") ? 4.0f : 1.0f);
+            std::vector<float> a0, b0, a1, b1;
+            run (*p0, [&] (int k, float& l, float& r) { beat (k, l, r); l *= 0.5f; r *= 0.5f; }, (int) sr * 6, a0, b0);
+            juce::Random rr (7); rnd = rr;
+            run (*p1, [&] (int k, float& l, float& r) { beat (k, l, r); l *= 0.5f; r *= 0.5f; }, (int) sr * 6, a1, b1);
+            double e0 = 0, e1 = 0, ed = 0; for (size_t k = (size_t) sr * 2; k < a0.size(); ++k) { e0 += a0[k] * a0[k]; e1 += a1[k] * a1[k]; ed += (a1[k] - a0[k]) * (a1[k] - a0[k]); }
+            std::printf ("%-8s livello %+.2f dB   quanto cambia il suono %.1f dB\n", id, 10 * std::log10 (e1 / e0), 10 * std::log10 (ed / e0 + 1e-20));
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "easysnap")
+    {
+        auto p = blank(); p->loadPreset (1 + (std::getenv ("JPR") ? std::atoi (std::getenv ("JPR")) : 0));
+        std::vector<float> a, b; run (*p, [&] (int k, float& l, float& r) { beat (k, l, r); l *= 0.6f; r *= 0.6f; }, (int) sr * 22, a, b);
+        Editor ed (*p);
+        if (auto* v = std::getenv ("JVIEW")) ed.easyPage.view = std::atoi (v);
+        for (int i = 0; i < 30; ++i) ed.tickForTest();
+        auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+        juce::File f (argc > 2 ? argv[2] : "/tmp/master.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "snap")
     {
-        auto p = fresh(); setP (*p, "mx_gain", 8); setP (*p, "mx_style", PUNCH); setP (*p, "mx_clip", 0.4f);
+        auto p = fresh(); setP (*p, "mode", 1); setP (*p, "mx_gain", 8); setP (*p, "mx_style", PUNCH); setP (*p, "mx_clip", 0.4f);
         setP (*p, "bc_on", 1); setP (*p, "bc_punch", 0.4f); setP (*p, "bc_mono", 110); setP (*p, "bc_harm", 0.3f); setP (*p, "bc_thr", -12);
         setP (*p, "eq_on", 1); setP (*p, eqId (2, "g"), -3); setP (*p, eqId (4, "dyn"), 1); setP (*p, eqId (4, "f"), 7000); setP (*p, eqId (4, "thr"), -40); setP (*p, eqId (5, "g"), 2.5f);
         setP (*p, "ds_on", 1); setP (*p, "ds_thr", -10); setP (*p, "bus_on", 1); setP (*p, "bus_thr", -18); setP (*p, "mb_on", 1); setP (*p, "mb3_up", 0.5f); setP (*p, "mb1_thr", -20);

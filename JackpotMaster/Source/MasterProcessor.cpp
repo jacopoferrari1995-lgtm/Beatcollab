@@ -152,6 +152,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "norm", 1 }, "Normalized Listen", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "compare", 1 }, "Compare Bypass", false));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "dither", 1 }, "Dither", StringArray { "OFF", "24 BIT", "16 BIT", "16 BIT SHAPED" }, 0));
+    // ---- modalita FACILE
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "mode", 1 }, "Modalita", StringArray { "FACILE", "AVANZATO" }, 0));
+    auto db = [] (float v, int) { return (v > 0 ? "+" : "") + String (v, 1) + " dB"; };
+    auto pc = [] (float v, int) { return String (juce::roundToInt (v * 100)) + "%"; };
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "e_loud", 1 }, "Loud", NormalisableRange<float> (0, 14, 0.01f), 0, AudioParameterFloatAttributes().withStringFromValueFunction (db)));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "e_pres", 1 }, "Presence (soft-hard)", NormalisableRange<float> (0, 1), 0.4f, AudioParameterFloatAttributes().withStringFromValueFunction (pc)));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "e_speed", 1 }, "Speed (smooth-fast)", NormalisableRange<float> (0, 1), 0.5f, AudioParameterFloatAttributes().withStringFromValueFunction (pc)));
+    for (auto* id : { "e_low", "e_mid", "e_high" }) l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, String (id).substring (2).toUpperCase(), NormalisableRange<float> (-6, 6, 0.1f), 0, AudioParameterFloatAttributes().withStringFromValueFunction (db)));
+    for (auto* id : { "e_thick", "e_warm", "e_silk", "e_glue", "e_calm" }) l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, String (id).substring (2).toUpperCase(), NormalisableRange<float> (0, 1), 0, AudioParameterFloatAttributes().withStringFromValueFunction (pc)));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "e_wide", 1 }, "Wide", NormalisableRange<float> (-1, 1), 0, AudioParameterFloatAttributes().withStringFromValueFunction (pc)));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "e_monob", 1 }, "Mono Bass", false));
     return l;
 }
 
@@ -173,7 +184,7 @@ void Processor::prepareToPlay (double s, int maxBlock)
 {
     sr = s;
     const int mb = juce::jmax (64, maxBlock);
-    mx.prepare (s, mb); lim.prepare (s);
+    mx.prepare (s, mb); lim.prepare (s); easyEng.prepare (s);
     bass.prepare (s); deq.prepare (s); img.prepare (s); dess.prepare (s); bus.prepare (s); mband.prepare (s); tape.prepare (s); exc.prepare (s);
     for (auto& d : deltaVar) { d.b.assign ((size_t) (mx.latency() + lim.latency() + 1), 0.0f); d.w = 0; }
     for (auto& d : mxBy) d.prepare (mx.latency());
@@ -215,7 +226,23 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     auto copyIn = [&] { for (int i = 0; i < n; ++i) { tL[i] = L[i]; tR[i] = R[i]; } };
     auto subIn = [&] { for (int i = 0; i < n; ++i) { L[i] -= tL[i]; R[i] -= tR[i]; } };
     mx.gr = 0; lim.gr = 0;
-    for (int k = 0; k < kNumMods; ++k)
+    const bool isEasy = easy();
+    if (isEasy)
+    {   // ---- modalita FACILE: motore suo, poi LOUD (maximizer) e true peak
+        EasySettings E; E.low = value ("e_low"); E.mid = value ("e_mid"); E.high = value ("e_high"); E.calm = value ("e_calm"); E.thick = value ("e_thick");
+        E.warm = value ("e_warm"); E.silk = value ("e_silk"); E.glue = value ("e_glue"); E.wide = value ("e_wide"); E.monoBass = value ("e_monob") > 0.5f;
+        easyEng.process (L, R, n, E);
+        calmNow = easyEng.calmNow; glueGr = easyEng.glueGr;
+        const float pres = value ("e_pres"), spd = value ("e_speed");
+        MaxSettings ms; ms.gainDb = value ("e_loud"); ms.ceilDb = value ("lm_ceil"); ms.link = 1;
+        ms.style = pres < 0.3f ? MORBIDO : pres < 0.7f ? PULITO : AGGRESSIVO;   // PRESENZA: morbido -> duro
+        ms.clip = 0.1f + 0.7f * pres; ms.character = spd;                       // VELOCITA: smooth -> fast
+        if (ms.gainDb > 0.01f) mx.process (L, R, n, ms);
+        else for (int i = 0; i < n; ++i) { L[i] = mxBy[0] (L[i]); R[i] = mxBy[1] (R[i]); }   // LOUD a zero: solo il ritardo, suono intatto
+        LimSettings ls; ls.ceilDb = value ("lm_ceil"); ls.relMs = 80; ls.autoRel = true; ls.truePeak = true;
+        lim.process (L, R, n, ls);
+    }
+    for (int k = 0; k < (isEasy ? 0 : kNumMods); ++k)
     {
         const int id = order[k].load();
         const bool on = value (onParam (id)) > 0.5f, d = on && deltaFrom < 0 && value (deltaParam (id)) > 0.5f;
@@ -420,6 +447,16 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     // ---- misure
     lufsM = loudOut.M; lufsS = loudOut.S; lufsI = loudOut.I; lra = loudOut.lra; tpMax = tpHold; inS = loudIn.S;
     grMax = mx.gr; grLim = lim.gr;
+    {   // ingresso medio (short-term, solo con musica) per il consiglio sull'INPUT; indice SAFE / OTTIMALE / CRUSH
+        if (loudIn.S > -45) { inAcc += loudIn.S * n; inAccN += n; if (inAccN > (int) (sr * 0.5)) { const float a = (float) (inAcc / inAccN); inAvg = inAvg.load() < -90 ? a : inAvg.load() * 0.85f + a * 0.15f; inAcc = 0; inAccN = 0; } }
+        const float k = (float) std::exp (-(double) n / (2.5 * sr)); grSm = k * grSm + (1 - k) * (mx.gr + lim.gr);
+        grAvg = grSm;
+        const auto& T = target ((int) value ("target"));
+        const float ideal = juce::jlimit (1.5f, 5.0f, 2.0f + (-14.0f - T.lufs) * 0.5f);   // riduzione "giusta" per quel target
+        const float plr = (tpHold > -60 && loudOut.S > -60) ? tpHold - loudOut.S : 14.0f;
+        const float sc = 0.5f * grSm / ideal + juce::jmax (0.0f, 8.0f - plr) * 0.07f;
+        crush = loudOut.S > -50 ? juce::jlimit (0.0f, 1.0f, sc) : 0.0f;
+    }
     for (int c = 0; c < 2; ++c) { inPk[c] = juce::jmax (pi[c], inPk[c].load() * 0.9f); outPk[c] = juce::jmax (po[c], outPk[c].load() * 0.9f); }
     colIn = juce::jmax (colIn, juce::jmax (pi[0], pi[1])); colOut = juce::jmax (colOut, juce::jmax (po[0], po[1]));
     colM = juce::jmax (colM, mx.gr); colL = juce::jmax (colL, lim.gr); colN += n;
@@ -443,6 +480,14 @@ void Processor::loadReference (const juce::File& f)
     });
 }
 
+void Processor::autoInput()
+{
+    const float a = inAvg.load(); if (a < -60) return;
+    auto* p = apvts.getParameter ("trim");
+    p->setValueNotifyingHost (p->convertTo0to1 (juce::jlimit (-12.0f, 12.0f, value ("trim") + (kInOpt - a))));
+    inAvg = kInOpt;
+}
+
 // porta il maximizer al target (sul thread dei messaggi)
 void Processor::timerCallback()
 {
@@ -459,6 +504,22 @@ const std::vector<Preset>& presets()
 {
     static const std::vector<Preset> P = {
         { "Init", "Tutto spento: ogni modulo parte neutro. Accendi quello che ti serve.", {} },
+        { "Facile | Trap", "Bassi pieni e alti lucidi, colla media, limiter duro e veloce. Target -7.",
+          { { "e_monob", 1.0f }, { "e_low", 1.5f }, { "e_high", 1.5f }, { "e_thick", 0.25f }, { "e_warm", 0.15f }, { "e_silk", 0.35f }, { "e_glue", 0.35f }, { "e_calm", 0.4f }, { "e_wide", 0.25f }, { "e_loud", 8.2f }, { "e_pres", 0.7f }, { "e_speed", 0.65f }, { "target", 5.0f }, { "lm_ceil", -0.5f } } },
+        { "Facile | Drill", "Piu pressione e controllo, rilascio veloce per cassa e rullante in faccia.",
+          { { "e_monob", 1.0f }, { "e_low", 1.0f }, { "e_mid", 0.5f }, { "e_high", 1.0f }, { "e_thick", 0.2f }, { "e_warm", 0.1f }, { "e_silk", 0.3f }, { "e_glue", 0.45f }, { "e_calm", 0.45f }, { "e_wide", 0.15f }, { "e_loud", 8.0f }, { "e_pres", 0.8f }, { "e_speed", 0.75f }, { "target", 5.0f }, { "lm_ceil", -0.3f } } },
+        { "Facile | Boom Bap", "Caldo e spesso: valvola e nastro, alti morbidi, limiter morbido e lento.",
+          { { "e_low", 1.5f }, { "e_high", -0.5f }, { "e_thick", 0.45f }, { "e_warm", 0.45f }, { "e_silk", 0.1f }, { "e_glue", 0.4f }, { "e_calm", 0.3f }, { "e_wide", 0.1f }, { "e_loud", 4.5f }, { "e_pres", 0.25f }, { "e_speed", 0.35f }, { "target", 3.0f }, { "lm_ceil", -1.0f } } },
+        { "Facile | R&B", "Lucido e dinamico: silk sugli alti, calm sulle durezze della voce, stereo aperto.",
+          { { "e_monob", 1.0f }, { "e_low", 1.0f }, { "e_mid", -0.5f }, { "e_high", 1.5f }, { "e_thick", 0.2f }, { "e_warm", 0.2f }, { "e_silk", 0.45f }, { "e_glue", 0.3f }, { "e_calm", 0.5f }, { "e_wide", 0.3f }, { "e_loud", 5.0f }, { "e_pres", 0.3f }, { "e_speed", 0.4f }, { "target", 3.0f }, { "lm_ceil", -1.0f } } },
+        { "Facile | Pop", "Equilibrato e brillante, volume da streaming forte.",
+          { { "e_monob", 1.0f }, { "e_low", 0.5f }, { "e_mid", 0.5f }, { "e_high", 1.5f }, { "e_thick", 0.15f }, { "e_warm", 0.1f }, { "e_silk", 0.4f }, { "e_glue", 0.35f }, { "e_calm", 0.4f }, { "e_wide", 0.25f }, { "e_loud", 5.0f }, { "e_pres", 0.5f }, { "e_speed", 0.5f }, { "target", 3.0f }, { "lm_ceil", -1.0f } } },
+        { "Facile | Lo-fi", "Scuro e polveroso: tanto nastro, alti tagliati, stereo un filo piu stretto.",
+          { { "e_low", 1.0f }, { "e_high", -2.0f }, { "e_thick", 0.4f }, { "e_warm", 0.7f }, { "e_glue", 0.3f }, { "e_calm", 0.2f }, { "e_wide", -0.1f }, { "e_loud", 4.0f }, { "e_pres", 0.2f }, { "e_speed", 0.3f }, { "target", 3.0f }, { "lm_ceil", -1.0f } } },
+        { "Facile | Club", "Sub e cassa davanti, limiter deciso. Target -8.",
+          { { "e_monob", 1.0f }, { "e_low", 2.0f }, { "e_high", 1.0f }, { "e_thick", 0.3f }, { "e_warm", 0.1f }, { "e_silk", 0.3f }, { "e_glue", 0.4f }, { "e_calm", 0.35f }, { "e_wide", 0.2f }, { "e_loud", 7.0f }, { "e_pres", 0.6f }, { "e_speed", 0.6f }, { "target", 4.0f }, { "lm_ceil", -0.3f } } },
+        { "Facile | Streaming pulito", "Trasparente, -14 LUFS: tocca poco e lascia respirare il mix.",
+          { { "e_high", 0.5f }, { "e_silk", 0.2f }, { "e_glue", 0.25f }, { "e_calm", 0.3f }, { "e_loud", 1.4f }, { "e_pres", 0.4f }, { "e_speed", 0.5f }, { "target", 0.0f }, { "lm_ceil", -1.0f } } },
         { "Master | Trap moderno", "Target -7 LUFS. Bassi mono sotto 120 Hz con punch, picchi dell'808 tenuti fermi, presenza dinamica a 3.5 kHz, aria sopra, colla leggera e maximizer PUNCH.",
           { { "bc_on", 1 }, { "bc_freq", 110 }, { "bc_mono", 120 }, { "bc_punch", 0.3f }, { "bc_thr", -14 }, { "bc_dirty", 0.2f }, { "bc_harm", 0.15f }, { "eq_on", 1 }, { "eq1_type", 1 }, { "eq1_f", 40 }, { "eq1_g", 1 }, { "eq1_q", 0.7f }, { "eq5_type", 0 }, { "eq5_f", 3500 }, { "eq5_g", 0 }, { "eq5_q", 1.5f }, { "eq5_dyn", 1 }, { "eq5_thr", -30 }, { "eq5_rng", -3 }, { "eq6_type", 2 }, { "eq6_f", 11000 }, { "eq6_g", 1.5f }, { "eq6_q", 0.7f }, { "ds_on", 1 }, { "ds_lo", 6000 }, { "ds_hi", 20000 }, { "ds_thr", -8 }, { "ds_amt", 0.35f }, { "ds_soft", 0.6f }, { "ds_ch", 0 }, { "bus_on", 1 }, { "bus_thr", -16 }, { "bus_ratio", 1 }, { "bus_att", 4 }, { "bus_rel", 4 }, { "bus_hpf", 90 }, { "bus_range", 4 }, { "bus_mix", 1 }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "im_on", 1 }, { "im_smode", 0 }, { "im_w1", 0.4f }, { "im_s1", 0 }, { "im_w2", 1 }, { "im_s2", 0 }, { "im_w3", 1.15f }, { "im_s3", 0 }, { "im_w4", 1.3f }, { "im_s4", 0.15f }, { "mx_on", 1 }, { "mx_gain", 10 }, { "mx_style", 1 }, { "mx_clip", 0.5f }, { "mx_char", 0.6f }, { "lm_on", 1 }, { "lm_ceil", -0.5f }, { "lm_tp", 1 }, { "target", 5 } } },
         { "Master | Trap muro (-6)", "Il massimo volume possibile: clipper deciso, maximizer AGGRESSIVO, 808 controllato sporco. Solo se il mix lo regge.",
@@ -534,7 +595,8 @@ void Processor::loadPreset (int i)
 {
     if (! juce::isPositiveAndBelow (i, (int) presets().size())) return;
     preset = i;
-    for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) if (rp->paramID != "trim" && rp->paramID != "dither") rp->setValueNotifyingHost (rp->getDefaultValue());
+    for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) if (rp->paramID != "trim" && rp->paramID != "dither" && rp->paramID != "mode" && rp->paramID != "target" && rp->paramID != "lm_ceil") rp->setValueNotifyingHost (rp->getDefaultValue());
+    if (i > 0) { auto* m = apvts.getParameter ("mode"); m->setValueNotifyingHost (m->convertTo0to1 (juce::String (presets()[(size_t) i].name).startsWith ("Facile") ? 0.0f : 1.0f)); }
     for (auto& [id, v] : presets()[(size_t) i].v) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
 }
 
@@ -547,6 +609,7 @@ void Processor::getStateInformation (juce::MemoryBlock& d)
 void Processor::setStateInformation (const void* data, int size)
 {
     if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0);
+        if (! t.getChildWithProperty ("id", "mode").isValid()) { juce::ValueTree pm ("PARAM"); pm.setProperty ("id", "mode", nullptr); pm.setProperty ("value", 1.0f, nullptr); t.appendChild (pm, nullptr); }
         const auto o = juce::StringArray::fromTokens (t.getProperty ("order", "").toString(), ",", "");
         if (o.size() == kNumMods) { std::array<int, kNumMods> a {}; bool ok = true; for (int k = 0; k < kNumMods; ++k) { a[(size_t) k] = o[k].getIntValue(); ok &= a[(size_t) k] >= 0 && a[(size_t) k] < kNumMods; } if (ok) setOrder (a); }
         apvts.replaceState (t); } }
