@@ -83,6 +83,52 @@ int main (int argc, char** argv)
         randomKit (p, 0); std::printf ("kit dopo blocco: %s\n", p.kitName.toRawUTF8());
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "scr")
+    {   // SCRATCH da CC74 (avanti e indietro), poi mano ferma: deve tornare al suono normale. Rigenera una riga.
+        juce::ScopedJuceInitialiser_GUI gi;
+        auto go = [] (bool scratch, std::vector<float>& out)
+        {
+            Processor p; p.prepareToPlay (48000, 512); p.loadFactoryKit (1);
+            juce::AudioBuffer<float> blk (2, 512);
+            for (int b = 0; b < 400; ++b)
+            {
+                juce::MidiBuffer m; if (b % 12 == 0) m.addEvent (juce::MidiMessage::noteOn (1, p.rootNote() + (b / 12) % 4, (juce::uint8) 110), 0);
+                if (scratch && b >= 100 && b < 160) { const int v = 64 + (int) (40 * std::sin ((b - 100) * 0.4)); m.addEvent (juce::MidiMessage::controllerEvent (1, 74, v), 0); }
+                p.processBlock (blk, m); for (int i = 0; i < 512; ++i) out.push_back (blk.getSample (0, i));
+            }
+        };
+        std::vector<float> a, b; go (false, a); go (true, b);
+        auto diff = [&] (int b0, int b1) { double d = 0, e = 0; for (int i = b0 * 512; i < b1 * 512; ++i) { d += (a[i] - b[i]) * (a[i] - b[i]); e += a[i] * a[i]; } return 10 * std::log10 (d / (e + 1e-12) + 1e-20); };
+        bool nan = false; for (float x : b) if (! std::isfinite (x)) nan = true;
+        std::printf ("scratch: durante %.1f dB di differenza, dopo (mano ferma) %.1f dB, nan %d\n", diff (100, 160), diff (250, 400), (int) nan);
+        Processor p; p.prepareToPlay (48000, 512); p.loadFactoryKit (1); jp::generate (p, 0, 5, 0);
+        int before = 0, other = 0; for (auto& e : p.events) { if (e.pad == 2) ++before; else ++other; }
+        const auto msg = jp::regenRow (p, 0, 99, 2);
+        int after = 0, other2 = 0; for (auto& e : p.events) { if (e.pad == 2) ++after; else ++other2; }
+        std::printf ("rigenera riga 3: colpi %d -> %d, altre righe %d -> %d  (%s)\n", before, after, other, other2, msg.toRawUTF8());
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "sat")
+    {   // SATURA: quanto cambia davvero il suono (differenza, crest factor, armoniche su un sinusoide)
+        juce::ScopedJuceInitialiser_GUI gi;
+        auto run = [] (float sat, std::vector<float>& out)
+        {
+            Processor p; p.prepareToPlay (48000, 512); p.loadFactoryKit (1);
+            auto* q = p.apvts.getParameter ("satAmt"); q->setValueNotifyingHost (sat);
+            juce::AudioBuffer<float> blk (2, 512);
+            for (int b = 0; b < 400; ++b) { juce::MidiBuffer m; if (b % 12 == 0) m.addEvent (juce::MidiMessage::noteOn (1, p.rootNote() + (b / 12) % 4, (juce::uint8) 110), 0); p.processBlock (blk, m); for (int i = 0; i < 512; ++i) out.push_back (blk.getSample (0, i)); }
+        };
+        std::vector<float> a0; run (0, a0);
+        for (float sv : { 0.25f, 0.5f, 0.75f, 1.0f })
+        {
+            std::vector<float> a; run (sv, a);
+            double e0 = 0, e = 0, d = 0; float p0 = 0, p1 = 0;
+            for (size_t i = 0; i < a.size(); ++i) { e0 += a0[i] * a0[i]; e += a[i] * a[i]; d += (a[i] - a0[i]) * (a[i] - a0[i]); p0 = std::max (p0, std::abs (a0[i])); p1 = std::max (p1, std::abs (a[i])); }
+            const double r0 = std::sqrt (e0 / a.size()), r1 = std::sqrt (e / a.size());
+            std::printf ("SATURA %.2f: livello %+.1f dB  differenza %.1f dB  crest %.1f -> %.1f dB\n", sv, 20 * std::log10 (r1 / r0), 10 * std::log10 (d / e0), 20 * std::log10 (p0 / r0), 20 * std::log10 (p1 / r1));
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "fx")
     {   // effetti da performance: neutri a zero, nessun NaN, il CC 70-77 arriva ai parametri
         juce::ScopedJuceInitialiser_GUI gi;

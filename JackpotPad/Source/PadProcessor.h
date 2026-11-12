@@ -236,6 +236,7 @@ private:
     // effetti da performance
     juce::AudioBuffer<float> stBuf, stuBuf; int stW = 0, stuW = 0; double stR = 0; float stSpeed = 1, stX = 0; bool stOn = false;
     bool stuOn = false; double stuStart = 0, stuPos = 0; int stuLen = 0; float stuX = 0;
+    juce::AudioBuffer<float> scBuf; int skW = 0, scIdle = 0; double scAnchor = 0; float scV = -1, scGrab = 0, scX = 0; bool scOn = false;
     float djIc1[2] {}, djIc2[2] {}, djFc = 1000, djMode = 0, fxG = 1; float lfHold[2] {}, lfLp[2] {}; int lfCnt = 0;
     void performFx (float* L, float* R, int N);
     // loudness

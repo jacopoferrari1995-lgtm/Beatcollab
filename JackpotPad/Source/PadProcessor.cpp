@@ -181,7 +181,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     // master sul kit intero
     F ("revKit", "Reverb sul kit", 0, 1, 0); F ("dlyKit", "Delay sul kit", 0, 1, 0); F ("satAmt", "Saturazione kit", 0, 1, 0);
     // effetti da performance (manopole Q-LINK in modo FX, MPK CC 70-77)
-    F ("fxFilter", "FX Filtro", -1, 1, 0); F ("fxGain", "FX Gain", -12, 12, 0); F ("fxStop", "FX Tape Stop", 0, 1, 0); F ("fxStut", "FX Stutter", 0, 1, 0); F ("fxLofi", "FX Lo-Fi", 0, 1, 0);
+    F ("fxFilter", "FX Filtro", -1, 1, 0); F ("fxGain", "FX Gain", -12, 12, 0); F ("fxScratch", "FX Scratch", 0, 1, 0.5f); F ("fxStop", "FX Tape Stop", 0, 1, 0); F ("fxStut", "FX Stutter", 0, 1, 0); F ("fxLofi", "FX Lo-Fi", 0, 1, 0);
     // pad automatizzabili
     for (int p = 0; p < kPads; ++p)
         for (int k = 0; k < kAutoN; ++k)
@@ -241,13 +241,14 @@ void Processor::setPadValue (int p, int i, float v)
     if (k >= 0) { lastHost[p][k] = v; hp[p][k]->setValueNotifyingHost (hp[p][k]->convertTo0to1 (v)); lastHost[p][k] = hpRaw[p][k]->load(); pad[p].v[i] = hpRaw[p][k]->load(); }
 }
 
-const char* const Processor::kFxIds[Processor::kFx] = { "fxFilter", "revKit", "dlyKit", "satAmt", "fxGain", "fxStop", "fxStut", "fxLofi" };
+const char* const Processor::kFxIds[Processor::kFx] = { "fxFilter", "revKit", "dlyKit", "satAmt", "fxScratch", "fxStop", "fxStut", "fxLofi" };
 
 void Processor::prepareToPlay (double s, int block)
 {
     sr = s;
     stBuf.setSize (2, (int) (sr * 8)); stBuf.clear(); stW = 0; stOn = false; stSpeed = 1;
     stuBuf.setSize (2, (int) (sr * 3)); stuBuf.clear(); stuW = 0; stuOn = false;
+    scBuf.setSize (2, (int) (sr * 4)); scBuf.clear(); skW = 0; scOn = false; scX = 0; scV = -1;
     for (auto& c : djIc1) c = 0; for (auto& c : djIc2) c = 0;
     kw1.set (2, sr, 1681, 4.0, 0.707); kw2.set (4, sr, 38, 0, 0.5); kw1.reset(); kw2.reset(); lufsAcc = 0; lufsN = 0; for (auto& b : lufsBins) b = 0;
     for (auto& v : voices) { v.active = false; v.s.reset(); }
@@ -558,7 +559,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             if (k >= 0 && k < kFx)
             {
                 float v = msg.getControllerValue() / 127.0f;
-                if (k == 0 && std::abs (msg.getControllerValue() - 64) <= 2) v = 0.5f;   // filtro: zona morta al centro
+                if (k == 0 && std::abs (msg.getControllerValue() - 64) <= 8) v = 0.5f;   // filtro: zona morta larga al centro, facile da ritrovare   // filtro: zona morta al centro
                 ccPend[k] = v;
             }
             continue;
@@ -925,7 +926,40 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 void Processor::performFx (float* L, float* R, int N)
 {
     auto val = [this] (int k) { const float pnd = ccPend[k].load(); return pnd >= 0 ? apvts.getParameter (kFxIds[k])->convertFrom0to1 (pnd) : apvts.getRawParameterValue (kFxIds[k])->load(); };
-    const float flt = val (0), gainDb = val (4), stop = val (5), stut = val (6), lofi = val (7);
+    const float flt = val (0), scr = val (4), stop = val (5), stut = val (6), lofi = val (7);
+    const float gainDb = apvts.getRawParameterValue ("fxGain")->load();
+    // 0) SCRATCH: la manopola e' la mano sul vinile. Appena si muove, il suono "si ferma sotto la mano" e segue la rotazione
+    //    (avanti, indietro, piu veloce = piu acuto). Quando la mano si ferma per un attimo, il disco riparte.
+    {
+        const int len = scBuf.getNumSamples();
+        float* b0 = scBuf.getWritePointer (0); float* b1 = scBuf.getWritePointer (1);
+        if (scV < 0) scV = scr;
+        const float sm = (float) (1.0 - std::exp (-1.0 / (0.012 * sr)));   // la manopola manda scalini: si ammorbidiscono in ~12 ms
+        const double range = 0.9 * sr;                                     // tutta la corsa = 0,9 s di disco
+        for (int i = 0; i < N; ++i)
+        {
+            b0[skW] = L[i]; b1[skW] = R[i];
+            const float prev = scV; scV += (scr - scV) * sm;
+            if (std::abs (scV - prev) > 2e-6f || std::abs (scr - scV) > 1e-4f)
+            {
+                if (! scOn) { scOn = true; scAnchor = skW - 0.12 * sr; if (scAnchor < 0) scAnchor += len; scGrab = scV; }
+                scIdle = 0;
+            }
+            else if (scOn && ++scIdle > (int) (0.25 * sr)) scOn = false;
+            if (scOn || scX > 0)
+            {
+                double rp = scAnchor + (scV - scGrab) * range;
+                double lag = skW - rp; while (lag < 0) lag += len; while (lag >= len) lag -= len;
+                if (lag < 2) rp = skW - 2;
+                while (rp < 0) rp += len; while (rp >= len) rp -= len;
+                const int a = (int) rp; const float f = (float) (rp - a); const int c = (a + 1) % len;
+                const float tl = b0[a] + (b0[c] - b0[a]) * f, tr = b1[a] + (b1[c] - b1[a]) * f;
+                scX = juce::jlimit (0.0f, 1.0f, scX + (scOn ? 1.0f : -1.0f) / (float) (0.02 * sr));
+                L[i] = L[i] + (tl - L[i]) * scX; R[i] = R[i] + (tr - R[i]) * scX;
+            }
+            if (++skW >= len) skW = 0;
+        }
+    }
     // 1) TAPE STOP: il nastro rallenta fino a fermarsi (pitch che scende), tornando indietro riparte
     {
         const int len = stBuf.getNumSamples();

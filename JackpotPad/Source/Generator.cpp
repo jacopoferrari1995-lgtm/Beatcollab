@@ -588,6 +588,27 @@ juce::String generate (Processor& P, int style, juce::uint32 seed, int sel)
     return st.name + ": " + juce::String (c.bars) + " battute" + miss;
 }
 
+juce::String regenRow (Processor& P, int style, juce::uint32 seed, int pad)
+{
+    // serve uno stile di batteria: se quello scelto e' MPC o PROGRESSIONI si usa il primo di batteria
+    int st = juce::jlimit (0, (int) genStyles().size() - 1, style);
+    if (genStyles()[(size_t) st].cat != GC_DRUM) for (int i = 0; i < (int) genStyles().size(); ++i) if (genStyles()[(size_t) i].cat == GC_DRUM) { st = i; break; }
+    const auto& ds = dstyles()[(size_t) genStyles()[(size_t) st].idx];
+    const int bars = P.patternBars.load();
+    std::vector<PatEv> got;
+    for (int t = 0; t < 8 && got.empty(); ++t)
+    {
+        Ctx c (P, seed + (juce::uint32) t * 7919u); c.bars = bars;
+        drums (c, ds); c.finish();
+        for (auto& e : c.ev) if (e.pad == pad && e.tick < bars * kBar) got.push_back (e);
+    }
+    if (got.empty()) return "Pad " + juce::String (pad + 1) + ": nello stile " + genStyles()[(size_t) st].name + " questo suono non ha una parte di batteria";
+    { const juce::SpinLock::ScopedLockType l (P.recLock);
+      P.events.erase (std::remove_if (P.events.begin(), P.events.end(), [pad] (const PatEv& e) { return e.pad == pad; }), P.events.end());
+      for (auto& e : got) P.events.push_back (e); }
+    return "Pad " + juce::String (pad + 1) + " rigenerato (" + genStyles()[(size_t) st].name + "), il resto e' rimasto com'era";
+}
+
 void loadBankByRoles (Processor& P, int index)
 {
     P.loadPattern (index);   // scrive sulla disposizione standard dei kit di fabbrica

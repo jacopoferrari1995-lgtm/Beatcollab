@@ -1505,7 +1505,27 @@ void PatternView::paintOverChildren (juce::Graphics& g)
 void PatternView::mouseDown (const juce::MouseEvent& e)
 {
     for (auto& [r, fn] : heads) if (r.contains (e.position)) { fn(); repaint(); return; }
-    if (labels().contains (e.position)) { const int row = (int) ((e.position.y - grid().getY()) / (grid().getHeight() / 8)); const int pad = bank * 8 + 7 - juce::jlimit (0, 7, row); ed.selectPad (pad); ed.playPad (pad, 100); repaint(); return; }
+    if (labels().contains (e.position))
+    {
+        const int row = (int) ((e.position.y - grid().getY()) / (grid().getHeight() / 8)); const int pad = bank * 8 + 7 - juce::jlimit (0, 7, row);
+        ed.selectPad (pad);
+        if (e.mods.isPopupMenu())
+        {   // tasto destro sul nome della riga: rigenera o svuota solo quel pad
+            juce::PopupMenu m; m.addSectionHeader ("PAD " + juce::String (pad + 1));
+            m.addItem (1, "Rigenera questa riga"); m.addItem (2, "Svuota questa riga");
+            juce::Component::SafePointer<PatternView> sp (this);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [sp, pad] (int r)
+            {
+                if (sp == nullptr || r <= 0) return;
+                auto& P = sp->ed.proc;
+                if (r == 1) { sp->info = jp::regenRow (P, P.genStyle, juce::Random::getSystemRandom().nextInt() | 1, pad); sp->infoT = juce::Time::getMillisecondCounter(); }
+                else { const juce::SpinLock::ScopedLockType l (P.recLock); P.events.erase (std::remove_if (P.events.begin(), P.events.end(), [pad] (const PatEv& ev) { return ev.pad == pad; }), P.events.end()); }
+                sp->repaint();
+            });
+            return;
+        }
+        ed.playPad (pad, 100); repaint(); return;
+    }
     int pad, step; if (! cellAt (e.position, pad, step)) return;
     auto& P = ed.proc; const double tick = step * 24.0;
     const juce::SpinLock::ScopedLockType l (P.recLock);
@@ -1546,7 +1566,7 @@ void DragMidi::mouseDrag (const juce::MouseEvent& e)
 {
     if (dragging || e.getDistanceFromDragStart() < 5) return;
     dragging = true; repaint();
-    const auto f = ed.proc.writeMidi (ed.exportSwing);
+    const auto f = ed.proc.writeMidi (true);   // il MIDI esce come lo senti (con lo swing)
     juce::DragAndDropContainer::performExternalDragDropOfFiles ({ f.getFullPathName() }, false, this, [this] { dragging = false; repaint(); });
 }
 
@@ -2189,9 +2209,8 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     })->setName ("rnd");
     btn ("VARIA", Col::amber, [] { return false; }, [this] { proc.varyPattern(); })->setName ("vary");
     btn ("PLAY", Col::green, [this] { return proc.uiRunning.load(); }, [this] { proc.requestPlay (! proc.intPlay.load()); })->setName ("play");
-    btn ("SWING MIDI", Col::magenta, [this] { return proc.apvts.getRawParameterValue ("swMidi")->load() > 0.5f; },
+    btn ("SWING DAW", Col::magenta, [this] { return proc.apvts.getRawParameterValue ("swMidi")->load() > 0.5f; },
          [this] { auto* pr = proc.apvts.getParameter ("swMidi"); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); })->setName ("swmidi");
-    btn ("+SWING", Col::cyan, [this] { return exportSwing; }, [this] { exportSwing = ! exportSwing; })->setName ("expsw");
 
     btn ("NOTE REPEAT", Col::magenta, [this] { return proc.apvts.getRawParameterValue ("nrOn")->load() > 0.5f; },
          [this] { auto* pr = proc.apvts.getParameter ("nrOn"); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); })->setName ("nr");
@@ -2247,8 +2266,7 @@ void Editor::resized()
     named (root, "swGrid")->setBounds (820, 730, 60, 40);
     named (root, "swmidi")->setBounds (884, 734, 62, 32);
     pattern.setBounds (30, 642, 610, 178);
-    globalKnobs[0]->setBounds (644, 726, 58, 70); globalKnobs[1]->setBounds (702, 726, 58, 70); globalKnobs[2]->setBounds (760, 726, 58, 70);
-    named (root, "expsw")->setBounds (820, 776, 60, 30);
+    globalKnobs[0]->setBounds (664, 726, 62, 70); globalKnobs[1]->setBounds (744, 726, 62, 70); globalKnobs[2]->setVisible (false);   // BPM interno: in Ableton comanda il tempo della DAW
     drag.setBounds (884, 772, 62, 40);
 }
 
@@ -2268,7 +2286,7 @@ void Editor::bindQlinks()
         { { -1, "revKit", "REV KIT" }, { -1, "revSize", "REV CODA" }, { -1, "dlyKit", "DLY KIT" }, { -1, "dlyFb", "DLY FB" },
           { -1, "satAmt", "SATURA" }, { -1, "busAmt", "BUS AMT" }, { -1, "revRet", "REV RET" }, { -1, "out", "OUTPUT" } } };
     static const std::vector<Q> fxMap = { { -1, "fxFilter", "FILTRO" }, { -1, "revKit", "REVERB" }, { -1, "dlyKit", "DELAY" }, { -1, "satAmt", "SATURA" },
-                                          { -1, "fxGain", "GAIN" }, { -1, "fxStop", "TAPE STOP" }, { -1, "fxStut", "STUTTER" }, { -1, "fxLofi", "LO-FI" } };
+                                          { -1, "fxScratch", "SCRATCH" }, { -1, "fxStop", "TAPE STOP" }, { -1, "fxStut", "STUTTER" }, { -1, "fxLofi", "LO-FI" } };
     const bool fx = proc.qFx.load();
     auto m = fx ? fxMap : map[(size_t) page];
     if (! fx && page == PG_EQ) for (int k = 0; k < 4; ++k) m[(size_t) k].pad = bandP (screen.eqBand, k == 0 ? 2 : k == 1 ? 3 : k == 2 ? 4 : 1);
@@ -2294,7 +2312,7 @@ void Editor::bindQlinks()
         {
             auto* pr = proc.apvts.getParameter (e.global);
             const juce::String gid (e.global);
-            q->label = e.label; q->bipolar = gid == "fxFilter" || gid == "fxGain"; q->col = fx ? (k < 4 ? Col::magenta : Col::amber) : Col::cyan;
+            q->label = e.label; q->bipolar = gid == "fxFilter" || gid == "fxGain" || gid == "fxScratch"; q->col = fx ? (k < 4 ? Col::magenta : Col::amber) : Col::cyan;
             if (fx)
                 q->popup = [this, k, q]
                 {   // MIDI learn: qualsiasi controller (MPK, KeyLab, fader o manopole)
@@ -2320,6 +2338,7 @@ void Editor::bindQlinks()
                 const float v = pr->convertFrom0to1 (pr->getValue());
                 if (id == "out" || id == "fxGain") return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB";
                 if (id == "fxFilter") return std::abs (v) <= 0.02f ? juce::String ("OFF") : v < 0 ? "LP " + juce::String (juce::roundToInt (-v * 100)) + "%" : "HP " + juce::String (juce::roundToInt (v * 100)) + "%";
+                if (id == "fxScratch") return juce::String ("MUOVI");
                 if (id == "fxStut") return v <= 0.01f ? juce::String ("OFF") : v < 0.34f ? juce::String ("1/8") : v < 0.67f ? juce::String ("1/16") : juce::String ("1/32");
                 if ((id == "fxStop" || id == "fxLofi") && v <= 0.01f) return juce::String ("OFF");
                 return juce::String (juce::roundToInt (pr->getValue() * 100)) + "%"; };

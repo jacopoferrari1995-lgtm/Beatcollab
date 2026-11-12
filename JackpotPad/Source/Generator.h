@@ -23,6 +23,8 @@ std::vector<GenPreset> genPresets (int style);
 
 // scrive il pattern (e per MPC e PROGRESSIONI prepara i pad che servono). Ritorna una riga da mostrare.
 juce::String generate (Processor&, int style, juce::uint32 seed, int selectedPad);
+// rigenera solo le note di un pad, lasciando le altre righe come sono
+juce::String regenRow (Processor&, int style, juce::uint32 seed, int pad);
 // carica un loop della banca riportandolo sui ruoli del kit attuale
 void loadBankByRoles (Processor&, int bankIndex);
 }
