@@ -15,18 +15,39 @@ inline const Target& target (int i)
     static const Target T[] = { { "SPOTIFY -14", -14, -1 }, { "APPLE -16", -16, -1 }, { "YOUTUBE -14", -14, -1 }, { "CLUB -9", -9, -0.3f }, { "CD / LOUD -8", -8, -0.3f } };
     return T[juce::jlimit (0, 4, i)];
 }
-// bilanciamento tonale: scarti consigliati (dB) per banda rispetto a una curva bilanciata (rosa compensato 4.5 dB/ott)
-struct Profile { const char* name; float off[6]; };
+// curve di riferimento per genere: spettro medio a lungo termine di mix tipici del genere, gia compensato di 4.5 dB/ottava
+// (una musica "bilanciata" e piatta), 0 dB a 1 kHz. Sono indicative: per un confronto vero carica un pezzo di riferimento.
+constexpr int kRefPts = 22;
+inline const float* refFreqs() { static const float f[kRefPts] = { 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000, 8000, 10000, 12000, 16000, 20000 }; return f; }
+struct Profile { const char* name; float db[kRefPts]; };
+constexpr int kGenres = 10;
 inline const Profile& profile (int i)
 {
-    static const Profile P[] = {
-        { "TRAP / DRILL", { 5, 2.5f, -1, -1, -1.5f, -2 } },
-        { "HIP HOP / BOOM BAP", { 3, 3, 0, -0.5f, -1, -2.5f } },
-        { "LO-FI", { 2, 3, 1, -0.5f, -3, -5 } },
-        { "POP", { 1.5f, 1, -0.5f, 0, 0, 0 } },
-        { "ACUSTICO", { -2, 0.5f, 0.5f, 0.5f, 0, -0.5f } } };
-    return P[juce::jlimit (0, 4, i)];
+    static const Profile P[kGenres] = {
+        { "TRAP",              { -6, 2, 6, 7.5f, 8, 7, 5.5f, 2.5f, 1, 0, -0.5f, 0, 0, 0, 0, 0.5f, 0.5f, 0, -1, -2, -5, -12 } },
+        { "DRILL",             { -5, 3, 6.5f, 7.5f, 7.5f, 6, 4.5f, 2, 1, 0, -0.5f, 0, 0, 0, 0.5f, 1, 1, 0.5f, -0.5f, -1.5f, -4.5f, -11 } },
+        { "BOOM BAP",          { -10, -3, 1.5f, 3.5f, 4.5f, 5, 4.5f, 3, 2, 1, 0, 0, 0, -0.5f, -0.5f, -1, -2, -3, -4, -5, -8, -14 } },
+        { "LO-FI",             { -12, -5, 0, 2.5f, 4, 5, 5, 4, 3, 1.5f, 0.5f, 0, 0, -1, -1.5f, -3, -5, -7, -8.5f, -10, -14, -20 } },
+        { "R&B",               { -9, -2, 2.5f, 4.5f, 5.5f, 5.5f, 4.5f, 2.5f, 1.5f, 0.5f, 0, 0, 0, 0, 0, 0, 0.5f, 0, -1, -2, -5, -12 } },
+        { "POP",               { -12, -5, -0.5f, 2, 3, 3.5f, 3, 2, 1.5f, 0.5f, 0, 0, 0, 0, 0.5f, 1, 1, 0.5f, 0, -1, -3.5f, -10 } },
+        { "AFRO / REGGAETON",  { -9, -1, 3.5f, 5.5f, 6, 5.5f, 4.5f, 2.5f, 1.5f, 0.5f, 0, 0, 0, 0, 0, 0.5f, 0.5f, 0, -1, -2, -5, -12 } },
+        { "ELETTRONICA",       { -8, 0, 4, 5.5f, 6, 5.5f, 4, 2, 1, 0, -0.5f, 0, 0, 0, 0.5f, 1, 1.5f, 1, 0.5f, -0.5f, -3, -9 } },
+        { "ROCK",              { -15, -8, -3, 0, 1.5f, 2.5f, 3, 2.5f, 2, 1, 0.5f, 0, 0, 0, 0.5f, 0.5f, 0, -1, -2, -3, -6, -13 } },
+        { "ACUSTICO",          { -18, -10, -5, -2.5f, -1, 0.5f, 1.5f, 2, 2, 1.5f, 0.5f, 0, 0, 0, 0, -0.5f, -1.5f, -3, -4, -5, -8, -15 } } };
+    return P[juce::jlimit (0, kGenres - 1, i)];
 }
+inline float profileAt (int g, float f)
+{
+    const float* F = refFreqs(); const auto& P = profile (g);
+    if (f <= F[0]) return P.db[0]; if (f >= F[kRefPts - 1]) return P.db[kRefPts - 1];
+    int k = 0; while (f > F[k + 1]) ++k;
+    const float t = std::log (f / F[k]) / std::log (F[k + 1] / F[k]); return P.db[k] + (P.db[k + 1] - P.db[k]) * t;
+}
+// punti dello spettro: 320 bande logaritmiche 20 Hz - 20 kHz
+constexpr int kPts = 320;
+inline float ptFreq (int i) { return 20.0f * std::pow (1000.0f, (i + 0.5f) / kPts); }
+// pezzo di riferimento caricato
+struct RefTrack { juce::String name, path; std::vector<float> spec; float lufs = -100, peak = -100, rms = -100; bool ok = false; juce::String error; };
 inline const char* bandName (int b) { static const char* n[] = { "SUB", "BASSI", "MEDIO-BASSI", "MEDI", "PRESENZA", "ARIA" }; return n[juce::jlimit (0, 5, b)]; }
 inline float bandEdge (int k) { static const float e[] = { 20, 60, 250, 800, 2500, 6000, 20000 }; return e[juce::jlimit (0, 6, k)]; }
 
@@ -108,6 +129,14 @@ public:
     // stereo
     std::atomic<float> corr { 1 }, corrB[3] {}, widthB[3] {}, balance { 0 }, width { 0 };
     std::atomic<bool> resetReq { false };
+    // storia dei picchi per la vista PEAK: un punto ogni 10 ms (20 s)
+    static constexpr int kPH = 2000;
+    std::atomic<float> phMax[kPH] {}, phRms[kPH] {}; std::atomic<int> phW { 0 };
+    // riferimento
+    void loadReference (const juce::File&);
+    void clearReference();
+    RefTrack reference() const { const juce::SpinLock::ScopedLockType l (refLock); return ref; }
+    std::atomic<int> refVersion { 0 }; std::atomic<bool> refLoading { false };
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
@@ -128,5 +157,8 @@ private:
     Biq xo[4]; double sLL = 0, sRR = 0, sLR = 0, bLL[3] {}, bRR[3] {}, bLR[3] {}, bM[3] {}, bS[3] {}, eM = 0, eS = 0;
     int histTick = 0, blocksSeen = 0; float stMax = -100;
     void resetLoudness();
+    float phPk = 0; double phE = 0; int phN = 0;
+    mutable juce::SpinLock refLock; RefTrack ref;
+    std::atomic<float>* bpp[kBands][7] {}; std::atomic<float>* gp[16] {};
 };
 }

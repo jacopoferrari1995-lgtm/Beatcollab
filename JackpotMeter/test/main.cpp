@@ -1,3 +1,4 @@
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <cstdlib>
 #include "../Source/MeterProcessor.h"
 #include "../Source/MeterEditor.h"
@@ -12,6 +13,27 @@ int main (int argc, char** argv)
         auto set = [&p] (const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
         set ("b1_on", 1); set ("b3_on", 1); set ("b3_freq", 350); set ("b3_gain", -3); set ("b3_dyn", -6); set ("b3_q", 1.5f); set ("b5_on", 1); set ("b5_type", BELL); set ("b5_freq", 5000); set ("b5_gain", 2.5f);
         juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer m; juce::Random r (3); float pk[2] = {}; double ph = 0;
+        if (std::getenv ("JNOEQ")) set ("eqOn", 0);
+        if (auto* v = std::getenv ("JVIEW")) set ("view", (float) std::atoi (v));
+        if (auto* v = std::getenv ("JIMV")) set ("imView", (float) std::atoi (v));
+        if (auto* v = std::getenv ("JPROF")) set ("profile", (float) std::atoi (v));
+        // stesso segnale salvato su disco come pezzo di riferimento: lo scarto deve venire quasi zero
+        juce::File refF ("/tmp/jm_ref.wav");
+        if (std::getenv ("JREF"))
+        {
+            juce::Random r2 (3); float q[2] = {}; double ph2 = 0; juce::AudioBuffer<float> rb (2, 48000 * 12);
+            for (int n = 0; n < rb.getNumSamples(); ++n)
+            {
+                const double t = n / 48000.0, bt = std::fmod (t * 2.33, 1.0);
+                const float w = r2.nextFloat() * 2 - 1; q[0] = 0.98f * q[0] + 0.02f * w; q[1] = 0.7f * q[1] + 0.3f * (r2.nextFloat() * 2 - 1);
+                const float kick = (float) (std::sin (2 * 3.14159 * (50 + 120 * std::exp (-bt * 30)) * bt) * std::exp (-bt * 5)) * 0.5f;
+                ph2 += 2 * 3.14159 * 220 / 48000; const float pad = 0.08f * (float) std::sin (ph2) + 0.05f * (float) std::sin (ph2 * 1.5);
+                rb.setSample (0, n, kick + pad + q[0] * 0.6f + q[1] * 0.05f); rb.setSample (1, n, kick + pad * 0.8f + q[0] * 0.5f - q[1] * 0.05f);
+            }
+            refF.deleteFile(); { juce::WavAudioFormat wf; std::unique_ptr<juce::AudioFormatWriter> wr (wf.createWriterFor (new juce::FileOutputStream (refF), 48000, 2, 24, {}, 0)); wr->writeFromAudioSampleBuffer (rb, 0, rb.getNumSamples()); }
+            p.loadReference (refF); while (p.refLoading.load()) juce::Thread::sleep (50);
+            set ("profile", (float) kGenres);
+        }
         Editor ed (p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         for (int k = 0; k < 100 * 12; ++k)
@@ -29,6 +51,9 @@ int main (int argc, char** argv)
             if (k % 3 == 0) { ed.spec.analyse(); }
         }
         for (int k = 0; k < 20; ++k) ed.spec.analyse();
+        if (auto* v = std::getenv ("JPOP")) { ed.spec.popBand = std::atoi (v); ed.spec.updatePop(); }
+        { float dev[kBal]; ed.spec.bandDeviation (dev); std::printf ("scarti per banda:"); for (float d : dev) std::printf (" %+.1f", d); auto R = p.reference(); std::printf ("   rif ok %d lufs %.1f picco %.1f | io lufsI %.1f\n", (int) R.ok, R.lufs, R.peak, p.lufsI.load());
+          if (R.ok) for (int i : { 10, 40, 80, 120, 160, 200, 240, 280, 310 }) std::printf ("  %6.0f Hz  live %.1f  file %.1f\n", ptFreq (i), ed.spec.ltasDb (i), R.spec[(size_t) i]); std::printf ("ltasN %d\n", ed.spec.ltasN); }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

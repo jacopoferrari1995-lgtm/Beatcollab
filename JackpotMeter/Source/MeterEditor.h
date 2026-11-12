@@ -31,6 +31,25 @@ private:
     float start = 0; bool drag = false, hover = false;
 };
 
+class SpecEq;
+// finestrella della banda sul grafico (come Pro-Q): tipo, SOLO, DINAMICA, valori trascinabili
+class BandPop : public juce::Component
+{
+public:
+    explicit BandPop (SpecEq& s) : sp (s) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    SpecEq& sp; int band = -1;
+    struct Hot { juce::Rectangle<float> r; int id; }; std::vector<Hot> hots;
+private:
+    int dragK = -1; float dragStart = 0;
+    int hit (juce::Point<float>) const;
+};
+
+// riquadro centrale: EQ, REFERENCE, IMAGER, PEAK, SPETTROGRAMMA
 class SpecEq : public juce::Component
 {
 public:
@@ -40,23 +59,42 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void analyse();   // FFT dal buffer ad anello
+    void updatePop();
+    void bandMenu (int b);
+    void resetAverage() { std::fill (std::begin (ltasPow), std::end (ltasPow), 0.0); ltasN = 0; }
+    int view() const;
+    // spettro medio a lungo termine (dB, compensato 4.5 dB/ott) e scarti per banda rispetto al riferimento scelto
+    bool hasLtas() const { return ltasN > 8; }
+    float ltasDb (int i) const;
+    bool refCurve (float* out) const;            // curva del riferimento scelto (genere o traccia), allineata alla mia
+    void bandDeviation (float* dev) const;       // 6 bande: io - riferimento (dB), media tolta
     Editor& ed;
-    static constexpr int kOrder = 13, kN = 1 << kOrder, kPts = 320;
+    static constexpr int kOrder = 13, kN = 1 << kOrder;
     juce::dsp::FFT fft { kOrder }; juce::dsp::WindowingFunction<float> win { (size_t) kN, juce::dsp::WindowingFunction<float>::hann };
-    std::vector<float> fbuf; float specA[kPts] {}, specB[kPts] {}, specC[kPts] {}, peak[kPts] {}; float bandE[kBal] {}; double bandRaw[kBal] {}; int bandN[kBal] {}; bool bandInit = false;
-    int dragBand = -1, hoverBand = -1; float hoverF = 0; juce::Point<float> hoverPt { -1, -1 };
+    std::vector<float> fbuf; float specA[kPts] {}, specB[kPts] {}, specC[kPts] {}, peak[kPts] {}, frameP[kPts] {};
+    double ltasPow[kPts] {}; int ltasN = 0;
+    int dragBand = -1, hoverBand = -1, popBand = -1, popHold = 0; float hoverF = 0; juce::Point<float> hoverPt { -1, -1 };
     struct Pin { float f, db; }; std::vector<Pin> pins;   // punti segnati sullo spettro fermo
-    juce::Rectangle<float> freezeR, scR, dynScR, clearR;
+    juce::Rectangle<float> tabR[5], freezeR, scR, dynScR, clearR, imTabR[3], loadR, resetAvgR;
+    BandPop pop { *this };
+    juce::Image sgram, persist; int sgX = 0;
     int snapPeak (float x) const;                        // indice del picco piu vicino al mouse
     static float tilt (float f) { return 4.5f * std::log2 (f / 1000.0f); }
-    static float ptF (int i) { return 20.0f * std::pow (1000.0f, (i + 0.5f) / kPts); }
+    static float ptF (int i) { return ptFreq (i); }
     juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (14, 10).withTrimmedTop (30).withTrimmedBottom (16); }
     float xOf (float f) const; float fOf (float x) const; float yOf (float db) const; float dbOf (float y) const;
     float ySpec (float db) const;
     int nodeAt (juce::Point<float>) const;
+private:
+    void paintEq (juce::Graphics&, juce::Rectangle<float>);
+    void paintRef (juce::Graphics&, juce::Rectangle<float>);
+    void paintImager (juce::Graphics&, juce::Rectangle<float>);
+    void paintPeak (juce::Graphics&, juce::Rectangle<float>);
+    void paintGram (juce::Graphics&, juce::Rectangle<float>);
 };
 
 class Loud : public juce::Component
@@ -89,17 +127,16 @@ public:
     juce::Rectangle<float> monoR, onR;
 };
 
-class BandPanel : public juce::Component
+// riferimento: genere o pezzo caricato, con il confronto di loudness e picco
+class RefPanel : public juce::Component
 {
 public:
-    BandPanel (Editor& e);
+    explicit RefPanel (Editor& e) : ed (e) {}
     void paint (juce::Graphics&) override;
-    void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
-    void bind();
-    Editor& ed;
-    Knob freq { C::phos }, gain { C::phos }, q { C::phos }, dyn { C::magenta }, thr { C::magenta };
-    juce::Rectangle<float> soloR;
+    void chooseFile();
+    Editor& ed; juce::Rectangle<float> genreR, loadR, clearR, viewR;
+    std::unique_ptr<juce::FileChooser> chooser;
 };
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
@@ -115,13 +152,13 @@ public:
     Processor& proc;
     jlook::Scaler scaler { *this, "meter", W, H };
     jlook::SizeChip sizeChip { scaler };
-    int selBand = 0;
+    int selBand = 0, tick = 0;
     juce::RangedAudioParameter* P (const juce::String& id) { return proc.apvts.getParameter (id); }
     float bp (int b, const char* k) const { return proc.value (("b" + juce::String (b + 1) + "_" + k).toRawUTF8()); }
     juce::RangedAudioParameter* bpar (int b, const char* k) { return P ("b" + juce::String (b + 1) + "_" + k); }
     void setP (juce::RangedAudioParameter* p, float v) { p->setValueNotifyingHost (p->convertTo0to1 (v)); }
     SpecEq spec { *this };
-    BandPanel band { *this };
+    RefPanel refp { *this };
 private:
     void timerCallback() override;
     Loud loud { *this };

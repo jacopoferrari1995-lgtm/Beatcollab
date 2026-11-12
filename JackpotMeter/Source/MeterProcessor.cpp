@@ -1,3 +1,4 @@
+#include <juce_audio_formats/juce_audio_formats.h>
 #include "MeterProcessor.h"
 #include "MeterEditor.h"
 
@@ -24,7 +25,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "scShow", 1 }, "Mostra sidechain", true));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "dynSc", 1 }, "EQ dinamico da sidechain", false));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "target", 1 }, "Target", StringArray { "SPOTIFY -14", "APPLE -16", "YOUTUBE -14", "CLUB -9", "CD / LOUD -8" }, 0));
-    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "profile", 1 }, "Profilo", StringArray { "TRAP / DRILL", "HIP HOP / BOOM BAP", "LO-FI", "POP", "ACUSTICO" }, 0));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "profile", 1 }, "Profilo", [] { StringArray a; for (int i = 0; i < kGenres; ++i) a.add (profile (i).name); a.add ("TRACCIA CARICATA"); return a; }(), 0));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "view", 1 }, "Vista", StringArray { "EQ", "REFERENCE", "IMAGER", "PEAK", "SPETTROGRAMMA" }, 0));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "imView", 1 }, "Vista imager", StringArray { "LISSAJOUS", "POLAR SAMPLE", "POLAR LEVEL" }, 0));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "spec", 1 }, "Spettro", StringArray { "MID + SIDE", "L + R" }, 0));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "out", 1 }, "Output", NormalisableRange<float> (-12, 12), 0));
     // imager
@@ -45,6 +48,9 @@ Processor::Processor()
       apvts (*this, nullptr, "JMH", layout())
 {
     for (int i = 0; i < kHist; ++i) { histS[i] = -100; histM[i] = -100; }
+    static const char* ks[7] = { "on", "type", "freq", "gain", "q", "dyn", "thr" };
+    for (int b = 0; b < kBands; ++b) for (int k = 0; k < 7; ++k) bpp[b][k] = apvts.getRawParameterValue ("b" + juce::String (b + 1) + "_" + ks[k]);
+    for (int i = 0; i < kPH; ++i) { phMax[i] = 0; phRms[i] = 0; }
 }
 
 void Processor::resetLoudness()
@@ -109,9 +115,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         bool any = false;
         for (int b = 0; b < kBands; ++b)
         {
-            const juce::String p = "b" + juce::String (b + 1) + "_";
-            bp[b] = { value ((p + "on").toRawUTF8()) > 0.5f, (int) value ((p + "type").toRawUTF8()), value ((p + "freq").toRawUTF8()), value ((p + "gain").toRawUTF8()),
-                      value ((p + "q").toRawUTF8()), value ((p + "dyn").toRawUTF8()), value ((p + "thr").toRawUTF8()) };
+            auto** q = bpp[b];   // puntatori presi una volta: niente stringhe nel thread audio
+            bp[b] = { q[0]->load() > 0.5f, (int) q[1]->load(), q[2]->load(), q[3]->load(), q[4]->load(), q[5]->load(), q[6]->load() };
             any |= bp[b].on;
             if (! bp[b].on) dynGain[b] = 0;
         }
@@ -145,8 +150,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         const int sb = soloBand.load();
         if (sb >= 0 && sb < kBands)
         {
-            const juce::String p = "b" + juce::String (sb + 1) + "_";
-            const float f = value ((p + "freq").toRawUTF8()), q = value ((p + "q").toRawUTF8()); const int t = (int) value ((p + "type").toRawUTF8());
+            const float f = bpp[sb][2]->load(), q = bpp[sb][4]->load(); const int t = (int) bpp[sb][1]->load();
             const float qq = t == BELL ? juce::jmax (0.5f, q) : 0.8f;
             if (f != soloLast[0] || qq != soloLast[1]) { soloF.set (9, f, 0, qq, sr); soloLast[0] = f; soloLast[1] = qq; }
             for (int i = 0; i < N; ++i) { L[i] = soloF.tick (L[i], 0) * 1.4f; R[i] = soloF.tick (R[i], 1) * 1.4f; }
@@ -174,6 +178,17 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     if (value ("monoChk") > 0.5f) for (int i = 0; i < N; ++i) { const float m = 0.5f * (L[i] + R[i]); L[i] = R[i] = m; }
     const float og = juce::Decibels::decibelsToGain (value ("out"));
     if (std::abs (og - 1.0f) > 1.0e-4f) mainB.applyGain (0, 0, N, og);
+
+    // ---------- storia dei picchi (vista PEAK): un punto ogni 10 ms, solo in play ----------
+    if (isPlay && ! freezeBtn.load())
+    {
+        const int chunk = juce::jmax (1, (int) (sr * 0.01));
+        for (int i = 0; i < N; ++i)
+        {
+            phPk = juce::jmax (phPk, std::abs (L[i]), std::abs (R[i])); phE += 0.5 * (L[i] * L[i] + R[i] * R[i]);
+            if (++phN >= chunk) { const int w = phW.load(); phMax[w] = phPk; phRms[w] = (float) std::sqrt (phE / phN); phW = (w + 1) % kPH; phPk = 0; phE = 0; phN = 0; }
+        }
+    }
 
     // ---------- anello per spettro e goniometro (si ferma con lo stop dell'host o con FREEZE) ----------
     const bool fz = freezeBtn.load() || ! isPlay;
@@ -291,10 +306,99 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
 }
 
-void Processor::getStateInformation (juce::MemoryBlock& d) { if (auto x = apvts.copyState().createXml()) copyXmlToBinary (*x, d); }
+void Processor::getStateInformation (juce::MemoryBlock& d)
+{
+    auto st = apvts.copyState(); st.setProperty ("refPath", reference().path, nullptr);
+    if (auto x = st.createXml()) copyXmlToBinary (*x, d);
+}
 void Processor::setStateInformation (const void* data, int size)
 {
-    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) apvts.replaceState (t); }
+    if (auto x = getXmlFromBinary (data, size))
+    {
+        auto t = juce::ValueTree::fromXml (*x); if (! t.isValid()) return;
+        const juce::String rp = t.getProperty ("refPath").toString(); t.removeProperty ("refPath", nullptr);
+        apvts.replaceState (t);
+        if (rp.isNotEmpty() && rp != reference().path) loadReference (juce::File (rp));
+    }
+}
+void Processor::clearReference() { { const juce::SpinLock::ScopedLockType l (refLock); ref = {}; } ++refVersion; }
+
+// analisi del pezzo di riferimento: spettro medio (stesse 320 bande e stessa compensazione dello spettro live),
+// loudness integrata BS.1770 e picco. Gira su un thread a parte: non tocca l'audio.
+void Processor::loadReference (const juce::File& f)
+{
+    if (refLoading.exchange (true)) return;
+    juce::Thread::launch ([this, f]
+    {
+        RefTrack r; r.path = f.getFullPathName(); r.name = f.getFileNameWithoutExtension();
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (f));
+        if (rd == nullptr) r.error = "file non leggibile";
+        else
+        {
+            const double fsr = rd->sampleRate; const int len = (int) std::min<juce::int64> (rd->lengthInSamples, (juce::int64) (fsr * 600));
+            juce::AudioBuffer<float> b (2, len); rd->read (&b, 0, len, 0, true, true);
+            if (rd->numChannels == 1) b.copyFrom (1, 0, b, 0, 0, len);
+            const float* L = b.getReadPointer (0); const float* R = b.getReadPointer (1);
+            // spettro medio
+            constexpr int ord = 13, NF = 1 << ord; juce::dsp::FFT fft (ord); juce::dsp::WindowingFunction<float> win ((size_t) NF, juce::dsp::WindowingFunction<float>::hann);
+            std::vector<float> buf ((size_t) NF * 2); std::vector<double> acc ((size_t) kPts, 0.0); int frames = 0;
+            for (int pos = 0; pos + NF <= len; pos += NF / 2)
+            {
+                double e = 0; for (int i = 0; i < NF; ++i) { const float m = 0.5f * (L[pos + i] + R[pos + i]); buf[(size_t) i] = m; e += m * m; }
+                if (e / NF < 1e-7) continue;   // salta i silenzi
+                std::fill (buf.begin() + NF, buf.end(), 0.0f); win.multiplyWithWindowingTable (buf.data(), (size_t) NF); fft.performFrequencyOnlyForwardTransform (buf.data());
+                for (int i = 0; i < kPts; ++i)
+                {
+                    const float f0 = 20.0f * std::pow (1000.0f, i / (float) kPts), f1 = 20.0f * std::pow (1000.0f, (i + 1) / (float) kPts);
+                    const int b0 = (int) (f0 / fsr * NF), b1 = juce::jmax (b0 + 1, (int) (f1 / fsr * NF));
+                    double pw = 0; int nb = 0; for (int k = b0; k < juce::jmin (b1, NF / 2); ++k) { pw += (double) buf[(size_t) k] * buf[(size_t) k]; ++nb; }
+                    acc[(size_t) i] += nb > 0 ? pw / nb : 0.0;
+                }
+                ++frames;
+            }
+            if (frames == 0) r.error = "il file e vuoto o in silenzio";
+            else
+            {
+                r.spec.resize ((size_t) kPts);
+                const float norm = 4.0f / NF;
+                for (int i = 0; i < kPts; ++i) r.spec[(size_t) i] = (float) (10 * std::log10 (acc[(size_t) i] / frames + 1e-30)) + juce::Decibels::gainToDecibels (norm) + 4.5f * std::log2 (ptFreq (i) / 1000.0f);
+                // loudness integrata: blocchi da 400 ms al 75%, gate -70 e -10 LU
+                double kbF[2][3], kaF[2][3];
+                {
+                    double f0 = 1681.974450955533, G = 3.999843853973347, Q = 0.7071752369554196, K = std::tan (juce::MathConstants<double>::pi * f0 / fsr);
+                    const double Vh = std::pow (10.0, G / 20.0), Vb = std::pow (Vh, 0.4996667741545416), a0 = 1.0 + K / Q + K * K;
+                    kbF[0][0] = (Vh + Vb * K / Q + K * K) / a0; kbF[0][1] = 2.0 * (K * K - Vh) / a0; kbF[0][2] = (Vh - Vb * K / Q + K * K) / a0; kaF[0][1] = 2.0 * (K * K - 1.0) / a0; kaF[0][2] = (1.0 - K / Q + K * K) / a0;
+                    f0 = 38.13547087602444; Q = 0.5003270373238773; K = std::tan (juce::MathConstants<double>::pi * f0 / fsr);
+                    kbF[1][0] = 1; kbF[1][1] = -2; kbF[1][2] = 1; kaF[1][1] = 2.0 * (K * K - 1.0) / (1.0 + K / Q + K * K); kaF[1][2] = (1.0 - K / Q + K * K) / (1.0 + K / Q + K * K);
+                }
+                const int hop = (int) (fsr * 0.1); std::vector<double> e100; double z[2][2][2] {}, acc100 = 0; int n100 = 0; float pk = 0; double eAll = 0;
+                for (int i = 0; i < len; ++i)
+                {
+                    double e = 0;
+                    for (int c = 0; c < 2; ++c)
+                    {
+                        double x = c ? R[i] : L[i]; pk = juce::jmax (pk, (float) std::abs (x)); eAll += x * x;
+                        for (int s2 = 0; s2 < 2; ++s2) { const double y = kbF[s2][0] * x + z[s2][c][0]; z[s2][c][0] = kbF[s2][1] * x - kaF[s2][1] * y + z[s2][c][1]; z[s2][c][1] = kbF[s2][2] * x - kaF[s2][2] * y; x = y; }
+                        e += x * x;
+                    }
+                    acc100 += e; if (++n100 >= hop) { e100.push_back (acc100 / n100); acc100 = 0; n100 = 0; }
+                }
+                std::vector<double> blocks; for (size_t k = 3; k < e100.size(); ++k) blocks.push_back ((e100[k] + e100[k - 1] + e100[k - 2] + e100[k - 3]) * 0.25);
+                double s1 = 0; int n1 = 0; for (double v : blocks) if (-0.691 + 10 * std::log10 (v + 1e-20) > -70) { s1 += v; ++n1; }
+                if (n1 > 0)
+                {
+                    const double gate = -0.691 + 10 * std::log10 (s1 / n1) - 10; double s2 = 0; int n2 = 0;
+                    for (double v : blocks) if (-0.691 + 10 * std::log10 (v + 1e-20) > gate) { s2 += v; ++n2; }
+                    if (n2 > 0) r.lufs = (float) (-0.691 + 10 * std::log10 (s2 / n2));
+                }
+                r.peak = juce::Decibels::gainToDecibels (pk, -100.0f); r.rms = (float) (10 * std::log10 (eAll / (2.0 * len) + 1e-20));
+                r.ok = true;
+            }
+        }
+        { const juce::SpinLock::ScopedLockType l (refLock); ref = std::move (r); }
+        ++refVersion; refLoading = false;
+    });
 }
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
 }
