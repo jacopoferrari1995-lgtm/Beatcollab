@@ -1,6 +1,7 @@
 #pragma once
 #include "MasterProcessor.h"
 #include "JackpotScale.h"
+#include "MasterNeo.h"
 
 namespace jms
 {
@@ -351,7 +352,23 @@ public:
     Editor& ed;
 };
 
-// modalita FACILE (stile Master Plan / ONE)
+// modalita FACILE (stile Master Plan 2): parti vive separate, sfondo in cache
+class EasyPage;
+class EasyStage : public juce::Component
+{
+public:
+    explicit EasyStage (EasyPage& p) : page (p) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    EasyPage& page; Analyzer anIn, anOut; float specIn[300] {}, specOut[300] {}; juce::Rectangle<float> loadR, listenR;
+private:
+    void wave (juce::Graphics&, juce::Rectangle<float>); void spectrum (juce::Graphics&, juce::Rectangle<float>);
+    void gain (juce::Graphics&, juce::Rectangle<float>); void ref (juce::Graphics&, juce::Rectangle<float>); void ears (juce::Graphics&, juce::Rectangle<float>);
+};
+class EasyInput : public juce::Component { public: explicit EasyInput (EasyPage& p) : page (p) {} void paint (juce::Graphics&) override; void mouseDown (const juce::MouseEvent&) override; EasyPage& page; juce::Rectangle<float> autoR; };
+class EasyResult : public juce::Component { public: explicit EasyResult (EasyPage& p) : page (p) {} void paint (juce::Graphics&) override; EasyPage& page; float sm = 0; };
+class EasyMeters : public juce::Component { public: explicit EasyMeters (EasyPage& p) : page (p) {} void paint (juce::Graphics&) override; EasyPage& page; float pk[2] {}; };
+
 class EasyPage : public juce::Component
 {
 public:
@@ -359,16 +376,15 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
-    Editor& ed; int view = 0; float crushSm = 0;
-    juce::OwnedArray<Knob> knobs; Knob *low, *mid, *high, *thick, *warm, *silk, *pres, *loud, *speed, *glue, *calm, *wide, *ceil, *trim;
-    std::unique_ptr<Switch> monoB; std::unique_ptr<juce::FileChooser> chooser;
-    juce::Rectangle<float> viewR[5], targetR, cmpR, autoR, loadR, listenR;
-    Analyzer anIn, anOut; float specIn[300] {}, specOut[300] {};
-private:
-    void paintWave (juce::Graphics&, juce::Rectangle<float>);
-    void paintSpectrum (juce::Graphics&, juce::Rectangle<float>);
-    void paintGain (juce::Graphics&, juce::Rectangle<float>);
-    void paintRef (juce::Graphics&, juce::Rectangle<float>);
+    void paintStatic (juce::Graphics&);
+    void tick();
+    Editor& ed; int view = 0;
+    juce::OwnedArray<neo::Knob> knobs; neo::Knob *low, *mid, *high, *thick, *warm, *silk, *pres, *loud, *speed, *glue, *calm, *wide, *ceil, *trim;
+    std::unique_ptr<neo::Toggle> monoB; std::unique_ptr<juce::FileChooser> chooser;
+    EasyStage stage { *this }; EasyInput input { *this }; EasyResult result { *this }; EasyMeters meters { *this };
+    juce::Rectangle<float> viewR[5], targetR, cmpR;
+    juce::Image bg; float bgScale = 0;
+    static constexpr float kRowY = 12, kRowH = 394, kDeckY = 420, kDeckH = 302;
 };
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
@@ -409,6 +425,8 @@ public:
     EasyPage easyPage { *this };
     void applyMode();
     juce::Rectangle<int> modeR[2]; bool lastEasy = false;
+    juce::Image neoBg; float neoScale = 0;
+    void paintNeo (juce::Graphics&);
 private:
     void timerCallback() override;
     std::unique_ptr<Segs> dither; std::unique_ptr<Switch> compare, norm; std::unique_ptr<Knob> trim;
