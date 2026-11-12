@@ -83,6 +83,36 @@ int main (int argc, char** argv)
         randomKit (p, 0); std::printf ("kit dopo blocco: %s\n", p.kitName.toRawUTF8());
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "kick")
+    {   // kick su C1 mentre un campione lungo suona su C2: il kick deve sempre suonare
+        juce::ScopedJuceInitialiser_GUI gi;
+        Processor p; p.prepareToPlay (48000, 512); p.loadFactoryKit (1);
+        const double sr = 48000; auto s = std::make_shared<SampleData>(); s->sr = sr; s->buf.setSize (2, (int) (sr * 8)); s->name = "lungo";
+        for (int i = 0; i < s->buf.getNumSamples(); ++i) { const float v = 0.4f * (float) std::sin (i * 0.02); s->buf.setSample (0, i, v); s->buf.setSample (1, i, v); }
+        const int root = p.rootNote();
+        struct Case { const char* n; float mode, loop, choke12, choke0; };
+        Case cs[] = { { "one shot", 0, 0, 0, 0 }, { "gate", 1, 0, 0, 0 }, { "loop", 0, 1, 0, 0 }, { "choke 7 sul lungo", 0, 0, 7, 0 }, { "stesso choke", 0, 0, 1, 1 } };
+        for (auto& c : cs)
+            for (int offMs : { 0, 3, 15, 40, 200 })
+            {
+                p.loadFactoryKit (1); p.setSample (12, s); p.pad[12].v[MODE] = c.mode; p.pad[12].v[LOOP] = c.loop; p.pad[12].v[CHOKE] = c.choke12; p.pad[12].v[DECAY] = 4000; p.pad[0].v[CHOKE] = c.choke0;
+                juce::AudioBuffer<float> blk (2, 512); juce::MidiBuffer m;
+                for (int b = 0; b < 20; ++b) { m.clear(); p.processBlock (blk, m); }
+                m.clear(); m.addEvent (juce::MidiMessage::noteOn (1, root + 12, (juce::uint8) 100), 10);
+                const int ko = 10 + (int) (offMs * 48);
+                int kb = ko / 512; const int ks = ko % 512;
+                float kpk = 0;
+                for (int b = 0; b < 40; ++b)
+                {
+                    if (b == kb) m.addEvent (juce::MidiMessage::noteOn (1, root, (juce::uint8) 110), ks);
+                    if (b == kb + 3) m.addEvent (juce::MidiMessage::noteOff (1, root), 0);
+                    p.padGlow[0] = 0; p.processBlock (blk, m); m.clear();
+                    if (b >= kb) kpk = std::max (kpk, p.padGlow[0].load());
+                }
+                std::printf ("%-18s kick dopo %3d ms: picco kick %.3f %s\n", c.n, offMs, kpk, kpk > 0.05f ? "ok" : "<<< MUTO");
+            }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "t2")
     {
         juce::ScopedJuceInitialiser_GUI gi;

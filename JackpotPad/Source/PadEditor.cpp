@@ -123,11 +123,11 @@ void PadComp::paint (juce::Graphics& g)
     // testi
     const int root = P.rootNote();
     auto tb = b.reduced (10, 8);
-    g.setFont (ft (11.0f, true, true)); g.setColour (lum > 0.4f ? juce::Colours::white : Col::text.withAlpha (0.85f));
+    g.setFont (ft (12.0f, true, true)); g.setColour (lum > 0.4f ? juce::Colours::white : Col::text.withAlpha (0.85f));
     g.drawText (juce::String (pad + 1).paddedLeft ('0', 2), tb, juce::Justification::topLeft);
     g.setFont (ft (9.5f, false, true)); g.setColour (c.withAlpha (0.85f)); g.drawText (noteName (root + pad), tb, juce::Justification::topRight);
     auto s = P.getSample (pad);
-    g.setFont (ft (10.0f)); g.setColour (lum > 0.4f ? juce::Colours::white : Col::dim);
+    g.setFont (ft (12.0f)); g.setColour (lum > 0.4f ? juce::Colours::white : Col::text.withAlpha (0.8f));
     const int sl = juce::roundToInt (P.pad[pad].get (SLICE));
     g.drawFittedText (s ? s->name + (sl > 0 ? " #" + juce::String (sl) : juce::String()) : juce::String ("vuoto"), tb.withTrimmedBottom (4).withTrimmedTop (14).toNearestInt(), juce::Justification::bottomLeft, 2, 0.75f);
     if (flash > 0.05f) { g.setFont (ft (9.0f, true, true)); g.setColour (juce::Colours::white.withAlpha (flash)); g.drawText (juce::String (P.lastVel[pad].load()), tb.withTrimmedBottom (4), juce::Justification::bottomRight); }
@@ -359,7 +359,7 @@ void Screen::pageBrowse (juce::Graphics& g, juce::Rectangle<float> c)
         const bool on = i == browseCat && ! (searchAll && query.isNotEmpty());
         g.setColour (on ? Col::magenta.withAlpha (0.22f) : Col::phos.withAlpha (0.04f)); g.fillRoundedRectangle (r, 3);
         if (on) { g.setColour (Col::magenta); g.fillRoundedRectangle (r.getX(), r.getY() + 2, 3, r.getHeight() - 4, 1.5f); }
-        glowText (g, cats[i], r.reduced (9, 0), on ? Col::magenta : Col::phos.withAlpha (0.85f), ft (10.5f, true, true));
+        glowText (g, cats[i], r.reduced (9, 0), on ? Col::magenta : Col::phos.withAlpha (0.85f), ft (11.5f, true, true));
         const int nScan = idx.count (cats[i]);
         if (nScan > 0) { g.setColour (Col::cyan.withAlpha (on ? 0.9f : 0.55f)); g.setFont (ft (9.0f, false, true)); g.drawText (juce::String (nScan), r.reduced (6, 0), juce::Justification::centredRight); }
         hots.push_back ({ r, [this, i] (const juce::MouseEvent&) { browseCat = i; browseScroll = 0; searchAll = false; browseDirty = true; }, nullptr, nullptr, nullptr });
@@ -385,7 +385,7 @@ void Screen::pageBrowse (juce::Graphics& g, juce::Rectangle<float> c)
     }
     // elenco su due colonne
     auto cur = P.getSample (ed.sel); const juce::String curPath = cur ? cur->path : juce::String();
-    const float rh = 22; const int rows = juce::jmax (1, (int) (c.getHeight() / rh)), cols = 2, perPage = rows * cols;
+    const float rh = 25; const int rows = juce::jmax (1, (int) (c.getHeight() / rh)), cols = 2, perPage = rows * cols;
     browseScroll = juce::jlimit (0, juce::jmax (0, ((int) browseItems.size() - perPage + 1) / 2 * 2), browseScroll);
     const float cw = c.getWidth() / cols;
     auto wheel = [this] (float d) { browseScroll += d > 0 ? -2 : 2; repaint(); };
@@ -403,7 +403,7 @@ void Screen::pageBrowse (juce::Graphics& g, juce::Rectangle<float> c)
         auto tr = r.reduced (8, 0);
         if (pend) { g.setColour (Col::amber); g.setFont (ft (8.5f, true, true)); g.drawText ("CLIC = CARICA", tr.removeFromRight (84), juce::Justification::centredRight); }
         else if (query.isNotEmpty()) { g.setColour (Col::dim); g.setFont (ft (8.5f, false, true)); g.drawText (it.category, tr.removeFromRight (66), juce::Justification::centredRight); }
-        glowText (g, (it.user && ! it.scanned ? juce::String::fromUTF8 ("\xe2\x98\x85 ") : juce::String()) + it.name, tr, pend ? Col::amber : col, ft (11.5f, on || pend, true));
+        glowText (g, (it.user && ! it.scanned ? juce::String::fromUTF8 ("\xe2\x98\x85 ") : juce::String()) + it.name, tr, pend ? Col::amber : col, ft (13.0f, on || pend, true));
         hots.push_back ({ r, [this, i, key] (const juce::MouseEvent& e)
                           {
                               if (i >= (int) browseItems.size()) return;
@@ -436,7 +436,7 @@ void Screen::pageBrowse (juce::Graphics& g, juce::Rectangle<float> c)
 void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
 {
     auto& P = ed.proc;
-    auto left = c.removeFromLeft (250); c.removeFromLeft (12);
+    auto left = c.removeFromLeft (330); c.removeFromLeft (12);
     // nome del kit e frecce
     auto nm = left.removeFromTop (44);
     const bool user = P.kitFile.existsAsFile();
@@ -461,15 +461,24 @@ void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
     hots.push_back ({ arrowL, [loadItem, cur, n = (int) items.size()] (const juce::MouseEvent&) { loadItem ((cur - 1 + n) % n); }, nullptr, nullptr, nullptr });
     hots.push_back ({ arrowR, [loadItem, cur, n = (int) items.size()] (const juce::MouseEvent&) { loadItem ((cur + 1) % n); }, nullptr, nullptr, nullptr });
     auto btnRow = left.removeFromBottom (30); left.removeFromBottom (5);
-    auto rndRow = left.removeFromBottom (26); left.removeFromBottom (5);
+    auto rndRow = left.removeFromBottom (44); left.removeFromBottom (6);
     auto keyRow = left.removeFromBottom (26); left.removeFromBottom (6);
     {
-        const float rw = (rndRow.getWidth() - 8) / 3;
-        chip (g, rndRow.removeFromLeft (rw), "", "RANDOM KIT", true, [this] (const juce::MouseEvent&) { randomKit (ed.proc, randMode); ed.kitChanged(); ed.playPad (0, 100); }, Col::amber);
-        rndRow.removeFromLeft (4);
-        chip (g, rndRow.removeFromLeft (rw), "", "RANDOM PAD " + juce::String (ed.sel + 1), true, [this] (const juce::MouseEvent&) { randomPad (ed.proc, ed.sel, randMode); ed.kitChanged(); ed.playPad (ed.sel, 100); }, Col::amber);
-        rndRow.removeFromLeft (4);
-        chip (g, rndRow, "", kRandModes[randMode], false, [this] (const juce::MouseEvent&) { randMode = (randMode + 1) % 3; repaint(); }, Col::amber);
+        // RANDOM grandi: si usano di continuo
+        auto big = [&] (juce::Rectangle<float> r, const juce::String& t, const juce::String& sub, bool on, std::function<void (const juce::MouseEvent&)> fn)
+        {
+            g.setColour (on ? Col::amber.withAlpha (0.22f) : Col::phos.withAlpha (0.06f)); g.fillRoundedRectangle (r, 6);
+            g.setColour (on ? Col::amber : Col::phos.withAlpha (0.3f)); g.drawRoundedRectangle (r.reduced (0.5f), 6, 1.4f);
+            glowText (g, t, r.withTrimmedBottom (sub.isEmpty() ? 0 : 12), on ? Col::amber : Col::phos, ft (14.0f, true, true), juce::Justification::centred);
+            if (sub.isNotEmpty()) { g.setFont (ft (8.5f, false, true)); g.setColour (Col::phos.withAlpha (0.55f)); g.drawText (sub, r.withTrimmedTop (r.getHeight() - 16), juce::Justification::centred); }
+            hots.push_back ({ r, std::move (fn), nullptr, nullptr, nullptr });
+        };
+        const float rw = (rndRow.getWidth() - 12) / 3;
+        big (rndRow.removeFromLeft (rw * 1.1f), "RANDOM KIT", "tutti i pad", true, [this] (const juce::MouseEvent&) { randomKit (ed.proc, randMode); ed.kitChanged(); ed.playPad (0, 100); });
+        rndRow.removeFromLeft (6);
+        big (rndRow.removeFromLeft (rw * 1.1f), "RANDOM PAD", "solo il pad " + juce::String (ed.sel + 1), true, [this] (const juce::MouseEvent&) { randomPad (ed.proc, ed.sel, randMode); ed.kitChanged(); ed.playPad (ed.sel, 100); });
+        rndRow.removeFromLeft (6);
+        big (rndRow, kRandModes[randMode], "sorgente", false, [this] (const juce::MouseEvent&) { randMode = (randMode + 1) % 3; repaint(); });
         const int kl = P.keyLock();
         chip (g, keyRow, "", juce::String::fromUTF8 ("TONALIT\xc3\x80 KIT: ") + (kl < 0 ? juce::String ("LIBERA") : keyName (kl) + (kl >= 12 ? " (minore)" : " (maggiore)")) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), kl >= 0,
               [this] (const juce::MouseEvent&) { ed.keyLockMenu(); }, Col::cyan);
@@ -479,7 +488,7 @@ void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
     chip (g, btnRow.removeFromLeft (bw), "", "SALVA COME", false, [this] (const juce::MouseEvent&) { ed.saveKit (true); }, Col::magenta); btnRow.removeFromLeft (4);
     chip (g, btnRow, "", "APRI...", false, [this] (const juce::MouseEvent&) { ed.loadKitDialog(); }, Col::magenta);
     // lista
-    const float lh = 19; const int vis = (int) (left.getHeight() / lh);
+    const float lh = 22; const int vis = (int) (left.getHeight() / lh);
     kitScroll = juce::jlimit (0, juce::jmax (0, (int) items.size() - vis), kitScroll);
     g.setColour (Col::phos.withAlpha (0.05f)); g.fillRoundedRectangle (left, 4);
     for (int k = 0; k < vis && k + kitScroll < (int) items.size(); ++k)
@@ -487,7 +496,7 @@ void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
         const int i = k + kitScroll; auto r = juce::Rectangle<float> (left.getX(), left.getY() + k * lh, left.getWidth(), lh);
         if (i == cur) { g.setColour (Col::magenta.withAlpha (0.2f)); g.fillRect (r); }
         if (i > 0 && items[(size_t) i].factory < 0 && items[(size_t) i - 1].factory >= 0) { g.setColour (Col::phos.withAlpha (0.3f)); g.drawHorizontalLine ((int) r.getY(), r.getX(), r.getRight()); }
-        g.setFont (ft (10.5f, i == cur, true)); g.setColour (i == cur ? Col::magenta : Col::phos.withAlpha (0.85f));
+        g.setFont (ft (12.5f, i == cur, true)); g.setColour (i == cur ? Col::magenta : Col::phos.withAlpha (0.9f));
         g.drawText (items[(size_t) i].name, r.reduced (6, 0), juce::Justification::centredLeft);
         g.setFont (ft (8.5f, false, true)); g.setColour (Col::phos.withAlpha (0.4f));
         g.drawText (items[(size_t) i].style, r.reduced (6, 0), juce::Justification::centredRight);
@@ -1474,17 +1483,17 @@ void Root::paintStatic (juce::Graphics& g)
     jlook::backdrop (g, { 0, 0, W, H }, Col::magenta, Col::cyan);
     jlook::header (g, { 0, 0, W, 66 }, "SAMPLER", Col::magenta, "JP-16  DRUM SAMPLER", Col::magenta, Col::cyan);
     for (auto pt : { juce::Point<float> (12, 80), juce::Point<float> (W - 12, 80), juce::Point<float> (12, H - 12), juce::Point<float> (W - 12, H - 12) }) screw (g, pt.x, pt.y);
-    jlook::softShadow (g, { 768, 78, 454, 452 }, 14); insetPanel (g, { 768, 78, 454, 452 }, 14);
+    jlook::softShadow (g, { 898, 78, 480, 474 }, 14); insetPanel (g, { 898, 78, 480, 474 }, 14);
     // fascia Q-link
-    jlook::card (g, { 24, 486, 734, 94 }, 10, Col::cyan, true);
+    jlook::card (g, { 24, 486, 864, 94 }, 10, Col::cyan, true);
     g.saveState(); g.addTransform (juce::AffineTransform::rotation (-juce::MathConstants<float>::halfPi, 38, 533));
     g.setColour (Col::cyan); g.setFont (ft (9.5f, true)); g.drawText ("Q-LINK", juce::Rectangle<float> (38 - 40, 527, 80, 12), juce::Justification::centred);
     g.restoreState();
     // sequencer
-    jlook::card (g, { 24, 590, 734, 182 }, 10, Col::magenta, true);
+    jlook::card (g, { 24, 590, 864, 182 }, 10, Col::magenta, true);
 
     g.setColour (Col::dim); g.setFont (ft (9.0f));
-    g.drawText ("per suonare dalla tastiera del Mac: in Ableton premi M", juce::Rectangle<float> (774, 744, 300, 14), juce::Justification::centredLeft);
+    g.drawText ("per suonare dalla tastiera del Mac: in Ableton premi M", juce::Rectangle<float> (904, 750, 300, 14), juce::Justification::centredLeft);
 }
 void Root::paint (juce::Graphics& g)
 {
@@ -1505,7 +1514,7 @@ void Root::paint (juce::Graphics& g)
     const float m[2] = { ed.proc.meterL.load(), ed.proc.meterR.load() };
     for (int c = 0; c < 2; ++c)
     {
-        auto mb = juce::Rectangle<float> (1060, 690.0f + c * 9, 150, 6);
+        auto mb = juce::Rectangle<float> (1190, 696.0f + c * 9, 150, 6);
         const float db = juce::Decibels::gainToDecibels (m[c], -48.0f), n = juce::jlimit (0.0f, 1.0f, (db + 48) / 51);
         for (int k = 0; k < 19; ++k) { const float t = k / 19.0f; g.setColour (t <= n ? (t > 0.9f ? Col::red : t > 0.75f ? Col::amber : Col::green) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (mb.getX() + k * 6.0f, mb.getY(), 4.5f, mb.getHeight()); }
     }
@@ -2139,30 +2148,30 @@ void Editor::resized()
     const float s = scaler.update();
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     root.setBounds (0, 0, W, H); root.setTransform (juce::AffineTransform::scale (s));
-    screen.setBounds (24, 78, 734, 400);
+    screen.setBounds (24, 78, 864, 400);
     chop.setBounds (0, 0, W, H);
     named (root, "stop")->setBounds (W - 128, 18, 100, 30);
-    named (root, "undo")->setBounds (876, 18, 108, 30);
-    named (root, "redo")->setBounds (990, 18, 108, 30);
-    for (int i = 0; i < 8; ++i) qlinks[i]->setBounds (58 + i * 86, 490, 80, 88);
-    for (int i = 0; i < kPads; ++i) { const int r = 3 - i / 4, c = i % 4; pads[i]->setBounds (775 + c * 110, 83 + r * 110, 110, 110); }
-    named (root, "curve")->setBounds (774, 540, 150, 40);
-    named (root, "full")->setBounds (932, 550, 92, 30);
-    named (root, "load")->setBounds (1030, 550, 62, 30);
-    named (root, "root")->setBounds (1100, 540, 118, 40);
-    named (root, "nr")->setBounds (774, 600, 130, 34);
-    named (root, "nrRate")->setBounds (912, 594, 96, 44);
-    globalKnobs[3]->setBounds (950, 650, 92, 84);
-    named (root, "genre")->setBounds (452, 598, 146, 40);
-    named (root, "pattern")->setBounds (604, 598, 148, 40);
+    named (root, "undo")->setBounds (1006, 18, 108, 30);
+    named (root, "redo")->setBounds (1120, 18, 108, 30);
+    for (int i = 0; i < 8; ++i) qlinks[i]->setBounds (66 + i * 102, 490, 88, 88);
+    for (int i = 0; i < kPads; ++i) { const int r = 3 - i / 4, c = i % 4; pads[i]->setBounds (906 + c * 116, 83 + r * 116, 116, 116); }
+    named (root, "curve")->setBounds (904, 552, 150, 40);
+    named (root, "full")->setBounds (1062, 562, 92, 30);
+    named (root, "load")->setBounds (1160, 562, 62, 30);
+    named (root, "root")->setBounds (1240, 552, 130, 40);
+    named (root, "nr")->setBounds (904, 608, 130, 34);
+    named (root, "nrRate")->setBounds (1042, 602, 96, 44);
+    globalKnobs[3]->setBounds (1080, 656, 92, 84);
+    named (root, "genre")->setBounds (582, 598, 146, 40);
+    named (root, "pattern")->setBounds (734, 598, 148, 40);
     const char* tb[] = { "loop", "random", "rnd", "vary", "play" };
-    for (int i = 0; i < 5; ++i) named (root, tb[i])->setBounds (452 + i * 60, 642, 57, 30);
-    named (root, "swGrid")->setBounds (626, 680, 60, 40);
-    named (root, "swmidi")->setBounds (690, 684, 62, 32);
-    pattern.setBounds (30, 592, 416, 178);
-    globalKnobs[0]->setBounds (450, 676, 58, 70); globalKnobs[1]->setBounds (508, 676, 58, 70); globalKnobs[2]->setBounds (566, 676, 58, 70);
-    named (root, "expsw")->setBounds (626, 726, 60, 30);
-    drag.setBounds (690, 722, 62, 40);
+    for (int i = 0; i < 5; ++i) named (root, tb[i])->setBounds (582 + i * 60, 642, 57, 30);
+    named (root, "swGrid")->setBounds (756, 680, 60, 40);
+    named (root, "swmidi")->setBounds (820, 684, 62, 32);
+    pattern.setBounds (30, 592, 546, 178);
+    globalKnobs[0]->setBounds (580, 676, 58, 70); globalKnobs[1]->setBounds (638, 676, 58, 70); globalKnobs[2]->setBounds (696, 676, 58, 70);
+    named (root, "expsw")->setBounds (756, 726, 60, 30);
+    drag.setBounds (820, 722, 62, 40);
 }
 
 // le 8 manopole Q-link cambiano con la pagina, come sulle MPC

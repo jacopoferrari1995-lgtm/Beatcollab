@@ -1277,7 +1277,7 @@ void Processor::setStateInformation (const void* data, int size)
     if (auto* pads = x->getChildByName ("PADS")) padsFromXml (*pads);
     for (int p = 0; p < kPads; ++p) for (int k = 0; k < kAutoN; ++k) lastHost[p][k] = hpRaw[p][k]->load();   // i pad salvati vincono; il timer riallinea Ableton
     kitName = x->getStringAttribute ("kit", kitName);
-    patternIndex = x->getIntAttribute ("pattern", 0); loopOn = x->getIntAttribute ("loopOn", 0) != 0; patternBars = juce::jlimit (1, 8, x->getIntAttribute ("bars", 2)); genStyle = x->getIntAttribute ("genStyle", 0);
+    patternIndex = x->getIntAttribute ("pattern", 0); loopOn = false;   // il loop interno parte solo a mano, mai da solo riaprendo il progetto patternBars = juce::jlimit (1, 8, x->getIntAttribute ("bars", 2)); genStyle = x->getIntAttribute ("genStyle", 0);
     const auto kf = x->getStringAttribute ("kitFile"); kitFile = kf.isNotEmpty() ? juce::File (kf) : juce::File();
     if (auto* pt = x->getChildByName ("PATTERN"))
     {

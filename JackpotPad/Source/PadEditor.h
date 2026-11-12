@@ -236,7 +236,7 @@ class Editor : public juce::AudioProcessorEditor, public juce::DragAndDropContai
 {
 public:
     explicit Editor (Processor&);
-    ~Editor() override { setLookAndFeel (nullptr); }
+    ~Editor() override { proc.loopOn = false; proc.requestPlay (false); setLookAndFeel (nullptr); }   // chiudi la finestra = si ferma anche il loop interno
     void resized() override;
     void paint (juce::Graphics& g) override { g.fillAll (Col::bg); }
     bool keyPressed (const juce::KeyPress&) override;
@@ -245,7 +245,7 @@ public:
     void setPage (int pg);
     void playPad (int p, int vel) { proc.uiNoteOn (p, vel); }
     void stopPad (int p) { proc.uiNoteOff (p); }
-    static constexpr int W = 1240, H = 780;
+    static constexpr int W = 1400, H = 780;
 
     jlook::LnF lnf;
     Processor& proc;

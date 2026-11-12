@@ -171,6 +171,34 @@ static float maxDur (const juce::String& c)
 
 // Kit casuale con criterio: ruoli fissi per pad (1-8 batteria, 9-16 fx/voci/melodie/loop), suoni pescati per
 // categoria dalla banca scelta, parti tonali portate tutte nella stessa tonalita. 1 volta su 5: kit sperimentale.
+// "Lungo" vero: non basta la durata del file. Un one shot con tanta coda dura 3 s ma e' un colpo solo.
+// Lungo = suona davvero a lungo: dopo 1 s e' ancora forte (entro 12 dB dal massimo) oppure ha piu attacchi (loop, frase).
+static bool reallyLong (const SampleData& s, float minSec)
+{
+    const int n = s.buf.getNumSamples(); const double sr = s.sr > 0 ? s.sr : 44100.0;
+    if (n < sr * minSec) return false;
+    const auto nm = s.name.toLowerCase();
+    if (nm.contains ("loop") || nm.contains ("bpm")) return true;
+    if (nm.contains ("one shot") || nm.contains ("oneshot") || nm.contains ("one_shot") || nm.contains ("1shot") || nm.contains (" hit") || nm.contains ("_hit") || nm.contains ("stab")) return false;
+    const int hop = juce::jmax (1, (int) (sr * 0.02)), F = n / hop; if (F < 4) return false;
+    std::vector<float> env ((size_t) F);
+    const float* a = s.buf.getReadPointer (0); const float* b = s.buf.getReadPointer (juce::jmin (1, s.buf.getNumChannels() - 1));
+    float pk = 0;
+    for (int f = 0; f < F; ++f) { double e = 0; for (int i = f * hop; i < (f + 1) * hop; ++i) { const float x = 0.5f * (a[i] + b[i]); e += x * x; } env[(size_t) f] = (float) std::sqrt (e / hop); pk = juce::jmax (pk, env[(size_t) f]); }
+    if (pk <= 1e-6f) return false;
+    // lunghezza utile: ultimo punto sopra -24 dB
+    int last = 0; for (int f = 0; f < F; ++f) if (env[(size_t) f] > pk * 0.063f) last = f;
+    if ((last + 1) * hop / sr < minSec) return false;
+    // ancora forte dopo un secondo?
+    const int f1 = (int) (1.0 * sr / hop), f2 = juce::jmin (F, (int) (1.5 * sr / hop));
+    float later = 0; for (int f = f1; f < f2; ++f) later = juce::jmax (later, env[(size_t) f]);
+    if (later > pk * 0.25f) return true;
+    // piu attacchi distinti (sale di 6 dB rispetto a 100 ms prima, sopra -20 dB)
+    int ons = 0, lastOn = -100;
+    for (int f = 5; f < F; ++f) if (env[(size_t) f] > pk * 0.1f && env[(size_t) f] > 2.0f * env[(size_t) f - 5] && f - lastOn > 7) { ++ons; lastOn = f; }
+    return ons >= 3;
+}
+
 void randomKit (Processor& P, int mode)
 {
     juce::Random r;
@@ -247,6 +275,7 @@ void randomKit (Processor& P, int mode)
                     if (loadLibItem (P, it, p))
                     {
                         if (lenOf() < minLen) continue;   // troppo corto: prova un altro
+                        if (pass < 2 && longOnly) { auto sp = P.getSample (p); if (! sp || ! reallyLong (*sp, minLen)) continue; }   // one shot con tanta coda: non e' un suono lungo
                         used.add (key); done = true; cat = c;
                     }
                 }
@@ -290,6 +319,7 @@ void randomKit (Processor& P, int mode)
     P.kitName = juce::String ("Random ") + (first == 0 ? "Classico" : first == 1 ? "Variato" : "Sperimentale") + (invent ? "+" : "") + " / " + kRandModes[juce::jlimit (0, 2, mode)] + (kitKey >= 0 ? " in " + keyName (kitKey) : juce::String());
     P.kitFile = juce::File();
 }
+
 
 // Random su un solo pad. 1-8: un altro suono della stessa categoria del pad. 9-16: casuale, quasi sempre lungo.
 // Le parti tonali seguono la tonalita fissata o quella del resto del kit.
@@ -341,7 +371,11 @@ void randomPad (Processor& P, int p, int mode)
                 const auto key = it.user ? it.file.getFullPathName() : descToPath (it.d);
                 if (key == curPath && v.size() > 1) continue;   // un suono diverso da quello di prima
                 P.pad[p].reset(); P.setLayer (p, nullptr);
-                if (loadLibItem (P, it, p) && lenOf() >= minLen) { done = true; cat = c; }
+                if (loadLibItem (P, it, p) && lenOf() >= minLen)
+                {
+                    if (pass < 2 && longOnly) { auto sp = P.getSample (p); if (! sp || ! reallyLong (*sp, minLen)) continue; }
+                    done = true; cat = c;
+                }
             }
             if (done) break;
         }
