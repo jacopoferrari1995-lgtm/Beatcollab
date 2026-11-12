@@ -436,7 +436,37 @@ void Screen::pageBrowse (juce::Graphics& g, juce::Rectangle<float> c)
 void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
 {
     auto& P = ed.proc;
+    if (kitSmall)
+    {   // colonna stretta: si riapre con un clic, restano a portata i RANDOM
+        auto left = c.removeFromLeft (118); c.removeFromLeft (10);
+        auto tg = left.removeFromTop (30); left.removeFromTop (6);
+        chip (g, tg, "", juce::String::fromUTF8 ("KIT  \xe2\x96\xb6"), false, [this] (const juce::MouseEvent&) { kitSmall = false; repaint(); }, Col::phos);
+        hots.back().tip = "Mostra di nuovo l'elenco dei kit.";
+        g.setFont (ft (10.5f, true, true)); g.setColour (Col::magenta);
+        g.drawFittedText (P.kitName.toUpperCase(), left.removeFromTop (40).toNearestInt(), juce::Justification::centred, 3, 0.7f);
+        left.removeFromTop (6);
+        auto bigV = [&] (juce::Rectangle<float> r, const juce::String& t, const juce::String& sub, bool on, std::function<void (const juce::MouseEvent&)> fn)
+        {
+            g.setColour (on ? Col::amber.withAlpha (0.22f) : Col::phos.withAlpha (0.06f)); g.fillRoundedRectangle (r, 6);
+            g.setColour (on ? Col::amber : Col::phos.withAlpha (0.3f)); g.drawRoundedRectangle (r.reduced (0.5f), 6, 1.4f);
+            glowText (g, t, r.withTrimmedBottom (14), on ? Col::amber : Col::phos, ft (13.0f, true, true), juce::Justification::centred);
+            g.setFont (ft (8.5f, false, true)); g.setColour (Col::phos.withAlpha (0.55f)); g.drawText (sub, r.withTrimmedTop (r.getHeight() - 20), juce::Justification::centred);
+            hots.push_back ({ r, std::move (fn), nullptr, nullptr, nullptr });
+        };
+        const float bh = juce::jmin (78.0f, (left.getHeight() - 12) / 3);
+        bigV (left.removeFromTop (bh), "RANDOM KIT", "tutti i pad", true, [this] (const juce::MouseEvent&) { randomKit (ed.proc, randMode); ed.kitChanged(); ed.playPad (0, 100); }); left.removeFromTop (6);
+        bigV (left.removeFromTop (bh), "RANDOM PAD", "solo il pad " + juce::String (ed.sel + 1), true, [this] (const juce::MouseEvent&) { randomPad (ed.proc, ed.sel, randMode); ed.kitChanged(); ed.playPad (ed.sel, 100); }); left.removeFromTop (6);
+        bigV (left.removeFromTop (bh), kRandModes[randMode], "sorgente", false, [this] (const juce::MouseEvent&) { randMode = (randMode + 1) % 3; repaint(); });
+        if (ed.kitMon.getBounds() != c.toNearestInt()) ed.kitMon.setBounds (c.toNearestInt());
+        return;
+    }
     auto left = c.removeFromLeft (330); c.removeFromLeft (12);
+    // riduci la colonna
+    {
+        auto tg = left.removeFromTop (24); left.removeFromTop (4);
+        chip (g, tg.removeFromRight (120), "", juce::String::fromUTF8 ("\xe2\x97\x80  RIDUCI"), false, [this] (const juce::MouseEvent&) { kitSmall = true; repaint(); }, Col::phos);
+        hots.back().tip = "Stringe l'elenco dei kit: piu spazio alla forma d'onda e alle misure.";
+    }
     // nome del kit e frecce
     auto nm = left.removeFromTop (44);
     const bool user = P.kitFile.existsAsFile();
@@ -502,59 +532,151 @@ void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
         g.drawText (items[(size_t) i].style, r.reduced (6, 0), juce::Justification::centredRight);
         hots.push_back ({ r, [loadItem, i] (const juce::MouseEvent&) { loadItem (i); }, nullptr, [this] (float d) { kitScroll += d > 0 ? -1 : 1; repaint(); }, nullptr });
     }
-    // ---- vista dinamica: transienti in uscita + pad colpiti (ultimi 3 secondi) ----
-    const int NS = Processor::kScope, w0 = P.scW.load();
-    auto at = [&P, w0, NS] (int k) { return (w0 + k) % NS; };     // k = 0 piu vecchio, NS-1 piu recente
-    g.setColour (Col::phos.withAlpha (0.05f)); g.fillRoundedRectangle (c, 4);
-    auto lanes = c.removeFromBottom (c.getHeight() * 0.42f); c.removeFromBottom (4);
-    auto wave = c.reduced (4, 2);
-    auto lab = wave.removeFromTop (14);
-    glowText (g, "TRANSIENTI  OUT", lab, Col::phos.withAlpha (0.7f), ft (9.0f, true, true));
-    float pk = 0; int nHits = 0; for (int k = NS - 100; k < NS; ++k) { pk = juce::jmax (pk, P.scPk[at (k)].load()); nHits += juce::countNumberOfBits ((juce::uint32) P.scHit[at (k)].load()); }
-    glowText (g, "PICCO " + juce::String (juce::Decibels::gainToDecibels (pk, -60.0f), 1) + " dB   COLPI " + juce::String (nHits), lab, pk > 0.95f ? Col::magenta : Col::phos.withAlpha (0.8f), ft (9.0f, true, true), juce::Justification::centredRight);
-    // griglia ogni mezzo secondo
-    for (int q = 1; q < 6; ++q) { const float x = wave.getX() + wave.getWidth() * q / 6.0f; g.setColour (Col::phos.withAlpha (0.07f)); g.drawVerticalLine ((int) x, wave.getY(), lanes.getBottom()); }
-    const float cy = wave.getCentreY(), hh = wave.getHeight() * 0.48f, dx = wave.getWidth() / NS;
-    for (int lvl : { -6, -12, -24 }) { const float y = hh * juce::Decibels::decibelsToGain ((float) lvl); g.setColour (Col::phos.withAlpha (0.06f)); g.drawHorizontalLine ((int) (cy - y), wave.getX(), wave.getRight()); g.drawHorizontalLine ((int) (cy + y), wave.getX(), wave.getRight()); }
-    juce::Path env; env.startNewSubPath (wave.getX(), cy);
-    for (int k = 0; k < NS; ++k) { const float v = juce::jmin (1.0f, std::sqrt (P.scPk[at (k)].load())); env.lineTo (wave.getX() + k * dx, cy - v * hh); }
-    for (int k = NS - 1; k >= 0; --k) { const float v = juce::jmin (1.0f, std::sqrt (P.scPk[at (k)].load())); env.lineTo (wave.getX() + k * dx, cy + v * hh); }
-    env.closeSubPath();
-    juce::ColourGradient eg (Col::phos.withAlpha (0.1f), wave.getX(), 0, Col::phos.withAlpha (0.55f), wave.getRight(), 0, false); g.setGradientFill (eg); g.fillPath (env);
-    g.setColour (Col::phos.withAlpha (0.8f)); g.strokePath (env, juce::PathStrokeType (1.0f));
-    // marcatori di transiente: linea colorata del pad, altezza = velocity
-    for (int k = 0; k < NS; ++k)
+    // ---- monitor del pad scelto: forma d'onda, testina, picco e LUFS (componente a parte, si aggiorna da solo) ----
+    if (ed.kitMon.getBounds() != c.toNearestInt()) ed.kitMon.setBounds (c.toNearestInt());
+}
+
+// ======================= monitor della pagina KIT =======================
+void KitMonitor::tick()
+{
+    auto& P = ed.proc; const int p = ed.sel;
+    const float pos = P.padPos[p].load(), l = P.lufsS.load(), ph = P.peakHold.load();
+    const float m[2] = { P.meterL.load(), P.meterR.load() };
+    bool ch = std::abs (pos - lastPos) > 0.0005f || std::abs (l - lastL) > 0.05f || ph != lastP;
+    for (int c = 0; c < 2; ++c) { const float v = juce::jmax (m[c], pkS[c] * 0.88f); if (std::abs (v - pkS[c]) > 1e-4f) ch = true; pkS[c] = v; }
+    if (ch) { lastPos = pos; lastL = l; lastP = ph; repaint(); }
+}
+void KitMonitor::paint (juce::Graphics& g)
+{
+    auto& P = ed.proc; const int p = ed.sel; auto& pd = P.pad[p];
+    auto b = getLocalBounds().toFloat();
+    g.setColour (Col::phos.withAlpha (0.05f)); g.fillRoundedRectangle (b, 4);
+    auto smp = P.getSample (p);
+    const auto pc = padColour (pd.colour.load());
+    // intestazione: pad, nome intero, dati
+    auto hd = b.removeFromTop (44).reduced (8, 4);
     {
-        const int m = P.scHit[at (k)].load(); if (m == 0) continue;
-        const float x = wave.getX() + k * dx, age = (float) k / NS, vel = P.scVel[at (k)].load() / 127.0f;
-        int first = 0; while (first < kPads && ! ((m >> first) & 1)) ++first;
-        const auto pc = padColour (P.pad[juce::jlimit (0, kPads - 1, first)].colour.load());
-        g.setColour (pc.withAlpha (0.15f + 0.5f * age)); g.fillRect (x - 1.5f, wave.getY(), 3.0f, wave.getHeight());
-        g.setColour (pc.withAlpha (0.4f + 0.6f * age)); g.drawVerticalLine ((int) x, cy - hh * vel, cy + hh * vel);
-        g.fillEllipse (x - 2.5f, cy - hh * vel - 2.5f, 5, 5);
-        if (k > NS - 220) { g.setFont (ft (8.0f, true, true)); g.drawText (juce::String (first + 1), juce::Rectangle<float> (x - 10, wave.getY(), 20, 10), juce::Justification::centred); }
+        auto badge = hd.removeFromLeft (46).withSizeKeepingCentre (46, 30);
+        g.setColour (pc.withAlpha (0.22f)); g.fillRoundedRectangle (badge, 5); g.setColour (pc); g.drawRoundedRectangle (badge, 5, 1.2f);
+        glowText (g, juce::String (p + 1).paddedLeft ('0', 2), badge, pc, ft (14.0f, true, true), juce::Justification::centred);
+        hd.removeFromLeft (10);
+        const auto nm = smp ? smp->name : juce::String ("vuoto");
+        g.setFont (ft (14.5f, true)); g.setColour (Col::text); g.drawFittedText (nm, hd.removeFromTop (20).toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
+        juce::StringArray meta;
+        if (P.padCat[p].isNotEmpty()) meta.add (P.padCat[p]);
+        if (smp) meta.add (juce::String (smp->buf.getNumSamples() / juce::jmax (1.0, smp->sr), 2) + " s");
+        const int k = juce::roundToInt (pd.get (SKEY)); if (smp && k >= 0) meta.add (keyName (k));
+        const float bp = pd.get (SBPM); if (smp && bp > 40) meta.add (juce::String (bp, 1) + " BPM");
+        g.setFont (ft (10.0f, false, true)); g.setColour (Col::phos.withAlpha (0.6f)); g.drawText (meta.joinIntoString (juce::String::fromUTF8 ("  \xc2\xb7  ")), hd, juce::Justification::centredLeft);
     }
-    // testina "adesso"
-    g.setColour (Col::magenta.withAlpha (0.25f)); g.fillRect (wave.getRight() - 6, wave.getY(), 6.0f, lanes.getBottom() - wave.getY());
-    g.setColour (Col::magenta); g.drawVerticalLine ((int) wave.getRight(), wave.getY(), lanes.getBottom());
-    // corsie dei 16 pad
-    auto names = lanes.removeFromLeft (34); const float lh2 = lanes.getHeight() / kPads;
-    for (int p = 0; p < kPads; ++p)
+    // misure in basso
+    auto mt = b.removeFromBottom (70).reduced (8, 6);
+    // onda
+    waveR = b.reduced (8, 4);
+    g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (waveR, 4);
+    if (smp)
     {
-        const int row = kPads - 1 - p; const float y = lanes.getY() + row * lh2;
-        const auto pc = padColour (P.pad[p].colour.load()); const float gl = juce::jlimit (0.0f, 1.0f, ed.pads[p]->glow);
-        if (p == ed.sel) { g.setColour (pc.withAlpha (0.12f)); g.fillRect (lanes.getX(), y, lanes.getWidth(), lh2); }
-        g.setColour (pc.withAlpha (0.5f + 0.5f * gl)); g.setFont (ft (7.5f, true, true));
-        g.drawText (juce::String (p + 1).paddedLeft ('0', 2), juce::Rectangle<float> (names.getX() + 2, y, 16, lh2), juce::Justification::centredLeft);
-        g.setColour (pc.withAlpha (0.15f + 0.85f * gl)); g.fillRect (names.getX() + 18, y + 1, 14 * juce::jmin (1.0f, P.padMeter[p].load() * 1.5f) + 1, lh2 - 2);
-        for (int k = 0; k < NS; ++k)
-            if ((P.scHit[at (k)].load() >> p) & 1)
+        const float sc = juce::jlimit (1.0f, 3.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        if (waveImg.isNull() || imgSmp != smp.get() || imgPad != p || imgCol != pd.colour.load() || std::abs (imgScale - sc) > 0.01f)
+        {
+            imgSmp = smp.get(); imgPad = p; imgCol = pd.colour.load(); imgScale = sc;
+            const int w = juce::roundToInt (waveR.getWidth() * sc), h = juce::roundToInt (waveR.getHeight() * sc);
+            waveImg = juce::Image (juce::Image::ARGB, juce::jmax (1, w), juce::jmax (1, h), true);
+            juce::Graphics ig (waveImg);
+            const int n = smp->buf.getNumSamples(); const float* d0 = smp->buf.getReadPointer (0); const float* d1 = smp->buf.getReadPointer (juce::jmin (1, smp->buf.getNumChannels() - 1));
+            float gmax = 1e-4f; for (int i = 0; i < n; i += 4) gmax = juce::jmax (gmax, std::abs (d0[i]), std::abs (d1[i]));
+            const float cy = h * 0.5f, hh = h * 0.46f / gmax;
+            juce::Path pth; pth.startNewSubPath (0, cy);
+            std::vector<float> mx ((size_t) w), mn ((size_t) w);
+            for (int x = 0; x < w; ++x)
             {
-                const float x = lanes.getX() + k * (lanes.getWidth() / NS), age = (float) k / NS, vel = P.scVel[at (k)].load() / 127.0f;
-                g.setColour (pc.withAlpha (0.25f + 0.75f * age)); g.fillRoundedRectangle (x - 1, y + 0.5f, 3.0f + vel * 3.0f, lh2 - 1, 1);
+                const int a = (int) ((juce::int64) x * n / w), e = juce::jmax (a + 1, (int) ((juce::int64) (x + 1) * n / w));
+                float lo = 0, hi = 0; for (int i = a; i < e && i < n; ++i) { const float v = 0.5f * (d0[i] + d1[i]); lo = juce::jmin (lo, v); hi = juce::jmax (hi, v); }
+                mx[(size_t) x] = hi; mn[(size_t) x] = lo; pth.lineTo ((float) x, cy - hi * hh);
             }
-        hots.push_back ({ juce::Rectangle<float> (names.getX(), y, names.getWidth() + lanes.getWidth(), lh2), [this, p] (const juce::MouseEvent& e) { ed.selectPad (p); if (e.mods.isPopupMenu()) ed.openBrowser (p); else ed.playPad (p, 100); }, nullptr, nullptr, nullptr });
+            for (int x = w - 1; x >= 0; --x) pth.lineTo ((float) x, cy - mn[(size_t) x] * hh);
+            pth.closeSubPath();
+            juce::ColourGradient wg (pc.withAlpha (0.9f), 0, 0, pc.withAlpha (0.9f), 0, (float) h, false); wg.addColour (0.5, pc.withAlpha (0.35f));
+            ig.setGradientFill (wg); ig.fillPath (pth);
+            ig.setColour (pc.brighter (0.4f).withAlpha (0.9f)); ig.strokePath (pth, juce::PathStrokeType (0.8f * sc));
+        }
+        { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc).translated (waveR.getX(), waveR.getY())); g.drawImageAt (waveImg, 0, 0); g.restoreState(); }
+        // regione: fuori da inizio/fine si scurisce
+        const float s0 = pd.get (START), s1 = pd.get (END);
+        const float x0 = waveR.getX() + waveR.getWidth() * s0, x1 = waveR.getX() + waveR.getWidth() * s1;
+        g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillRect (waveR.withRight (x0)); g.fillRect (waveR.withLeft (x1));
+        for (int k = 0; k < 2; ++k)
+        {
+            const float x = k ? x1 : x0; const auto c = k ? Col::magenta : Col::green;
+            g.setColour (c); g.fillRect (x - 1, waveR.getY(), 2.0f, waveR.getHeight());
+            auto tag = juce::Rectangle<float> (k ? x - 34 : x, waveR.getY(), 34, 14);
+            g.fillRoundedRectangle (tag, 2); g.setColour (Col::bg); g.setFont (ft (8.0f, true, true)); g.drawText (k ? "FINE" : "INIZIO", tag, juce::Justification::centred);
+        }
+        // testina
+        const float pos = P.padPos[p].load();
+        if (pos >= 0)
+        {
+            const float x = waveR.getX() + waveR.getWidth() * juce::jlimit (0.0f, 1.0f, pos);
+            g.setColour (juce::Colours::white.withAlpha (0.18f)); g.fillRect (x - 3, waveR.getY(), 6.0f, waveR.getHeight());
+            g.setColour (juce::Colours::white); g.fillRect (x - 0.75f, waveR.getY(), 1.5f, waveR.getHeight());
+        }
+        g.setFont (ft (8.5f, false, true)); g.setColour (Col::phos.withAlpha (0.4f));
+        g.drawText (juce::String::fromUTF8 ("clic = suona  \xc2\xb7  trascina INIZIO e FINE"), waveR.reduced (6, 3), juce::Justification::bottomRight);
     }
+    else { g.setFont (ft (11.0f, true, true)); g.setColour (Col::phos.withAlpha (0.4f)); g.drawText (juce::String::fromUTF8 ("PAD VUOTO  \xc2\xb7  carica un suono da SUONI o trascinalo sul pad"), waveR, juce::Justification::centred); }
+    // LUFS e picco
+    {
+        const float l = P.lufsS.load();
+        auto lr = mt.removeFromLeft (150);
+        glowText (g, l < -69 ? juce::String ("--.-") : juce::String (l, 1), lr.removeFromTop (34), l > -9 ? Col::magenta : l > -14 ? Col::amber : Col::phos, ft (24.0f, true, true));
+        g.setFont (ft (8.5f, true, true)); g.setColour (Col::phos.withAlpha (0.55f)); g.drawText ("LUFS SHORT-TERM", lr, juce::Justification::topLeft);
+        auto pr = mt.removeFromRight (120); peakR = pr;
+        const float ph = juce::Decibels::gainToDecibels (P.peakHold.load(), -60.0f);
+        glowText (g, ph <= -59 ? juce::String ("--.-") : juce::String (ph, 1), pr.removeFromTop (34), ph > -0.3f ? Col::red : Col::phos, ft (24.0f, true, true), juce::Justification::centredRight);
+        g.setFont (ft (8.5f, true, true)); g.setColour (Col::phos.withAlpha (0.55f)); g.drawText ("PICCO MAX  (clic = azzera)", pr, juce::Justification::topRight);
+        mt.reduce (14, 6);
+        for (int c = 0; c < 2; ++c)
+        {
+            auto r = juce::Rectangle<float> (mt.getX() + 12, mt.getY() + 6 + c * 16, mt.getWidth() - 12, 9);
+            g.setFont (ft (8.0f, true, true)); g.setColour (Col::phos.withAlpha (0.5f)); g.drawText (c ? "R" : "L", juce::Rectangle<float> (mt.getX(), r.getY() - 2, 10, 13), juce::Justification::centredLeft);
+            g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillRoundedRectangle (r, 2);
+            const float db = juce::Decibels::gainToDecibels (pkS[c], -48.0f), t = juce::jlimit (0.0f, 1.0f, (db + 48.0f) / 48.0f);
+            juce::ColourGradient mg (Col::green, r.getX(), 0, Col::red, r.getRight(), 0, false); mg.addColour (0.8, Col::amber);
+            g.setGradientFill (mg); g.fillRoundedRectangle (r.withWidth (r.getWidth() * t), 2);
+        }
+        g.setFont (ft (7.5f, false, true)); g.setColour (Col::phos.withAlpha (0.35f));
+        for (int d : { -36, -24, -12, -6, 0 }) { const float x = mt.getX() + 12 + (mt.getWidth() - 12) * (d + 48) / 48.0f; g.drawText (juce::String (d), juce::Rectangle<float> (x - 12, mt.getY() + 38, 24, 10), juce::Justification::centred); }
+    }
+}
+void KitMonitor::mouseMove (const juce::MouseEvent& e)
+{
+    auto& pd = ed.proc.pad[ed.sel];
+    const float x0 = waveR.getX() + waveR.getWidth() * pd.get (START), x1 = waveR.getX() + waveR.getWidth() * pd.get (END);
+    const bool near = waveR.contains (e.position) && (std::abs (e.position.x - x0) < 7 || std::abs (e.position.x - x1) < 7);
+    setMouseCursor (near ? juce::MouseCursor::LeftRightResizeCursor : (waveR.contains (e.position) || peakR.contains (e.position)) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+void KitMonitor::mouseDown (const juce::MouseEvent& e)
+{
+    if (peakR.contains (e.position)) { ed.proc.peakHold = 0.0f; repaint(); return; }
+    if (! waveR.contains (e.position) || ! ed.proc.getSample (ed.sel)) return;
+    auto& pd = ed.proc.pad[ed.sel];
+    const float x0 = waveR.getX() + waveR.getWidth() * pd.get (START), x1 = waveR.getX() + waveR.getWidth() * pd.get (END);
+    if (std::abs (e.position.x - x0) < 7) dragM = 1; else if (std::abs (e.position.x - x1) < 7) dragM = 2;
+    else { dragM = 0; ed.playPad (ed.sel, 100); playing = true; }
+}
+void KitMonitor::mouseDrag (const juce::MouseEvent& e)
+{
+    if (dragM == 0) return;
+    auto& pd = ed.proc.pad[ed.sel];
+    const float v = juce::jlimit (0.0f, 1.0f, (e.position.x - waveR.getX()) / waveR.getWidth());
+    if (dragM == 1) ed.setPadParam (START, juce::jmin (v, pd.get (END) - 0.002f));
+    else ed.setPadParam (END, juce::jmax (v, pd.get (START) + 0.002f));
+    repaint();
+}
+void KitMonitor::mouseUp (const juce::MouseEvent&)
+{
+    if (playing) { ed.stopPad (ed.sel); playing = false; }
+    dragM = 0;
 }
 
 // ---------- MIXER ----------
@@ -2029,6 +2151,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     setLookAndFeel (&lnf);
     addAndMakeVisible (root);
     root.addAndMakeVisible (screen); root.addAndMakeVisible (pattern); root.addAndMakeVisible (drag);
+    screen.addChildComponent (kitMon); kitMon.setVisible (true);
     for (int i = 0; i < kPads; ++i) root.addAndMakeVisible (pads.add (new PadComp (*this, i)));
     for (int i = 0; i < 8; ++i) root.addAndMakeVisible (qlinks.add (new Knob ("", Col::cyan)));
 
@@ -2123,6 +2246,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     btn ("LOAD", Col::cyan, [] { return false; }, [this] { loadDialog (sel); })->setName ("load");
 
     btn ("STOP", Col::red, [] { return false; }, [this] { proc.stopAll(); })->setName ("stop");
+    btn ("FX", Col::magenta, [this] { return proc.qFx.load(); }, [this] { proc.qFx = ! proc.qFx.load(); bindQlinks(); })->setName ("qfx");
     btn (juce::String::fromUTF8 ("\xe2\x86\xb6 ANNULLA"), Col::cyan, [this] { return ! proc.undoStack.empty(); }, [this] { doUndo (false); })->setName ("undo");
     btn (juce::String::fromUTF8 ("RIFAI \xe2\x86\xb7"), Col::cyan, [this] { return ! proc.redoStack.empty(); }, [this] { doUndo (true); })->setName ("redo");
     root.addChildComponent (chop);
@@ -2153,7 +2277,8 @@ void Editor::resized()
     named (root, "stop")->setBounds (W - 128, 18, 100, 30);
     named (root, "undo")->setBounds (1006, 18, 108, 30);
     named (root, "redo")->setBounds (1120, 18, 108, 30);
-    for (int i = 0; i < 8; ++i) qlinks[i]->setBounds (66 + i * 102, 490, 88, 88);
+    for (int i = 0; i < 8; ++i) qlinks[i]->setBounds (64 + i * 96, 490, 88, 88);
+    named (root, "qfx")->setBounds (836, 500, 44, 68);
     for (int i = 0; i < kPads; ++i) { const int r = 3 - i / 4, c = i % 4; pads[i]->setBounds (906 + c * 116, 83 + r * 116, 116, 116); }
     named (root, "curve")->setBounds (904, 552, 150, 40);
     named (root, "full")->setBounds (1062, 562, 92, 30);
@@ -2189,8 +2314,11 @@ void Editor::bindQlinks()
         { { DTYPE }, { DRIVE }, { BITS }, { RATE }, { SREV }, { SDLY }, { PAN }, { LEVEL } },
         { { -1, "revKit", "REV KIT" }, { -1, "revSize", "REV CODA" }, { -1, "dlyKit", "DLY KIT" }, { -1, "dlyFb", "DLY FB" },
           { -1, "satAmt", "SATURA" }, { -1, "busAmt", "BUS AMT" }, { -1, "revRet", "REV RET" }, { -1, "out", "OUTPUT" } } };
-    auto m = map[(size_t) page];
-    if (page == PG_EQ) for (int k = 0; k < 4; ++k) m[(size_t) k].pad = bandP (screen.eqBand, k == 0 ? 2 : k == 1 ? 3 : k == 2 ? 4 : 1);
+    static const std::vector<Q> fxMap = { { -1, "fxFilter", "FILTRO" }, { -1, "revKit", "REVERB" }, { -1, "dlyKit", "DELAY" }, { -1, "satAmt", "SATURA" },
+                                          { -1, "fxGain", "GAIN" }, { -1, "fxStop", "TAPE STOP" }, { -1, "fxStut", "STUTTER" }, { -1, "fxLofi", "LO-FI" } };
+    const bool fx = proc.qFx.load();
+    auto m = fx ? fxMap : map[(size_t) page];
+    if (! fx && page == PG_EQ) for (int k = 0; k < 4; ++k) m[(size_t) k].pad = bandP (screen.eqBand, k == 0 ? 2 : k == 1 ? 3 : k == 2 ? 4 : 1);
     for (int k = 0; k < 8; ++k)
     {
         auto* q = qlinks[k]; const auto& e = m[(size_t) k];
@@ -2211,13 +2339,20 @@ void Editor::bindQlinks()
         else if (e.global != nullptr)
         {
             auto* pr = proc.apvts.getParameter (e.global);
-            q->label = e.label; q->bipolar = false; q->col = Col::cyan;
+            const juce::String gid (e.global);
+            q->label = e.label; q->bipolar = gid == "fxFilter" || gid == "fxGain"; q->col = fx ? (k < 4 ? Col::magenta : Col::amber) : Col::cyan;
             q->get = [pr] { return pr->getValue(); };
             q->set = [this, pr] (float v) { pr->setValueNotifyingHost (v); screen.repaint(); };
             q->reset = [pr] { pr->setValueNotifyingHost (pr->getDefaultValue()); };
             q->gesture = [pr] (bool b) { if (b) pr->beginChangeGesture(); else pr->endChangeGesture(); };
             const juce::String id (e.global);
-            q->text = [pr, id] { const float v = pr->convertFrom0to1 (pr->getValue()); return id == "out" ? juce::String (v, 1) + " dB" : juce::String (juce::roundToInt (pr->getValue() * 100)) + "%"; };
+            q->text = [pr, id] {
+                const float v = pr->convertFrom0to1 (pr->getValue());
+                if (id == "out" || id == "fxGain") return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB";
+                if (id == "fxFilter") return std::abs (v) <= 0.02f ? juce::String ("OFF") : v < 0 ? "LP " + juce::String (juce::roundToInt (-v * 100)) + "%" : "HP " + juce::String (juce::roundToInt (v * 100)) + "%";
+                if (id == "fxStut") return v <= 0.01f ? juce::String ("OFF") : v < 0.34f ? juce::String ("1/8") : v < 0.67f ? juce::String ("1/16") : juce::String ("1/32");
+                if ((id == "fxStop" || id == "fxLofi") && v <= 0.01f) return juce::String ("OFF");
+                return juce::String (juce::roundToInt (pr->getValue() * 100)) + "%"; };
             q->setVisible (true);
         }
         else { q->setVisible (false); q->gesture = nullptr; }
@@ -2225,7 +2360,7 @@ void Editor::bindQlinks()
     }
 }
 
-void Editor::setPage (int pg) { page = juce::jlimit (0, kNumPages - 1, pg); if (page != PG_EQ) { proc.eqSoloPad = -1; proc.eqSoloBand = -1; } screen.hint.clear(); bindQlinks(); screen.repaint(); }
+void Editor::setPage (int pg) { page = juce::jlimit (0, kNumPages - 1, pg); kitMon.setVisible (page == PG_KIT); if (page != PG_EQ) { proc.eqSoloPad = -1; proc.eqSoloBand = -1; } screen.hint.clear(); bindQlinks(); screen.repaint(); }
 void Editor::selectPad (int p) { if (p != sel) { screen.pendKey.clear(); proc.eqSoloPad = -1; proc.eqSoloBand = -1; } sel = juce::jlimit (0, kPads - 1, p); root.repaint(); }
 void Editor::doUndo (bool redo)
 {
@@ -2374,7 +2509,9 @@ void Editor::timerCallback()
         for (int i = 0; i < kNumPadParams; ++i) mix (proc.pad[sel].get (i));
         mix ((float) (juce::pointer_sized_int) proc.getSample (sel).get()); mix ((float) proc.kitName.hashCode());
         for (auto id : { "revSize", "revDamp", "revRet", "dlyTime", "dlyFb", "dlyTone", "dlyRet", "busMode", "busAmt", "clip", "out", "revKit", "dlyKit", "satAmt", "curve" }) mix (proc.apvts.getRawParameterValue (id)->load());
-        const bool live = page == PG_KIT || page == PG_MIX || page == PG_COMP || page == PG_MASTER || (page == PG_BROWSE && proc.sampleIndex->scanning());
+        kitMon.setVisible (page == PG_KIT);
+        if (kitMon.isVisible()) kitMon.tick();
+        const bool live = page == PG_MIX || page == PG_COMP || page == PG_MASTER || (page == PG_BROWSE && proc.sampleIndex->scanning());
         if (h != screen.sig || (live && (undoTick % 3) == 0)) { screen.sig = h; screen.repaint(); }
     }
     if (proc.uiRunning.load() || (undoTick % 10) == 0) pattern.repaint();
@@ -2382,7 +2519,7 @@ void Editor::timerCallback()
     for (auto* k : qlinks) if (k->isVisible() && k->get) { const float v = k->get(); if (v != k->shown) { k->shown = v; k->repaint(); } }
     for (auto* k : globalKnobs) if (k->get) { const float v = k->get(); if (v != k->shown) { k->shown = v; k->repaint(); } }
     for (auto* sl : selectors) if (sl->get) { const int v = sl->get(); if (v != sl->shown) { sl->shown = v; sl->repaint(); } }
-    root.repaint (1056, 686, 158, 22);
+    root.repaint (1186, 692, 158, 22);
 }
 
 static int keyNoteOffset (juce::juce_wchar c)

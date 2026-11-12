@@ -83,6 +83,35 @@ int main (int argc, char** argv)
         randomKit (p, 0); std::printf ("kit dopo blocco: %s\n", p.kitName.toRawUTF8());
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "fx")
+    {   // effetti da performance: neutri a zero, nessun NaN, il CC 70-77 arriva ai parametri
+        juce::ScopedJuceInitialiser_GUI gi;
+        auto run = [] (std::function<void (Processor&)> set, bool cc) -> std::pair<float, bool>
+        {
+            Processor p; p.prepareToPlay (48000, 512); p.loadFactoryKit (1); set (p);
+            juce::AudioBuffer<float> blk (2, 512); float e = 0; bool nan = false;
+            for (int b = 0; b < 400; ++b)
+            {
+                juce::MidiBuffer m; if (b % 12 == 0) m.addEvent (juce::MidiMessage::noteOn (1, p.rootNote() + (b / 12) % 4, (juce::uint8) 110), 0);
+                if (cc && b == 50) m.addEvent (juce::MidiMessage::controllerEvent (1, 75, 127), 0);
+                p.processBlock (blk, m);
+                for (int i = 0; i < 512; ++i) { const float x = blk.getSample (0, i); if (! std::isfinite (x)) nan = true; e += x * x; }
+            }
+            return { std::sqrt (e / (400 * 512)), nan };
+        };
+        auto setp = [] (Processor& p, const char* id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+        const auto ref = run ([] (Processor&) {}, false);
+        std::printf ("neutro rms %.4f nan %d\n", ref.first, (int) ref.second);
+        struct C { const char* id; float v; };
+        for (C c : { C { "fxFilter", -0.7f }, C { "fxFilter", 0.7f }, C { "fxGain", 6 }, C { "fxStop", 0.6f }, C { "fxStop", 1.0f }, C { "fxStut", 0.2f }, C { "fxStut", 0.9f }, C { "fxLofi", 0.8f }, C { "revKit", 0.6f }, C { "dlyKit", 0.6f }, C { "satAmt", 0.8f } })
+        {
+            const auto r = run ([&] (Processor& p) { setp (p, c.id, c.v); }, false);
+            std::printf ("%-9s %5.2f  rms %.4f (%+.1f dB)  nan %d\n", c.id, c.v, r.first, 20 * std::log10 (r.first / ref.first + 1e-9f), (int) r.second);
+        }
+        const auto rc = run ([] (Processor&) {}, true);
+        std::printf ("CC 75 (tape stop) dal controller: rms %.4f (%+.1f dB)\n", rc.first, 20 * std::log10 (rc.first / ref.first + 1e-9f));
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "kick")
     {   // kick su C1 mentre un campione lungo suona su C2: il kick deve sempre suonare
         juce::ScopedJuceInitialiser_GUI gi;
@@ -256,7 +285,7 @@ int main (int argc, char** argv)
         std::printf ("BPM rilevato %.2f  warp %d  mode %d\n", p.pad[0].get (SBPM), (int) p.pad[0].get (WARP), (int) p.pad[0].get (MODE));
         Editor ed (p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
-        if (auto* pg = std::getenv ("JPAGE")) { ed.selectPad (0); ed.setPage (std::atoi (pg)); for (int i = 0; i < 3; ++i) ed.screen.repaint(); }
+        if (auto* pg = std::getenv ("JPAGE")) { ed.selectPad (0); ed.setPage (std::atoi (pg)); ed.screen.kitSmall = std::getenv ("JSMALL") != nullptr; for (int i = 0; i < 3; ++i) ed.screen.repaint(); }
         else { ed.openChop (0); ed.chop.selSlice = 2; ed.chop.hovPad = 5; ed.chop.assigned[3] = 1; ed.chop.pGlow[6] = 1.0f; ed.chop.pGlow[3] = 0.5f; }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);

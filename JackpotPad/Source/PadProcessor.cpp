@@ -180,6 +180,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "clip", 1 }, "Clip", false));
     // master sul kit intero
     F ("revKit", "Reverb sul kit", 0, 1, 0); F ("dlyKit", "Delay sul kit", 0, 1, 0); F ("satAmt", "Saturazione kit", 0, 1, 0);
+    // effetti da performance (manopole Q-LINK in modo FX, MPK CC 70-77)
+    F ("fxFilter", "FX Filtro", -1, 1, 0); F ("fxGain", "FX Gain", -12, 12, 0); F ("fxStop", "FX Tape Stop", 0, 1, 0); F ("fxStut", "FX Stutter", 0, 1, 0); F ("fxLofi", "FX Lo-Fi", 0, 1, 0);
     // pad automatizzabili
     for (int p = 0; p < kPads; ++p)
         for (int k = 0; k < kAutoN; ++k)
@@ -203,6 +205,8 @@ Processor::Processor()
     formats.registerBasicFormats();
     for (int i = 0; i < kPads; ++i) { padGlow[i] = 0; padMeter[i] = 0; padGr[i] = 0; lastVel[i] = 0; hits[i] = 0; pad[i].colour = i; }
     for (int i = 0; i < kScope; ++i) { scPk[i] = 0; scHit[i] = 0; scVel[i] = 0; }
+    for (int i = 0; i < kPads; ++i) padPos[i] = -1.0f;
+    for (int k = 0; k < kFx; ++k) ccPend[k] = -1.0f;
     trigs.reserve (1024); events.reserve (1024); pend.reserve (512);
     for (int p = 0; p < kPads; ++p)
         for (int k = 0; k < kAutoN; ++k)
@@ -218,6 +222,11 @@ Processor::Processor()
 // Ableton -> pad (nel processBlock) e pad -> Ableton (qui, sul thread dei messaggi)
 void Processor::timerCallback()
 {
+    for (int k = 0; k < kFx; ++k)
+    {
+        const float v = ccPend[k].exchange (-1.0f);
+        if (v >= 0) if (auto* pp = apvts.getParameter (kFxIds[k])) pp->setValueNotifyingHost (v);
+    }
     for (int p = 0; p < kPads; ++p)
         for (int k = 0; k < kAutoN; ++k)
         {
@@ -232,9 +241,15 @@ void Processor::setPadValue (int p, int i, float v)
     if (k >= 0) { lastHost[p][k] = v; hp[p][k]->setValueNotifyingHost (hp[p][k]->convertTo0to1 (v)); lastHost[p][k] = hpRaw[p][k]->load(); pad[p].v[i] = hpRaw[p][k]->load(); }
 }
 
+const char* const Processor::kFxIds[Processor::kFx] = { "fxFilter", "revKit", "dlyKit", "satAmt", "fxGain", "fxStop", "fxStut", "fxLofi" };
+
 void Processor::prepareToPlay (double s, int block)
 {
     sr = s;
+    stBuf.setSize (2, (int) (sr * 8)); stBuf.clear(); stW = 0; stOn = false; stSpeed = 1;
+    stuBuf.setSize (2, (int) (sr * 3)); stuBuf.clear(); stuW = 0; stuOn = false;
+    for (auto& c : djIc1) c = 0; for (auto& c : djIc2) c = 0;
+    kw1.set (2, sr, 1681, 4.0, 0.707); kw2.set (4, sr, 38, 0, 0.5); kw1.reset(); kw2.reset(); lufsAcc = 0; lufsN = 0; for (auto& b : lufsBins) b = 0;
     for (auto& v : voices) { v.active = false; v.s.reset(); }
     padBuf.setSize (kPads * 2, juce::jmax (block, 2048)); padBuf.clear();
     revL.assign ((size_t) juce::jmax (block, 2048), 0); revR = revL; dlyInL = revL; dlyInR = revL;
@@ -535,6 +550,17 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     {
         const auto msg = m.getMessage();
         if (msg.isAllNotesOff() || msg.isAllSoundOff()) { for (auto& v : voices) if (v.active) v.choking = true; continue; }
+        if (msg.isController())
+        {   // MPK: le 8 manopole mandano CC 70-77 -> effetti da performance
+            const int k = msg.getControllerNumber() - 70;
+            if (k >= 0 && k < kFx)
+            {
+                float v = msg.getControllerValue() / 127.0f;
+                if (k == 0 && std::abs (msg.getControllerValue() - 64) <= 1) v = 0.5f;   // filtro: zona morta al centro
+                ccPend[k] = v;
+            }
+            continue;
+        }
         if (! msg.isNoteOnOrOff()) continue;
         const int p = msg.getNoteNumber() - root; if (p < 0 || p >= kPads) continue;
         juce::int64 delay = 0;
@@ -639,6 +665,15 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             else releasePad (t.pad);
         }
         for (auto& v : voices) if (v.active) render (v, padBuf.getWritePointer (v.pad * 2), padBuf.getWritePointer (v.pad * 2 + 1), i);
+    }
+    // dove sta suonando ogni pad (la voce piu recente, non i layer)
+    {
+        int best[kPads]; float pos[kPads];
+        for (int p = 0; p < kPads; ++p) { best[p] = 1 << 30; pos[p] = -1.0f; }
+        for (auto& v : voices)
+            if (v.active && ! v.layer && v.s && v.age < best[v.pad])
+            { const int n = v.s->buf.getNumSamples(); best[v.pad] = v.age; pos[v.pad] = n > 0 ? (float) (v.pos / n) : -1.0f; }
+        for (int p = 0; p < kPads; ++p) padPos[p] = pos[p];
     }
     // 2) catena di ogni pad, fader, mandate
     std::fill (revL.begin(), revL.begin() + N, 0.0f); std::fill (revR.begin(), revR.begin() + N, 0.0f);
@@ -838,6 +873,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 satZ += 0.0005f * (0.5f * (cl[i] + cr[i]) - satZ); cl[i] -= satZ; cr[i] -= satZ;
             }
         }
+        performFx (cl, cr, N);
         // ascolto di prova dalla banca
         if (prevReq.load() != prevSeen)
         {
@@ -864,6 +900,13 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             float l = cl[i] * og, r = cr[i] * og;
             if (clip) { auto sc = [] (float x) { const float a = std::abs (x); return a > 0.85f ? std::copysign (0.85f + 0.15f * std::tanh ((a - 0.85f) / 0.15f), x) : x; }; l = sc (l); r = sc (r); }
             cl[i] = l; cr[i] = r; pk[0] = juce::jmax (pk[0], std::abs (l)); pk[1] = juce::jmax (pk[1], std::abs (r));
+            { const float kl = kw2.run (kw1.run (l, 0), 0), kr = kw2.run (kw1.run (r, 1), 1); lufsAcc += (double) kl * kl + (double) kr * kr; }
+            if (++lufsN >= (int) (sr * 0.1))
+            {   // short-term: media degli ultimi 3 s in blocchi da 100 ms
+                lufsBins[lufsBi] = (float) (lufsAcc / lufsN); lufsBi = (lufsBi + 1) % 30; lufsAcc = 0; lufsN = 0;
+                double m = 0; for (float b : lufsBins) m += b; m /= 30.0;
+                lufsS = m > 1e-10 ? (float) (-0.691 + 10.0 * std::log10 (m)) : -100.0f;
+            }
             colPk = juce::jmax (colPk, juce::jmax (std::abs (l), std::abs (r)));
             if (++colN >= (int) (sr * 3.0 / kScope))
             {
@@ -872,6 +915,109 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             }
         }
         meterL = juce::jmax (pk[0], meterL.load() * 0.85f); meterR = juce::jmax (pk[1], meterR.load() * 0.85f);
+        peakHold = juce::jmax (peakHold.load(), juce::jmax (pk[0], pk[1]));
+    }
+}
+
+// ---------------- effetti da performance (Q-LINK FX / MPK) ----------------
+void Processor::performFx (float* L, float* R, int N)
+{
+    auto val = [this] (int k) { const float pnd = ccPend[k].load(); return pnd >= 0 ? apvts.getParameter (kFxIds[k])->convertFrom0to1 (pnd) : apvts.getRawParameterValue (kFxIds[k])->load(); };
+    const float flt = val (0), gainDb = val (4), stop = val (5), stut = val (6), lofi = val (7);
+    // 1) TAPE STOP: il nastro rallenta fino a fermarsi (pitch che scende), tornando indietro riparte
+    {
+        const int len = stBuf.getNumSamples();
+        float* b0 = stBuf.getWritePointer (0); float* b1 = stBuf.getWritePointer (1);
+        const float target = 1.0f - juce::jlimit (0.0f, 1.0f, stop);
+        if (stop > 0.01f && ! stOn) { stOn = true; stR = stW; stSpeed = 1; }
+        const float sc = (float) (1.0 - std::exp (-1.0 / (0.06 * sr)));   // risposta in ~60 ms
+        for (int i = 0; i < N; ++i)
+        {
+            b0[stW] = L[i]; b1[stW] = R[i];
+            if (stOn || stX > 0)
+            {
+                stSpeed += ((stOn ? target : 1.0f) - stSpeed) * sc;
+                stR += stSpeed; if (stR >= len) stR -= len;
+                double lag = stW - stR; if (lag < 0) lag += len;
+                if (lag > len - 4) stR = stW;   // non superare chi scrive
+                const int a = (int) stR; const float f = (float) (stR - a); const int c = (a + 1) % len;
+                const float g = juce::jmin (1.0f, stSpeed * 3.0f);
+                const float tl = (b0[a] + (b0[c] - b0[a]) * f) * g, tr = (b1[a] + (b1[c] - b1[a]) * f) * g;
+                stX = juce::jlimit (0.0f, 1.0f, stX + (stOn ? 1.0f : -1.0f) / (float) (0.03 * sr));
+                L[i] = L[i] + (tl - L[i]) * stX; R[i] = R[i] + (tr - R[i]) * stX;
+            }
+            if (++stW >= len) stW = 0;
+        }
+        if (stop <= 0.01f && stOn) stOn = false;   // dissolvenza di ritorno al segnale vivo
+    }
+    // 2) STUTTER: ripete l'ultimo pezzetto a tempo (1/8, 1/16, 1/32)
+    {
+        const int len = stuBuf.getNumSamples();
+        float* b0 = stuBuf.getWritePointer (0); float* b1 = stuBuf.getWritePointer (1);
+        const double beats = stut < 0.34f ? 0.5 : stut < 0.67f ? 0.25 : 0.125;
+        const int want = juce::jlimit (64, len - 8, (int) (beats * 60.0 / juce::jmax (40.0, curBpm) * sr));
+        if (stut > 0.01f && ! stuOn) { stuOn = true; stuLen = want; stuStart = stuW - want; if (stuStart < 0) stuStart += len; stuPos = 0; }
+        if (stuOn) stuLen = want;
+        const float fade = (float) (0.003 * sr);
+        for (int i = 0; i < N; ++i)
+        {
+            b0[stuW] = L[i]; b1[stuW] = R[i];
+            if (stuOn || stuX > 0)
+            {
+                const double rp = std::fmod (stuStart + stuPos, (double) len); const int a = (int) rp;
+                const float w = juce::jmin (1.0f, juce::jmin ((float) stuPos / fade, (float) (stuLen - stuPos) / fade));
+                const float tl = b0[a] * w, tr = b1[a] * w;
+                stuX = juce::jlimit (0.0f, 1.0f, stuX + (stuOn ? 1.0f : -1.0f) / (float) (0.005 * sr));
+                L[i] = L[i] + (tl - L[i]) * stuX; R[i] = R[i] + (tr - R[i]) * stuX;
+                stuPos += 1; if (stuPos >= stuLen) stuPos = 0;
+            }
+            if (++stuW >= len) stuW = 0;
+        }
+        if (stut <= 0.01f) stuOn = false;
+    }
+    // 3) LO-FI: meno bit, meno campioni, meno alti
+    if (lofi > 0.01f)
+    {
+        const float bits = 16.0f - lofi * 10.0f, q = std::pow (2.0f, bits - 1);
+        const int hold = 1 + (int) (lofi * 7.0f);
+        const float a = (float) std::exp (-juce::MathConstants<double>::twoPi * (16000.0 * std::pow (0.22, (double) lofi)) / sr);
+        for (int i = 0; i < N; ++i)
+        {
+            if (++lfCnt >= hold) { lfCnt = 0; lfHold[0] = std::round (L[i] * q) / q; lfHold[1] = std::round (R[i] * q) / q; }
+            lfLp[0] = lfHold[0] + a * (lfLp[0] - lfHold[0]); lfLp[1] = lfHold[1] + a * (lfLp[1] - lfHold[1]);
+            L[i] = lfLp[0]; R[i] = lfLp[1];
+        }
+    }
+    // 4) FILTRO da DJ: a sinistra passa basso, a destra passa alto, al centro spento
+    {
+        const float x = flt; const bool on = std::abs (x) > 0.02f;
+        if (on)
+        {
+            const float mode = x < 0 ? -1.0f : 1.0f;
+            const float t = (std::abs (x) - 0.02f) / 0.98f;
+            const float fc = x < 0 ? (float) (20000.0 * std::pow (0.008, (double) t)) : (float) (20.0 * std::pow (150.0, (double) t));
+            if (mode != djMode) { djMode = mode; djFc = fc; for (int c = 0; c < 2; ++c) { djIc1[c] = 0; djIc2[c] = 0; } }
+            const float k = 2.0f - 2.0f * 0.3f;
+            for (int i = 0; i < N; ++i)
+            {
+                djFc += (fc - djFc) * 0.002f;
+                const float gg = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) djFc, sr * 0.45) / sr);
+                const float a1 = 1.0f / (1.0f + gg * (gg + k)), a2 = gg * a1, a3 = gg * a2;
+                float* io[2] = { L + i, R + i };
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float v0 = *io[c], v3 = v0 - djIc2[c], v1 = a1 * djIc1[c] + a2 * v3, v2 = djIc2[c] + a2 * djIc1[c] + a3 * v3;
+                    djIc1[c] = 2 * v1 - djIc1[c]; djIc2[c] = 2 * v2 - djIc2[c];
+                    *io[c] = mode < 0 ? v2 : v0 - k * v1 - v2;
+                }
+            }
+        }
+        else { djMode = 0; djFc = 1000; for (int c = 0; c < 2; ++c) { djIc1[c] = 0; djIc2[c] = 0; } }
+    }
+    // 5) GAIN
+    {
+        const float tg = juce::Decibels::decibelsToGain (gainDb);
+        for (int i = 0; i < N; ++i) { fxG += (tg - fxG) * 0.002f; L[i] *= fxG; R[i] *= fxG; }
     }
 }
 
@@ -1267,7 +1413,7 @@ void Processor::getStateInformation (juce::MemoryBlock& dest)
     x.addChildElement (padsToXml().release());
     juce::String ev; { const juce::SpinLock::ScopedLockType l (recLock); for (auto& e : events) ev << juce::String (e.tick, 2) << "," << e.pad << "," << e.vel << ";"; }
     x.createNewChildElement ("PATTERN")->addTextElement (ev);
-    x.setAttribute ("pattern", patternIndex); x.setAttribute ("genStyle", genStyle); x.setAttribute ("bars", patternBars.load()); x.setAttribute ("loopOn", loopOn.load() ? 1 : 0);
+    x.setAttribute ("pattern", patternIndex); x.setAttribute ("genStyle", genStyle); x.setAttribute ("bars", patternBars.load()); x.setAttribute ("loopOn", loopOn.load() ? 1 : 0); x.setAttribute ("qFx", qFx.load() ? 1 : 0);
     copyXmlToBinary (x, dest);
 }
 void Processor::setStateInformation (const void* data, int size)
@@ -1277,7 +1423,7 @@ void Processor::setStateInformation (const void* data, int size)
     if (auto* pads = x->getChildByName ("PADS")) padsFromXml (*pads);
     for (int p = 0; p < kPads; ++p) for (int k = 0; k < kAutoN; ++k) lastHost[p][k] = hpRaw[p][k]->load();   // i pad salvati vincono; il timer riallinea Ableton
     kitName = x->getStringAttribute ("kit", kitName);
-    patternIndex = x->getIntAttribute ("pattern", 0); loopOn = false;   // il loop interno parte solo a mano, mai da solo riaprendo il progetto patternBars = juce::jlimit (1, 8, x->getIntAttribute ("bars", 2)); genStyle = x->getIntAttribute ("genStyle", 0);
+    patternIndex = x->getIntAttribute ("pattern", 0); qFx = x->getIntAttribute ("qFx", 0) != 0; loopOn = false; patternBars = juce::jlimit (1, 8, x->getIntAttribute ("bars", 2)); genStyle = x->getIntAttribute ("genStyle", 0);   // il loop interno parte solo a mano
     const auto kf = x->getStringAttribute ("kitFile"); kitFile = kf.isNotEmpty() ? juce::File (kf) : juce::File();
     if (auto* pt = x->getChildByName ("PATTERN"))
     {

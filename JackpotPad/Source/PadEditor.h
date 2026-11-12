@@ -107,7 +107,7 @@ public:
     };
     std::vector<Hot> hots;
     std::function<void (const juce::MouseEvent&)> drag;
-    Editor& ed; int kitScroll = 0, randMode = 2;
+    Editor& ed; int kitScroll = 0, randMode = 2; bool kitSmall = false;   // colonna dei kit ridotta: piu spazio al monitor
     // chop
     int chopMode = 0, chopDiv = 1; bool chopSnap = true; int dragMark = -1; float lastFx = 0;
     std::vector<float> marks, onsets; const SampleData* chopSmp = nullptr;
@@ -232,6 +232,26 @@ public:
     int hovPad = -1; bool toPad = false; juce::Point<float> dragPos; float pGlow[kPads] {}; juce::uint32 pHits[kPads] {};
 };
 
+// monitor nella pagina KIT: forma d'onda del pad scelto (inizio/fine trascinabili, testina), picco e LUFS.
+// E' un componente a parte: si ridisegna solo lui, lo schermo intorno resta fermo.
+class KitMonitor : public juce::Component
+{
+public:
+    explicit KitMonitor (Editor& e) : ed (e) { setInterceptsMouseClicks (true, false); }
+    void paint (juce::Graphics&) override;
+    void resized() override { waveImg = {}; }
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void tick();
+    Editor& ed;
+private:
+    juce::Rectangle<float> waveR, peakR;
+    juce::Image waveImg; const void* imgSmp = nullptr; int imgPad = -1, imgCol = -1; float imgScale = 0;
+    int dragM = 0; bool playing = false; float lastPos = -2, lastL = -200, lastP = -1; float pkS[2] {};
+};
+
 class Editor : public juce::AudioProcessorEditor, public juce::DragAndDropContainer, private juce::Timer
 {
 public:
@@ -267,6 +287,7 @@ public:
     void scanMenu();
     void doUndo (bool redo);
     void bindQlinks();
+    KitMonitor kitMon { *this };
 
     // valori normalizzati dei parametri dei pad (per manopole e grafici)
     static float toNorm (int i, float v);
