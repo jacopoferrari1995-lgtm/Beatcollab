@@ -159,10 +159,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "e_loud", 1 }, "Loud", NormalisableRange<float> (0, 14, 0.01f), 0, AudioParameterFloatAttributes().withStringFromValueFunction (db)));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "e_pres", 1 }, "Presence (soft-hard)", NormalisableRange<float> (0, 1), 0.4f, AudioParameterFloatAttributes().withStringFromValueFunction (pc)));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "e_speed", 1 }, "Speed (smooth-fast)", NormalisableRange<float> (0, 1), 0.5f, AudioParameterFloatAttributes().withStringFromValueFunction (pc)));
-    for (auto* id : { "e_low", "e_mid", "e_high" }) l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, String (id).substring (2).toUpperCase(), NormalisableRange<float> (-6, 6, 0.1f), 0, AudioParameterFloatAttributes().withStringFromValueFunction (db)));
+    for (auto* id : { "e_low", "e_mid", "e_high" }) l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, String (id).substring (2).toUpperCase(), NormalisableRange<float> (-9, 9, 0.1f), 0, AudioParameterFloatAttributes().withStringFromValueFunction (db)));
     for (auto* id : { "e_thick", "e_warm", "e_silk", "e_glue", "e_calm" }) l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, String (id).substring (2).toUpperCase(), NormalisableRange<float> (0, 1), 0, AudioParameterFloatAttributes().withStringFromValueFunction (pc)));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "e_wide", 1 }, "Wide", NormalisableRange<float> (-1, 1), 0, AudioParameterFloatAttributes().withStringFromValueFunction (pc)));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "e_monob", 1 }, "Mono Bass", false));
+    // carattere del LOUD (come gli algoritmi dei limiter moderni) e ascolto della differenza
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "e_style", 1 }, "Loud Style", StringArray { "MODERN", "AGGRESSIVE", "SMOOTH", "SAFE", "CLASSIC" }, 0));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "e_delta", 1 }, "Delta", false));
     return l;
 }
 
@@ -231,16 +234,51 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     {   // ---- modalita FACILE: motore suo, poi LOUD (maximizer) e true peak
         EasySettings E; E.low = value ("e_low"); E.mid = value ("e_mid"); E.high = value ("e_high"); E.calm = value ("e_calm"); E.thick = value ("e_thick");
         E.warm = value ("e_warm"); E.silk = value ("e_silk"); E.glue = value ("e_glue"); E.wide = value ("e_wide"); E.monoBass = value ("e_monob") > 0.5f;
+        { const int le = eqListen.load(); E.listenDelta = le >= 3 && le <= 5; E.listenBand = E.listenDelta ? le - 3 : -1; }
         easyEng.process (L, R, n, E);
         calmNow = easyEng.calmNow; glueGr = easyEng.glueGr;
         const float pres = value ("e_pres"), spd = value ("e_speed");
-        MaxSettings ms; ms.gainDb = value ("e_loud"); ms.ceilDb = value ("lm_ceil"); ms.link = 1;
-        ms.style = pres < 0.3f ? MORBIDO : pres < 0.7f ? PULITO : AGGRESSIVO;   // PRESENZA: morbido -> duro
-        ms.clip = 0.1f + 0.7f * pres; ms.character = spd;                       // VELOCITA: smooth -> fast
-        if (ms.gainDb > 0.01f) mx.process (L, R, n, ms);
-        else for (int i = 0; i < n; ++i) { L[i] = mxBy[0] (L[i]); R[i] = mxBy[1] (R[i]); }   // LOUD a zero: solo il ritardo, suono intatto
-        LimSettings ls; ls.ceilDb = value ("lm_ceil"); ls.relMs = 80; ls.autoRel = true; ls.truePeak = true;
-        lim.process (L, R, n, ls);
+        const int lst = eqListen.load();   // ascolto di una banda dell'EQ: 0..2 solo, 3..5 delta
+        if (E.listenDelta)
+        {   // si sente solo cosa fa quella banda: niente LOUD, solo i ritardi per restare allineati
+            for (int i = 0; i < n; ++i) { L[i] = limBy[0] (mxBy[0] (L[i])); R[i] = limBy[1] (mxBy[1] (R[i])); }
+        }
+        else
+        {
+            // LOUD: limiter "adattivo" in 5 caratteri. PRESENZA = quanto lavora il clipper sui transienti (adattivo: piu limiti, piu clippa),
+            // VELOCITA = rilascio (il motore ha gia due tempi e sceglie da solo in base al materiale)
+            const int st = (int) value ("e_style");
+            MaxSettings ms; ms.gainDb = value ("e_loud"); ms.ceilDb = value ("lm_ceil"); ms.link = 1;
+            const float adapt = juce::jlimit (0.3f, 1.0f, 0.3f + grSm / 5.0f);
+            switch (st)
+            {
+                case 1:  ms.style = AGGRESSIVO; ms.clip = (0.35f + 0.6f * pres) * adapt; ms.character = 0.55f + 0.45f * spd; break;   // AGGRESSIVE
+                case 2:  ms.style = MORBIDO;    ms.clip = 0.15f * pres * adapt; ms.character = 0.35f * spd; break;                     // SMOOTH
+                case 3:  ms.style = PULITO;     ms.clip = 0.0f; ms.character = 0.2f + 0.4f * spd; break;                               // SAFE
+                case 4:  ms.style = PULITO;     ms.clip = 0.0f; ms.character = 0.35f + 0.5f * spd; break;                              // CLASSIC (alla L2)
+                default: ms.style = PUNCH;      ms.clip = (0.1f + 0.7f * pres) * adapt; ms.character = spd; break;                     // MODERN
+            }
+            if (ms.gainDb > 0.01f) mx.process (L, R, n, ms);
+            else for (int i = 0; i < n; ++i) { L[i] = mxBy[0] (L[i]); R[i] = mxBy[1] (R[i]); }   // LOUD a zero: solo il ritardo, suono intatto
+            LimSettings ls; ls.ceilDb = value ("lm_ceil"); ls.relMs = 80; ls.autoRel = true; ls.truePeak = true;
+            lim.process (L, R, n, ls);
+            // SOLO di una banda: si sente solo la zona di frequenze di BASSI / MEDI / ALTI, a valle di tutto
+            if (lst >= 0 && lst < 3)
+            {
+                if (lst != soloKey)
+                {
+                    soloKey = lst;
+                    for (int c = 0; c < 2; ++c)
+                    {
+                        if (lst == 0) { bandF[c][0].set (Biquad::HCUT, 250, 0, 0.707, sr); bandF[c][1].set (Biquad::HCUT, 250, 0, 0.707, sr); }
+                        else if (lst == 1) { bandF[c][0].set (Biquad::LCUT, 300, 0, 0.707, sr); bandF[c][1].set (Biquad::HCUT, 4500, 0, 0.707, sr); }
+                        else { bandF[c][0].set (Biquad::LCUT, 5000, 0, 0.707, sr); bandF[c][1].set (Biquad::LCUT, 5000, 0, 0.707, sr); }
+                    }
+                }
+                for (int i = 0; i < n; ++i) { L[i] = bandF[0][1] (bandF[0][0] (L[i])); R[i] = bandF[1][1] (bandF[1][0] (R[i])); }
+            }
+            else soloKey = -1;
+        }
     }
     for (int k = 0; k < (isEasy ? 0 : kNumMods); ++k)
     {
@@ -412,6 +450,9 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         for (int i = 0; i < n; ++i) { matchSm += step; L[i] = kL[i] * matchSm; R[i] = kR[i] * matchSm; }
     }
     else matchSm = dbToG (mdb);
+    // ---- DELTA: si sente solo la differenza fra il master e l'originale (portato allo stesso volume)
+    if (isEasy && value ("e_delta") > 0.5f && ! compare)
+        for (int i = 0; i < n; ++i) { L[i] -= kL[i] * matchSm; R[i] -= kR[i] * matchSm; }
 
     // ---- ascolto normalizzato (come lo abbassera la piattaforma). Solo per ascoltare!
     const auto& tg = target ((int) value ("target"));

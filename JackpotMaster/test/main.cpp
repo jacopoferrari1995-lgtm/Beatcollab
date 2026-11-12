@@ -112,6 +112,35 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "loud")
+    {   // LOUD: i 5 caratteri, il ceiling rispettato (true peak misurato 8x), il delta, il solo/delta delle bande
+        auto go = [&] (std::function<void (Processor&)> set, std::vector<float>& a, std::vector<float>& b) { auto p = blank(); set (*p); run (*p, [&] (int k, float& l, float& r) { beat (k, l, r); l *= 0.6f; r *= 0.6f; }, (int) sr * 10, a, b); return p; };
+        const char* stn[] = { "MODERN", "AGGRESSIVE", "SMOOTH", "SAFE", "CLASSIC" };
+        for (float ceil : { -0.3f, -1.0f, -3.0f })
+            for (int st = 0; st < 5; ++st)
+            {
+                std::vector<float> a, b; auto p = go ([&] (Processor& q) { setP (q, "e_loud", 10); setP (q, "e_style", (float) st); setP (q, "lm_ceil", ceil); setP (q, "e_pres", 0.7f); }, a, b);
+                std::printf ("ceil %5.1f %-10s  out S %.1f LUFS  TP 8x %.2f %s  GR %.1f\n", ceil, stn[st], p->lufsS.load(), measTP (a, (int) sr * 3), measTP (a, (int) sr * 3) <= ceil + 0.05f ? "ok" : "<<< SFORA", p->grAvg.load());
+            }
+        {
+            std::vector<float> a, b; auto p = go ([&] (Processor& q) { setP (q, "e_loud", 8); setP (q, "e_delta", 1); }, a, b);
+            double e = 0; for (size_t k = (size_t) sr * 4; k < a.size(); ++k) e += a[k] * a[k];
+            std::vector<float> a0, b0; go ([&] (Processor& q) { setP (q, "e_loud", 8); }, a0, b0);
+            double e0 = 0; for (size_t k = (size_t) sr * 4; k < a0.size(); ++k) e0 += a0[k] * a0[k];
+            std::printf ("DELTA con LOUD 8: differenza %.1f dB rispetto al master\n", 10 * std::log10 (e / e0 + 1e-20));
+            std::vector<float> a2, b2; go ([&] (Processor& q) { setP (q, "e_delta", 1); }, a2, b2);
+            double e2 = 0; for (size_t k = (size_t) sr * 4; k < a2.size(); ++k) e2 += a2[k] * a2[k];
+            std::printf ("DELTA a manopole a zero: %.1f dB (deve essere quasi silenzio)\n", 10 * std::log10 (e2 / e0 + 1e-20));
+        }
+        for (int lb = 0; lb < 6; ++lb)
+        {
+            std::vector<float> a, b; auto p = blank(); setP (*p, "e_low", 6); setP (*p, "e_mid", 0); setP (*p, "e_high", 6); p->eqListen = lb;
+            run (*p, [&] (int k, float& l, float& r) { beat (k, l, r); l *= 0.6f; r *= 0.6f; }, (int) sr * 6, a, b);
+            double e = 0; for (size_t k = (size_t) sr * 2; k < a.size(); ++k) e += a[k] * a[k];
+            std::printf ("ascolto banda %d (%s %s): livello %.1f dB\n", lb % 3, lb < 3 ? "SOLO" : "DELTA", lb % 3 == 0 ? "bassi" : lb % 3 == 1 ? "medi (a zero)" : "alti", 10 * std::log10 (e / a.size() + 1e-20));
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "easysnap")
     {
         auto p = blank(); p->loadPreset (1 + (std::getenv ("JPR") ? std::atoi (std::getenv ("JPR")) : 0));

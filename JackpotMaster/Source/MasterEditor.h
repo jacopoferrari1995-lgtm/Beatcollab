@@ -364,7 +364,7 @@ public:
     neo::Bloom bloom;
 private:
     void wave (juce::Graphics&, juce::Rectangle<float>); void spectrum (juce::Graphics&, juce::Rectangle<float>);
-    void gain (juce::Graphics&, juce::Rectangle<float>); void ref (juce::Graphics&, juce::Rectangle<float>); void ears (juce::Graphics&, juce::Rectangle<float>);
+    void gain (juce::Graphics&, juce::Rectangle<float>); void ref (juce::Graphics&, juce::Rectangle<float>);
 };
 class EasyInput : public juce::Component { public: explicit EasyInput (EasyPage& p) : page (p) { setRepaintsOnMouseActivity (true); } void paint (juce::Graphics&) override; void mouseDown (const juce::MouseEvent&) override; EasyPage& page; juce::Rectangle<float> autoR; float sm = -100; };
 class EasyResult : public juce::Component { public: explicit EasyResult (EasyPage& p) : page (p) {} void paint (juce::Graphics&) override; EasyPage& page; float sm = 0; neo::Bloom bloom; };
@@ -385,7 +385,7 @@ public:
     juce::OwnedArray<neo::Knob> knobs; neo::Knob *low, *mid, *high, *thick, *warm, *silk, *pres, *loud, *speed, *glue, *calm, *wide, *ceil, *trim;
     std::unique_ptr<neo::Toggle> monoB; std::unique_ptr<juce::FileChooser> chooser;
     EasyStage stage { *this }; EasyInput input { *this }; EasyResult result { *this }; EasyMeters meters { *this };
-    neo::Segments tabs; juce::Rectangle<float> targetR, cmpR;
+    neo::Segments tabs, styles; juce::Rectangle<float> targetR, cmpR, deltaR, bandR[3];
     juce::Image bg; float bgScale = 0;
 };
 

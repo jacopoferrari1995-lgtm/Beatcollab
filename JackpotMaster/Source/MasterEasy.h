@@ -6,7 +6,7 @@
 // Ordine: EQ a bande fisse -> CALM (risonanze) -> THICK / WARM / SILK -> GLUE -> WIDE. Poi il processore fa LOUD (maximizer) e il true peak.
 namespace jms
 {
-struct EasySettings { float low = 0, mid = 0, high = 0, calm = 0, thick = 0, warm = 0, silk = 0, glue = 0, wide = 0; bool monoBass = true; };
+struct EasySettings { float low = 0, mid = 0, high = 0, calm = 0, thick = 0, warm = 0, silk = 0, glue = 0, wide = 0; bool monoBass = true; int listenBand = -1; bool listenDelta = false; };
 
 class EasyEngine
 {
@@ -25,7 +25,18 @@ public:
     {
         // ---- EQ: shelf morbido sui bassi (Baxandall), campana larga sui medi, shelf d'aria sugli alti
         if (S.low != last.low || S.mid != last.mid || S.high != last.high)
-            for (int c = 0; c < 2; ++c) { eq[c][0].set (Biquad::LSHELF, 90, S.low, 0.55, sr); eq[c][1].set (Biquad::BELL, 1200, S.mid, 0.45, sr); eq[c][2].set (Biquad::HSHELF, 9000, S.high, 0.55, sr); }
+            for (int c = 0; c < 2; ++c)
+            {
+                eq[c][0].set (Biquad::LSHELF, 90, S.low, 0.55, sr); eq[c][1].set (Biquad::BELL, 1200, S.mid, 0.45, sr); eq[c][2].set (Biquad::HSHELF, 9000, S.high, 0.55, sr);
+                for (int b = 0; b < 3; ++b) { auto& f = dq[c][b]; if (b == 0) f.set (Biquad::LSHELF, 90, S.low, 0.55, sr); else if (b == 1) f.set (Biquad::BELL, 1200, S.mid, 0.45, sr); else f.set (Biquad::HSHELF, 9000, S.high, 0.55, sr); }
+            }
+        // DELTA di una banda: si sente solo cosa aggiunge o toglie quella banda (a zero: silenzio)
+        if (S.listenDelta && S.listenBand >= 0 && S.listenBand < 3)
+        {
+            const int b = S.listenBand;
+            for (int i = 0; i < n; ++i) { const float l = L[i], r = R[i]; L[i] = dq[0][b] (l) - l; R[i] = dq[1][b] (r) - r; }
+            last = S; return;
+        }
         if (std::abs (S.low) > 0.01f || std::abs (S.mid) > 0.01f || std::abs (S.high) > 0.01f)
             for (int i = 0; i < n; ++i) { L[i] = eq[0][2] (eq[0][1] (eq[0][0] (L[i]))); R[i] = eq[1][2] (eq[1][1] (eq[1][0] (R[i]))); }
         // ---- CALM: tre zone critiche (fango, durezza, sibilanti). Ogni zona e confrontata con la sua media lunga:
@@ -45,7 +56,7 @@ public:
                         b.slow = sl * b.slow + (1 - sl) * b.env;
                     }
                     const float over = 20.0f * std::log10 ((b.env + 1e-9f) / (b.slow + 1e-9f));   // dB sopra la sua media
-                    const float tgt = -juce::jlimit (0.0f, b.maxCut, (over - b.knee) * 0.7f) * S.calm;
+                    const float tgt = -juce::jlimit (0.0f, b.maxCut * 1.5f, (over - b.knee) * 1.0f) * S.calm;
                     b.g += (tgt - b.g) * 0.25f;
                     b.cut[0].set (Biquad::BELL, b.f, b.g, b.q, sr); b.cut[1].set (Biquad::BELL, b.f, b.g, b.q, sr);
                     for (int i = i0; i < i0 + m; ++i) { L[i] = b.cut[0] (L[i]); R[i] = b.cut[1] (R[i]); }
@@ -57,7 +68,7 @@ public:
         // ---- THICK: saturazione a valvola (armoniche pari) solo sotto 1.4 kHz, aggiunta in parallelo: spessore e corpo
         if (S.thick > 0.001f)
         {   // la saturazione comprime: si riporta al livello di prima (inviluppi), cosi resta solo la "pasta" delle armoniche
-            const float d = 1.5f + 4.0f * S.thick, amt = 0.5f + 0.7f * S.thick;
+            const float d = 1.5f + 7.0f * S.thick, amt = 0.6f + 1.1f * S.thick;
             const float dcK = (float) std::exp (-1.0 / (0.02 * sr)), eK = (float) std::exp (-1.0 / (0.05 * sr));
             for (int c = 0; c < 2; ++c)
             {
@@ -74,7 +85,7 @@ public:
             }
         }
         // ---- WARM: nastro da 15 pollici (head bump, compressione morbida, alti arrotondati)
-        if (S.warm > 0.001f) { TapeSettings t; t.model = 1; t.drive = 0.65f * S.warm; t.bias = 0.1f; t.noise = 0; t.mix = juce::jmin (1.0f, 0.4f + S.warm); tape.process (L, R, n, t); }
+        if (S.warm > 0.001f) { TapeSettings t; t.model = 1; t.drive = 1.0f * S.warm; t.bias = 0.1f; t.noise = 0; t.mix = juce::jmin (1.0f, 0.5f + S.warm); tape.process (L, R, n, t); }
         // ---- SILK: armoniche solo sopra 4.5 kHz, piu un filo di shelf: lucentezza senza durezza
         if (S.silk > 0.001f)
         {
@@ -82,20 +93,20 @@ public:
             for (int c = 0; c < 2; ++c)
             {
                 float* x = c ? R : L;
-                for (int i = 0; i < n; ++i) { const float h = sHp[c] (x[i]); const float s = std::tanh (3.0f * h) / 3.0f; x[i] += k * (0.35f * h + 1.6f * (s - h * 0.92f)); }
+                for (int i = 0; i < n; ++i) { const float h = sHp[c] (x[i]); const float s = std::tanh (3.0f * h) / 3.0f; x[i] += k * (0.55f * h + 2.6f * (s - h * 0.92f)); }
             }
         }
         // ---- GLUE: compressore di bus 2:1, attacco 10 ms, rilascio auto, filtro sui bassi nel sidechain
         if (S.glue > 0.001f)
         {
-            BusSettings b; b.thr = -4.0f - 16.0f * S.glue; b.ratio = S.glue > 0.6f ? 2 : 1; b.att = 4; b.rel = 4; b.autoMakeup = true; b.makeup = 0; b.mix = 1; b.scHpf = 90; b.range = 6;
+            BusSettings b; b.thr = -4.0f - 22.0f * S.glue; b.ratio = S.glue > 0.75f ? 2 : S.glue > 0.35f ? 1 : 0; b.att = 4; b.rel = 4; b.autoMakeup = true; b.makeup = 0; b.mix = 1; b.scHpf = 90; b.range = 9;
             bus.process (L, R, n, b); glueGr = bus.gr;
         }
         else glueGr = 0;
         // ---- WIDE: allarga (o stringe) il side sopra 120 Hz; sotto 120 Hz i bassi restano mono se MONO BASSI e acceso
         if (std::abs (S.wide) > 0.001f || S.monoBass)
         {
-            const float w = S.wide >= 0 ? 1.0f + 0.8f * S.wide : 1.0f + S.wide;
+            const float w = S.wide >= 0 ? 1.0f + 1.3f * S.wide : 1.0f + S.wide;
             for (int i = 0; i < n; ++i)
             {
                 const float m = 0.5f * (L[i] + R[i]), s = 0.5f * (L[i] - R[i]);
@@ -110,7 +121,7 @@ public:
 private:
     struct CalmBand { float f, q, knee, maxCut; Biquad det[2], cut[2]; float env = 0, slow = 0, g = 0; };
     double sr = 48000;
-    Biquad eq[2][3], tLp[2], tLp2[2], sHp[2], wLp, wLp2;
+    Biquad eq[2][3], dq[2][3], tLp[2], tLp2[2], sHp[2], wLp, wLp2;
     CalmBand calm[3] { { 280, 1.2f, 3.0f, 4.0f }, { 3200, 1.6f, 2.5f, 6.0f }, { 7000, 2.0f, 2.0f, 6.0f } };
     TapeMachine tape; BusComp bus; EasySettings last; float dcAvg[2] {}, eLo[2] {}, eSat[2] {};
 };
