@@ -129,7 +129,7 @@ void PadComp::paint (juce::Graphics& g)
     auto s = P.getSample (pad);
     g.setFont (ft (10.0f)); g.setColour (lum > 0.4f ? juce::Colours::white : Col::dim);
     const int sl = juce::roundToInt (P.pad[pad].get (SLICE));
-    g.drawFittedText (s ? s->name + (sl > 0 ? " #" + juce::String (sl) : juce::String()) : juce::String ("vuoto"), tb.withTrimmedBottom (4).toNearestInt(), juce::Justification::bottomLeft, 1);
+    g.drawFittedText (s ? s->name + (sl > 0 ? " #" + juce::String (sl) : juce::String()) : juce::String ("vuoto"), tb.withTrimmedBottom (4).withTrimmedTop (14).toNearestInt(), juce::Justification::bottomLeft, 2, 0.75f);
     if (flash > 0.05f) { g.setFont (ft (9.0f, true, true)); g.setColour (juce::Colours::white.withAlpha (flash)); g.drawText (juce::String (P.lastVel[pad].load()), tb.withTrimmedBottom (4), juce::Justification::bottomRight); }
 }
 void PadComp::mouseDown (const juce::MouseEvent& e)
@@ -259,6 +259,22 @@ void Screen::paint (juce::Graphics& g)
         case PG_KIT:
         {
             glowText (g, "KIT", hdr, Col::phos.withAlpha (0.6f), ft (11.0f, true, true));
+            {   // nome intero del suono del pad selezionato
+                auto sm = ed.proc.getSample (ed.sel);
+                const juce::String nm = juce::String (ed.sel + 1).paddedLeft ('0', 2) + "  " + (sm ? sm->name : juce::String ("vuoto"));
+                const auto f = ft (10.5f, true, true); g.setFont (f); g.setColour (Col::amber);
+                auto area = hdr.withTrimmedLeft (44).withTrimmedRight (130);
+                const float tw = juce::GlyphArrangement::getStringWidth (f, nm);
+                if (tw <= area.getWidth()) g.drawText (nm, area, juce::Justification::centred);
+                else
+                {   // nome troppo lungo: scorre (come il display di una MPC), cosi si legge tutto
+                    const float gap = 60, period = tw + gap;
+                    const float off = std::fmod ((float) (juce::Time::getMillisecondCounter() % 1000000) * 0.04f, period);
+                    g.saveState(); g.reduceClipRegion (area.toNearestInt());
+                    for (float x = area.getX() - off; x < area.getRight(); x += period) g.drawText (nm, juce::Rectangle<float> (x, area.getY(), tw + 4, area.getHeight()), juce::Justification::centredLeft);
+                    g.restoreState();
+                }
+            }
             juce::String rt; rt << juce::String (ed.proc.uiBpm.load(), 1) << " BPM  " << (ed.proc.uiHost.load() ? "HOST" : ed.proc.uiRunning.load() ? "INT" : "STOP");
             glowText (g, rt, hdr, Col::phos.withAlpha (0.8f), ft (10.5f, false, true), juce::Justification::centredRight);
             pageKit (g, c); break;

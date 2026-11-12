@@ -280,7 +280,8 @@ void Processor::startVoice (int p, int vel, float r0, float r1)
     const int choke = juce::roundToInt (P.get (CHOKE));
     const bool loop = P.get (LOOP) > 0.5f;
     for (auto& v : voices)
-        if (v.active && (v.pad == p || (choke > 0 && v.pad != p && juce::roundToInt (pad[v.pad].get (CHOKE)) == choke)))
+        if (v.active && (v.pad == p || (choke > 0 && v.pad != p && juce::roundToInt (pad[v.pad].get (CHOKE)) == choke
+                                         && v.age > (int) (sr * 0.03))))   // colpi insieme (entro 30 ms): suonano tutti e due, come a mano
             if (v.pad != p || P.get (MODE) < 0.5f || loop) v.choking = true;
     // layer: INSIEME = il secondo campione suona con il primo (sopra la soglia di velocity se impostata)
     //        VEL SWITCH = sotto la soglia suona il primo, sopra solo il layer
@@ -1233,7 +1234,24 @@ juce::File Processor::writeMidi (bool withSwing)
 {
     juce::MidiMessageSequence seq; const int root = rootNote();
     { const juce::SpinLock::ScopedLockType l (recLock);
-      for (auto& e : events) { const double q = withSwing ? swingTick (e.tick) : e.tick; seq.addEvent (juce::MidiMessage::noteOn (1, root + e.pad, (juce::uint8) e.vel), q); seq.addEvent (juce::MidiMessage::noteOff (1, root + e.pad), q + 12); } }
+      // durata delle note: i pad che si fermano al rilascio (gate, loop, campioni lunghi) tengono la nota fino al colpo dopo
+      // dello stesso pad (o alla fine del giro); gli altri un sedicesimo
+      const double L = loopTicks();
+      for (auto& e : events)
+      {
+          const double q = withSwing ? swingTick (e.tick) : e.tick;
+          double len = PPQ / 4.0;
+          auto s = getSample (e.pad);
+          const bool held = pad[e.pad].get (MODE) > 0.5f || pad[e.pad].get (LOOP) > 0.5f || (s && s->buf.getNumSamples() / s->sr > 0.6);
+          if (held)
+          {
+              double next = L;
+              for (auto& o : events) if (o.pad == e.pad && o.tick > e.tick + 0.5 && o.tick < next) next = o.tick;
+              if (next >= L) for (auto& o : events) if (o.pad == e.pad && o.tick + L < next + L && o.tick + L > e.tick) next = juce::jmin (next, o.tick + L);
+              len = juce::jmax (PPQ / 4.0, (withSwing ? swingTick (next) : next) - q - 2);
+          }
+          seq.addEvent (juce::MidiMessage::noteOn (1, root + e.pad, (juce::uint8) e.vel), q); seq.addEvent (juce::MidiMessage::noteOff (1, root + e.pad), q + len);
+      } }
     seq.updateMatchedPairs(); seq.sort();
     juce::MidiFile mf; mf.setTicksPerQuarterNote (PPQ); mf.addTrack (seq);
     const auto& pb = patternBank()[(size_t) juce::jlimit (0, (int) patternBank().size() - 1, patternIndex)];

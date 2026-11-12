@@ -9,6 +9,16 @@
 using namespace jp;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "allgen")
+    {
+        Processor p; p.prepareToPlay (44100, 512); p.loadFactoryKit (1);
+        std::vector<int> ids; stylesInCat (GC_DRUM, ids);
+        for (int st : ids) { int ev = 0; for (juce::uint32 sd : { 1u, 7u, 99u }) { generate (p, st, sd, 0); ev += (int) p.events.size(); }
+            std::printf ("%-18s eventi medi %d\n", genStyles()[(size_t) st].name.toRawUTF8(), ev / 3); }
+        auto f = p.writeMidi (false); juce::MidiFile mf; juce::FileInputStream is (f); mf.readFrom (is);
+        std::printf ("midi: %d eventi\n", mf.getTrack (0)->getNumEvents());
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "rnd")
     {
         Processor p; p.prepareToPlay (44100, 512);
