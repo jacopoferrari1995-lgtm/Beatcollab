@@ -2341,6 +2341,8 @@ void Editor::bindQlinks()
                     m.addItem (2, "Scollega dal controller");
                     m.addItem (3, "Tutte e 8 come di fabbrica (CC 70-77, Akai MPK)");
                     m.addItem (4, "Tutti gli slot come di fabbrica");
+                    m.addItem (5, "Azzera tutti gli effetti (valori al neutro)");
+                    m.addItem (6, "Ascolta il controller (CC in arrivo, anche dalle clip)", true, proc.ctrlOn.load());
                     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (q), [this, k, tp, pr] (int r)
                     {
                         if (r >= 100)
@@ -2351,6 +2353,13 @@ void Editor::bindQlinks()
                         else if (r == 1) proc.learnSlot = k;
                         else if (r == 2) proc.ccMap[k] = -1;
                         else if (r == 3) for (int j = 0; j < Processor::kFx; ++j) proc.ccMap[j] = 70 + j;
+                        else if (r == 5)
+                            for (int j = 0; j < Processor::kFx; ++j)
+                            {
+                                auto* t2 = proc.apvts.getParameter ("fx" + juce::String (j + 1) + "type"); auto* a2 = proc.apvts.getParameter ("fx" + juce::String (j + 1));
+                                a2->setValueNotifyingHost (pfx::info (juce::roundToInt (t2->convertFrom0to1 (t2->getValue()))).neutral);
+                            }
+                        else if (r == 6) proc.ctrlOn = ! proc.ctrlOn.load();
                         else if (r == 4)
                             for (int j = 0; j < Processor::kFx; ++j)
                             {

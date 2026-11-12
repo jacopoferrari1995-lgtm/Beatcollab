@@ -13,15 +13,11 @@ juce_add_plugin(JackpotMaster
   FORMATS ${JP_FORMATS}
   PRODUCT_NAME "Jackpot Master")
 
-juce_add_binary_data(MasterNeoData HEADER_NAME MasterNeoData.h NAMESPACE NeoData SOURCES
-  Assets/Manrope-500.ttf Assets/Manrope-700.ttf Assets/Sora-300.ttf Assets/Sora-600.ttf Assets/neo_knob.png)
-set_target_properties(MasterNeoData PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
-
 target_sources(JackpotMaster PRIVATE Source/MasterProcessor.cpp Source/MasterEditor.cpp Source/MasterEasyView.cpp)
 target_include_directories(JackpotMaster PRIVATE ${CMAKE_SOURCE_DIR}/Common)
 target_compile_definitions(JackpotMaster PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
 target_link_libraries(JackpotMaster
-  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts MasterNeoData
+  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 if(J60_TEST)
@@ -29,5 +25,5 @@ if(J60_TEST)
   target_include_directories(MasterTest PRIVATE ${CMAKE_SOURCE_DIR}/Common)
   target_sources(MasterTest PRIVATE test/main.cpp Source/MasterProcessor.cpp Source/MasterEditor.cpp Source/MasterEasyView.cpp)
   target_compile_definitions(MasterTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotMaster")
-  target_link_libraries(MasterTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts MasterNeoData)
+  target_link_libraries(MasterTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo)
 endif()

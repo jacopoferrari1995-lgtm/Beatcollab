@@ -19,6 +19,10 @@ juce_add_binary_data(JackpotFonts HEADER_NAME JackpotFontsData.h NAMESPACE Jackp
   Common/Fonts/Rajdhani-Medium.ttf Common/Fonts/Rajdhani-SemiBold.ttf Common/Fonts/Rajdhani-Bold.ttf
   Common/Fonts/ShareTechMono-Regular.ttf Common/Fonts/Michroma-Regular.ttf)
 set_target_properties(JackpotFonts PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+# stile NEO (Master FACILE, Jackpot FX): font moderni e manopola 3D renderizzata
+juce_add_binary_data(JackpotNeo HEADER_NAME NeoData.h NAMESPACE NeoData SOURCES
+  Common/Neo/Manrope-500.ttf Common/Neo/Manrope-700.ttf Common/Neo/Sora-300.ttf Common/Neo/Sora-600.ttf Common/Neo/neo_knob.png)
+set_target_properties(JackpotNeo PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 add_subdirectory(Jackpot60)
 add_subdirectory(JackpotTape)
 add_subdirectory(JackpotPad)
@@ -34,3 +38,4 @@ add_subdirectory(JackpotMix)
 add_subdirectory(JackpotPhase)
 add_subdirectory(JackpotTube)
 add_subdirectory(JackpotRewind)
+add_subdirectory(JackpotFX)

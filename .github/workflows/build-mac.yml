@@ -32,6 +32,7 @@ jobs:
           JackpotPhase|Jackpot Phase|aufx Jphs|JackpotPhase
           JackpotTube|Jackpot Tube Box|aufx Jtbx|JackpotTubeBox
           JackpotRewind|Jackpot Rewind|aufx Jrwd|JackpotRewind
+          JackpotFX|Jackpot FX|aumf Jfx8|JackpotFX
           EOF
           # build-only.txt: se c'e' ed e' pieno, si costruiscono solo quei plugin (piu veloce)
           ONLY=""; [ -f build-only.txt ] && ONLY="$(tr -s ' \n' ' ' < build-only.txt)"
@@ -46,11 +47,11 @@ jobs:
             cp -R "$C" ~/Library/Audio/Plug-Ins/Components/
             cp -R "$C" out/
             (cd out && ditto -c -k --keepParent "$NAME.component" "$ZIP-AU.zip")
-            if [ "$DIR" = "JackpotPad" ]; then
-              cmake --build build --config Release --target JackpotPad_VST3 -- -quiet
-              V="$(find build -name 'Jackpot Sampler.vst3' -type d | head -1)"
+            if [ "$DIR" = "JackpotPad" ] || [ "$DIR" = "JackpotFX" ]; then
+              cmake --build build --config Release --target "${DIR}_VST3" -- -quiet
+              V="$(find build -name "$NAME.vst3" -type d | head -1)"
               codesign --force --deep -s - "$V"; cp -R "$V" out/
-              (cd out && ditto -c -k --keepParent "Jackpot Sampler.vst3" "JackpotSampler-VST3.zip")
+              (cd out && ditto -c -k --keepParent "$NAME.vst3" "$ZIP-VST3.zip")
             fi
             echo "$AU" >> auval.txt
           done < plugins.txt

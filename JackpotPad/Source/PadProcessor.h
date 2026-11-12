@@ -187,6 +187,7 @@ public:
     std::atomic<bool> qFx { false };       // le 8 manopole sotto lo schermo fanno da effetti
     std::atomic<int> ccMap[kFx];           // quale CC muove ogni effetto (di fabbrica 70-77, l'MPK); si cambia con MIDI learn
     std::atomic<int> learnSlot { -1 };     // in attesa di un CC per questo effetto
+    std::atomic<bool> ctrlOn { true };     // spento: i CC in arrivo (anche registrati nelle clip) si ignorano
     float velCurve (int vel) const;
     juce::AudioFormatManager formats;
     juce::SharedResourcePointer<SampleIndex> sampleIndex;   // indice SCAN condiviso (la scansione continua anche a editor chiuso)
