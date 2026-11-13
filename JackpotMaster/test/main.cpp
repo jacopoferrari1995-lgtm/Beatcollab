@@ -156,7 +156,7 @@ int main (int argc, char** argv)
         if (auto* v = std::getenv ("JSCAN")) p->uiScan = std::atoi (v);
         if (auto* v = std::getenv ("JWIN")) p->uiWin = std::atoi (v);
         if (auto* v = std::getenv ("JSPEC")) p->uiSpec = std::atoi (v);
-        std::vector<float> a, b; run (*p, [&] (int k, float& l, float& r) { beat (k, l, r); l *= 0.6f; r *= 0.6f; }, (int) sr * 22, a, b);
+        std::vector<float> a, b; run (*p, [&] (int k, float& l, float& r) { beat (k, l, r); l *= 0.6f; r *= 0.6f; if (std::getenv ("JSTEREO")) { const float pad = 0.2f * (float) std::sin (k * 0.031) ; l += pad + (rnd.nextFloat() - 0.5f) * 0.15f; r += -0.5f * pad + (rnd.nextFloat() - 0.5f) * 0.15f; } }, (int) sr * 22, a, b);
         Editor ed (*p);
         if (auto* v = std::getenv ("JVIEW")) ed.easyPage.view = std::atoi (v);
         for (int i = 0; i < 30; ++i) ed.tickForTest();
@@ -181,6 +181,24 @@ int main (int argc, char** argv)
         }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argc > 2 ? argv[2] : "/tmp/master.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "ideal")
+    {   // rumore con pendenza -4.5 dB/ottava (= "piatto" per il bilanciamento): tutte le regioni devono venire vicino a 0
+        for (float slope : { -4.5f, -3.0f, -6.0f })
+        {
+            ThirdAnalyzer an; juce::dsp::FFT fft (12); std::vector<float> buf (8192); juce::Random rr (3);
+            for (int fr = 0; fr < 200; ++fr)
+            {
+                std::vector<std::complex<float>> X (4096), x (4096);
+                for (int k = 1; k < 2048; ++k) { const float f = k * 48000.0f / 4096, mag = std::pow (f / 1000.0f, slope / 20.0f / std::log10 (2.0f)); const float ph = rr.nextFloat() * 6.2832f; X[(size_t) k] = std::polar (mag, ph); X[(size_t) (4096 - k)] = std::conj (X[(size_t) k]); }
+                fft.perform (X.data(), x.data(), true);
+                std::vector<float> mono (4096); for (int i = 0; i < 4096; ++i) mono[(size_t) i] = x[(size_t) i].real();
+                an.addFrame (mono.data(), 48000);
+            }
+            float th[kThirds], reg[kRegions]; an.result (th); ThirdAnalyzer::regions (th, reg);
+            std::printf ("pendenza %+.1f dB/ott:", slope); for (int k = 0; k < kRegions; ++k) std::printf ("  %s %+.1f", regionName (k), reg[k]); std::printf ("\n");
+        }
         return 0;
     }
     if (argc > 1 && juce::String (argv[1]) == "pv")

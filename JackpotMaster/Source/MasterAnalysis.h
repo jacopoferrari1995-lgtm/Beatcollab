@@ -51,8 +51,9 @@ public:
     void result (float* out) const
     {
         double m = 0; float v[kThirds];
-        for (int k = 0; k < kThirds; ++k) { v[k] = 10.0f * std::log10 ((float) acc[k] + 1e-20f) + 4.5f * std::log2 (thirdHz (k) / 1000.0f); m += v[k]; }
-        m /= kThirds; for (int k = 0; k < kThirds; ++k) out[k] = v[k] - (float) m;
+        int nm = 0;
+        for (int k = 0; k < kThirds; ++k) { v[k] = 10.0f * std::log10 ((float) acc[k] + 1e-20f) + 4.5f * std::log2 (thirdHz (k) / 1000.0f); if (thirdHz (k) >= 40 && thirdHz (k) <= 12000) { m += v[k]; ++nm; } }
+        m /= juce::jmax (1, nm); for (int k = 0; k < kThirds; ++k) out[k] = v[k] - (float) m;   // media solo fra 40 Hz e 12 kHz: gli estremi (sempre bassi nei master) non spostano tutto
     }
     bool hasData() const { return frames > 2; }
     static void regions (const float* thirds, float* reg)
@@ -61,7 +62,8 @@ public:
         for (int r = 0; r < kRegions; ++r)
         {
             double s = 0; int c = 0;
-            for (int k = 0; k < kThirds; ++k) { const float f = thirdHz (k); if (f >= regionEdge (r) && f < regionEdge (r + 1)) { s += thirds[k]; ++c; } }
+            const float lo = juce::jmax (30.0f, regionEdge (r)), hi = juce::jmin (14000.0f, regionEdge (r + 1));   // sotto 30 Hz e sopra 14 kHz quasi tutti i master scendono: non contano
+            for (int k = 0; k < kThirds; ++k) { const float f = thirdHz (k); if (f >= lo && f < hi) { s += thirds[k]; ++c; } }
             reg[r] = c ? (float) (s / c) : 0.0f; m += reg[r];
         }
         m /= kRegions; for (int r = 0; r < kRegions; ++r) reg[r] -= (float) m;

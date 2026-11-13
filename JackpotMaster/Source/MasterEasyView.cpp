@@ -466,8 +466,7 @@ void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p, bool bipolar,
         g.setFont (num (7.5f));
         for (int d = -6; d >= -30; d -= 6) { const float y = area.getY() + (-d / 36.0f) * area.getHeight(); g.setColour (K::hi.withAlpha (0.05f)); g.fillRect (area.getX(), y, area.getWidth(), 1.0f); g.setColour (K::faint); g.drawText (juce::String (d), juce::Rectangle<float> (area.getX() + 2, y - 11, 26, 10), juce::Justification::centredLeft); }
     }
-    shape (e.pk, light() ? 0.38f : 0.42f);
-    shape (e.rm, light() ? 0.85f : 0.92f);
+    shape (e.pk, light() ? 0.88f : 0.92f);   // una sola onda: il suono che esce dal master
     // l'intervento del master: la linea del limiter. Ferma e tenue quando non lavora, si piega (e si accende) quando toglie
     {
         auto yLine = [&] (float gr, bool top)
@@ -598,6 +597,24 @@ void EasyStage::image (juce::Graphics& g, juce::Rectangle<float> p, bool small)
     const float corr = (el > 1e-9 && er > 1e-9) ? (float) (lr / std::sqrt (el * er)) : 1.0f; crS += (corr - crS) * 0.08f;
     const float width = em > 1e-9 ? (float) std::sqrt (es / em) : 0.0f; wS += (width - wS) * 0.08f;
     const float bal = (el > 1e-9 && er > 1e-9) ? (float) (10 * std::log10 (el / er)) : 0.0f;
+    {   // correlazione per banda misurata qui (non dipende dall'imager acceso): tagli a 150 Hz, 1 kHz, 5 kHz
+        const double sr = juce::jmax (8000.0, P.sampleRate()); static const float fc[3] = { 150, 1000, 5000 };
+        float a[3]; for (int k = 0; k < 3; ++k) a[k] = (float) std::exp (-juce::MathConstants<double>::twoPi * fc[k] / sr);
+        double xy[4] {}, xx[4] {}, yy[4] {}; float sl[3][2] {}, sr2[3][2] {};
+        for (int i = 0; i < n; ++i)
+        {
+            float lp[3], rp[3];
+            for (int k = 0; k < 3; ++k)
+            {   // passa basso a due poli per ogni taglio
+                sl[k][0] = l[i] + a[k] * (sl[k][0] - l[i]); sl[k][1] = sl[k][0] + a[k] * (sl[k][1] - sl[k][0]); lp[k] = sl[k][1];
+                sr2[k][0] = r[i] + a[k] * (sr2[k][0] - r[i]); sr2[k][1] = sr2[k][0] + a[k] * (sr2[k][1] - sr2[k][0]); rp[k] = sr2[k][1];
+            }
+            const float bl[4] = { lp[0], lp[1] - lp[0], lp[2] - lp[1], l[i] - lp[2] }, br[4] = { rp[0], rp[1] - rp[0], rp[2] - rp[1], r[i] - rp[2] };
+            if (i < 256) continue;   // lascia assestare i filtri
+            for (int b = 0; b < 4; ++b) { xy[b] += bl[b] * br[b]; xx[b] += bl[b] * bl[b]; yy[b] += br[b] * br[b]; }
+        }
+        for (int b = 0; b < 4; ++b) { const float c = (xx[b] > 1e-10 && yy[b] > 1e-10) ? (float) (xy[b] / std::sqrt (xx[b] * yy[b])) : 1.0f; bandCr[b] += (c - bandCr[b]) * 0.1f; }
+    }
     // vettorscopio con scia
     const float S = small ? juce::jmin (p.getWidth(), p.getHeight()) : juce::jmin (p.getHeight(), p.getWidth() * 0.5f);
     auto sq = small ? p.withSizeKeepingCentre (S, S) : juce::Rectangle<float> (p.getX() + 20, p.getY() + (p.getHeight() - S) * 0.5f, S, S);
@@ -612,7 +629,7 @@ void EasyStage::image (juce::Graphics& g, juce::Rectangle<float> p, bool small)
     juce::Path dm; dm.addTriangle (sq.getCentreX(), sq.getY(), sq.getRight(), sq.getCentreY(), sq.getCentreX(), sq.getBottom()); dm.addTriangle (sq.getCentreX(), sq.getY(), sq.getX(), sq.getCentreY(), sq.getCentreX(), sq.getBottom());
     g.setColour (K::hi.withAlpha (0.08f)); g.strokePath (dm, juce::PathStrokeType (1.0f));
     g.fillRect (sq.getCentreX(), sq.getY(), 1.0f, sq.getHeight()); g.fillRect (sq.getX(), sq.getCentreY(), sq.getWidth(), 1.0f);
-    g.drawImage (scope, sq);
+    g.setOpacity (1.0f); g.setColour (juce::Colours::white); g.drawImage (scope, sq);
     g.setFont (cap (7.5f)); g.setColour (K::faint);
     g.drawText ("M", juce::Rectangle<float> (sq.getCentreX() - 10, sq.getY() - 2, 20, 10), juce::Justification::centred);
     g.drawText ("L", juce::Rectangle<float> (sq.getX() + 4, sq.getY() + 4, 12, 10), juce::Justification::centredLeft);
@@ -635,13 +652,13 @@ void EasyStage::image (juce::Graphics& g, juce::Rectangle<float> p, bool small)
     meter (rr.getY(), "CORRELAZIONE", juce::String (crS, 2), (crS + 1) * 0.5f, cc, true);
     meter (rr.getY() + 46, "LARGHEZZA (S / M)", juce::String (juce::roundToInt (wS * 100)) + "%", juce::jlimit (0.0f, 1.0f, wS / 1.2f), K::violet, false);
     meter (rr.getY() + 92, "BILANCIAMENTO L / R", (std::abs (bal) < 0.05f ? juce::String ("C") : juce::String (std::abs (bal), 1) + " dB " + (bal > 0 ? "L" : "R")), 0.5f - juce::jlimit (-6.0f, 6.0f, bal) / 12.0f, K::cyan, true);
-    static const char* bn[kImBands] = { "BASSI", "MEDIO-BASSI", "MEDIO-ALTI", "ALTI" };
+    static const char* bn[kImBands] = { "SOTTO 150 Hz", "150 Hz - 1 kHz", "1 - 5 kHz", "SOPRA 5 kHz" };
     g.setFont (cap (8.0f)); g.setColour (K::sub); g.drawText ("CORRELAZIONE PER BANDA", juce::Rectangle<float> (rr.getX(), rr.getY() + 140, 260, 12), juce::Justification::centredLeft);
     for (int b = 0; b < kImBands; ++b)
     {
-        const float c = P.imCorr[b].load(), y = rr.getY() + 162 + b * 26.0f;
-        auto bar = juce::Rectangle<float> (rr.getX() + 100, y + 3, rr.getWidth() - 160, 6);
-        g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (bn[b], juce::Rectangle<float> (rr.getX(), y, 96, 12), juce::Justification::centredLeft);
+        const float c = bandCr[b], y = rr.getY() + 162 + b * 26.0f;
+        auto bar = juce::Rectangle<float> (rr.getX() + 120, y + 3, rr.getWidth() - 180, 6);
+        g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (bn[b], juce::Rectangle<float> (rr.getX(), y, 116, 12), juce::Justification::centredLeft);
         g.setColour (K::lo.withAlpha (light() ? 0.10f : 0.4f)); g.fillRoundedRectangle (bar, 3);
         const float xv = bar.getX() + juce::jlimit (0.0f, 1.0f, (c + 1) * 0.5f) * bar.getWidth(), xc = bar.getCentreX();
         g.setColour (c < -0.1f ? K::red : c < 0.3f ? K::amber : K::mint); g.fillRoundedRectangle (juce::Rectangle<float>::leftTopRightBottom (juce::jmin (xc, xv), bar.getY(), juce::jmax (xc, xv), bar.getBottom()), 3);
