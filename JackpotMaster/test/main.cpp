@@ -148,6 +148,22 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "presets")
+    {   // ogni preset (anche quelli per effetto): niente NaN, picchi sotto il ceiling, loudness ragionevole
+        int bad = 0;
+        auto check = [&] (const juce::String& name, std::function<void (Processor&)> load)
+        {
+            auto p = fresh(); load (*p); std::vector<float> a, b; run (*p, beat, (int) sr * 8, a, b);
+            float pk = 0; bool nan = false; for (size_t i = a.size() / 2; i < a.size(); ++i) { if (! std::isfinite (a[i]) || ! std::isfinite (b[i])) nan = true; pk = std::max (pk, std::max (std::abs (a[i]), std::abs (b[i]))); }
+            const float pkDb = juce::Decibels::gainToDecibels (pk, -100.0f); const bool ko = nan || pkDb > 0.05f;
+            if (ko) ++bad;
+            std::printf ("%s %-46s picco %6.2f dB  LUFS-S %6.1f%s\n", ko ? "!!" : "  ", name.toRawUTF8(), pkDb, p->lufsS.load(), nan ? " NaN" : "");
+        };
+        for (int i = 0; i < (int) presets().size(); ++i) { const juce::String n (presets()[(size_t) i].name); if (n.startsWith ("Genere") || n.startsWith ("Specifico")) check (n, [i] (Processor& q) { q.loadPreset (i); }); }
+        for (int i = 0; i < (int) modPresets().size(); ++i) check (juce::String ("  [") + modInfo (modPresets()[(size_t) i].mod).name + "] " + modPresets()[(size_t) i].name, [i] (Processor& q) { auto* m = q.apvts.getParameter ("mode"); m->setValueNotifyingHost (1.0f); q.loadModPreset (i); });
+        std::printf ("preset con problemi: %d\n", bad);
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "easysnap")
     {
         static FakeHead fh2; if (std::getenv ("JBPM")) gHead = &fh2;

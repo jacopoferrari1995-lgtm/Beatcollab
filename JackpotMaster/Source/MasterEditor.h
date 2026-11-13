@@ -629,6 +629,8 @@ public:
     // AVANZATO a inserimento
     Rack rack { *this }; Gallery gallery { *this }; StatusBar status { *this }; PresetBrowser browser { *this }; RackRecap recap { *this };
     void openEffect (int m);                 // apre l'effetto in grande al centro
+    void modPresetMenu (int m, juce::Component* from);   // preset del singolo effetto (master / mix bus)
+    juce::String modNote; juce::uint32 modNoteT = 0; juce::OwnedArray<juce::Component> presetBtns;
     void insertModule (int m);               // lo mette in catena al suo posto naturale e lo accende
     void removeModule (int m);               // lo spegne e lo toglie dalla catena
     void layoutAdv();

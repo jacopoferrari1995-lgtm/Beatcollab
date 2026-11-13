@@ -1945,6 +1945,17 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     addChildComponent (easyPage); addChildComponent (advStage); addAndMakeVisible (advTabsComp);
     for (juce::Component* c : std::initializer_list<juce::Component*> { &rack, &status }) addChildComponent (c);
     addChildComponent (recap); addChildComponent (gallery); addChildComponent (browser);
+    // tasto PRESET in ogni pagina d'effetto (in alto a destra)
+    {
+        juce::Component* pages[kNumMods] {}; pages[BASS] = &bassPage; pages[DYNEQ] = &eqPage; pages[DEESS] = &dsPage; pages[BUSCOMP] = &busPage; pages[MULTI] = &mbPage; pages[EXCITER] = &exPage;
+        pages[TAPE] = &tpPage; pages[IMAGER] = &imPage; pages[MAXIM] = &maxPage; pages[LIMIT] = &limPage; pages[EQ432] = &e4Page; pages[PULTEC] = &pqPage; pages[VARIMU] = &vmPage;
+        for (int m = 0; m < kNumMods; ++m)
+        {
+            auto* b = presetBtns.add (new ActBtn (juce::String::fromUTF8 ("PRESET  \xe2\x96\xbe"), neo::acc (juce::Colour (modInfo (m).colour)), nullptr));
+            auto* raw = static_cast<ActBtn*> (b); raw->fn = [this, m, raw] { modPresetMenu (m, raw); };
+            pages[m]->addAndMakeVisible (b);
+        }
+    }
     chain.setVisible (false); loud.setVisible (false); trim->setVisible (false);
     for (int m = 0; m < kNumMods; ++m) if (proc.value (onParam (m)) > 0.5f) proc.inRack[m] = true;
     { const auto v = rack.visible(); sel = v.empty() ? MAXIM : v.back(); }
@@ -1987,6 +1998,31 @@ void Editor::layoutAdv()
 void Editor::openEffect (int m)
 {
     advView = kEff; select (m); applyAdvView();
+}
+void Editor::modPresetMenu (int m, juce::Component* from)
+{
+    juce::PopupMenu menu; const auto& L = modPresets();
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        menu.addSectionHeader (pass == 0 ? "PER IL MASTER" : "PER IL MIX BUS");
+        for (int i = 0; i < (int) L.size(); ++i) if (L[(size_t) i].mod == m && L[(size_t) i].master == (pass == 0)) menu.addItem (i + 1, L[(size_t) i].name);
+    }
+    menu.addSeparator(); menu.addItem (9999, "Riporta l'effetto a neutro");
+    juce::Component::SafePointer<Editor> sp (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (from).withMinimumWidth (240), [sp, m] (int r)
+    {
+        if (sp == nullptr || r <= 0) return;
+        auto& e = *sp;
+        if (r == 9999)
+        {
+            for (auto* p : e.proc.getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+            { static const char* pre[kNumMods] = { "bc_", "eq", "ds_", "bus_", "mb", "ex", "tp_", "im_", "mx_", "lm_", "e4_", "pq_", "vm_" };
+              if (rp->paramID.startsWith (pre[m]) && rp->paramID != onParam (m)) rp->setValueNotifyingHost (rp->getDefaultValue()); }
+            e.modNote = "Effetto riportato a neutro.";
+        }
+        else { e.proc.loadModPreset (r - 1); e.modNote = juce::String (modPresets()[(size_t) r - 1].name) + ": " + modPresets()[(size_t) r - 1].note; }
+        e.modNoteT = juce::Time::getMillisecondCounter(); e.rack.repaint(); e.status.repaint(); e.repaint();
+    });
 }
 void Editor::insertModule (int m)
 {
@@ -2064,6 +2100,7 @@ void Editor::resized()
     gallery.setBounds (centreR.withTrimmedTop (-34));
     browser.setBounds (0, 0, W, H);
     for (int t = 0; t < kNumTargets; ++t) tgtR[t] = { 1136, 136 + t * 30, 118, 26 };
+    for (auto* b : presetBtns) if (auto* par = b->getParentComponent()) b->setBounds (par->getWidth() - 136, 10, 120, 26);
     advTabs.layout ({ 0, 74, 0, 26 }, advViewNames (*this), 7.5f); advTabs.ax = -1;
     { const float x0 = (float) centreR.getX() + 6 - advTabs.r[0].getX(); for (int i = 0; i < advTabs.n; ++i) advTabs.r[i].translate (x0, 0); kTabsOrigin = { (float) centreR.getX(), 70 }; }
     advTabsComp.setBounds (juce::Rectangle<float> (kTabsOrigin.x, kTabsOrigin.y, (float) centreR.getWidth(), 34).toNearestInt()); advTabsComp.toFront (false);

@@ -426,6 +426,7 @@ void StatusBar::paint (juce::Graphics& g)
         name = "MASTER"; doing = lu > -60 ? "short-term " + juce::String (lu, 1) + " LUFS, obiettivo " + juce::String ((int) tgt) : juce::String ("in attesa del segnale");
         tip = lu < -60 ? juce::String ("Fai partire la traccia: le misure si accendono da sole.") : lu < tgt - 2 ? juce::String ("Sotto il target: alza il gain del MAXIMIZER.") : lu > tgt + 1.5f ? juce::String ("Sopra il target: lo streaming ti abbassera, guadagni solo distorsione.") : juce::String ("Sei sul target: ora conta solo come suona.");
     }
+    if (ed.modNote.isNotEmpty() && juce::Time::getMillisecondCounter() - ed.modNoteT < 9000) { tip = ed.modNote; }
     g.setColour (c); g.fillEllipse (b.getX() + 12, b.getCentreY() - 4, 8, 8);
     g.setFont (cap (8.5f)); g.setColour (K::ink); g.drawText (name, juce::Rectangle<float> (b.getX() + 28, b.getY(), 150, b.getHeight()), juce::Justification::centredLeft);
     g.setFont (num (9.5f)); g.setColour (c); g.drawFittedText (doing, juce::Rectangle<int> ((int) b.getX() + 170, 0, 470, getHeight()), juce::Justification::centredLeft, 1, 0.8f);
@@ -460,7 +461,7 @@ void PresetBrowser::open()
     setVisible (true); toFront (true);
 }
 static juce::Rectangle<float> grpCell (juce::Rectangle<float> bx, int i) { return { bx.getX() + 16, bx.getY() + 60 + i * 40.0f, 200, 34 }; }
-static constexpr float kRowH = 58;
+static constexpr float kRowH = 70;
 void PresetBrowser::paint (juce::Graphics& g)
 {
     setTheme (ed.proc.uiTheme.load() == 2 ? 2 : 1);
@@ -486,7 +487,7 @@ void PresetBrowser::paint (juce::Graphics& g)
         if (cur) { g.setColour (K::violet.withAlpha (0.7f)); g.drawRoundedRectangle (r.reduced (0.5f), 10, 1.0f); }
         juce::String n (presets()[(size_t) i].name); if (n.contains (" | ")) n = n.fromFirstOccurrenceOf (" | ", false, false);
         g.setFont (f (14.0f, 1)); g.setColour (K::ink); g.drawText (n, r.withTrimmedLeft (16).withHeight (26).translated (0, 4), juce::Justification::centredLeft);
-        g.setFont (f (9.8f)); g.setColour (K::sub); g.drawFittedText (presets()[(size_t) i].note, r.withTrimmedLeft (16).withTrimmedRight (12).withTrimmedTop (28).toNearestInt(), juce::Justification::topLeft, 1, 0.85f);
+        g.setFont (f (9.8f)); g.setColour (K::sub); g.drawFittedText (presets()[(size_t) i].note, r.withTrimmedLeft (16).withTrimmedRight (12).withTrimmedTop (30).toNearestInt(), juce::Justification::topLeft, 2, 0.9f);
     }
     g.restoreState();
     const float total = it.size() * kRowH;

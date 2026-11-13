@@ -655,30 +655,67 @@ const std::vector<Preset>& presets()
           { { "e_monob", 1.0f }, { "e_low", 2.0f }, { "e_high", 1.0f }, { "e_thick", 0.3f }, { "e_warm", 0.1f }, { "e_silk", 0.3f }, { "e_glue", 0.4f }, { "e_calm", 0.35f }, { "e_wide", 0.2f }, { "e_loud", 7.0f }, { "e_pres", 0.6f }, { "e_speed", 0.6f }, { "target", 4.0f }, { "lm_ceil", -0.3f } } },
         { "Facile | Streaming pulito", "Trasparente, -14 LUFS: tocca poco e lascia respirare il mix.",
           { { "e_high", 0.5f }, { "e_silk", 0.2f }, { "e_glue", 0.25f }, { "e_calm", 0.3f }, { "e_loud", 1.4f }, { "e_pres", 0.4f }, { "e_speed", 0.5f }, { "target", 0.0f }, { "lm_ceil", -1.0f } } },
-        { "Master | Trap moderno", "Target -7 LUFS. Bassi mono sotto 120 Hz con punch, picchi dell'808 tenuti fermi, presenza dinamica a 3.5 kHz, aria sopra, colla leggera e maximizer PUNCH.",
+        { "Genere | Trap", "Target -7 LUFS. Bassi mono sotto 120 Hz con punch, picchi dell'808 tenuti fermi, presenza dinamica a 3.5 kHz, aria sopra, colla leggera e maximizer PUNCH.",
           { { "bc_on", 1 }, { "bc_freq", 110 }, { "bc_mono", 120 }, { "bc_punch", 0.3f }, { "bc_thr", -14 }, { "bc_dirty", 0.2f }, { "bc_harm", 0.15f }, { "eq_on", 1 }, { "eq1_type", 1 }, { "eq1_f", 40 }, { "eq1_g", 1 }, { "eq1_q", 0.7f }, { "eq5_type", 0 }, { "eq5_f", 3500 }, { "eq5_g", 0 }, { "eq5_q", 1.5f }, { "eq5_dyn", 1 }, { "eq5_thr", -30 }, { "eq5_rng", -3 }, { "eq6_type", 2 }, { "eq6_f", 11000 }, { "eq6_g", 1.5f }, { "eq6_q", 0.7f }, { "ds_on", 1 }, { "ds_lo", 6000 }, { "ds_hi", 20000 }, { "ds_thr", -8 }, { "ds_amt", 0.35f }, { "ds_soft", 0.6f }, { "ds_ch", 0 }, { "bus_on", 1 }, { "bus_thr", -16 }, { "bus_ratio", 1 }, { "bus_att", 4 }, { "bus_rel", 4 }, { "bus_hpf", 90 }, { "bus_range", 4 }, { "bus_mix", 1 }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "im_on", 1 }, { "im_smode", 0 }, { "im_w1", 0.4f }, { "im_s1", 0 }, { "im_w2", 1 }, { "im_s2", 0 }, { "im_w3", 1.15f }, { "im_s3", 0 }, { "im_w4", 1.15f }, { "im_s4", 0.05f }, { "mx_on", 1 }, { "mx_gain", 10 }, { "mx_style", 1 }, { "mx_clip", 0.5f }, { "mx_char", 0.6f }, { "lm_on", 1 }, { "lm_ceil", -0.5f }, { "lm_tp", 1 }, { "target", 5 } } },
-        { "Master | Trap muro (-6)", "Il massimo volume possibile: clipper deciso, maximizer AGGRESSIVO, 808 controllato sporco. Solo se il mix lo regge.",
+        { "Genere | Trap muro (-6)", "Il massimo volume possibile: clipper deciso, maximizer AGGRESSIVO, 808 controllato sporco. Solo se il mix lo regge.",
           { { "bc_on", 1 }, { "bc_freq", 110 }, { "bc_mono", 130 }, { "bc_punch", 0.2f }, { "bc_thr", -10 }, { "bc_dirty", 0.5f }, { "bc_harm", 0.2f }, { "eq_on", 1 }, { "eq6_type", 2 }, { "eq6_f", 12000 }, { "eq6_g", 1 }, { "eq6_q", 0.7f }, { "bus_on", 1 }, { "bus_thr", -14 }, { "bus_ratio", 1 }, { "bus_att", 5 }, { "bus_rel", 4 }, { "bus_hpf", 100 }, { "bus_range", 3 }, { "bus_mix", 1 }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "im_on", 1 }, { "im_smode", 0 }, { "im_w1", 0.3f }, { "im_s1", 0 }, { "im_w2", 1 }, { "im_s2", 0 }, { "im_w3", 1.1f }, { "im_s3", 0 }, { "im_w4", 1.12f }, { "im_s4", 0 }, { "mx_on", 1 }, { "mx_gain", 13 }, { "mx_style", 2 }, { "mx_clip", 0.75f }, { "mx_char", 0.75f }, { "lm_on", 1 }, { "lm_ceil", -0.3f }, { "lm_tp", 1 }, { "target", 5 } } },
-        { "Master | Drill", "Cassa e rullante in faccia, 808 stretto (CODA corta), compressione piu decisa e maximizer aggressivo.",
+        { "Genere | Drill", "Cassa e rullante in faccia, 808 stretto (CODA corta), compressione piu decisa e maximizer aggressivo.",
           { { "bc_on", 1 }, { "bc_freq", 120 }, { "bc_mono", 120 }, { "bc_punch", 0.5f }, { "bc_tail", -0.35f }, { "bc_thr", -12 }, { "bc_dirty", 0.4f }, { "eq_on", 1 }, { "eq2_type", 0 }, { "eq2_f", 250 }, { "eq2_g", -1.5f }, { "eq2_q", 1 }, { "eq5_type", 0 }, { "eq5_f", 4000 }, { "eq5_g", 0 }, { "eq5_q", 1.4f }, { "eq5_dyn", 1 }, { "eq5_thr", -28 }, { "eq5_rng", -2.5f }, { "bus_on", 1 }, { "bus_thr", -14 }, { "bus_ratio", 2 }, { "bus_att", 4 }, { "bus_rel", 2 }, { "bus_hpf", 100 }, { "bus_range", 5 }, { "bus_mix", 1 }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "mx_on", 1 }, { "mx_gain", 11 }, { "mx_style", 2 }, { "mx_clip", 0.6f }, { "mx_char", 0.7f }, { "lm_on", 1 }, { "lm_ceil", -0.3f }, { "lm_tp", 1 }, { "target", 4 } } },
-        { "Master | Boom Bap caldo", "Bassi WARM con piu sustain, alti morbidi, colla lenta in parallelo e maximizer MORBIDO.",
+        { "Genere | Boom Bap", "Bassi WARM con piu sustain, alti morbidi, colla lenta in parallelo e maximizer MORBIDO.",
           { { "bc_on", 1 }, { "bc_freq", 100 }, { "bc_mono", 100 }, { "bc_punch", -0.3f }, { "bc_tail", 0.2f }, { "eq_on", 1 }, { "eq1_type", 1 }, { "eq1_f", 80 }, { "eq1_g", 1.5f }, { "eq1_q", 0.7f }, { "eq6_type", 2 }, { "eq6_f", 10000 }, { "eq6_g", -1.5f }, { "eq6_q", 0.7f }, { "bus_on", 1 }, { "bus_thr", -14 }, { "bus_ratio", 1 }, { "bus_att", 5 }, { "bus_rel", 4 }, { "bus_hpf", 0 }, { "bus_range", 5 }, { "bus_mix", 0.8f }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "mx_on", 1 }, { "mx_gain", 7 }, { "mx_style", 3 }, { "mx_clip", 0.3f }, { "mx_char", 0.35f }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 3 } } },
-        { "Master | R&B morbido", "Dinamico e lucido: de-esser sulla voce al centro, aria a 12 kHz, alti un filo piu larghi e diffusi.",
+        { "Genere | R&B", "Dinamico e lucido: de-esser sulla voce al centro, aria a 12 kHz, alti un filo piu larghi e diffusi.",
           { { "bc_on", 1 }, { "bc_freq", 120 }, { "bc_mono", 120 }, { "bc_punch", -0.2f }, { "eq_on", 1 }, { "eq3_type", 0 }, { "eq3_f", 500 }, { "eq3_g", -1 }, { "eq3_q", 0.8f }, { "eq6_type", 2 }, { "eq6_f", 12000 }, { "eq6_g", 2 }, { "eq6_q", 0.7f }, { "ds_on", 1 }, { "ds_lo", 5500 }, { "ds_hi", 20000 }, { "ds_thr", -10 }, { "ds_amt", 0.3f }, { "ds_soft", 0.8f }, { "ds_ch", 1 }, { "bus_on", 1 }, { "bus_thr", -18 }, { "bus_ratio", 0 }, { "bus_att", 5 }, { "bus_rel", 4 }, { "bus_hpf", 80 }, { "bus_range", 3 }, { "bus_mix", 1 }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "im_on", 1 }, { "im_smode", 1 }, { "im_w1", 0.5f }, { "im_s1", 0 }, { "im_w2", 1 }, { "im_s2", 0 }, { "im_w3", 1.05f }, { "im_s3", 0 }, { "im_w4", 1.1f }, { "im_s4", 0.08f }, { "mx_on", 1 }, { "mx_gain", 5 }, { "mx_style", 0 }, { "mx_clip", 0.1f }, { "mx_char", 0.3f }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 0 } } },
-        { "Master | Pop brillante", "Brillante e presente: presenza dinamica, multibanda leggero sugli alti, maximizer PUNCH.",
+        { "Genere | Pop", "Brillante e presente: presenza dinamica, multibanda leggero sugli alti, maximizer PUNCH.",
           { { "bc_on", 1 }, { "bc_freq", 110 }, { "bc_mono", 110 }, { "bc_punch", 0.15f }, { "eq_on", 1 }, { "eq4_type", 0 }, { "eq4_f", 3000 }, { "eq4_g", 0 }, { "eq4_q", 1.2f }, { "eq4_dyn", 1 }, { "eq4_thr", -28 }, { "eq4_rng", -2 }, { "eq6_type", 2 }, { "eq6_f", 10000 }, { "eq6_g", 2 }, { "eq6_q", 0.7f }, { "bus_on", 1 }, { "bus_thr", -16 }, { "bus_ratio", 1 }, { "bus_att", 4 }, { "bus_rel", 4 }, { "bus_hpf", 80 }, { "bus_range", 4 }, { "bus_mix", 1 }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "mb_on", 1 }, { "mb_mix", 0.25f }, { "mb_speed", 0.5f }, { "mb1_thr", 0 }, { "mb1_ratio", 2 }, { "mb1_up", 0 }, { "mb1_gain", 0 }, { "mb2_thr", -20 }, { "mb2_ratio", 2 }, { "mb2_up", 0 }, { "mb2_gain", 0 }, { "mb3_thr", -24 }, { "mb3_ratio", 3 }, { "mb3_up", 0.3f }, { "mb3_gain", 0 }, { "im_on", 1 }, { "im_smode", 0 }, { "im_w1", 0.6f }, { "im_s1", 0 }, { "im_w2", 1 }, { "im_s2", 0 }, { "im_w3", 1.1f }, { "im_s3", 0 }, { "im_w4", 1.12f }, { "im_s4", 0 }, { "mx_on", 1 }, { "mx_gain", 7 }, { "mx_style", 1 }, { "mx_clip", 0.3f }, { "mx_char", 0.5f }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 0 } } },
-        { "Master | Lo-fi polveroso", "Taglio alto a 12 kHz, medi caldi, poco volume e tanta morbidezza.",
+        { "Genere | Lo-fi", "Taglio alto a 12 kHz, medi caldi, poco volume e tanta morbidezza.",
           { { "eq_on", 1 }, { "eq1_type", 3 }, { "eq1_f", 30 }, { "eq1_g", 0 }, { "eq1_q", 0.7f }, { "eq3_type", 0 }, { "eq3_f", 400 }, { "eq3_g", 1 }, { "eq3_q", 0.8f }, { "eq6_type", 4 }, { "eq6_f", 12000 }, { "eq6_g", 0 }, { "eq6_q", 0.9f }, { "bus_on", 1 }, { "bus_thr", -14 }, { "bus_ratio", 1 }, { "bus_att", 5 }, { "bus_rel", 3 }, { "bus_hpf", 0 }, { "bus_range", 5 }, { "bus_mix", 0.7f }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "im_on", 1 }, { "im_smode", 0 }, { "im_w1", 0.6f }, { "im_s1", 0 }, { "im_w2", 0.9f }, { "im_s2", 0 }, { "im_w3", 0.9f }, { "im_s3", 0 }, { "im_w4", 0.8f }, { "im_s4", 0 }, { "mx_on", 1 }, { "mx_gain", 4 }, { "mx_style", 3 }, { "mx_clip", 0.4f }, { "mx_char", 0.25f }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 0 } } },
-        { "Master | Afro / Reggaeton", "Kick con punch, medi bassi puliti, alti brillanti, colla veloce sul groove.",
+        { "Genere | Afrobeats", "Kick con punch, medi bassi puliti, alti brillanti, colla veloce sul groove.",
           { { "bc_on", 1 }, { "bc_freq", 110 }, { "bc_mono", 110 }, { "bc_punch", 0.45f }, { "bc_tail", -0.1f }, { "eq_on", 1 }, { "eq2_type", 0 }, { "eq2_f", 200 }, { "eq2_g", -1 }, { "eq2_q", 1 }, { "eq6_type", 2 }, { "eq6_f", 9000 }, { "eq6_g", 1.5f }, { "eq6_q", 0.7f }, { "bus_on", 1 }, { "bus_thr", -15 }, { "bus_ratio", 1 }, { "bus_att", 4 }, { "bus_rel", 1 }, { "bus_hpf", 90 }, { "bus_range", 4 }, { "bus_mix", 1 }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "mx_on", 1 }, { "mx_gain", 9 }, { "mx_style", 1 }, { "mx_clip", 0.45f }, { "mx_char", 0.6f }, { "lm_on", 1 }, { "lm_ceil", -0.3f }, { "lm_tp", 1 }, { "target", 4 } } },
-        { "Master | Rock / band live", "Fango a 250 Hz tenuto sotto controllo solo quando serve, colla in parallelo 4:1, maximizer PUNCH.",
+        { "Genere | Rock", "Fango a 250 Hz tenuto sotto controllo solo quando serve, colla in parallelo 4:1, maximizer PUNCH.",
           { { "eq_on", 1 }, { "eq2_type", 0 }, { "eq2_f", 250 }, { "eq2_g", 0 }, { "eq2_q", 1 }, { "eq2_dyn", 1 }, { "eq2_thr", -26 }, { "eq2_rng", -2 }, { "eq6_type", 2 }, { "eq6_f", 8000 }, { "eq6_g", 1 }, { "eq6_q", 0.7f }, { "bus_on", 1 }, { "bus_thr", -16 }, { "bus_ratio", 2 }, { "bus_att", 5 }, { "bus_rel", 2 }, { "bus_hpf", 60 }, { "bus_range", 6 }, { "bus_mix", 0.6f }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "im_on", 1 }, { "im_smode", 0 }, { "im_w1", 0.7f }, { "im_s1", 0 }, { "im_w2", 1 }, { "im_s2", 0 }, { "im_w3", 1.1f }, { "im_s3", 0 }, { "im_w4", 1.1f }, { "im_s4", 0 }, { "mx_on", 1 }, { "mx_gain", 7 }, { "mx_style", 1 }, { "mx_clip", 0.25f }, { "mx_char", 0.5f }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 2 } } },
-        { "Master | EDM / Club", "Bassi mono fino a 150 Hz, multibanda tipo OTT leggero, alti larghi, volume da club.",
+        { "Genere | EDM", "Bassi mono fino a 150 Hz, multibanda tipo OTT leggero, alti larghi, volume da club.",
           { { "bc_on", 1 }, { "bc_freq", 120 }, { "bc_mono", 150 }, { "bc_punch", 0.4f }, { "bc_thr", -10 }, { "bc_dirty", 0.3f }, { "mb_on", 1 }, { "mb_mix", 0.2f }, { "mb_speed", 0.65f }, { "mb1_thr", -24 }, { "mb1_ratio", 6 }, { "mb1_up", 0.5f }, { "mb1_gain", 0 }, { "mb2_thr", -24 }, { "mb2_ratio", 6 }, { "mb2_up", 0.5f }, { "mb2_gain", 0 }, { "mb3_thr", -26 }, { "mb3_ratio", 6 }, { "mb3_up", 0.5f }, { "mb3_gain", 0 }, { "im_on", 1 }, { "im_smode", 0 }, { "im_w1", 0.2f }, { "im_s1", 0 }, { "im_w2", 1 }, { "im_s2", 0 }, { "im_w3", 1.2f }, { "im_s3", 0.1f }, { "im_w4", 1.4f }, { "im_s4", 0.3f }, { "mx_on", 1 }, { "mx_gain", 11 }, { "mx_style", 2 }, { "mx_clip", 0.6f }, { "mx_char", 0.7f }, { "lm_on", 1 }, { "lm_ceil", -0.3f }, { "lm_tp", 1 }, { "target", 4 } } },
-        { "Master | Acustico / jazz", "Quasi trasparente: colla 1.5:1 lenta e solo il volume necessario per Apple Music.",
+        { "Genere | Jazz / acustico", "Quasi trasparente: colla 1.5:1 lenta e solo il volume necessario per Apple Music.",
           { { "eq_on", 1 }, { "eq6_type", 2 }, { "eq6_f", 12000 }, { "eq6_g", 1 }, { "eq6_q", 0.7f }, { "bus_on", 1 }, { "bus_thr", -20 }, { "bus_ratio", 0 }, { "bus_att", 5 }, { "bus_rel", 4 }, { "bus_hpf", 0 }, { "bus_range", 3 }, { "bus_mix", 1 }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "mx_on", 1 }, { "mx_gain", 3 }, { "mx_style", 0 }, { "mx_clip", 0 }, { "mx_char", 0.25f }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 1 } } },
-        { "Master | Streaming sicuro", "Punto di partenza pulito per Spotify e YouTube a -14: bassi mono, sibilanti domate, colla leggera.",
+        { "Specifico | Streaming sicuro -14", "Punto di partenza pulito per Spotify e YouTube a -14: bassi mono, sibilanti domate, colla leggera.",
           { { "bc_on", 1 }, { "bc_freq", 110 }, { "bc_mono", 100 }, { "ds_on", 1 }, { "ds_lo", 6000 }, { "ds_hi", 20000 }, { "ds_thr", -9 }, { "ds_amt", 0.3f }, { "ds_soft", 0.6f }, { "ds_ch", 0 }, { "bus_on", 1 }, { "bus_thr", -18 }, { "bus_ratio", 1 }, { "bus_att", 4 }, { "bus_rel", 4 }, { "bus_hpf", 80 }, { "bus_range", 3 }, { "bus_mix", 1 }, { "bus_auto", 1 }, { "bus_makeup", 0 }, { "mx_on", 1 }, { "mx_gain", 5 }, { "mx_style", 0 }, { "mx_clip", 0.15f }, { "mx_char", 0.4f }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 0 } } },
+        { "Genere | Reggaeton", "Dembow in faccia: cassa e rullante con punch, sub mono e fermo, alti brillanti, voce chiara. Volume da club (-8).",
+          { { "bc_on", 1 }, { "bc_freq", 110 }, { "bc_mono", 120 }, { "bc_punch", 0.5f }, { "bc_thr", -12 }, { "bc_dirty", 0.25f }, { "eq_on", 1 }, { "eq2_type", 0 }, { "eq2_f", 300 }, { "eq2_g", -1 }, { "eq2_q", 1 }, { "eq5_type", 0 }, { "eq5_f", 3000 }, { "eq5_g", 1 }, { "eq5_q", 1 }, { "eq6_type", 2 }, { "eq6_f", 10000 }, { "eq6_g", 2 }, { "eq6_q", 0.7f },
+            { "ds_on", 1 }, { "ds_lo", 6000 }, { "ds_thr", -8 }, { "ds_amt", 0.35f }, { "bus_on", 1 }, { "bus_thr", -15 }, { "bus_ratio", 1 }, { "bus_att", 4 }, { "bus_rel", 1 }, { "bus_hpf", 90 }, { "bus_range", 4 },
+            { "mx_on", 1 }, { "mx_gain", 10 }, { "mx_style", 1 }, { "mx_clip", 0.5f }, { "mx_char", 0.6f }, { "lm_on", 1 }, { "lm_ceil", -0.3f }, { "lm_tp", 1 }, { "target", 4 } } },
+        { "Genere | Indie", "Dinamico e naturale: nastro leggero per il colore, aria morbida, poca compressione. Meglio un po' piu piano che schiacciato (-14).",
+          { { "pq_on", 1 }, { "pq_lf", 1 }, { "pq_lb", 2 }, { "pq_la", 1 }, { "pq_hf", 5 }, { "pq_hb", 2 }, { "pq_bw", 6 }, { "pq_as", 2 }, { "pq_ha", 0 }, { "pq_tube", 0.3f },
+            { "tp_on", 1 }, { "tp_model", 1 }, { "tp_drive", 0.25f }, { "tp_mix", 0.7f }, { "bus_on", 1 }, { "bus_thr", -18 }, { "bus_ratio", 0 }, { "bus_att", 5 }, { "bus_rel", 4 }, { "bus_range", 3 },
+            { "mx_on", 1 }, { "mx_gain", 5 }, { "mx_style", 0 }, { "mx_clip", 0.15f }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 0 } } },
+        { "Genere | Rap aggressivo", "Voce e batteria che spingono: presenza dinamica 2-4 kHz, compressione 4:1 veloce, clipper deciso. Forte (-7).",
+          { { "bc_on", 1 }, { "bc_freq", 120 }, { "bc_mono", 120 }, { "bc_punch", 0.5f }, { "bc_thr", -12 }, { "bc_dirty", 0.5f }, { "bc_harm", 0.25f }, { "eq_on", 1 }, { "eq2_type", 0 }, { "eq2_f", 250 }, { "eq2_g", -1.5f }, { "eq2_q", 1 },
+            { "eq4_type", 0 }, { "eq4_f", 3000 }, { "eq4_g", 1.5f }, { "eq4_q", 1 }, { "eq4_dyn", 1 }, { "eq4_thr", -24 }, { "eq4_rng", -3 }, { "ds_on", 1 }, { "ds_lo", 5500 }, { "ds_thr", -8 }, { "ds_amt", 0.45f }, { "ds_ch", 1 },
+            { "bus_on", 1 }, { "bus_thr", -16 }, { "bus_ratio", 2 }, { "bus_att", 3 }, { "bus_rel", 0 }, { "bus_hpf", 100 }, { "bus_range", 6 }, { "bus_mix", 0.8f },
+            { "mx_on", 1 }, { "mx_gain", 11 }, { "mx_style", 2 }, { "mx_clip", 0.65f }, { "mx_char", 0.7f }, { "lm_on", 1 }, { "lm_ceil", -0.3f }, { "lm_tp", 1 }, { "target", 5 } } },
+        { "Genere | Soul", "Caldo e vellutato: valvole sui bassi, vari-mu lento che incolla, nastro 15 IPS, maximizer morbido. Dinamico per Apple Music (-16).",
+          { { "pq_on", 1 }, { "pq_lf", 2 }, { "pq_lb", 3 }, { "pq_la", 2 }, { "pq_hf", 4 }, { "pq_hb", 1.5f }, { "pq_bw", 7 }, { "pq_as", 1 }, { "pq_ha", 1 }, { "pq_tube", 0.4f },
+            { "vm_on", 1 }, { "vm_thr", -22 }, { "vm_att", 3 }, { "vm_rel", 6 }, { "vm_mix", 0.8f }, { "vm_tube", 0.4f }, { "tp_on", 1 }, { "tp_model", 1 }, { "tp_drive", 0.3f }, { "tp_mix", 0.8f },
+            { "mx_on", 1 }, { "mx_gain", 4 }, { "mx_style", 3 }, { "mx_clip", 0.1f }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 1 } } },
+        { "Genere | House / Techno", "Cassa dritta e sub mono fino a 150 Hz, multibanda leggero per la densita, alti larghi. Volume da club (-8).",
+          { { "bc_on", 1 }, { "bc_freq", 130 }, { "bc_mono", 150 }, { "bc_punch", 0.35f }, { "bc_thr", -10 }, { "bc_dirty", 0.2f }, { "mb_on", 1 }, { "mb_mix", 0.25f }, { "mb_speed", 0.6f }, { "mb1_thr", -22 }, { "mb1_ratio", 3 }, { "mb2_thr", -24 }, { "mb2_ratio", 3 }, { "mb3_thr", -26 }, { "mb3_ratio", 3 }, { "mb3_up", 0.3f },
+            { "im_on", 1 }, { "im_w1", 0.0f }, { "im_w2", 1 }, { "im_w3", 1.2f }, { "im_w4", 1.3f }, { "bus_on", 1 }, { "bus_thr", -14 }, { "bus_ratio", 1 }, { "bus_att", 4 }, { "bus_rel", 4 }, { "bus_hpf", 120 }, { "bus_range", 4 },
+            { "mx_on", 1 }, { "mx_gain", 9.5f }, { "mx_style", 1 }, { "mx_clip", 0.45f }, { "lm_on", 1 }, { "lm_ceil", -0.3f }, { "lm_tp", 1 }, { "target", 4 } } },
+        { "Specifico | 808 pesante senza distorsione", "Quando l'808 riempie tutto: picchi del sub tenuti fermi, coda stretta, mono sotto 130 Hz e il volume lo fa il maximizer, non il limiter.",
+          { { "bc_on", 1 }, { "bc_freq", 130 }, { "bc_mono", 130 }, { "bc_tail", -0.25f }, { "bc_thr", -14 }, { "bc_dirty", 0.0f }, { "bc_harm", 0.3f }, { "mx_on", 1 }, { "mx_gain", 8 }, { "mx_style", 0 }, { "mx_clip", 0.2f }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 0 } } },
+        { "Specifico | Voce davanti", "La voce si perde nel beat: presenza dinamica solo al centro (MID), sibilanti domate, colla leggera.",
+          { { "eq_on", 1 }, { "eq4_type", 0 }, { "eq4_f", 3000 }, { "eq4_g", 1.5f }, { "eq4_q", 1 }, { "eq4_ch", 1 }, { "eq4_dyn", 1 }, { "eq4_thr", -26 }, { "eq4_rng", -2 }, { "eq2_type", 0 }, { "eq2_f", 300 }, { "eq2_g", -1 }, { "eq2_q", 1 }, { "eq2_ch", 2 },
+            { "ds_on", 1 }, { "ds_lo", 5500 }, { "ds_thr", -9 }, { "ds_amt", 0.4f }, { "ds_ch", 1 }, { "bus_on", 1 }, { "bus_thr", -18 }, { "bus_ratio", 1 }, { "bus_range", 3 }, { "mx_on", 1 }, { "mx_gain", 7 }, { "mx_style", 0 }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 } } },
+        { "Specifico | Forte senza pompare", "Molto volume ma la cassa resta viva: il carico e' diviso tra clip, maximizer PULITO e limiter finale, ognuno lavora poco (-9).",
+          { { "bc_on", 1 }, { "bc_freq", 110 }, { "bc_mono", 110 }, { "bc_thr", -12 }, { "bus_on", 1 }, { "bus_thr", -16 }, { "bus_ratio", 0 }, { "bus_att", 5 }, { "bus_rel", 4 }, { "bus_range", 3 },
+            { "mx_on", 1 }, { "mx_gain", 10 }, { "mx_style", 0 }, { "mx_clip", 0.55f }, { "mx_char", 0.4f }, { "lm_on", 1 }, { "lm_ceil", -0.5f }, { "lm_tp", 1 }, { "target", 4 } } },
+        { "Specifico | Dinamico per Apple Music", "Per chi vuole respiro: -16 LUFS, niente clip, colla 1.5:1 e limiter che tocca appena.",
+          { { "bus_on", 1 }, { "bus_thr", -20 }, { "bus_ratio", 0 }, { "bus_att", 5 }, { "bus_rel", 4 }, { "bus_range", 3 }, { "mx_on", 1 }, { "mx_gain", 3 }, { "mx_style", 0 }, { "mx_clip", 0 }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 }, { "target", 1 } } },
+        { "Specifico | Caldo analogico", "Suono da console e nastro: Pultec sui bassi, vari-mu, nastro 15 IPS ed exciter a valvola sui bassi-medi.",
+          { { "pq_on", 1 }, { "pq_lf", 2 }, { "pq_lb", 3 }, { "pq_la", 2 }, { "pq_tube", 0.5f }, { "vm_on", 1 }, { "vm_thr", -20 }, { "vm_mix", 0.7f }, { "vm_tube", 0.5f }, { "tp_on", 1 }, { "tp_model", 1 }, { "tp_drive", 0.35f },
+            { "ex_on", 1 }, { "ex1_amt", 0.25f }, { "ex1_mode", 0 }, { "ex_mix", 0.6f }, { "mx_on", 1 }, { "mx_gain", 6 }, { "mx_style", 3 }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 } } },
+        { "Specifico | Stereo largo ma sicuro in mono", "Bassi stretti, alti aperti e diffusi; la SICUREZZA MONO controlla che in mono non sparisca niente.",
+          { { "bc_on", 1 }, { "bc_freq", 120 }, { "bc_mono", 120 }, { "im_on", 1 }, { "im_safe", 1 }, { "im_smode", 1 }, { "im_w1", 0.0f }, { "im_w2", 1 }, { "im_w3", 1.25f }, { "im_s3", 0.2f }, { "im_w4", 1.4f }, { "im_s4", 0.25f },
+            { "mx_on", 1 }, { "mx_gain", 7 }, { "mx_style", 0 }, { "lm_on", 1 }, { "lm_ceil", -1 }, { "lm_tp", 1 } } },
         { "Mix Bus | Colla console", "Il classico: 2:1, attacco 10 ms, rilascio AUTO, HPF del sidechain a 80 Hz. 1-3 dB sulla lancetta.",
           { { "bus_on", 1 }, { "bus_thr", -16 }, { "bus_ratio", 1 }, { "bus_att", 4 }, { "bus_rel", 4 }, { "bus_hpf", 80 }, { "bus_range", 4 }, { "bus_mix", 1 }, { "bus_auto", 1 }, { "bus_makeup", 0 } } },
         { "Mix Bus | Glue trap", "4:1 con attacco lento e rilascio veloce: il groove respira con la cassa, HPF a 100 Hz per non pompare sull'808.",
@@ -734,6 +771,88 @@ void Processor::loadPreset (int i)
     if (i > 0) { auto* m = apvts.getParameter ("mode"); m->setValueNotifyingHost (m->convertTo0to1 (juce::String (presets()[(size_t) i].name).startsWith ("Facile") ? 0.0f : 1.0f)); }
     for (auto& [id, v] : presets()[(size_t) i].v) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
     rackFromOn();   // la catena mostra gli effetti che il preset usa
+}
+
+
+// ---------------------------------------------------------------------------------------------------- preset per effetto
+const std::vector<ModPreset>& modPresets()
+{
+    static const std::vector<ModPreset> P = {
+        // BASS CONTROL
+        { BASS, true,  "Sub mono e fermo", "Mono sotto 120 Hz e picchi del sub tenuti fermi: il punto di partenza per quasi tutto.", { { "bc_freq", 120 }, { "bc_mono", 120 }, { "bc_thr", -12 }, { "bc_dirty", 0.2f } } },
+        { BASS, true,  "808 piu presente", "Armoniche sopra l'808: si sente anche su telefono e cuffiette.", { { "bc_freq", 110 }, { "bc_mono", 110 }, { "bc_harm", 0.4f }, { "bc_thr", -14 } } },
+        { BASS, true,  "Cassa che picchia", "PUNCH sui bassi: piu attacco alla cassa, coda un filo piu corta.", { { "bc_freq", 120 }, { "bc_mono", 110 }, { "bc_punch", 0.5f }, { "bc_tail", -0.15f } } },
+        { BASS, false, "Bassi caldi e lunghi", "WARM: attacco morbido e piu sustain, per boom bap e R&B.", { { "bc_freq", 110 }, { "bc_punch", -0.4f }, { "bc_tail", 0.25f } } },
+        { BASS, false, "Solo mono sotto 100", "Tocca solo l'immagine: bassi al centro, il resto uguale.", { { "bc_mono", 100 } } },
+        // EQ DINAMICO
+        { DYNEQ, true,  "Aria e pulizia", "Taglio sotto 25 Hz, fango a 250 dinamico, aria a 12 kHz.", { { "eq1_type", 3 }, { "eq1_f", 25 }, { "eq2_type", 0 }, { "eq2_f", 250 }, { "eq2_dyn", 1 }, { "eq2_thr", -28 }, { "eq2_rng", -2 }, { "eq6_type", 2 }, { "eq6_f", 12000 }, { "eq6_g", 1.5f }, { "eq6_q", 0.7f }, { "eq3_on", 0 }, { "eq4_on", 0 }, { "eq5_on", 0 } } },
+        { DYNEQ, true,  "Durezze sotto controllo", "2.5-4 kHz scendono solo quando pungono (voce urlata, synth, piatti).", { { "eq4_type", 0 }, { "eq4_f", 3200 }, { "eq4_q", 1.4f }, { "eq4_dyn", 1 }, { "eq4_thr", -30 }, { "eq4_rng", -3 }, { "eq1_on", 0 }, { "eq2_on", 0 }, { "eq3_on", 0 }, { "eq5_on", 0 }, { "eq6_on", 0 } } },
+        { DYNEQ, true,  "Smile leggero", "+1 dB di bassi e alti con le shelf: piu pieno senza toccare la dinamica.", { { "eq1_type", 1 }, { "eq1_f", 60 }, { "eq1_g", 1 }, { "eq6_type", 2 }, { "eq6_f", 10000 }, { "eq6_g", 1 }, { "eq2_on", 0 }, { "eq3_on", 0 }, { "eq4_on", 0 }, { "eq5_on", 0 } } },
+        { DYNEQ, false, "Fango e scatole", "250 e 500 Hz che si accumulano: scendono solo quando servono.", { { "eq2_type", 0 }, { "eq2_f", 250 }, { "eq2_dyn", 1 }, { "eq2_thr", -26 }, { "eq2_rng", -3 }, { "eq3_type", 0 }, { "eq3_f", 500 }, { "eq3_dyn", 1 }, { "eq3_thr", -28 }, { "eq3_rng", -2 }, { "eq1_on", 0 }, { "eq4_on", 0 }, { "eq5_on", 0 }, { "eq6_on", 0 } } },
+        { DYNEQ, false, "Voce davanti (MID)", "Presenza solo al centro: la voce esce senza alzare il beat.", { { "eq4_type", 0 }, { "eq4_f", 3000 }, { "eq4_g", 1.5f }, { "eq4_ch", 1 }, { "eq1_on", 0 }, { "eq2_on", 0 }, { "eq3_on", 0 }, { "eq5_on", 0 }, { "eq6_on", 0 } } },
+        // DE-ESSER
+        { DEESS, true,  "Sibilanti leggere", "Tocca solo le S piu dure, non si sente lavorare.", { { "ds_lo", 6000 }, { "ds_thr", -8 }, { "ds_amt", 0.3f }, { "ds_soft", 0.7f } } },
+        { DEESS, true,  "Piatti morbidi", "Hi-hat e piatti che pungono dopo il maximizer: sopra 8 kHz.", { { "ds_lo", 8000 }, { "ds_thr", -10 }, { "ds_amt", 0.4f }, { "ds_ch", 2 } } },
+        { DEESS, false, "Voce rap", "Sulla voce al centro, piu deciso.", { { "ds_lo", 5000 }, { "ds_thr", -10 }, { "ds_amt", 0.5f }, { "ds_ch", 1 } } },
+        // BUS COMP
+        { BUSCOMP, true,  "Colla 2:1", "Il classico da master: 1-2 dB di lancetta, rilascio AUTO.", { { "bus_thr", -16 }, { "bus_ratio", 1 }, { "bus_att", 4 }, { "bus_rel", 4 }, { "bus_hpf", 80 }, { "bus_range", 4 } } },
+        { BUSCOMP, true,  "Groove che respira", "Attacco lento e rilascio veloce: la cassa passa, il resto si muove con lei.", { { "bus_thr", -15 }, { "bus_ratio", 1 }, { "bus_att", 5 }, { "bus_rel", 0 }, { "bus_hpf", 100 }, { "bus_range", 4 } } },
+        { BUSCOMP, false, "Glue trap 4:1", "Piu deciso, per il bus del beat prima della voce.", { { "bus_thr", -14 }, { "bus_ratio", 2 }, { "bus_att", 5 }, { "bus_rel", 0 }, { "bus_hpf", 100 }, { "bus_range", 6 } } },
+        { BUSCOMP, false, "Parallelo New York", "10:1 schiacciato e mescolato al 30%: densita senza perdere i colpi.", { { "bus_thr", -24 }, { "bus_ratio", 3 }, { "bus_att", 2 }, { "bus_rel", 0 }, { "bus_range", 15 }, { "bus_mix", 0.3f }, { "bus_auto", 0 }, { "bus_makeup", 6 } } },
+        // MULTIBANDA
+        { MULTI, true,  "Controllo leggero", "Ognuna delle tre bande tocca 1-2 dB solo sui picchi.", { { "mb_mix", 1 }, { "mb1_thr", -20 }, { "mb1_ratio", 2 }, { "mb2_thr", -22 }, { "mb2_ratio", 2 }, { "mb3_thr", -24 }, { "mb3_ratio", 2 } } },
+        { MULTI, true,  "OTT 20%", "Giu + su in stile OTT, poco: tutto piu denso e dettagliato.", { { "mb_mix", 0.2f }, { "mb_speed", 0.7f }, { "mb1_thr", -22 }, { "mb1_ratio", 12 }, { "mb1_up", 0.85f }, { "mb2_thr", -24 }, { "mb2_ratio", 12 }, { "mb2_up", 0.85f }, { "mb3_thr", -26 }, { "mb3_ratio", 12 }, { "mb3_up", 0.85f } } },
+        { MULTI, false, "Bassi fermi", "Solo la banda bassa lavora: tiene insieme 808 e cassa.", { { "mb1_thr", -20 }, { "mb1_ratio", 4 }, { "mb2_thr", 0 }, { "mb3_thr", 0 } } },
+        // EXCITER
+        { EXCITER, true,  "Aria brillante", "Armoniche solo sugli alti: piu luce senza alzare l'EQ.", { { "ex3_amt", 0.3f }, { "ex3_mode", 2 }, { "ex_mix", 0.6f } } },
+        { EXCITER, true,  "Calore valvolare", "Armoniche a valvola sui bassi-medi.", { { "ex1_amt", 0.3f }, { "ex1_mode", 0 }, { "ex2_amt", 0.15f }, { "ex2_mode", 1 }, { "ex_mix", 0.6f } } },
+        { EXCITER, false, "Voce piu presente", "Medi con armoniche a nastro: la voce viene avanti.", { { "ex2_amt", 0.35f }, { "ex2_mode", 1 }, { "ex_mix", 0.7f } } },
+        // TAPE
+        { TAPE, true,  "15 IPS leggero", "Il colore del nastro senza saturare: bump sui bassi, alti morbidi.", { { "tp_model", 1 }, { "tp_drive", 0.2f }, { "tp_mix", 0.8f } } },
+        { TAPE, true,  "30 IPS trasparente", "Coesione da macchina da master, quasi invisibile.", { { "tp_model", 0 }, { "tp_drive", 0.25f }, { "tp_mix", 1 } } },
+        { TAPE, false, "Cassetta lo-fi", "Alti chiusi, saturazione evidente e un po' di fruscio.", { { "tp_model", 2 }, { "tp_drive", 0.5f }, { "tp_noise", 0.3f }, { "tp_mix", 1 } } },
+        // IMAGER
+        { IMAGER, true,  "Bassi stretti", "Mono sotto 120 Hz, il resto come prima.", { { "im_x1", 120 }, { "im_w1", 0.0f } } },
+        { IMAGER, true,  "Alti aperti", "Medio-alti e alti piu larghi, con la sicurezza mono accesa.", { { "im_w1", 0.3f }, { "im_w3", 1.2f }, { "im_w4", 1.35f }, { "im_s4", 0.15f }, { "im_safe", 1 } } },
+        { IMAGER, false, "Cori e pad larghi", "Diffusione ampia sugli alti (MODO II).", { { "im_smode", 1 }, { "im_w3", 1.3f }, { "im_s3", 0.3f }, { "im_w4", 1.5f }, { "im_s4", 0.3f } } },
+        // MAXIMIZER
+        { MAXIM, true,  "Streaming pulito (-14)", "Volume giusto per Spotify senza schiacciare: stile PULITO.", { { "mx_gain", 6 }, { "mx_style", 0 }, { "mx_clip", 0.15f } } },
+        { MAXIM, true,  "Club (-8)", "Forte con la cassa che picchia: stile PUNCH e un po' di clip.", { { "mx_gain", 9 }, { "mx_style", 1 }, { "mx_clip", 0.45f }, { "mx_char", 0.6f } } },
+        { MAXIM, true,  "Trap forte (-7)", "Il massimo con grinta: AGGRESSIVO, clipper deciso.", { { "mx_gain", 11 }, { "mx_style", 2 }, { "mx_clip", 0.6f }, { "mx_char", 0.7f } } },
+        { MAXIM, true,  "Vintage morbido", "Arrotonda e satura un filo: boom bap, lo-fi, soul.", { { "mx_gain", 6 }, { "mx_style", 3 }, { "mx_clip", 0.1f } } },
+        // LIMITER
+        { LIMIT, true,  "Streaming -1 dBTP", "Ceiling sicuro per MP3/AAC di Spotify e YouTube.", { { "lm_ceil", -1 }, { "lm_tp", 1 }, { "lm_auto", 1 } } },
+        { LIMIT, true,  "Club -0.3 dBTP", "Un filo di volume in piu per club, CD e SoundCloud.", { { "lm_ceil", -0.3f }, { "lm_tp", 1 }, { "lm_auto", 1 } } },
+        { LIMIT, false, "Sicurezza bus", "Solo per non clippare il bus: ceiling -0.5, rilascio veloce.", { { "lm_ceil", -0.5f }, { "lm_tp", 0 }, { "lm_auto", 0 }, { "lm_rel", 40 } } },
+        // EQ 432
+        { EQ432, true,  "Lucido", "Mezzo dB di shelf sugli alti e una carezza ai bassi.", { { "e4_1g", 0.15f }, { "e4_5g", 0.2f } } },
+        { EQ432, true,  "Caldo", "Medi bassi un filo su, alti appena giu.", { { "e4_2g", 0.15f }, { "e4_5g", -0.12f }, { "e4_col", 0.3f } } },
+        { EQ432, false, "Meno scatola", "Medi bassi giu di poco, presenza su.", { { "e4_2g", -0.2f }, { "e4_4g", 0.15f } } },
+        // PULTEC
+        { PULTEC, true,  "Trucco dei bassi", "Boost e atten a 60 Hz insieme: pieni e puliti.", { { "pq_lf", 2 }, { "pq_lb", 4 }, { "pq_la", 3 } } },
+        { PULTEC, true,  "Aria a 12 kHz", "Alti morbidi e larghi, senza durezza.", { { "pq_hf", 5 }, { "pq_hb", 3 }, { "pq_bw", 7 } } },
+        { PULTEC, false, "Valvola calda", "Bassi pieni, alti appena giu e piu valvola.", { { "pq_lf", 1 }, { "pq_lb", 3 }, { "pq_la", 2 }, { "pq_as", 1 }, { "pq_ha", 1.5f }, { "pq_tube", 0.6f } } },
+        // VARI-MU
+        { VARIMU, true,  "Colla valvolare", "1-2 dB lenti e morbidi: incolla e scurisce appena.", { { "vm_thr", -20 }, { "vm_att", 3 }, { "vm_rel", 6 }, { "vm_mix", 1 } } },
+        { VARIMU, true,  "Parallelo caldo", "Piu compressione mescolata al 50%: corpo senza perdere dinamica.", { { "vm_thr", -28 }, { "vm_att", 2 }, { "vm_rel", 6 }, { "vm_mix", 0.5f }, { "vm_tube", 0.5f } } },
+        { VARIMU, false, "Bus pieno", "Per il bus di batteria o strumenti: piu decisa.", { { "vm_thr", -26 }, { "vm_att", 1 }, { "vm_rel", 2 }, { "vm_mix", 0.8f } } } };
+    return P;
+}
+static bool ownsParam (int m, const juce::String& id)
+{
+    static const char* pre[kNumMods] = { "bc_", "eq", "ds_", "bus_", "mb", "ex", "tp_", "im_", "mx_", "lm_", "e4_", "pq_", "vm_" };
+    return id.startsWith (pre[juce::jlimit (0, kNumMods - 1, m)]);
+}
+void Processor::loadModPreset (int i)
+{
+    if (! juce::isPositiveAndBelow (i, (int) modPresets().size())) return;
+    const auto& mp = modPresets()[(size_t) i];
+    // l'effetto riparte neutro, poi i valori del preset: il resto della catena non si tocca
+    for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+        if (ownsParam (mp.mod, rp->paramID) && rp->paramID != onParam (mp.mod) && rp->paramID != deltaParam (mp.mod)) rp->setValueNotifyingHost (rp->getDefaultValue());
+    for (auto& [id, v] : mp.v) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+    if (auto* on = apvts.getParameter (onParam (mp.mod))) on->setValueNotifyingHost (1.0f);
+    inRack[mp.mod] = true;
 }
 
 void Processor::getStateInformation (juce::MemoryBlock& d)

@@ -49,6 +49,9 @@ struct VarDelay { std::vector<float> b { 0.0f }; int w = 0; };
 
 struct Preset { const char* name; const char* note; std::vector<std::pair<const char*, float>> v; };
 const std::vector<Preset>& presets();
+// preset del singolo effetto: per il master o per il mix bus. Caricano solo quell'effetto
+struct ModPreset { int mod; bool master; const char* name; const char* note; std::vector<std::pair<const char*, float>> v; };
+const std::vector<ModPreset>& modPresets();
 
 class Processor : public juce::AudioProcessor, private juce::Timer
 {
@@ -74,6 +77,7 @@ public:
     void setStateInformation (const void*, int) override;
 
     void loadPreset (int i);
+    void loadModPreset (int i);
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     double sampleRate() const { return sr; }
 
