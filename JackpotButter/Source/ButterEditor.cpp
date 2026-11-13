@@ -382,7 +382,7 @@ void Module::paint (juce::Graphics& g)
     const auto c = BC::mod[mod]; const bool on = power->param->getValue() > 0.5f;
     if (mod == 6)
     {
-        const int t = (int) ed.proc.apvts.getRawParameterValue ("u_xType")->load();
+        const int t = juce::roundToInt (ed.proc.apvts.getRawParameterValue ("u_xType")->load());
         smalls[0]->label = t == 0 ? "TIME" : t == 1 ? "BITS" : "RATE";
         smalls[1]->label = t == 0 ? "FEEDBACK" : t == 1 ? "RATE" : "DEPTH";
     }
@@ -440,18 +440,18 @@ EqPanel::EqPanel (Editor& e) : ed (e)
     {
         const juce::String id = "u_ae" + juce::String (k + 1);
         auto* g = knobs.add (new PKnob (A.getParameter (id + "g"), "", kEqC[k], false, {})); g->bipolar = true;
-        g->dynLabel = [this, k] { return juce::String (aeInfo ((int) ed.proc.apvts.getRawParameterValue ("u_aeModel")->load()).b[k].name); };
-        g->fmt = [this, k] (float v) { const auto& B = aeInfo ((int) ed.proc.apvts.getRawParameterValue ("u_aeModel")->load()).b[k];
+        g->dynLabel = [this, k] { return juce::String (aeInfo (juce::roundToInt (ed.proc.apvts.getRawParameterValue ("u_aeModel")->load())).b[k].name); };
+        g->fmt = [this, k] (float v) { const auto& B = aeInfo (juce::roundToInt (ed.proc.apvts.getRawParameterValue ("u_aeModel")->load())).b[k];
             if (B.type == Bq::HP) return juce::String ("-"); const float gg = B.boostOnly ? juce::jmax (0.0f, v) : B.cutOnly ? juce::jmin (0.0f, v) : v; return (gg > 0 ? "+" : "") + juce::String (gg, 1); };
         auto* f = knobs.add (new PKnob (A.getParameter (id + "f"), "FREQ", kEqC[k], false, {}));
-        f->fmt = [this, k] (float v) { const int m = (int) ed.proc.apvts.getRawParameterValue ("u_aeModel")->load(); const auto& I = aeInfo (m);
+        f->fmt = [this, k] (float v) { const int m = juce::roundToInt (ed.proc.apvts.getRawParameterValue ("u_aeModel")->load()); const auto& I = aeInfo (m);
             if (m == AE_PE1C && k == 1) return juce::String ("= LF"); const auto& B = I.b[k]; return hzTxt (B.freqs[(size_t) aeIndex (B, v)]); };
     }
     auto* dr = knobs.add (new PKnob (A.getParameter ("u_aeDrive"), "DRIVE", BC::amber, false, pct));
     juce::ignoreUnused (dr);
     auto* q = knobs.add (new PKnob (A.getParameter ("u_aeQ"), "Q", BC::amber, false, {}));
-    q->dynLabel = [this] { const int m = (int) ed.proc.apvts.getRawParameterValue ("u_aeModel")->load(); return juce::String (m == AE_SSL || m == AE_LIND81 ? "Q MEDI" : m == AE_NEVE84 ? "HI-Q" : m == AE_PE1C ? "BANDA" : "-"); };
-    q->fmt = [this] (float v) { const int m = (int) ed.proc.apvts.getRawParameterValue ("u_aeModel")->load();
+    q->dynLabel = [this] { const int m = juce::roundToInt (ed.proc.apvts.getRawParameterValue ("u_aeModel")->load()); return juce::String (m == AE_SSL || m == AE_LIND81 ? "Q MEDI" : m == AE_NEVE84 ? "HI-Q" : m == AE_PE1C ? "BANDA" : "-"); };
+    q->fmt = [this] (float v) { const int m = juce::roundToInt (ed.proc.apvts.getRawParameterValue ("u_aeModel")->load());
         if (m == AE_NEVE84) return juce::String (v > 0.5f ? "ON" : "OFF"); if (m == AE_PE1C) return juce::String (v < 0.33f ? "LARGA" : v < 0.66f ? "MEDIA" : "STRETTA");
         if (m == AE_SSL) return juce::String (0.5f + v * 2.5f, 1); if (m == AE_LIND81) return juce::String (0.6f + v * 1.6f, 1); return juce::String ("-"); };
     for (auto* k : knobs) addAndMakeVisible (k);

@@ -33,7 +33,8 @@ const PInfo kPInfo[kNumPadParams] = {
     { "skey",   "TONALITA",  -2, 35, -1, 7 },
     { "dtype",  "SATURAZIONE", 0, kDriveTypes - 1, 0, 6 },
     { "lgain",  "LAYER GAIN", -24, 24, 0, 11 },  { "ltune", "LAYER TUNE", -24, 24, 0, 2 },  { "lpan", "LAYER PAN", -1, 1, 0, 9 },
-    { "lvel",   "LAYER VEL", 0, 127, 0, 7 },      { "lmode", "LAYER MODO", 0, 1, 0, 6 } };
+    { "lvel",   "LAYER VEL", 0, 127, 0, 7 },      { "lmode", "LAYER MODO", 0, 1, 0, 6 },
+    { "fadein", "FADE IN",   0, 2000, 0, 4 },      { "fadeout", "FADE OUT", 0, 2000, 0, 4 } };
 
 const char* eqTypeName (int t) { static const char* n[] = { "TAGLIO BASSI 12", "TAGLIO BASSI 24", "SHELF BASSI", "CAMPANA", "NOTCH", "SHELF ALTI", "TAGLIO ALTI 12", "TAGLIO ALTI 24" }; return n[juce::jlimit (0, kEqTypes - 1, t)]; }
 const char* driveTypeName (int t) { static const char* n[] = { "MORBIDA", "NASTRO", "VALVOLA", "CONSOLE", "OVERDRIVE", "DISTORSIONE", "FUZZ" }; return n[juce::jlimit (0, kDriveTypes - 1, t)]; }
@@ -297,7 +298,7 @@ void Processor::prepareToPlay (double s, int block)
 float Processor::velCurve (int vel) const
 {
     const float x = juce::jlimit (0.0f, 1.0f, vel / 127.0f);
-    switch ((int) apvts.getRawParameterValue ("curve")->load())
+    switch (juce::roundToInt (apvts.getRawParameterValue ("curve")->load()))
     {
         case 1: return std::pow (x, 0.55f);
         case 2: return std::pow (x, 1.9f);
@@ -374,6 +375,7 @@ void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, 
     v->sbpm = sb; v->pitch = pitch;
     v->velSemis = (float) ((vv - 0.75) * P.get (VPITCH) * 4.0); v->velDb = -(1.0f - vv) * 18.0f * P.get (VLEVEL); v->velCut = std::pow (2.0f, (vv - 1.0f) * P.get (VFILTER) * 5.0f);
     v->pos = v->dir > 0 ? a0 : a1 - 2;
+    v->fin = layer ? 0.0 : P.get (FADEIN) * 0.001 * s->sr; v->fout = layer ? 0.0 : P.get (FADEOUT) * 0.001 * s->sr;
     if (v->warp == 2)
     {
         v->tRate = tempo * s->sr / sr; v->pRate = pitch; v->inc = v->tRate;
@@ -436,7 +438,14 @@ void Processor::render (Voice& v, float* L, float* R, int i)
     else if (! v.atkDone) { v.env += v.atkInc; if (v.env >= 1) { v.env = 1; v.atkDone = true; } }
     else if (! v.hold) { v.env *= v.decCoef; if (v.env < 0.0002f) { v.active = false; v.s.reset(); return; } }
     const double dist = v.loop ? 1e9 : (v.dir > 0 ? v.a1 - v.pos : v.pos - v.a0);
-    const float edge = dist < 64 ? (float) (dist / 64) : 1.0f;
+    float fade = 1.0f;   // FADE IN / FADE OUT del pad, misurati sul campione (seguono START / END)
+    if (! v.loop)
+    {
+        const double fromStart = v.dir > 0 ? v.pos - v.a0 : v.a1 - v.pos;
+        if (v.fin > 1 && fromStart < v.fin) fade *= (float) juce::jmax (0.0, fromStart / v.fin);
+        if (v.fout > 1 && dist < v.fout) fade *= (float) juce::jmax (0.0, dist / v.fout);
+    }
+    const float edge = (dist < 64 ? (float) (dist / 64) : 1.0f) * fade;
     if (v.filt)
     {
         if (std::abs (v.fenvAmt) > 0.005f && (v.fCount++ & 15) == 0)
@@ -559,7 +568,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             if (hv != lastHost[p][k].load()) { lastHost[p][k] = hv; pad[p].v[kAutoParams[k]] = hv; }
         }
     const int req = transportReq.exchange (0);
-    if (req == 1) { intPlay = true; intTick = 0; }
+    if (req == 1) { intPlay = true; intTick = startFrom.load(); }
+    { const double sk = seekReq.exchange (-1.0); if (sk >= 0 && intPlay.load()) intTick = sk; }
     if (req == 2) intPlay = false;
     const bool running = hostPlay || intPlay.load();
     const double tps = bpm / 60.0 * PPQ / sr;
@@ -600,7 +610,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             if (k >= 0 && k < kFx)
             {
                 float v = msg.getControllerValue() / 127.0f;
-                { const int ty = (int) apvts.getRawParameterValue ("fx" + juce::String (k + 1) + "type")->load(); if (pfx::info (ty).bipolar && ty != pfx::SCRATCHHAND && std::abs (msg.getControllerValue() - 64) <= 8) v = 0.5f; }   // centro largo, facile da ritrovare   // filtro: zona morta al centro
+                { const int ty = juce::roundToInt (apvts.getRawParameterValue ("fx" + juce::String (k + 1) + "type")->load()); if (pfx::info (ty).bipolar && ty != pfx::SCRATCHHAND && std::abs (msg.getControllerValue() - 64) <= 8) v = 0.5f; }   // centro largo, facile da ritrovare   // filtro: zona morta al centro
                 ccPend[k] = v;
             }
             continue;
@@ -631,7 +641,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     if (par ("nrOn") > 0.5f)
     {
         static const double rates[] = { 96, 48, 32, 24, 16, 12, 8 };
-        const int ri = juce::jlimit (0, 6, (int) par ("nrRate")); const double rt = rates[ri];
+        const int ri = juce::jlimit (0, 6, juce::roundToInt (par ("nrRate"))); const double rt = rates[ri];
         const bool straight = ri == 1 || ri == 3;
         for (int p = 0; p < kPads; ++p)
         {
@@ -846,7 +856,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 for (int i = 0; i < N; ++i) { revL[(size_t) i] += cl[i] * rk; revR[(size_t) i] += cr[i] * rk; dlyInL[(size_t) i] += cl[i] * dk; dlyInR[(size_t) i] += cr[i] * dk; }
         }
         const int len = dlyBuf.getNumSamples();
-        const int dv = juce::jlimit (0, kDly.size() - 1, (int) par ("dlyDiv"));
+        const int dv = juce::jlimit (0, kDly.size() - 1, juce::roundToInt (par ("dlyDiv")));
         const double dT = juce::jlimit (16.0, (double) len - 4, dv == kDly.size() - 1 ? par ("dlyMs") * 0.001 * sr : kDlyBeats[dv] * 60.0 / bpm * sr);
         const float dHpA = (float) std::exp (-juce::MathConstants<double>::twoPi * par ("dlyLo") / sr), dLpA = (float) std::exp (-juce::MathConstants<double>::twoPi * par ("dlyHi") / sr);
         const float fb = par ("dlyFb"), ret = par ("dlyRet");
@@ -889,7 +899,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         reverb.setParameters (rp); reverb.processStereo (revL.data(), revR.data(), N);
         const float rr = par ("revRet") * 0.6f;
         for (int i = 0; i < N; ++i) { cl[i] += revL[(size_t) i] * rr; cr[i] += revR[(size_t) i] * rr; }
-        const int bm = (int) par ("busMode");
+        const int bm = juce::roundToInt (par ("busMode"));
         float maxGr = 0;
         if (bm > 0)
         {
@@ -922,7 +932,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             int ty[8]; float am[8];
             for (int k = 0; k < 8; ++k)
             {
-                ty[k] = (int) fxTypeRaw[k]->load();
+                ty[k] = juce::roundToInt (fxTypeRaw[k]->load());
                 const float pnd = ccPend[k].load(); am[k] = pnd >= 0 ? pnd : fxAmtRaw[k]->load();
             }
             perf.process (cl, cr, N, ty, am, bpm, hostPlay ? ppq : t0 / PPQ, running);

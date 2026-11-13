@@ -232,7 +232,7 @@ void FxView::paint (juce::Graphics& g)
     else if (fx == OMNIVOX)
     {
         // tastiera di due ottave intorno alla nota che entra: scala, nota riconosciuta, voci
-        const int key = (int) P.value ("omni_key"), scale = (int) P.value ("omni_scale");
+        const int key = juce::roundToInt (P.value ("omni_key")), scale = juce::roundToInt (P.value ("omni_scale"));
         const float nn = U.noteNow.load(); const int base = nn > 0 ? ((int) std::floor (nn) / 12) * 12 - 12 : 48;
         auto kb = plot.withTrimmedTop (22).withTrimmedBottom (8); const int nW = 3 * 7; const float kw = kb.getWidth() / nW;
         const auto& st = scaleSteps (scale);
@@ -371,7 +371,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     knob (kDry, P ("omni_dry"), C::text, "VOCE PRINCIPALE", false, [this] { if (! isVoiceFx (sel)) return juce::String(); const float v = fv ("dry"); return v <= -29.9f ? juce::String ("MUTA") : (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; }, true);
     for (int v = 0; v < 4; ++v)
     {
-        knob (kVoice[v], P ("omni_v" + juce::String (v + 1)), C::magenta, "", false, [this, v] { return intervalName ((int) proc.value (("omni_v" + juce::String (v + 1)).toRawUTF8()), (int) proc.value ("omni_scale")); }, true);
+        knob (kVoice[v], P ("omni_v" + juce::String (v + 1)), C::magenta, "", false, [this, v] { return intervalName ((int) proc.value (("omni_v" + juce::String (v + 1)).toRawUTF8()), juce::roundToInt (proc.value ("omni_scale"))); }, true);
         kVoice[v]->label = "VOCE " + juce::String (v + 1); kVoice[v]->steps = 14;
         knob (kLevel[v], P ("omni_l" + juce::String (v + 1)), C::magenta, "VOLUME", false, [this, v] { return juce::String (proc.value (("omni_l" + juce::String (v + 1)).toRawUTF8()), 1) + " dB"; });
     }
@@ -383,7 +383,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     knob (kBass, P ("bassmono"), C::magenta, "BASSI MONO", false, [this] { return proc.value ("bassmono") <= 21 ? juce::String ("OFF") : juce::String::fromUTF8 ("< ") + hzT (proc.value ("bassmono")); });
     knob (kOut, P ("out"), C::text, "OUTPUT", true, [this] { return juce::String (proc.value ("out"), 1) + " dB"; }, true);
     knob (kPanRate, P ("panrate"), C::magenta, "RATE", false, [this] { return juce::String (proc.value ("panrate"), 2) + " Hz"; });
-    knob (kPanDiv, P ("pandiv"), C::magenta, "RATE A TEMPO", false, [this] { return divNames()[(int) proc.value ("pandiv")]; }); kPanDiv->steps = divNames().size() - 1;
+    knob (kPanDiv, P ("pandiv"), C::magenta, "RATE A TEMPO", false, [this] { return divNames()[juce::roundToInt (proc.value ("pandiv"))]; }); kPanDiv->steps = divNames().size() - 1;
     knob (kPanDepth, P ("pandepth"), C::magenta, "AMPIEZZA", false, pct ("pandepth"));
     sShape = std::make_unique<Segs> (FP ("shape"), C::phos, juce::StringArray { "SINE", "TRI", "QUADRA", "CASUALE", "S&H" }); sShape->font = 10.0f; addAndMakeVisible (*sShape);
     sPanShape = std::make_unique<Segs> (P ("panshape"), C::magenta, juce::StringArray { "SINE", "TRI", "QUADRA", "CAS.", "S&H" }); sPanShape->font = 9.5f; addAndMakeVisible (*sPanShape);

@@ -116,7 +116,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         for (int b = 0; b < kBands; ++b)
         {
             auto** q = bpp[b];   // puntatori presi una volta: niente stringhe nel thread audio
-            bp[b] = { q[0]->load() > 0.5f, (int) q[1]->load(), q[2]->load(), q[3]->load(), q[4]->load(), q[5]->load(), q[6]->load() };
+            bp[b] = { q[0]->load() > 0.5f, juce::roundToInt (q[1]->load()), q[2]->load(), q[3]->load(), q[4]->load(), q[5]->load(), q[6]->load() };
             any |= bp[b].on;
             if (! bp[b].on) dynGain[b] = 0;
         }
@@ -150,7 +150,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         const int sb = soloBand.load();
         if (sb >= 0 && sb < kBands)
         {
-            const float f = bpp[sb][2]->load(), q = bpp[sb][4]->load(); const int t = (int) bpp[sb][1]->load();
+            const float f = bpp[sb][2]->load(), q = bpp[sb][4]->load(); const int t = juce::roundToInt (bpp[sb][1]->load());
             const float qq = t == BELL ? juce::jmax (0.5f, q) : 0.8f;
             if (f != soloLast[0] || qq != soloLast[1]) { soloF.set (9, f, 0, qq, sr); soloLast[0] = f; soloLast[1] = qq; }
             for (int i = 0; i < N; ++i) { L[i] = soloF.tick (L[i], 0) * 1.4f; R[i] = soloF.tick (R[i], 1) * 1.4f; }

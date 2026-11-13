@@ -23,7 +23,7 @@ Processor::Processor()
 void Processor::prepareToPlay (double s, int) { eng.prepare (s); setLatencySamples (eng.latency()); }
 Settings Processor::settings() const
 {
-    Settings S; S.mode = (int) value ("mode"); S.freq = value ("freq"); S.angle = value ("angle"); S.speedMs = value ("speed"); S.amount = value ("amount");
+    Settings S; S.mode = juce::roundToInt (value ("mode")); S.freq = value ("freq"); S.angle = value ("angle"); S.speedMs = value ("speed"); S.amount = value ("amount");
     S.outDb = value ("out"); S.listen = value ("listen") > 0.5f; return S;
 }
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)

@@ -309,7 +309,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         {
             // LOUD: limiter "adattivo" in 5 caratteri. PRESENZA = quanto lavora il clipper sui transienti (adattivo: piu limiti, piu clippa),
             // VELOCITA = rilascio (il motore ha gia due tempi e sceglie da solo in base al materiale)
-            const int st = (int) value ("e_style");
+            const int st = juce::roundToInt (value ("e_style"));
             MaxSettings ms; ms.gainDb = value ("e_loud"); ms.ceilDb = value ("lm_ceil"); ms.link = 1;
             const float adapt = juce::jlimit (0.3f, 1.0f, 0.3f + grSm / 5.0f);
             switch (st)
@@ -382,11 +382,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             case DEESS:
                 if (! on) break;
                 { DeEssSettings e; e.lo = value ("ds_lo"); e.hi = juce::jmax (value ("ds_hi"), e.lo * 1.3f); e.thr = value ("ds_thr"); e.amount = value ("ds_amt");
-                  e.soft = value ("ds_soft"); e.ch = (int) value ("ds_ch"); e.delta = d; dess.process (L, R, n, e); }
+                  e.soft = value ("ds_soft"); e.ch = juce::roundToInt (value ("ds_ch")); e.delta = d; dess.process (L, R, n, e); }
                 break;
             case BUSCOMP:
                 if (! on) break;
-                { BusSettings b; b.thr = value ("bus_thr"); b.ratio = (int) value ("bus_ratio"); b.att = (int) value ("bus_att"); b.rel = (int) value ("bus_rel");
+                { BusSettings b; b.thr = value ("bus_thr"); b.ratio = juce::roundToInt (value ("bus_ratio")); b.att = juce::roundToInt (value ("bus_att")); b.rel = juce::roundToInt (value ("bus_rel"));
                   b.makeup = value ("bus_makeup"); b.autoMakeup = value ("bus_auto") > 0.5f; b.mix = value ("bus_mix"); b.scHpf = value ("bus_hpf"); b.range = value ("bus_range");
                   if (d) copyIn(); bus.process (L, R, n, b); if (d) subIn(); }
                 break;
@@ -405,13 +405,13 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 break;
             case TAPE:
                 if (! on) break;
-                { TapeSettings t; t.model = (int) value ("tp_model"); t.drive = value ("tp_drive"); t.bias = value ("tp_bias"); t.noise = value ("tp_noise"); t.mix = value ("tp_mix"); t.delta = d;
+                { TapeSettings t; t.model = juce::roundToInt (value ("tp_model")); t.drive = value ("tp_drive"); t.bias = value ("tp_bias"); t.noise = value ("tp_noise"); t.mix = value ("tp_mix"); t.delta = d;
                   tape.process (L, R, n, t); }
                 break;
             case PULTEC:
                 if (! on) break;
                 {
-                    PultecSettings q; q.lf = (int) value ("pq_lf"); q.hf = (int) value ("pq_hf"); q.as = (int) value ("pq_as");
+                    PultecSettings q; q.lf = juce::roundToInt (value ("pq_lf")); q.hf = juce::roundToInt (value ("pq_hf")); q.as = juce::roundToInt (value ("pq_as"));
                     q.lb = value ("pq_lb"); q.la = value ("pq_la"); q.hb = value ("pq_hb"); q.bw = value ("pq_bw"); q.ha = value ("pq_ha"); q.tube = value ("pq_tube");
                     if (d) copyIn();
                     pult.process (L, R, n, q);
@@ -422,7 +422,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 if (! on) break;
                 {
                     VariMuSettings v; v.thr = value ("vm_thr"); v.makeup = value ("vm_makeup"); v.mix = value ("vm_mix"); v.tube = value ("vm_tube");
-                    v.mode = (int) value ("vm_mode"); v.att = (int) value ("vm_att"); v.rel = (int) value ("vm_rel"); v.hpf = (int) value ("vm_hpf");
+                    v.mode = juce::roundToInt (value ("vm_mode")); v.att = juce::roundToInt (value ("vm_att")); v.rel = juce::roundToInt (value ("vm_rel")); v.hpf = juce::roundToInt (value ("vm_hpf"));
                     v.autoMakeup = value ("vm_auto") > 0.5f; v.ms = value ("vm_ms") > 0.5f; v.delta = d;
                     vmu.process (L, R, n, v); vmGr = vmu.gr;
                 }
@@ -430,7 +430,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             case EQ432:
                 if (! on) break;
                 {
-                    Eq432Settings e; e.range = (int) value ("e4_range"); e.colour = value ("e4_col"); e.shelf[0] = value ("e4_sh1") > 0.5f; e.shelf[1] = value ("e4_sh5") > 0.5f;
+                    Eq432Settings e; e.range = juce::roundToInt (value ("e4_range")); e.colour = value ("e4_col"); e.shelf[0] = value ("e4_sh1") > 0.5f; e.shelf[1] = value ("e4_sh5") > 0.5f;
                     for (int b = 0; b < k432Bands; ++b)
                     {
                         const juce::String id = "e4_" + juce::String (b + 1);
@@ -462,13 +462,13 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                         S.w[b] = value (("im_w" + juce::String (b + 1)).toRawUTF8()); S.stz[b] = value (("im_s" + juce::String (b + 1)).toRawUTF8());
                         S.solo[b] = value (("im_solo" + juce::String (b + 1)).toRawUTF8()) > 0.5f;
                     }
-                    S.mode = (int) value ("im_smode"); S.delta = d; S.safe = value ("im_safe") > 0.5f;
+                    S.mode = juce::roundToInt (value ("im_smode")); S.delta = d; S.safe = value ("im_safe") > 0.5f;
                     img.process (L, R, n, S);
                 }
                 break;
             case MAXIM:
             {
-                MaxSettings ms; ms.gainDb = value ("mx_gain"); ms.style = (int) value ("mx_style"); ms.clip = value ("mx_clip"); ms.character = value ("mx_char");
+                MaxSettings ms; ms.gainDb = value ("mx_gain"); ms.style = juce::roundToInt (value ("mx_style")); ms.clip = value ("mx_clip"); ms.character = value ("mx_char");
                 ms.link = value ("mx_link"); ms.ceilDb = value ("lm_ceil");
                 copyIn();
                 if (on) mx.process (L, R, n, ms);
@@ -538,7 +538,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         for (int i = 0; i < n; ++i) { L[i] -= kL[i] * matchSm; R[i] -= kR[i] * matchSm; }
 
     // ---- ascolto normalizzato (come lo abbassera la piattaforma). Solo per ascoltare!
-    const auto& tg = target ((int) value ("target"));
+    const auto& tg = target (juce::roundToInt (value ("target")));
     const float lufsRef = loudOut.I > -60 ? loudOut.I : loudOut.S;
     const float ndb = (lufsRef > -60 && lufsRef > tg.lufs) ? tg.lufs - lufsRef : 0.0f;
     normDb = ndb;
@@ -566,7 +566,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     // ---- ascolto in mono (controllo)
     if (value ("im_mono") > 0.5f) for (int i = 0; i < n; ++i) { const float m = 0.5f * (L[i] + R[i]); L[i] = R[i] = m; }
     // ---- dither (sempre l'ultimo)
-    dith.process (L, R, n, (int) value ("dither"));
+    dith.process (L, R, n, juce::roundToInt (value ("dither")));
 
     // ---- misure
     lufsM = loudOut.M; lufsS = loudOut.S; lufsI = loudOut.I; lra = loudOut.lra; tpMax = tpHold; inS = loudIn.S;
@@ -575,7 +575,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         if (loudIn.S > -45) { inAcc += loudIn.S * n; inAccN += n; if (inAccN > (int) (sr * 0.5)) { const float a = (float) (inAcc / inAccN); inAvg = inAvg.load() < -90 ? a : inAvg.load() * 0.85f + a * 0.15f; inAcc = 0; inAccN = 0; } }
         const float k = (float) std::exp (-(double) n / (2.5 * sr)); grSm = k * grSm + (1 - k) * (mx.gr + lim.gr);
         grAvg = grSm;
-        const auto& T = target ((int) value ("target"));
+        const auto& T = target (juce::roundToInt (value ("target")));
         const float ideal = juce::jlimit (1.5f, 5.0f, 2.0f + (-14.0f - T.lufs) * 0.5f);   // riduzione "giusta" per quel target
         const float plr = (tpHold > -60 && loudOut.S > -60) ? tpHold - loudOut.S : 14.0f;
         // tre cose insieme: quanto sei sopra il target, quanto lavora il limiter, quanta dinamica resta (PLR)
@@ -653,7 +653,7 @@ void Processor::easyToAdv()
     auto set = [&] (const juce::String& id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
     const float lo = value ("e_low"), mi = value ("e_mid"), hi = value ("e_high"), calm = value ("e_calm"), thick = value ("e_thick"), warm = value ("e_warm"),
                 silk = value ("e_silk"), glue = value ("e_glue"), wide = value ("e_wide"), loud = value ("e_loud"), pres = value ("e_pres"), spd = value ("e_speed");
-    const bool mb = value ("e_monob") > 0.5f; const int st = (int) value ("e_style");
+    const bool mb = value ("e_monob") > 0.5f; const int st = juce::roundToInt (value ("e_style"));
     for (int m = 0; m < kNumMods; ++m) set (onParam (m), 0);
     // bassi mono
     set ("bc_on", mb ? 1.0f : 0.0f); set ("bc_mono", mb ? 120.0f : 0.0f); set ("bc_freq", 120); set ("bc_thr", 0);
@@ -718,7 +718,7 @@ void Processor::advToEasy()
     set ("e_wide", juce::jlimit (-1.0f, 1.0f, wd));
     set ("e_monob", on ("bc_on") && value ("bc_mono") > 20 ? 1.0f : 0.0f);
     set ("e_loud", juce::jlimit (0.0f, 14.0f, (on ("mx_on") ? value ("mx_gain") : 0.0f) + (on ("lm_on") ? value ("lm_gain") : 0.0f)));
-    const int ms = (int) value ("mx_style");
+    const int ms = juce::roundToInt (value ("mx_style"));
     set ("e_style", (float) (ms == PUNCH ? 0 : ms == AGGRESSIVO ? 1 : ms == MORBIDO ? 2 : 3));
     set ("e_speed", juce::jlimit (0.0f, 1.0f, value ("mx_char")));
     set ("e_pres", juce::jlimit (0.0f, 1.0f, value ("mx_clip") / 0.6f));
@@ -739,7 +739,7 @@ void Processor::timerCallback()
     }
     if (value ("mx_learn") < 0.5f || value ("mx_on") < 0.5f) return;
     const float s = lufsS.load(); if (s < -40) return;
-    const float diff = target ((int) value ("target")).lufs - s;
+    const float diff = target (juce::roundToInt (value ("target"))).lufs - s;
     auto* p = apvts.getParameter ("mx_gain");
     const float cur = value ("mx_gain"), step = juce::jlimit (-0.4f, 0.4f, diff * 0.2f);
     if (std::abs (diff) > 0.15f) p->setValueNotifyingHost (p->convertTo0to1 (juce::jlimit (0.0f, 20.0f, cur + step)));

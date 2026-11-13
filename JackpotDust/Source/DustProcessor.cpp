@@ -46,9 +46,9 @@ Settings Processor::settings() const
 {
     Settings S; auto b = [this] (const char* id) { return value (id) > 0.5f; };
     S.inDb = value ("in");
-    S.sOn = b ("s_on"); S.sModel = (int) value ("s_model"); S.sBits = value ("s_bits"); S.sRate = value ("s_rate"); S.sMix = value ("s_mix");
-    S.dOn = b ("d_on"); S.dModel = (int) value ("d_model"); S.dDrive = value ("d_drive"); S.dTone = value ("d_tone"); S.dMix = value ("d_mix");
-    S.cOn = b ("c_on"); S.cStyle = (int) value ("c_style"); S.cAmt = value ("c_amt"); S.cAtt = value ("c_att"); S.cRel = value ("c_rel"); S.cPunch = value ("c_punch"); S.cMix = value ("c_mix");
+    S.sOn = b ("s_on"); S.sModel = juce::roundToInt (value ("s_model")); S.sBits = value ("s_bits"); S.sRate = value ("s_rate"); S.sMix = value ("s_mix");
+    S.dOn = b ("d_on"); S.dModel = juce::roundToInt (value ("d_model")); S.dDrive = value ("d_drive"); S.dTone = value ("d_tone"); S.dMix = value ("d_mix");
+    S.cOn = b ("c_on"); S.cStyle = juce::roundToInt (value ("c_style")); S.cAmt = value ("c_amt"); S.cAtt = value ("c_att"); S.cRel = value ("c_rel"); S.cPunch = value ("c_punch"); S.cMix = value ("c_mix");
     S.fOn = b ("f_on"); S.fHp = value ("f_hp"); S.fLp = value ("f_lp"); S.fRes = value ("f_res"); S.f24 = b ("f_24"); S.fBoom = value ("f_boom"); S.fCrack = value ("f_crack"); S.fWarm = value ("f_warm"); S.fAir = value ("f_air");
     S.tOn = b ("t_on"); S.tAge = value ("t_age"); S.tWow = value ("t_wow"); S.tFlut = value ("t_flut"); S.tDrop = value ("t_drop");
     S.nOn = b ("n_on"); S.nVinyl = value ("n_vinyl"); S.nPops = value ("n_pops"); S.nHiss = value ("n_hiss"); S.nHum = value ("n_hum"); S.nFollow = b ("n_follow");

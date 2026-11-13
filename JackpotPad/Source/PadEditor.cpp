@@ -13,7 +13,7 @@ juce::Colour padColour (int i)
 juce::Font ft (float size, bool bold, bool mono)
 {
     // caratteri della serie (come Master e FX): numeri per i valori, maiuscolo spaziato per le etichette
-    return mono ? (bold ? neo::cap (size * 0.82f) : neo::num (size * 0.9f)) : (bold ? neo::cap (size * 0.85f) : neo::f (size * 0.95f));
+    return mono ? (bold ? neo::cap (size * 0.92f) : neo::num (size * 1.02f)) : (bold ? neo::cap (size * 0.95f) : neo::f (size * 1.06f));
 }
 static juce::String noteName (int n)
 {
@@ -178,7 +178,37 @@ void PadComp::mouseDown (const juce::MouseEvent& e)
     if (e.mods.isShiftDown() || ed.fullLevel) vel = 127;
     held = true; ed.playPad (pad, vel); repaint();
 }
-void PadComp::mouseUp (const juce::MouseEvent&) { if (held) { held = false; ed.stopPad (pad); repaint(); } }
+// trascinare un pad su un altro li scambia (suono, parametri e note del sequencer)
+PadComp* PadComp::padAt (const juce::MouseEvent& e) const
+{
+    auto* par = getParentComponent(); if (par == nullptr) return nullptr;
+    const auto pt = e.getEventRelativeTo (par).position.toInt();
+    for (auto* c : par->getChildren()) if (auto* pc = dynamic_cast<PadComp*> (c)) if (pc->isVisible() && pc->getBounds().contains (pt)) return pc;
+    return nullptr;
+}
+void PadComp::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! swapDrag && e.getDistanceFromDragStart() > 14) { swapDrag = true; if (held) { held = false; ed.stopPad (pad); } }
+    if (! swapDrag) return;
+    auto* t = padAt (e); const int nt = (t != nullptr && t != this) ? t->pad : -1;
+    if (nt != swapTo)
+    {
+        if (auto* par = getParentComponent()) for (auto* c : par->getChildren()) if (auto* pc = dynamic_cast<PadComp*> (c)) { pc->dragOver = pc->pad == nt; pc->repaint(); }
+        swapTo = nt;
+    }
+    setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+}
+void PadComp::mouseUp (const juce::MouseEvent&)
+{
+    if (held) { held = false; ed.stopPad (pad); repaint(); }
+    if (swapDrag)
+    {
+        swapDrag = false; setMouseCursor (juce::MouseCursor::NormalCursor);
+        if (auto* par = getParentComponent()) for (auto* c : par->getChildren()) if (auto* pc = dynamic_cast<PadComp*> (c)) { pc->dragOver = false; pc->repaint(); }
+        if (swapTo >= 0) { ed.proc.swapPads (pad, swapTo); ed.kitChanged(); ed.selectPad (swapTo); }
+        swapTo = -1;
+    }
+}
 void PadComp::filesDropped (const juce::StringArray& files, int, int)
 {
     dragOver = false; int n = 0;
@@ -218,10 +248,10 @@ void Screen::chip (juce::Graphics& g, juce::Rectangle<float> r, const juce::Stri
     }
     if (label.isNotEmpty())
     {
-        g.setFont (neo::cap (6.8f)); g.setColour (Col::dim); g.drawFittedText (label, r.reduced (7, 3).withHeight (10).toNearestInt(), juce::Justification::centredLeft, 1, 0.75f);
-        glowText (g, value, r.reduced (7, 2).withTrimmedTop (11), on ? (neo::cyber() ? cc : neo::onText (cc)) : Col::text, neo::num (9.5f), juce::Justification::centredLeft);
+        g.setFont (neo::cap (7.8f)); g.setColour (Col::dim); g.drawFittedText (label, r.reduced (7, 3).withHeight (11).toNearestInt(), juce::Justification::centredLeft, 1, 0.75f);
+        glowText (g, value, r.reduced (7, 2).withTrimmedTop (12), on ? (neo::cyber() ? cc : neo::onText (cc)) : Col::text, neo::num (11.0f), juce::Justification::centredLeft);
     }
-    else glowText (g, value, r.reduced (neo::cyber() && on ? 8 : 4, 0), on ? (neo::cyber() ? Col::text : neo::onText (cc)) : Col::text.withAlpha (0.85f), neo::cap (8.5f), juce::Justification::centred);
+    else glowText (g, value, r.reduced (neo::cyber() && on ? 8 : 4, 0), on ? (neo::cyber() ? Col::text : neo::onText (cc)) : Col::text.withAlpha (0.85f), neo::cap (9.5f), juce::Justification::centred);
     if (click) hots.push_back ({ r, std::move (click), nullptr, nullptr, nullptr });
 }
 
@@ -648,15 +678,15 @@ void Screen::masterStrip (juce::Graphics& g, juce::Rectangle<float> r)
         auto* pr = ed.proc.apvts.getParameter (gs[k].id); const juce::String id (gs[k].id);
         const float nv = pr->getValue(), v = pr->convertFrom0to1 (nv);
         juce::String txt = id == "out" ? (v > 0 ? "+" : "") + juce::String (v, 1) + " dB" : juce::String (juce::roundToInt (nv * 100)) + "%";
-        if (id == "busAmt") { const int bm = (int) ed.proc.apvts.getRawParameterValue ("busMode")->load(); if (bm == 0) txt = "OFF"; }
-        const bool on = id == "out" ? std::abs (v) > 0.05f : (id == "busAmt" ? (int) ed.proc.apvts.getRawParameterValue ("busMode")->load() > 0 : nv > 0.005f);
+        if (id == "busAmt") { const int bm = juce::roundToInt (ed.proc.apvts.getRawParameterValue ("busMode")->load()); if (bm == 0) txt = "OFF"; }
+        const bool on = id == "out" ? std::abs (v) > 0.05f : (id == "busAmt" ? juce::roundToInt (ed.proc.apvts.getRawParameterValue ("busMode")->load()) > 0 : nv > 0.005f);
         chip (g, cr, gs[k].lab, txt, on, nullptr, Col::magenta);
         // barretta del valore
         g.setColour (Col::magenta.withAlpha (0.5f)); g.fillRect (cr.getX() + 4, cr.getBottom() - 4, (cr.getWidth() - 8) * nv, 2.0f);
         hots.push_back ({ cr, [this, pr, id] (const juce::MouseEvent& e)
                           {
                               dragStart = pr->getValue(); pr->beginChangeGesture();
-                              if (id == "busAmt" && (int) ed.proc.apvts.getRawParameterValue ("busMode")->load() == 0) { auto* bm = ed.proc.apvts.getParameter ("busMode"); bm->setValueNotifyingHost (bm->convertTo0to1 (1.0f)); }
+                              if (id == "busAmt" && juce::roundToInt (ed.proc.apvts.getRawParameterValue ("busMode")->load()) == 0) { auto* bm = ed.proc.apvts.getParameter ("busMode"); bm->setValueNotifyingHost (bm->convertTo0to1 (1.0f)); }
                               juce::ignoreUnused (e);
                           },
                           [this, pr] (const juce::MouseEvent& e) { pr->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, dragStart - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 160.0f))); },
@@ -839,6 +869,11 @@ void Screen::pageSample (juce::Graphics& g, juce::Rectangle<float> c)
         const float ax = x0 + xw * juce::jmin (1.0f, atk / juce::jmax (1.0f, len)); env.lineTo (ax, w.getY() + 4);
         for (int i = 1; i <= 40; ++i) { const float t = i / 40.0f, ms = (len - atk) * t; const float lv = dec >= 3990 ? 1.0f : std::exp (-ms / (dec / 4.6f)); env.lineTo (ax + (x0 + xw - ax) * t, w.getBottom() - (w.getHeight() - 4) * lv); }
         g.setColour (Col::amber.withAlpha (0.18f)); g.strokePath (env, juce::PathStrokeType (5.0f)); g.setColour (Col::amber.withAlpha (0.85f)); g.strokePath (env, juce::PathStrokeType (1.4f));
+        {   // FADE IN / FADE OUT: rampe verdi sui bordi del pezzo che suona
+            const float fi = pd.get (FADEIN), fo = pd.get (FADEOUT), lenMs = juce::jmax (1.0f, len);
+            if (fi > 0.5f) { const float fx = x0 + xw * juce::jmin (1.0f, fi / lenMs); juce::Path fp; fp.startNewSubPath (x0, w.getBottom()); fp.lineTo (fx, w.getY() + 4); g.setColour (Col::green.withAlpha (0.9f)); g.strokePath (fp, juce::PathStrokeType (1.8f)); glowText (g, "FADE IN", juce::Rectangle<float> (x0 + 4, w.getY() + 18, 80, 13), Col::green, ft (10.0f, true, true)); }
+            if (fo > 0.5f) { const float fx = x0 + xw - xw * juce::jmin (1.0f, fo / lenMs); juce::Path fp; fp.startNewSubPath (fx, w.getY() + 4); fp.lineTo (x0 + xw, w.getBottom()); g.setColour (Col::green.withAlpha (0.9f)); g.strokePath (fp, juce::PathStrokeType (1.8f)); glowText (g, "FADE OUT", juce::Rectangle<float> (x0 + xw - 84, w.getY() + 18, 80, 13), Col::green, ft (10.0f, true, true), juce::Justification::centredRight); }
+        }
         glowText (g, juce::String (n / smp->sr, 2) + " s  " + juce::String (smp->sr / 1000.0, 1) + " kHz", w.withHeight (12), Col::phos.withAlpha (0.6f), ft (9.5f, false, true), juce::Justification::centredRight);
         if (chopMode == 0)
         {
@@ -1497,7 +1532,7 @@ void PatternView::paint (juce::Graphics& g)
             auto sr = juce::Rectangle<float> (mr.getX() + k * bw, mr.getY(), bw, mr.getHeight()).reduced (1, 0);
             g.setColour (k == barPage ? Col::cyan.withAlpha (0.22f) : Col::phos.withAlpha (0.05f)); g.fillRoundedRectangle (sr, 2);
             g.setColour (k == barPage ? Col::cyan : Col::phos.withAlpha (0.2f)); g.drawRoundedRectangle (sr, 2, 1.0f);
-            heads.push_back ({ sr, [this, k] { barPage = k; follow = false; } });
+            heads.push_back ({ sr, [this, k] { barPage = k; follow = false; const double t = k * (double) kBar; ed.proc.startFrom = t; ed.proc.seekReq = t; } });   // si ascolta da questa battuta
         }
         const juce::SpinLock::ScopedLockType l (P.recLock);
         for (auto& e : P.events)
@@ -1636,10 +1671,10 @@ void KitBrowser::paint (juce::Graphics& g)
     else { g.setColour (K::lo.withAlpha (0.4f)); g.fillRoundedRectangle (bx.translated (0, 6), 20); juce::ColourGradient bg (K::panel0, 0, bx.getY(), K::panel1, 0, bx.getBottom(), false); g.setGradientFill (bg); g.fillRoundedRectangle (bx, 20); }
     g.setFont (big (20.0f)); g.setColour (K::ink); g.drawText ("Kit", juce::Rectangle<float> (bx.getX() + 22, bx.getY() + 14, 200, 32), juce::Justification::centredLeft);
     g.setFont (f (10.5f)); g.setColour (K::sub); g.drawText (juce::String::fromUTF8 ("clic per caricare  \xc2\xb7  clic fuori per chiudere"), juce::Rectangle<float> (bx.getX() + 90, bx.getY() + 14, 400, 32), juce::Justification::centredLeft);
-    static const char* acts[] = { "KIT CASUALE", "SALVA", "SALVA COME...", "APRI DA FILE..." };
-    for (int i = 0; i < 4; ++i) neo::chip (g, act (i), acts[i], i == 0, i == 0 ? K::accent : K::violet, 10.0f, hov == 1000 + i);
+    static const char* acts[] = { "KIT CASUALE", "KIT VUOTO", "SALVA", "SALVA COME...", "APRI DA FILE..." };
+    for (int i = 0; i < 5; ++i) neo::chip (g, act (i), acts[i], i == 0, i == 0 ? K::accent : K::violet, 10.0f, hov == 1000 + i);
     g.setFont (f (9.0f)); g.setColour (K::faint);
-    g.drawFittedText ("I kit si salvano nella cartella dei kit Jackpot: li ritrovi qui in ogni progetto.", act (4).withHeight (60).toNearestInt(), juce::Justification::topLeft, 4);
+    g.drawFittedText ("I kit si salvano nella cartella dei kit Jackpot: li ritrovi qui in ogni progetto.", act (5).withHeight (60).toNearestInt(), juce::Justification::topLeft, 4);
     auto l = list(); const auto kits = ed.proc.userKits();
     g.setFont (cap (8.5f)); g.setColour (K::sub); g.drawText ("I TUOI KIT  (" + juce::String (kits.size()) + ")", l.withHeight (14).translated (0, -20), juce::Justification::centredLeft);
     if (kits.isEmpty()) { g.setFont (f (12.0f)); g.setColour (K::sub); g.drawFittedText ("Non hai ancora kit salvati. Fai un kit casuale o carica i tuoi suoni, poi SALVA.", l.reduced (20).toNearestInt(), juce::Justification::centred, 3); return; }
@@ -1659,7 +1694,7 @@ void KitBrowser::paint (juce::Graphics& g)
 }
 void KitBrowser::mouseMove (const juce::MouseEvent& e)
 {
-    int h = -1; for (int i = 0; i < 4; ++i) if (act (i).contains (e.position)) h = 1000 + i;
+    int h = -1; for (int i = 0; i < 5; ++i) if (act (i).contains (e.position)) h = 1000 + i;
     if (list().contains (e.position)) { const int k = (int) ((e.position.y - list().getY() + scroll) / 46); if (k >= 0 && k < ed.proc.userKits().size()) h = k; }
     if (h != hov) { hov = h; repaint(); }
     setMouseCursor (h >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
@@ -1667,11 +1702,16 @@ void KitBrowser::mouseMove (const juce::MouseEvent& e)
 void KitBrowser::mouseDown (const juce::MouseEvent& e)
 {
     if (! box().contains (e.position)) { setVisible (false); return; }
-    for (int i = 0; i < 4; ++i) if (act (i).contains (e.position))
+    for (int i = 0; i < 5; ++i) if (act (i).contains (e.position))
     {
         setVisible (false);
         if (i == 0) { randomKit (ed.proc, ed.screen.randMode); ed.kitChanged(); ed.playPad (0, 100); }
-        else if (i == 1) ed.saveKit (false); else if (i == 2) ed.saveKit (true); else ed.loadKitDialog();
+        else if (i == 1)
+        {   // KIT VUOTO: tutti i pad senza suono, parametri di serie, nome nuovo
+            for (int p = 0; p < kPads; ++p) ed.proc.clearPad (p);
+            ed.proc.kitFile = juce::File(); ed.proc.kitName = "Nuovo kit"; ed.kitChanged();
+        }
+        else if (i == 2) ed.saveKit (false); else if (i == 3) ed.saveKit (true); else ed.loadKitDialog();
         return;
     }
     if (hov >= 0 && hov < 1000) { const auto kits = ed.proc.userKits(); if (hov < kits.size()) { ed.proc.loadKit (kits[hov]); ed.kitChanged(); setVisible (false); } }
@@ -2472,7 +2512,7 @@ void Editor::bindQlinks()
         { { GAIN }, { LEVEL }, { PAN }, { TUNE }, { DECAY }, { CUTOFF }, { SREV }, { SDLY } },
         { { GAIN }, { LEVEL }, { PAN }, { TUNE }, { DECAY }, { CUTOFF }, { SREV }, { SDLY } },
         { { GAIN }, { LEVEL }, { PAN }, { SREV }, { SDLY }, { DRIVE }, { -1 }, { -1 } },
-        { { START }, { END }, { TUNE }, { FINE }, { ATTACK }, { DECAY }, { RELEASE }, { GAIN } },
+        { { START }, { END }, { FADEIN }, { FADEOUT }, { TUNE }, { ATTACK }, { DECAY }, { RELEASE } },
         { { VLEVEL }, { VFILTER }, { VSTART }, { VPITCH }, { GAIN }, { LEVEL }, { -1 }, { -1 } },
         { { B3F }, { B3G }, { B3Q }, { B3T }, { CUTOFF }, { RESO }, { FENV }, { FDECAY } },   // EQ: la riga si riscrive sulla banda scelta
         { { CAMT }, { CMAKEUP }, { CMIX }, { GAIN }, { LEVEL }, { -1 }, { -1 }, { -1 } },

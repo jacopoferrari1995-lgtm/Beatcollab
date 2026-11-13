@@ -57,7 +57,7 @@ public:
     void setStateInformation (const void*, int) override;
 
     // rack
-    int chainLen() const { return juce::jlimit (0, kSlots, (int) value ("n")); }
+    int chainLen() const { return juce::jlimit (0, kSlots, juce::roundToInt (value ("n"))); }
     int slotType (int s) const { return juce::jlimit (0, (int) mods().size() - 1, (int) valueS (sid (s, "type"))); }
     void insertModule (int pos, int type);   // aggiunge (pos = chainLen() in fondo)
     void setModule (int s, int type);        // sostituisce

@@ -85,6 +85,9 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    PadComp* padAt (const juce::MouseEvent&) const;
+    bool swapDrag = false; int swapTo = -1;
     bool isInterestedInFileDrag (const juce::StringArray&) override { return true; }
     void filesDropped (const juce::StringArray&, int, int) override;
     void fileDragEnter (const juce::StringArray&, int, int) override { dragOver = true; repaint(); }

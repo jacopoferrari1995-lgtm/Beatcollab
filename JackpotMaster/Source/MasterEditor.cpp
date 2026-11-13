@@ -255,7 +255,7 @@ void History::paint (juce::Graphics& g)
     auto b = getLocalBounds().toFloat(); lcd (g, b, 8);
     auto& P = ed.proc; const int n = Processor::kHist, w0 = P.hW.load();
     auto plot = b.reduced (40, 12).withTrimmedRight (-28);
-    const float ceil = P.value ("lm_ceil"), tgt = target ((int) P.value ("target")).lufs;
+    const float ceil = P.value ("lm_ceil"), tgt = target (juce::roundToInt (P.value ("target"))).lufs;
     auto yDb = [&] (float db) { return plot.getBottom() - juce::jlimit (0.0f, 1.0f, (db + 36) / 36) * plot.getHeight(); };
     auto yGr = [&] (float gr) { return plot.getY() + juce::jlimit (0.0f, 1.0f, gr / 12.0f) * plot.getHeight() * 0.6f; };
     // griglia
@@ -336,12 +336,12 @@ void MaxPage::resized()
 void MaxPage::paint (juce::Graphics& g)
 {
     glowText (g, "MAXIMIZER", { 16, 10, 150, 26 }, C::magenta, uf (17.0f));
-    const int s = (int) ed.proc.value ("mx_style");
+    const int s = juce::roundToInt (ed.proc.value ("mx_style"));
     g.setColour (C::text.withAlpha (0.85f)); g.setFont (uf (11.5f, false));
     g.drawFittedText (styleInfo (s).what, juce::Rectangle<int> (16, 84, 820, 18), juce::Justification::topLeft, 1);
     // stato del target
     auto r = juce::Rectangle<float> (540, 160, 296, 110); lcd (g, r, 8);
-    const auto& tg = target ((int) ed.proc.value ("target")); const float sNow = ed.proc.lufsS.load();
+    const auto& tg = target (juce::roundToInt (ed.proc.value ("target"))); const float sNow = ed.proc.lufsS.load();
     g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText ("TARGET  " + juce::String (tg.name), r.reduced (12, 8).removeFromTop (14), juce::Justification::centredLeft);
     glowText (g, juce::String ((int) tg.lufs) + " LUFS", { r.getX() + 12, r.getY() + 24, 160, 30 }, C::green, neo::big (19.0f));
     juce::String st = sNow < -60 ? juce::String ("in attesa di segnale")
@@ -1328,11 +1328,11 @@ void TapePage::paint (juce::Graphics& g)
     paintHeader (g, "Nastro da master: DRIVE porta il segnale nella saturazione del nastro (colla, calore, transienti arrotondati). BIAS basso = piu acuti e piu armoniche, "
                     "alto = piu scuro e pulito. MIX sotto 100% = nastro in parallelo. Per il master bastano DRIVE 20-40% e 15 IPS.");
     g.setColour (C::text.withAlpha (0.85f)); g.setFont (uf (11.0f, false));
-    g.drawFittedText (tapeInfo ((int) ed.proc.value ("tp_model")).what, juce::Rectangle<int> (16, 86, 822, 20), juce::Justification::centredLeft, 1);
+    g.drawFittedText (tapeInfo (juce::roundToInt (ed.proc.value ("tp_model"))).what, juce::Rectangle<int> (16, 86, 822, 20), juce::Justification::centredLeft, 1);
 }
 void TapeView::update()
 {
-    auto& P = ed.proc; const int m = (int) P.value ("tp_model"); const float d = P.value ("tp_drive"), b = P.value ("tp_bias");
+    auto& P = ed.proc; const int m = juce::roundToInt (P.value ("tp_model")); const float d = P.value ("tp_drive"), b = P.value ("tp_bias");
     if (m == lm && std::abs (d - ld) < 1e-3f && std::abs (b - lb) < 1e-3f) return;
     lm = m; ld = d; lb = b;
     TapeMachine tm; const double sr = 48000; tm.prepare (sr);
@@ -1347,7 +1347,7 @@ void TapeView::update()
 void TapeView::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat(); lcd (g, b, 8);
-    auto& P = ed.proc; const bool on = P.value ("tp_on") > 0.5f; const int m = (int) P.value ("tp_model");
+    auto& P = ed.proc; const bool on = P.value ("tp_on") > 0.5f; const int m = juce::roundToInt (P.value ("tp_model"));
     update();
     const auto c = neo::acc (juce::Colour (modInfo (TAPE).colour));
     // bobine
@@ -1488,7 +1488,7 @@ Eq432Page::Eq432Page (Editor& e) : ModPage (e, EQ432, "e4_on", "e4_delta"), view
         const juce::String id = "e4_" + juce::String (b + 1);
         const juce::String fid = id + "f", gid = id + "g", qid = id + "q";
         knob (fid.toRawUTF8(), c, juce::String (bn[b]) + " FREQ", [&P, fid] { return hzT (P.value (fid.toRawUTF8())); });
-        knob (gid.toRawUTF8(), c.interpolatedWith (C::magenta, 0.35f), "GUADAGNO", [&P, gid] { return dbS (P.value (gid.toRawUTF8()) * eq432Range ((int) P.value ("e4_range"))) + " dB"; }, true);
+        knob (gid.toRawUTF8(), c.interpolatedWith (C::magenta, 0.35f), "GUADAGNO", [&P, gid] { return dbS (P.value (gid.toRawUTF8()) * eq432Range (juce::roundToInt (P.value ("e4_range")))) + " dB"; }, true);
         knob (qid.toRawUTF8(), c.interpolatedWith (C::phos, 0.4f), "LARGHEZZA", [&P, qid] { return juce::String (P.value (qid.toRawUTF8()), 2); });
     }
     knob ("e4_col", C::amber, "COLORE", [&P] { return juce::String (juce::roundToInt (P.value ("e4_col") * 100)) + "%"; });
@@ -1523,7 +1523,7 @@ void E4View::paint (juce::Graphics& g)
     auto& P = ed.proc; const double sr = juce::jmax (8000.0, P.sampleRate());
     auto p = b.reduced (30, 14).withTrimmedBottom (8);
     auto xOf = [&p] (double f) { return p.getX() + p.getWidth() * (float) (std::log (f / 20.0) / std::log (1000.0)); };
-    const float rng = eq432Range ((int) P.value ("e4_range"));
+    const float rng = eq432Range (juce::roundToInt (P.value ("e4_range")));
     auto yOf = [&p, rng] (double db) { return p.getCentreY() - (float) (db / (rng + 2.0)) * p.getHeight() * 0.5f; };
     g.setFont (neo::num (8.0f));
     for (float f : { 50.f, 100.f, 200.f, 500.f, 1000.f, 2000.f, 5000.f, 10000.f })
@@ -1610,7 +1610,7 @@ void PqView::paint (juce::Graphics& g)
     { g.setColour (glass (0.05f)); g.drawVerticalLine ((int) xOf (f), p.getY(), p.getBottom()); g.setColour (C::dim); g.drawText (f >= 1000 ? juce::String ((int) (f / 1000)) + "k" : juce::String ((int) f), juce::Rectangle<float> (xOf (f) - 14, p.getBottom() + 1, 28, 10), juce::Justification::centred); }
     for (float d : { -15.f, -10.f, -5.f, 0.f, 5.f, 10.f, 15.f })
     { g.setColour (glass (d == 0 ? 0.12f : 0.04f)); g.drawHorizontalLine ((int) yOf (d), p.getX(), p.getRight()); g.setColour (C::dim); g.drawText (dbS (d, 0), juce::Rectangle<float> (b.getX() + 2, yOf (d) - 6, 26, 12), juce::Justification::centredRight); }
-    PultecSettings S; S.lf = (int) P.value ("pq_lf"); S.hf = (int) P.value ("pq_hf"); S.as = (int) P.value ("pq_as");
+    PultecSettings S; S.lf = juce::roundToInt (P.value ("pq_lf")); S.hf = juce::roundToInt (P.value ("pq_hf")); S.as = juce::roundToInt (P.value ("pq_as"));
     S.lb = P.value ("pq_lb"); S.la = P.value ("pq_la"); S.hb = P.value ("pq_hb"); S.bw = P.value ("pq_bw"); S.ha = P.value ("pq_ha");
     Biquad f[4]; bool act[4] {}; pultecDesign (S, sr, f, act);
     const auto c = neo::acc (juce::Colour (modInfo (PULTEC).colour)); const bool on = P.value ("pq_on") > 0.5f;
@@ -1882,7 +1882,7 @@ void SoonPage::paint (juce::Graphics& g)
 // ======================================================================= loudness
 void LoudPanel::paint (juce::Graphics& g)
 {
-    auto& P = ed.proc; const auto& tg = target ((int) P.value ("target"));
+    auto& P = ed.proc; const auto& tg = target (juce::roundToInt (P.value ("target")));
     glowText (g, "LOUDNESS", { 16, 8, 200, 26 }, C::text, uf (13.0f));
     btn (g, resetR(), C::phos, false, false, "AZZERA", uf (10.5f));
     const float I = P.lufsI.load(), S = P.lufsS.load(), M = P.lufsM.load(), tp = P.tpMax.load(), lra = P.lra.load();
@@ -1913,7 +1913,7 @@ void LoudPanel::paint (juce::Graphics& g)
     g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText ("TARGET", juce::Rectangle<float> (16, 254, 100, 12), juce::Justification::centredLeft);
     for (int t = 0; t < kNumTargets; ++t)
     {
-        auto r = tgtCell (t); const bool on = (int) P.value ("target") == t;
+        auto r = tgtCell (t); const bool on = juce::roundToInt (P.value ("target")) == t;
         btn (g, r, C::green, on, false, juce::String (target (t).name) + " " + juce::String ((int) target (t).lufs), uf (9.5f));
     }
     // storia breve
@@ -2137,11 +2137,11 @@ void Editor::paint (juce::Graphics& g)
     auto out = juce::Rectangle<float> (1126, 72, 138, 662); card (out, C::phos);
     g.setFont (neo::cap (8.5f)); g.setColour (C::text); g.drawText ("USCITA", out.withHeight (30).withTrimmedLeft (10), juce::Justification::centredLeft);
     g.setFont (neo::cap (7.0f)); g.setColour (C::dim); g.drawText ("OBIETTIVO", juce::Rectangle<float> (1136, 116, 118, 14), juce::Justification::centredLeft);
-    const int tg = (int) proc.value ("target");
+    const int tg = juce::roundToInt (proc.value ("target"));
     for (int t = 0; t < kNumTargets; ++t) neo::chip (g, tgtR[t].toFloat(), juce::String (target (t).name) + "  " + juce::String ((int) target (t).lufs), t == tg, C::green, 7.5f);
     g.setFont (neo::cap (7.0f)); g.setColour (C::dim); g.drawText ("ASCOLTO", juce::Rectangle<float> (1136, 340, 118, 14), juce::Justification::centredLeft);
     g.drawText ("DITHER (EXPORT)", juce::Rectangle<float> (1136, 442, 118, 14), juce::Justification::centredLeft);
-    { static const char* dn[] = { "OFF", "24 BIT", "16 BIT", "16 SH" }; const int dv = (int) proc.value ("dither");
+    { static const char* dn[] = { "OFF", "24 BIT", "16 BIT", "16 SH" }; const int dv = juce::roundToInt (proc.value ("dither"));
       for (int d = 0; d < 4; ++d) neo::chip (g, dthR[d].toFloat(), dn[d], d == dv, C::violet, 7.0f); }
     g.setFont (neo::f (9.0f)); g.setColour (C::dim);
     g.drawFittedText ("CONFRONTA: senti l'originale allo stesso volume. PIATTAFORMA: come lo abbassa lo streaming. Spegnili prima di esportare.", juce::Rectangle<int> (1136, 530, 118, 120), juce::Justification::topLeft, 8, 0.9f);

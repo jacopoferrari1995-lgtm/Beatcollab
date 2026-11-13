@@ -99,7 +99,7 @@ void EasyPage::paint (juce::Graphics& g)
     }
     { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.drawImageAt (bg, 0, 0); g.restoreState(); }
     tabs.paint (g, viewNames(), view, K::violet, 8.5f, hover);
-    const auto& T = target ((int) ed.proc.value ("target"));
+    const auto& T = target (juce::roundToInt (ed.proc.value ("target")));
     chip (g, targetR, juce::String (T.name) + "  " + juce::String (T.lufs, 0) + U ("  \xe2\x96\xbe"), true, K::mint, 8.5f, hover == 10);
     const bool cmp = ed.proc.value ("compare") > 0.5f;
     chip (g, cmpR, cmp ? "ORIGINALE" : "BYPASS", cmp, K::cyan, 8.5f, hover == 11);
@@ -114,7 +114,7 @@ void EasyPage::paint (juce::Graphics& g)
         const bool so = le == b, de = le == b + 3;
         chip (g, bandR[b], so ? "SOLO" : de ? U ("\xce\x94 DELTA") : U ("S / \xce\x94"), so || de, de ? K::amber : K::cyan, 7.5f, hover == 20 + b);
     }
-    styles.paint (g, styleNames(), (int) ed.proc.value ("e_style"), K::pink, 8.0f, hover >= 30 ? hover - 30 : -1);
+    styles.paint (g, styleNames(), juce::roundToInt (ed.proc.value ("e_style")), K::pink, 8.0f, hover >= 30 ? hover - 30 : -1);
 }
 void EasyPage::mouseMove (const juce::MouseEvent& e)
 {
@@ -143,7 +143,7 @@ void EasyPage::mouseDown (const juce::MouseEvent& e)
     if (const int sh = styles.hit (e.position); sh >= 0) { auto* p = ed.P ("e_style"); p->setValueNotifyingHost (p->convertTo0to1 ((float) sh)); repaint(); return; }
     if (targetR.contains (e.position))
     {
-        juce::PopupMenu m; const int cur = (int) P.value ("target");
+        juce::PopupMenu m; const int cur = juce::roundToInt (P.value ("target"));
         for (int i = 0; i < kNumTargets; ++i) m.addItem (i + 1, juce::String (target (i).name) + "   " + juce::String (target (i).lufs, 0) + " LUFS", true, i == cur);
         auto* tp = ed.P ("target"); juce::Component::SafePointer<EasyPage> sp (this);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [tp, sp] (int r) { if (r > 0) { tp->setValueNotifyingHost (tp->convertTo0to1 ((float) (r - 1))); if (sp) sp->repaint(); } });
@@ -155,7 +155,7 @@ void EasyPage::tick()
     loud->activity = juce::jlimit (0.0f, 1.0f, ed.proc.grAvg.load() / 6.0f);
     for (auto* k : knobs) if (k->animate()) k->repaint();
     if (tabs.step (view)) repaint (0, 0, getWidth(), 40);
-    if (styles.step ((int) ed.proc.value ("e_style"))) repaint (400, 690, 480, 40);
+    if (styles.step (juce::roundToInt (ed.proc.value ("e_style")))) repaint (400, 690, 480, 40);
     monoB->repaint();
 }
 
@@ -778,7 +778,7 @@ void EasyStage::image (juce::Graphics& g, juce::Rectangle<float> p, bool small)
 // ---------------------------------------------------------------------------------------------------- METERING COMPLETO
 void EasyStage::metering (juce::Graphics& g, juce::Rectangle<float> p)
 {
-    auto& P = page.ed.proc; const auto& T = target ((int) P.value ("target"));
+    auto& P = page.ed.proc; const auto& T = target (juce::roundToInt (P.value ("target")));
     p = p.withTrimmedBottom (easy() ? 4 : 0);
     const float W = p.getWidth();
     auto colA = juce::Rectangle<float> (p.getX(), p.getY(), W * 0.33f, p.getHeight());
@@ -858,7 +858,7 @@ void EasyStage::metering (juce::Graphics& g, juce::Rectangle<float> p)
 // ---------------------------------------------------------------------------------------------------- numeri sul display (FACILE)
 void EasyStage::numbers (juce::Graphics& g)
 {
-    auto& P = page.ed.proc; const auto& T = target ((int) P.value ("target"));
+    auto& P = page.ed.proc; const auto& T = target (juce::roundToInt (P.value ("target")));
     auto b = getLocalBounds().toFloat();
     const float y0 = b.getBottom() - 78;
     // velo in basso per leggere i numeri sopra l'onda
@@ -926,7 +926,7 @@ void EasyStage::meterCol (juce::Graphics& g, juce::Rectangle<float> r)
         g.setColour (pkHold[c] > -1.0f ? K::red : K::ink); g.fillRect (col.getX(), yOf (pkHold[c]) - 1, col.getWidth(), 2.0f);
     }
     {   // loudness short-term contro il target della piattaforma
-        const float tg = target ((int) P.value ("target")).lufs, lu = P.lufsS.load();
+        const float tg = target (juce::roundToInt (P.value ("target"))).lufs, lu = P.lufsS.load();
         mLu = lu < -70 ? -100.0f : (mLu < -70 ? lu : mLu + (lu - mLu) * juce::jmin (1.0f, dt * 6.0f));
         auto yL = [&bars] (float l) { return bars.getBottom() - juce::jlimit (0.0f, 1.0f, (l + 36.0f) / 36.0f) * bars.getHeight(); };
         auto col = juce::Rectangle<float> (bars.getX() + 2 * (bw + 4), bars.getY(), bw, bars.getHeight());

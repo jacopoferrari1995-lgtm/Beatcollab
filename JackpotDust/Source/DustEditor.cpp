@@ -110,12 +110,12 @@ void ModView::paint (juce::Graphics& g)
             g.setColour (C::dim.withAlpha (0.5f)); g.strokePath (sine, juce::PathStrokeType (1.0f));
             g.setColour (c.withAlpha (0.3f)); g.strokePath (st, juce::PathStrokeType (4.0f)); g.setColour (c); g.strokePath (st, juce::PathStrokeType (1.5f));
             glowText (g, juce::String (juce::roundToInt (bits)) + " BIT  " + hzT (rate), r.withHeight (12), c, mf (10.0f), juce::Justification::centredRight);
-            g.setColour (C::dim); g.drawText (sInfo ((int) P.value ("s_model")).aaOrder == 0 ? "senza anti-alias" : "con filtro anti-alias", r.withHeight (12), juce::Justification::centredLeft);
+            g.setColour (C::dim); g.drawText (sInfo (juce::roundToInt (P.value ("s_model"))).aaOrder == 0 ? "senza anti-alias" : "con filtro anti-alias", r.withHeight (12), juce::Justification::centredLeft);
             break;
         }
         case M_SAT:
         {
-            const int m = (int) P.value ("d_model"); const float gd = dbToG (P.value ("d_drive") * P.value ("amount"));
+            const int m = juce::roundToInt (P.value ("d_model")); const float gd = dbToG (P.value ("d_drive") * P.value ("amount"));
             double e = 0; for (int k = 0; k < 64; ++k) { const float y = shapeFn (m, gd * 0.5f * std::sin (2 * (float) kPi * k / 64)); e += y * y; }
             const float mk = 0.5f / (float) std::sqrt (e / 64 + 1e-12) * 0.7071f;
             g.setColour (C::dim.withAlpha (0.3f)); g.drawLine (r.getX(), r.getBottom(), r.getRight(), r.getY(), 1.0f);
@@ -340,9 +340,9 @@ void Editor::paint (juce::Graphics& g)
         if (m % 3 != 2) { g.setColour (C::amber.withAlpha (0.35f)); juce::Path a; a.addTriangle (c.getRight() + 2, c.getCentreY() - 6, c.getRight() + 9, c.getCentreY(), c.getRight() + 2, c.getCentreY() + 6); g.fillPath (a); }
         // descrizione sotto le manopole
         juce::String d;
-        if (m == M_SAMP) d = sInfo ((int) proc.value ("s_model")).desc;
-        else if (m == M_SAT) d = dDesc ((int) proc.value ("d_model"));
-        else if (m == M_COMP) { const int s = (int) proc.value ("c_style"); d = s == 0 ? "Veloce sui picchi, morde i transienti; oltre meta aggiunge lo sporco del FET a tutti i bottoni." : s == 1 ? "Lento e morbido, tiene insieme il kit: colla da bus." : "Respira e pompa: le code salgono tra un colpo e l'altro."; }
+        if (m == M_SAMP) d = sInfo (juce::roundToInt (proc.value ("s_model"))).desc;
+        else if (m == M_SAT) d = dDesc (juce::roundToInt (proc.value ("d_model")));
+        else if (m == M_COMP) { const int s = juce::roundToInt (proc.value ("c_style")); d = s == 0 ? "Veloce sui picchi, morde i transienti; oltre meta aggiunge lo sporco del FET a tutti i bottoni." : s == 1 ? "Lento e morbido, tiene insieme il kit: colla da bus." : "Respira e pompa: le code salgono tra un colpo e l'altro."; }
         else if (m == M_FILT) d = "BOOM spinge il peso della cassa, CRACK lo schiocco del rullante. Risonanza = filtro da campionatore.";
         else if (m == M_TAPE) d = "ETA scurisce, satura e alza il bump in basso. WOW lento, FLUTTER veloce, DROPOUT cali casuali.";
         else d = "Fruscio e crackle del disco, pop rari, hiss del nastro e ronzio a 50 Hz. Non passa nel compressore.";

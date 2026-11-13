@@ -34,11 +34,11 @@ Settings Processor::settings() const
 {
     Settings S; auto b = [this] (const char* id) { return value (id) > 0.5f; };
     S.hgOn = b ("hg_on"); S.inDb = value ("in"); S.pentode = value ("pentode"); S.triode = value ("triode"); S.density = value ("density");
-    S.satIn = b ("sat_in"); S.sat = value ("sat"); S.satFreq = (int) value ("satFreq"); S.alt = b ("alt");
-    S.airIn = b ("air_in"); S.air = value ("air"); S.calib = (int) value ("calib"); S.mix = value ("mix"); S.ms = b ("ms");
+    S.satIn = b ("sat_in"); S.sat = value ("sat"); S.satFreq = juce::roundToInt (value ("satFreq")); S.alt = b ("alt");
+    S.airIn = b ("air_in"); S.air = value ("air"); S.calib = juce::roundToInt (value ("calib")); S.mix = value ("mix"); S.ms = b ("ms");
     S.mbOn = b ("mb_on"); for (int k = 0; k < 4; ++k) S.xo[k] = valueS ("x" + juce::String (k + 1));
     for (int k = 0; k < 5; ++k) { S.harm[k] = valueS ("h" + juce::String (k + 1)); S.lvl[k] = valueS ("l" + juce::String (k + 1)); S.width[k] = valueS ("w" + juce::String (k + 1)); }
-    S.character = (int) value ("char"); S.mbMix = value ("mb_mix"); S.outDb = value ("out");
+    S.character = juce::roundToInt (value ("char")); S.mbMix = value ("mb_mix"); S.outDb = value ("out");
     return S;
 }
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)

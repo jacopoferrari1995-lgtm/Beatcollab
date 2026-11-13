@@ -51,7 +51,7 @@ SpecEq::SpecEq (Editor& e) : ed (e)
     fbuf.assign ((size_t) kN * 2, 0.0f); for (int i = 0; i < kPts; ++i) { specA[i] = specB[i] = peak[i] = frameP[i] = -120; }
     addChildComponent (pop);
 }
-int SpecEq::view() const { return juce::jlimit (0, 4, (int) ed.proc.value ("view")); }
+int SpecEq::view() const { return juce::jlimit (0, 4, juce::roundToInt (ed.proc.value ("view"))); }
 float SpecEq::xOf (float f) const { auto p = plot(); return p.getX() + std::log (juce::jmax (20.0f, f) / 20.0f) / std::log (1000.0f) * p.getWidth(); }
 float SpecEq::fOf (float x) const { auto p = plot(); return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, (x - p.getX()) / p.getWidth())); }
 float SpecEq::yOf (float db) const { auto p = plot(); return p.getCentreY() - db / 20.0f * p.getHeight() * 0.5f; }
@@ -121,7 +121,7 @@ void SpecEq::analyse()
 // curva di riferimento allineata alla mia (stessa media fra 100 Hz e 8 kHz, cosi conta la forma e non il volume)
 bool SpecEq::refCurve (float* out) const
 {
-    const int pr = (int) ed.proc.value ("profile");
+    const int pr = juce::roundToInt (ed.proc.value ("profile"));
     if (pr >= kGenres)
     {
         const auto R = ed.proc.reference(); if (! R.ok || (int) R.spec.size() != kPts) return false;
@@ -194,11 +194,11 @@ void SpecEq::paint (juce::Graphics& g)
     {
         resetAvgR = { b.getRight() - 236, 7, 96, 24 }; loadR = { b.getRight() - 136, 7, 120, 24 };
         jlook::button (g, resetAvgR, C::magenta, false, false, "RIPARTI MEDIA", uf (9.5f));
-        jlook::button (g, loadR, C::amber, (int) P.value ("profile") >= kGenres, false, "CARICA PEZZO...", uf (9.5f));
+        jlook::button (g, loadR, C::amber, juce::roundToInt (P.value ("profile")) >= kGenres, false, "CARICA PEZZO...", uf (9.5f));
     }
     else if (v == 2)
     {
-        static const char* n[3] = { "LISSAJOUS", "POLAR SAMPLE", "POLAR LEVEL" }; const int iv = (int) P.value ("imView");
+        static const char* n[3] = { "LISSAJOUS", "POLAR SAMPLE", "POLAR LEVEL" }; const int iv = juce::roundToInt (P.value ("imView"));
         float xx = b.getRight() - 16;
         for (int i = 2; i >= 0; --i) { const float w = i == 0 ? 84.0f : 100.0f; xx -= w; imTabR[i] = { xx, 7, w, 24 }; xx -= 4; jlook::button (g, imTabR[i], C::violet, iv == i, false, n[i], uf (9.5f)); }
     }
@@ -314,7 +314,7 @@ void SpecEq::paintEq (juce::Graphics& g, juce::Rectangle<float> p)
 void SpecEq::paintRef (juce::Graphics& g, juce::Rectangle<float> p)
 {
     auto& P = ed.proc; freqGrid (g, *this, p);
-    const int pr = (int) P.value ("profile"); const auto R = P.reference();
+    const int pr = juce::roundToInt (P.value ("profile")); const auto R = P.reference();
     float ref[kPts]; const bool ok = refCurve (ref);
     // scala: +-15 dB intorno alla media
     double mm = 0; int n = 0; for (int i = 0; i < kPts; ++i) { const float f = ptF (i); if (f >= 100 && f <= 8000) { mm += hasLtas() ? ltasDb (i) : (ok ? ref[i] : 0); ++n; } }
@@ -361,7 +361,7 @@ void SpecEq::paintRef (juce::Graphics& g, juce::Rectangle<float> p)
 
 void SpecEq::paintImager (juce::Graphics& g, juce::Rectangle<float> p)
 {
-    auto& P = ed.proc; const int iv = (int) P.value ("imView");
+    auto& P = ed.proc; const int iv = juce::roundToInt (P.value ("imView"));
     const float S = juce::jmin (p.getWidth() * 0.62f, p.getHeight() - 10);
     auto area = juce::Rectangle<float> (p.getX() + 12, p.getY() + 5, iv == 0 ? S : S * 2.0f * 0.98f, S);
     if (iv != 0) { const float R = juce::jmin (p.getWidth() * 0.33f, p.getHeight() - 40); area = juce::Rectangle<float> (p.getX() + 12, p.getY() + (p.getHeight() - R - 6) * 0.5f + 10, R * 2 + 8, R + 6); }
@@ -455,7 +455,7 @@ void SpecEq::paintImager (juce::Graphics& g, juce::Rectangle<float> p)
 
 void SpecEq::paintPeak (juce::Graphics& g, juce::Rectangle<float> p)
 {
-    auto& P = ed.proc; const auto& T = target ((int) P.value ("target"));
+    auto& P = ed.proc; const auto& T = target (juce::roundToInt (P.value ("target")));
     // scala in dBFS a destra; onda specchiata (picco chiaro, RMS pieno); linee del picco consigliato e di 0 dB
     auto yD = [&p] (float lin, bool up) { const float h = p.getHeight() * 0.5f - 22; return p.getCentreY() + (up ? -1.0f : 1.0f) * juce::jlimit (0.0f, 1.05f, lin) * h; };   // ampiezza lineare, come l'onda nella DAW
     for (int d : { -18, -12, -6, -3, 0 })
@@ -716,7 +716,7 @@ void Loud::paint (juce::Graphics& g)
     auto& P = ed.proc; auto b = getLocalBounds().toFloat().reduced (1);
     jlook::card (g, b, 14, C::amber, true, false, false);
     glowText (g, "LOUDNESS", { 18, 8, 160, 22 }, C::text, uf (12.0f));
-    const auto& T = target ((int) P.value ("target"));
+    const auto& T = target (juce::roundToInt (P.value ("target")));
     targetR = { b.getRight() - 210, 8, 120, 24 }; resetR = { b.getRight() - 84, 8, 68, 24 };
     jlook::button (g, targetR, C::amber, true, false, juce::String (T.name) + juce::String::fromUTF8 (" \xe2\x96\xbe"), uf (11.0f));
     jlook::button (g, resetR, C::magenta, false, false, "RESET", uf (11.0f));
@@ -877,14 +877,14 @@ void Balance::mouseDown (const juce::MouseEvent& e)
 {
     if (! profR.contains (e.position)) return;
     auto* tp = ed.P ("profile");
-    refMenu ((int) ed.proc.value ("profile")).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [tp] (int r) { if (r > 0) tp->setValueNotifyingHost (tp->convertTo0to1 ((float) (r - 1))); });
+    refMenu (juce::roundToInt (ed.proc.value ("profile"))).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [tp] (int r) { if (r > 0) tp->setValueNotifyingHost (tp->convertTo0to1 ((float) (r - 1))); });
 }
 void Balance::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1);
     jlook::card (g, b, 14, C::green, true, false, false);
     glowText (g, "BILANCIAMENTO", { 18, 8, 120, 22 }, C::text, uf (12.0f));
-    const int pr = (int) ed.proc.value ("profile");
+    const int pr = juce::roundToInt (ed.proc.value ("profile"));
     profR = { b.getRight() - 112, 8, 96, 24 };
     jlook::button (g, profR, C::green, true, false, (pr >= kGenres ? juce::String ("PEZZO") : juce::String (profile (pr).name)) + juce::String::fromUTF8 (" \xe2\x96\xbe"), uf (9.5f));
     auto area = juce::Rectangle<float> (16, 42, b.getWidth() - 30, b.getHeight() - 58); lcd (g, area, 6);
@@ -930,12 +930,12 @@ void RefPanel::chooseFile()
 void RefPanel::mouseDown (const juce::MouseEvent& e)
 {
     if (loadR.contains (e.position)) { chooseFile(); return; }
-    if (clearR.contains (e.position)) { ed.proc.clearReference(); if ((int) ed.proc.value ("profile") >= kGenres) ed.setP (ed.P ("profile"), 0); return; }
+    if (clearR.contains (e.position)) { ed.proc.clearReference(); if (juce::roundToInt (ed.proc.value ("profile")) >= kGenres) ed.setP (ed.P ("profile"), 0); return; }
     if (viewR.contains (e.position)) { ed.setP (ed.P ("view"), 1.0f); return; }
     if (genreR.contains (e.position))
     {
         auto* tp = ed.P ("profile");
-        refMenu ((int) ed.proc.value ("profile")).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [tp] (int r) { if (r > 0) tp->setValueNotifyingHost (tp->convertTo0to1 ((float) (r - 1))); });
+        refMenu (juce::roundToInt (ed.proc.value ("profile"))).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [tp] (int r) { if (r > 0) tp->setValueNotifyingHost (tp->convertTo0to1 ((float) (r - 1))); });
     }
 }
 void RefPanel::paint (juce::Graphics& g)
@@ -943,8 +943,8 @@ void RefPanel::paint (juce::Graphics& g)
     auto& P = ed.proc; auto b = getLocalBounds().toFloat().reduced (1);
     jlook::card (g, b, 14, C::amber, true, false, false);
     glowText (g, "RIFERIMENTO", { 18, 8, 160, 22 }, C::text, uf (12.0f));
-    viewR = { b.getRight() - 110, 8, 94, 24 }; jlook::button (g, viewR, C::phos, (int) P.value ("view") == 1, false, "VEDI CONFRONTO", uf (9.0f));
-    const int pr = (int) P.value ("profile"); const auto R = P.reference();
+    viewR = { b.getRight() - 110, 8, 94, 24 }; jlook::button (g, viewR, C::phos, juce::roundToInt (P.value ("view")) == 1, false, "VEDI CONFRONTO", uf (9.0f));
+    const int pr = juce::roundToInt (P.value ("profile")); const auto R = P.reference();
     genreR = { 16, 42, b.getWidth() - 30, 26 };
     jlook::button (g, genreR, C::green, true, false, juce::String ("CONFRONTA CON: ") + (pr >= kGenres ? juce::String ("PEZZO CARICATO") : juce::String (profile (pr).name)) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), uf (10.0f));
     loadR = { 16, 76, b.getWidth() * 0.62f - 16, 26 }; clearR = { b.getWidth() * 0.62f + 6, 76, b.getWidth() * 0.38f - 22, 26 };

@@ -347,7 +347,7 @@ void AddTile::mouseDown (const juce::MouseEvent&) { ed.pickModule (-1, this); }
 void RackContent::rebuild()
 {
     auto& P = ed.proc;
-    juce::String sig; sig << P.chainLen() << "/" << (int) P.value ("eq_pos") << "/" << getHeight();
+    juce::String sig; sig << P.chainLen() << "/" << juce::roundToInt (P.value ("eq_pos")) << "/" << getHeight();
     for (int s = 0; s < P.chainLen(); ++s) sig << "," << P.slotType (s);
     if (sig == signature) return;
     signature = sig;
@@ -359,7 +359,7 @@ void RackContent::rebuild()
 }
 void RackContent::layoutTiles (int height)
 {
-    auto& P = ed.proc; const int n = P.chainLen(), ep = juce::jlimit (0, n, (int) P.value ("eq_pos"));
+    auto& P = ed.proc; const int n = P.chainLen(), ep = juce::jlimit (0, n, juce::roundToInt (P.value ("eq_pos")));
     int x = 12; const int y = 8, h = height - 16;
     for (int s = 0; s <= n; ++s)
     {
@@ -384,7 +384,7 @@ void RackContent::paintOverChildren (juce::Graphics& g)
     if (dropAt < 0) return;
     float x = 6;
     for (auto* s : slots) if (s->slot < dropAt) x = (float) s->getRight() + 4;
-    if (dropAt == 0 && eqTile && (int) ed.proc.value ("eq_pos") == 0) x = 6;
+    if (dropAt == 0 && eqTile && juce::roundToInt (ed.proc.value ("eq_pos")) == 0) x = 6;
     g.setColour (kAmber); g.fillRoundedRectangle (x - 2, 6, 4, getHeight() - 12.0f, 2);
 }
 int RackContent::insertIndex (juce::Point<float> p) const
@@ -408,7 +408,7 @@ void RackContent::itemDropped (const SourceDetails& d)
 // ======================================================================= misure
 void LoudPanel::paint (juce::Graphics& g)
 {
-    auto& P = ed.proc; const auto& T = targets()[(size_t) juce::jlimit (0, (int) targets().size() - 1, (int) P.value ("target"))];
+    auto& P = ed.proc; const auto& T = targets()[(size_t) juce::jlimit (0, (int) targets().size() - 1, juce::roundToInt (P.value ("target")))];
     auto b = getLocalBounds().toFloat(); glassBox (g, b);
     auto in = b.reduced (12);
     g.setFont (alook::serif (9.5f)); g.setColour (kDim); g.drawText (juce::String::fromUTF8 ("LOUDNESS  \xc2\xb7  USCITA"), in.removeFromTop (14), juce::Justification::centredLeft);
@@ -464,7 +464,7 @@ void LoudPanel::mouseDown (const juce::MouseEvent& e)
     if (resetR.contains (e.position)) { ed.proc.resetMeter = true; return; }
     if (targetR.contains (e.position))
     {
-        juce::PopupMenu m; const int cur = (int) ed.proc.value ("target");
+        juce::PopupMenu m; const int cur = juce::roundToInt (ed.proc.value ("target"));
         for (int i = 0; i < (int) targets().size(); ++i) m.addItem (i + 1, targets()[(size_t) i].name, true, i == cur);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this] (int r) { if (r > 0) { ed.proc.setP ("target", (float) (r - 1)); repaint(); } });
     }

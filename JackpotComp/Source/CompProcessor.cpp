@@ -109,7 +109,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
     extSc = eL != nullptr;
     const bool useExt = value ("scSrc") > 0.5f && eL != nullptr;
-    const int scTo = (int) value ("scTo");
+    const int scTo = juce::roundToInt (value ("scTo"));
 
     // misura ingresso
     float pkI[2] = { 0, 0 }; double eIn = 0;
@@ -140,7 +140,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         mbNow.rel[b] = value ((p + "rel").toRawUTF8()); mbNow.gain[b] = value ((p + "gain").toRawUTF8());
         mbNow.solo[b] = value ((p + "solo").toRawUTF8()) > 0.5f; mbNow.byp[b] = value ((p + "byp").toRawUTF8()) > 0.5f;
     }
-    const bool parallel = (int) value ("route") == 2, autoG = value ("auto") > 0.5f;
+    const bool parallel = juce::roundToInt (value ("route")) == 2, autoG = value ("auto") > 0.5f;
     StageParams sp[kStages]; bool solo[kStages]; bool anyS = false; int nOn = 0;
     for (int s = 0; s < kStages; ++s) { sp[s] = stageParams (s); solo[s] = sp[s].on && value ((juce::String (stagePfx (s)) + "solo").toRawUTF8()) > 0.5f; anyS |= solo[s]; nOn += sp[s].on ? 1 : 0; }
     float* xL = aux.getWritePointer (0); float* xR = aux.getWritePointer (1);

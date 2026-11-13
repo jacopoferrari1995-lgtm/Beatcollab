@@ -20,7 +20,7 @@ void WaveView::paint (juce::Graphics& g)
     { auto p = path (S.before); juce::Path d; const float dash[] = { 5, 4 }; juce::PathStrokeType (1.3f).createDashedStroke (d, p, dash, 2); g.setColour (C::dim.withAlpha (0.8f)); g.fillPath (d); }
     // basso dopo: colore dello stato
     const auto c = Editor::corrCol (S.corrAfter);
-    if ((int) ed.proc.value ("mode") != M_OFF) { auto p = path (S.after); g.setColour (c.withAlpha (0.25f)); g.strokePath (p, juce::PathStrokeType (6.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (2.2f)); }
+    if (juce::roundToInt (ed.proc.value ("mode")) != M_OFF) { auto p = path (S.after); g.setColour (c.withAlpha (0.25f)); g.strokePath (p, juce::PathStrokeType (6.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (2.2f)); }
     // legenda
     auto leg = [&] (float x, const char* t, juce::Colour cc) { g.setColour (cc); g.fillRect (x, b.getY() + 13, 14.0f, 2.5f); g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText (t, juce::Rectangle<float> (x + 18, b.getY() + 6, 150, 16), juce::Justification::centredLeft); };
     leg (b.getX() + 14, "CASSA (sidechain)", C::text); leg (b.getX() + 160, "BASSO PRIMA", C::dim); leg (b.getX() + 290, "BASSO DOPO", c);
@@ -54,7 +54,7 @@ void StatusView::paint (juce::Graphics& g)
     bar (b.getY() + 182, "CASSA / BASSO PRIMA", sc ? shownB : 0.0f);
     bar (b.getY() + 224, "CASSA / BASSO DOPO", sc ? shown : 0.0f);
     // quadrante dell'angolo
-    const float th = ed.proc.eng.thetaUi.load(); const int m = (int) ed.proc.value ("mode");
+    const float th = ed.proc.eng.thetaUi.load(); const int m = juce::roundToInt (ed.proc.value ("mode"));
     auto dial = juce::Rectangle<float> (b.getCentreX() - 44, b.getY() + 254, 88, 88);
     g.setColour (neo::K::hi.withAlpha (0.08f)); g.drawEllipse (dial, 1.5f);
     for (int k = 0; k < 4; ++k) { const float a = k * juce::MathConstants<float>::halfPi; g.drawLine (dial.getCentreX() + std::sin (a) * 40, dial.getCentreY() - std::cos (a) * 40, dial.getCentreX() + std::sin (a) * 44, dial.getCentreY() - std::cos (a) * 44, 1.0f); }
@@ -80,7 +80,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     for (int k = 0; k < kModes; ++k)
     {
         auto pl = std::make_unique<Pill> (P ("mode"), k == M_ADAPT ? acc : k == M_INV ? C::red : k == M_ROT ? acc2 : C::dim, [k, mn] { return juce::String (mn[k]); });
-        pl->lit = [this, k] { return (int) proc.value ("mode") == k; };
+        pl->lit = [this, k] { return juce::roundToInt (proc.value ("mode")) == k; };
         pl->click = [this, k] { P ("mode")->setValueNotifyingHost (P ("mode")->convertTo0to1 ((float) k)); };
         pl->fontSize = 12.0f; addAndMakeVisible (*pl); modes.push_back (std::move (pl));
     }
@@ -109,7 +109,7 @@ void Editor::paint (juce::Graphics& g)
     titledCard (g, { 18, 76, 640, 380 }, "ONDA", "cassa e basso nella banda bassa", acc);
     titledCard (g, { 668, 76, 314, 380 }, "FASE", "", acc);
     titledCard (g, { 18, 468, 964, 176 }, "CORREZIONE", "", acc2);
-    const int m = (int) proc.value ("mode");
+    const int m = juce::roundToInt (proc.value ("mode"));
     const char* desc[] = { "Il suono passa com'e. Guarda la spia: se e rossa, basso e cassa si cancellano nei bassi.",
                            "Polarita invertita su tutto il segnale, sempre. Per quando la spia e sempre rossa.",
                            "Ruota la fase del basso sotto la FREQUENZA di un angolo fisso (ANGOLO). Sopra non cambia niente.",
@@ -123,7 +123,7 @@ void Editor::mouseDown (const juce::MouseEvent& e0) {
     { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } } const auto e = e0.withNewPosition (e0.position / scaler.s); bar.click (*this, proc, presets(), e.getPosition(), localAreaToGlobal (scaler.map (bar.preset))); }
 void Editor::timerCallback()
 {
-    const int m = (int) proc.value ("mode");
+    const int m = juce::roundToInt (proc.value ("mode"));
     kAngle->lit = m == M_ROT; kSpeed->lit = m == M_ROT || m == M_ADAPT; kAmount->lit = m == M_ADAPT; kFreq->lit = m == M_ROT || m == M_ADAPT;
     for (auto& k : knobs) { const float v = k->param->getValue() + (k->lit ? 0.0f : 9.0f); if (v != k->shown) { k->shown = v; k->repaint(); } }
     status.repaint();

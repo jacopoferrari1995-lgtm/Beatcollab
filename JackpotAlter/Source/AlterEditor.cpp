@@ -132,7 +132,7 @@ void ModelGrid::mouseMove (const juce::MouseEvent& e)
 void PitchView::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat(); lcd (g, b, 8);
-    auto& P = ed.proc; const int mode = (int) P.value ("mode");
+    auto& P = ed.proc; const int mode = juce::roundToInt (P.value ("mode"));
     const float semi = P.value ("pitch"), form = P.value ("formant");
     const float inHz = P.pitch.inHz.load(), outHz = P.pitch.outHz.load(), corr = P.pitch.corrSemi.load(), drift = P.pitch.driftSemi.load();
     auto r = b.reduced (12, 8);
@@ -252,7 +252,7 @@ void FocusView::analyse()
 static const juce::uint32 kBandCol[4] = { 0xffff7a3d, 0xffffd23f, 0xff5ef2ff, 0xffa66bff };
 void FocusView::edges (float* e, int& nb) const
 {
-    auto& P = ed.proc; nb = juce::jlimit (1, kBandsMax, (int) P.value ("bands"));
+    auto& P = ed.proc; nb = juce::jlimit (1, kBandsMax, juce::roundToInt (P.value ("bands")));
     float x[3] = { P.value ("x1"), P.value ("x2"), P.value ("x3") }; for (int k = 1; k < 3; ++k) x[k] = juce::jmax (x[k], x[k - 1] * 1.15f);
     e[0] = 20; for (int k = 0; k < nb - 1; ++k) e[k + 1] = x[k]; e[nb] = 20000;
 }
@@ -418,7 +418,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     wByp = std::make_unique<Switch> (P ("b1_byp"), C::red, "BYPASS BANDA");
     // echo
     auto ek = [this] (std::unique_ptr<Knob>& k, const char* id, const char* l, std::function<juce::String()> t) { k = std::make_unique<Knob> (P (id), C::green); k->label = l; k->text = std::move (t); };
-    ek (kEDiv, "eDiv", "TEMPO", [this] { return echoDivs()[(int) proc.value ("eDiv")]; });
+    ek (kEDiv, "eDiv", "TEMPO", [this] { return echoDivs()[juce::roundToInt (proc.value ("eDiv"))]; });
     ek (kEMs, "eMs", "TEMPO", [this] { return juce::String (juce::roundToInt (proc.value ("eMs"))) + " ms"; });
     ek (kEFb, "eFb", "FEEDBACK", [this] { return juce::String (juce::roundToInt (proc.value ("eFb") * 100)) + "%"; });
     ek (kEMix, "eMix", "MIX ECHO", [this] { return juce::String (juce::roundToInt (proc.value ("eMix") * 100)) + "%"; });
@@ -522,7 +522,7 @@ void Editor::paint (juce::Graphics& g)
                       juce::Rectangle<int> (992, 836, 180, 72), juce::Justification::topLeft, 5);
 
     // spiegazioni brevi
-    const int mode = (int) proc.value ("mode");
+    const int mode = juce::roundToInt (proc.value ("mode"));
     g.setColour (C::dim); g.setFont (uf (10.0f, false));
     g.drawFittedText (mode == TRASPONI ? "KEY e SCALA servono per QUANTIZZA e ROBOT. PITCH a scatti di semitono, SHIFT per i centesimi."
                                        : mode == QUANTIZZA ? "Ogni nota cantata viene portata sulla nota piu vicina della scala. PITCH sposta sopra o sotto."
@@ -594,7 +594,7 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
 
 void Editor::timerCallback()
 {
-    const int mode = (int) proc.value ("mode");
+    const int mode = juce::roundToInt (proc.value ("mode"));
     sKey->enabled = sScale->enabled = mode != TRASPONI; sScale->enabled = mode == QUANTIZZA;
     pitchView.trace[pitchView.tw] = proc.value ("pitch") + proc.pitch.corrSemi.load() + proc.pitch.driftSemi.load(); pitchView.tw = (pitchView.tw + 1) % (int) std::size (pitchView.trace);
     driftView.trace[driftView.tw] = proc.pitch.driftSemi.load(); driftView.tw = (driftView.tw + 1) % (int) std::size (driftView.trace);

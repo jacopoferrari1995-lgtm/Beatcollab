@@ -34,13 +34,13 @@ static Stat statOf (Editor& ed, int m)
     auto& P = ed.proc; Stat s;
     const bool on = P.value (onParam (m)) > 0.5f;
     if (! on) return { "spento", "e in catena ma spento: non tocca il suono.", "Accendilo dal quadratino a sinistra, oppure toglilo con la x se non ti serve." };
-    const float tgt = target ((int) P.value ("target")).lufs, lu = P.lufsS.load();
+    const float tgt = target (juce::roundToInt (P.value ("target"))).lufs, lu = P.lufsS.load();
     switch (m)
     {
         case BASS:
         {   const float pk = P.bassPeak.load();
-            s.brief = pk > 0.1f ? "-" + db1 (pk) : "mono < " + juce::String ((int) P.value ("bc_mono")) + " Hz";
-            s.doing = "bassi mono sotto " + juce::String ((int) P.value ("bc_mono")) + " Hz" + (pk > 0.1f ? ", tengo fermi i picchi del sub di " + db1 (pk) : juce::String (", i picchi del sub sono gia sotto controllo"));
+            s.brief = pk > 0.1f ? "-" + db1 (pk) : "mono < " + juce::String (juce::roundToInt (P.value ("bc_mono"))) + " Hz";
+            s.doing = "bassi mono sotto " + juce::String (juce::roundToInt (P.value ("bc_mono"))) + " Hz" + (pk > 0.1f ? ", tengo fermi i picchi del sub di " + db1 (pk) : juce::String (", i picchi del sub sono gia sotto controllo"));
             s.tip = "Sotto 100-120 Hz il mono non si sente come perdita ma salva i bassi in club e sul telefono."; break; }
         case DYNEQ:
         {   float mx = 0; int mb = -1; for (int b = 0; b < kEqBands; ++b) if (std::abs (P.eqDyn[b].load()) > mx) { mx = std::abs (P.eqDyn[b].load()); mb = b; }
@@ -492,7 +492,7 @@ void StatusBar::paint (juce::Graphics& g)
     }
     else
     {   // nessun effetto aperto: il master nel suo insieme
-        const float lu = P.lufsS.load(), tgt = target ((int) P.value ("target")).lufs, tp = P.tpMax.load();
+        const float lu = P.lufsS.load(), tgt = target (juce::roundToInt (P.value ("target"))).lufs, tp = P.tpMax.load();
         float grTot = P.grMax.load() + P.grLim.load();
         name = "MASTER";
         doing = lu > -60 ? "esce a " + juce::String (lu, 1) + " LUFS (obiettivo " + juce::String ((int) tgt) + "), picchi tagliati di " + juce::String (grTot, 1) + " dB, true peak " + juce::String (tp, 1)

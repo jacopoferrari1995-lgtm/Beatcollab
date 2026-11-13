@@ -425,7 +425,7 @@ void GuidePanel::paint (juce::Graphics& g)
     }
     else if (tab == 1)
     {
-        head ("ROUTING", C::phos); body (routeTip ((int) ed.proc.value ("route")));
+        head ("ROUTING", C::phos); body (routeTip (juce::roundToInt (ed.proc.value ("route"))));
         head ("SOLO", C::phos); body ("SOLO su uno stadio fa sentire solo quello che sta togliendo: se senti il corpo dello strumento e non solo i picchi, stai comprimendo troppo.");
         head ("PRESET", C::phos); body (presets()[(size_t) juce::jlimit (0, (int) presets().size() - 1, ed.proc.preset)].note);
         head ("SIDECHAIN", C::phos); body ("ESTERNO: in Ableton apri il plugin, sezione Sidechain, scegli la traccia (es. la cassa). HPF: il rilevatore ignora i bassi sotto quella frequenza. LISTEN: ascolti cosa sente il rilevatore.");
@@ -542,7 +542,7 @@ void Editor::paint (juce::Graphics& g)
     auto cardR = [&] (juce::Rectangle<float> r, juce::Colour c, const char* t) { jlook::softShadow (g, r, 14); jlook::card (g, r, 14, c, true, false, false); glowText (g, t, { r.getX() + 16, r.getY() + 6, 200, 22 }, C::text, uf (12.0f)); };
     cardR ({ rx, 78, rw, 112 }, C::magenta, "ROUTING");
     { // catena
-        const bool par = (int) proc.value ("route") == 2; auto d = juce::Rectangle<float> (rx + 16, 150, rw - 32, 32);
+        const bool par = juce::roundToInt (proc.value ("route")) == 2; auto d = juce::Rectangle<float> (rx + 16, 150, rw - 32, 32);
         g.setColour (C::dim); g.setFont (mf (9.5f)); g.drawText ("IN", juce::Rectangle<float> (d.getX(), d.getY(), 24, 32), juce::Justification::centredLeft); g.drawText ("OUT", juce::Rectangle<float> (d.getRight() - 28, d.getY(), 28, 32), juce::Justification::centredRight);
         juce::Array<int> on; for (int s = 0; s < kStages; ++s) if (sv (s, "on") > 0.5f) on.add (s);
         const float x0 = d.getX() + 26, x1 = d.getRight() - 30, cy = d.getCentreY();

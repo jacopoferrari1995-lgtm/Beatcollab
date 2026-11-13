@@ -142,7 +142,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     inS = loudIn.S;
     const bool cmp = value ("cmp") > 0.5f;
     const EqSet E = eqSettings();
-    const int n = chainLen(), eqPos = juce::jlimit (0, n, (int) value ("eq_pos")); const bool eqOn = value ("eq_on") > 0.5f;
+    const int n = chainLen(), eqPos = juce::jlimit (0, n, juce::roundToInt (value ("eq_pos"))); const bool eqOn = value ("eq_on") > 0.5f;
     // latenza totale (per compensare il confronto e dirla al DAW)
     int total = 0; float vbuf[kSlots][kP];
     for (int s = 0; s < n; ++s) { for (int i = 0; i < kP; ++i) vbuf[s][i] = sp[s][3 + i]->load(); }
@@ -225,7 +225,7 @@ void Processor::insertModule (int pos, int type)
     { const juce::SpinLock::ScopedLockType l (engLock[pos]); eng[pos].reset(); }
     setModule (pos, type);
     setP ("n", (float) (n + 1));
-    const int ep = (int) value ("eq_pos"); if (ep > pos) setP ("eq_pos", (float) (ep + 1));
+    const int ep = juce::roundToInt (value ("eq_pos")); if (ep > pos) setP ("eq_pos", (float) (ep + 1));
 }
 void Processor::removeSlot (int s)
 {
@@ -234,7 +234,7 @@ void Processor::removeSlot (int s)
     { const juce::SpinLock::ScopedLockType l (engLock[n - 1]); eng[n - 1].reset(); }
     setP (sid (n - 1, "type"), 0); irPath[n - 1] = {};
     setP ("n", (float) (n - 1));
-    const int ep = (int) value ("eq_pos"); if (ep > s) setP ("eq_pos", (float) (ep - 1));
+    const int ep = juce::roundToInt (value ("eq_pos")); if (ep > s) setP ("eq_pos", (float) (ep - 1));
 }
 void Processor::moveSlot (int from, int to)
 {

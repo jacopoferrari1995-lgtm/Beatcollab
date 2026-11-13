@@ -29,7 +29,7 @@ void CurveView::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat(); lcd (g, b, 8, ed.acc);
     auto r = b.reduced (14, 14).withTrimmedBottom (16);
-    const int m = (int) ed.proc.value ("mode"); const float drive = juce::Decibels::decibelsToGain (ed.proc.value ("drive"));
+    const int m = juce::roundToInt (ed.proc.value ("mode")); const float drive = juce::Decibels::decibelsToGain (ed.proc.value ("drive"));
     g.setColour (C::dim.withAlpha (0.25f)); g.drawLine (r.getX(), r.getBottom(), r.getRight(), r.getY(), 1.0f);
     g.drawHorizontalLine ((int) r.getCentreY(), r.getX(), r.getRight()); g.drawVerticalLine ((int) r.getCentreX(), r.getY(), r.getBottom());
     // ingresso da -2 a +2 volte il tetto
@@ -99,7 +99,7 @@ void Editor::paint (juce::Graphics& g)
     titledCard (g, { 730, 388, 312, 274 }, "OPZIONI", "", C::phos);
     g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText ("SOVRACAMPIONAMENTO", juce::Rectangle<int> (742, 426, 200, 16), juce::Justification::centredLeft);
     g.setColour (C::text.withAlpha (0.7f)); g.setFont (uf (10.0f, false));
-    g.drawFittedText (modeDesc ((int) proc.value ("mode")), juce::Rectangle<int> (32, 494, 672, 32), juce::Justification::topLeft, 2, 1.0f);
+    g.drawFittedText (modeDesc (juce::roundToInt (proc.value ("mode"))), juce::Rectangle<int> (32, 494, 672, 32), juce::Justification::topLeft, 2, 1.0f);
     // misuratori
     auto mt = [&] (float x, const char* t, float v, juce::Colour c) { vMeter (g, { x, 588, 120, 10 }, 0, c); 
         const float db = juce::Decibels::gainToDecibels (v, -60.0f); const float tt = juce::jlimit (0.0f, 1.0f, (db + 48) / 48);

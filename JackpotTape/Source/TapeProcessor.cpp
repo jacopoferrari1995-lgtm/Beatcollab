@@ -215,9 +215,9 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     uiBpm = bpm; uiHost = sync && hostPlaying;
 
     const bool shotMode = value ("mode") > 0.5f;
-    const double q = kQBeats[juce::jlimit (0, 3, (int) value ("quant"))];
+    const double q = kQBeats[juce::jlimit (0, 3, juce::roundToInt (value ("quant")))];
     const bool seqOn = value ("seqOn") > 0.5f;
-    const int steps = kBarsN[juce::jlimit (0, 3, (int) value ("bars"))] * 16;
+    const int steps = kBarsN[juce::jlimit (0, 3, juce::roundToInt (value ("bars")))] * 16;
     const double loopBeats = steps / 4.0;
 
     // parametri effetto
@@ -748,7 +748,7 @@ void Processor::loadPreset (int i)
 void Processor::generate()
 {
     juce::Random r;
-    const int style = juce::jlimit (0, 5, (int) value ("genStyle")); const float amt = value ("genAmt");
+    const int style = juce::jlimit (0, 5, juce::roundToInt (value ("genStyle"))); const float amt = value ("genAmt");
     const int bars = style == 5 ? 4 : (amt > 0.65f ? 4 : 2), S = bars * 16;
     for (int k = 0; k < kNumParams; ++k) { auto* pr = apvts.getParameter (kParams[k].id); pr->setValueNotifyingHost (pr->getDefaultValue()); }
     for (auto& row : seq) for (auto& st : row) st = false;

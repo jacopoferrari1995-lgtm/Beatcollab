@@ -21,7 +21,7 @@ enum PadParam { GAIN, LEVEL, PAN, TUNE, FINE, START, END, ATTACK, DECAY, RELEASE
                 EQON, B1ON, B1T, B1F, B1G, B1Q, B2ON, B2T, B2F, B2G, B2Q, B3ON, B3T, B3F, B3G, B3Q,
                 B4ON, B4T, B4F, B4G, B4Q, B5ON, B5T, B5F, B5G, B5Q, B6ON, B6T, B6F, B6G, B6Q,
                 CMODE, CAMT, CMAKEUP, CMIX,
-                DRIVE, BITS, RATE, SREV, SDLY, MUTE, SOLO, SLICE, SKEY, DTYPE, LGAIN, LTUNE, LPAN, LVEL, LMODE, kNumPadParams,
+                DRIVE, BITS, RATE, SREV, SDLY, MUTE, SOLO, SLICE, SKEY, DTYPE, LGAIN, LTUNE, LPAN, LVEL, LMODE, FADEIN, FADEOUT, kNumPadParams,
                 // nomi storici dell'EQ a 3 bande (kit e progetti vecchi): banda 2 = bassi, 3 = medi, 5 = alti
                 LOWG = B2G, LOWF = B2F, MIDG = B3G, MIDF = B3F, MIDQ = B3Q, HIGHG = B5G, HIGHF = B5F };
 // EQ a 6 bande per pad: parametro k (0 on, 1 tipo, 2 freq, 3 gain, 4 Q) della banda b
@@ -108,7 +108,7 @@ public:
     bool loadFile (const juce::File&, int p, bool analyse = true);
     void detectKey (int p, bool audio = true);    // tonalita del campione (nome, poi ascolto)
     void transposeTo (int p, int key);
-    int keyLock() const { return (int) apvts.getRawParameterValue ("kkey")->load() - 1; }   // -1 libera, 0..23 tonalita fissa
+    int keyLock() const { return juce::roundToInt (apvts.getRawParameterValue ("kkey")->load()) - 1; }   // -1 libera, 0..23 tonalita fissa
     bool isTonalPad (int p) const;
     void applyKeyLock (int p);                    // se la tonalita e fissata porta il pad li
     void applyKeyLockAll();
@@ -130,6 +130,17 @@ public:
     void stopAll() { stopReq = true; }
     static float estimateBpmAudio (const juce::AudioBuffer<float>& b, double sampleRate, double& strength);
     double hostBpm() const { return curBpm; }
+    // scambia due pad: suono, layer, parametri, colore, accordo, categoria e le loro note nel sequencer
+    void swapPads (int a, int b)
+    {
+        if (a == b || a < 0 || b < 0 || a >= kPads || b >= kPads) return;
+        { const juce::SpinLock::ScopedLockType l (sLock); std::swap (smp[a], smp[b]); std::swap (smp2[a], smp2[b]); }
+        for (int i = 0; i < kNumPadParams; ++i) { const float x = pad[a].v[i].load(); pad[a].v[i] = pad[b].v[i].load(); pad[b].v[i] = x; }
+        { const int c = pad[a].colour.load(); pad[a].colour = pad[b].colour.load(); pad[b].colour = c; }
+        { const int n = chordN[a].load(); chordN[a] = chordN[b].load(); chordN[b] = n; for (int k = 0; k < 5; ++k) { const int x = chordIv[a][k].load(); chordIv[a][k] = chordIv[b][k].load(); chordIv[b][k] = x; } }
+        std::swap (padCat[a], padCat[b]);
+        { const juce::SpinLock::ScopedLockType l (recLock); for (auto& e : events) { if (e.pad == a) e.pad = b; else if (e.pad == b) e.pad = a; } }
+    }
     void clearPad (int p) { setSample (p, nullptr); setLayer (p, nullptr); padCat[p] = {}; setChord (p, {}); }
     // pad accordo (progressioni MPC): semitoni delle note sopra il suono del pad (vuoto = pad normale)
     std::atomic<int> chordN[kPads] {}; std::atomic<int> chordIv[kPads][5] {};
@@ -177,12 +188,13 @@ public:
     std::atomic<int> lastVel[kPads];
     std::atomic<juce::uint32> hits[kPads];
     std::atomic<double> uiTick { 0 }, uiBpm { 120 };
+    std::atomic<double> startFrom { 0 }, seekReq { -1 };   // battuta scelta nel sequencer: il play interno parte (o salta) da li
     std::atomic<bool> uiRunning { false }, uiHost { false };
     std::atomic<float> meterL { 0 }, meterR { 0 }, busGr { 0 };
     // vista transienti: colonne a scorrimento (~3 s) con picco d'uscita e pad colpiti
     static constexpr int kScope = 480;
     std::atomic<float> scPk[kScope]; std::atomic<int> scHit[kScope], scVel[kScope]; std::atomic<int> scW { 0 };
-    int rootNote() const { return (int) apvts.getRawParameterValue ("root")->load(); }
+    int rootNote() const { return juce::roundToInt (apvts.getRawParameterValue ("root")->load()); }
     // monitor: dove sta suonando ogni pad (0..1, -1 fermo), loudness e picco dell'uscita
     std::atomic<float> padPos[kPads];
     std::atomic<float> lufsS { -100 }, peakHold { 0 };
@@ -215,6 +227,7 @@ private:
     struct Grain { double start = 0, ph = 0; };
     struct Voice
     {
+        double fin = 0, fout = 0;   // fade in / fade out in campioni della sorgente
         bool active = false, rel = false, choking = false, loop = false; int pad = 0, age = 0, gate = -1, warp = 0;
         SamplePtr s; double pos = 0, inc = 1, a0 = 0, a1 = 0, tRate = 1, pRate = 1, G = 2048, sbpm = 0, pitch = 1; int dir = 1;
         float velSemis = 0, velDb = 0, velCut = 1, panOff = 0; bool layer = false;

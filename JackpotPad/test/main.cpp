@@ -9,6 +9,34 @@
 using namespace jp;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "verb2")
+    {   // FX riverbero nel Sampler vero: picco con la manopola a 0, a 0.5, a 1
+        juce::ScopedJuceInitialiser_GUI gui0;
+        Processor p; p.prepareToPlay (48000, 512); juce::AudioBuffer<float> blk (2, 512);
+        int slot = -1; for (int k = 0; k < 8; ++k) if (juce::roundToInt (p.apvts.getRawParameterValue ("fx" + juce::String (k + 1) + "type")->load()) == pfx::REVERB) slot = k;
+        for (int k = 0; k < 8; ++k) std::printf ("t%d=%.6f ", k, p.apvts.getRawParameterValue ("fx" + juce::String (k + 1) + "type")->load()); std::printf ("slot riverbero %d\n", slot + 1); std::fflush (stdout); if (slot < 0) return 1;
+        for (float v : { 0.0f, 0.5f, 1.0f, 0.0f, 1.0f })
+        {
+            auto* pa = p.apvts.getParameter ("fx" + juce::String (slot + 1)); pa->setValueNotifyingHost (pa->convertTo0to1 (v));
+            float pk = 0;
+            for (int b = 0; b < 300; ++b) { juce::MidiBuffer m; if (b % 12 == 0) m.addEvent (juce::MidiMessage::noteOn (1, p.rootNote() + (b / 12) % 4, (juce::uint8) 110), 0); blk.clear(); p.processBlock (blk, m); pk = juce::jmax (pk, blk.getMagnitude (0, 512)); }
+            std::printf ("manopola %.1f -> picco %.2f\n", v, pk);
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "verb")
+    {   // riverbero FX: livello d'uscita appena aperto e dopo averlo ricaricato
+        juce::ScopedJuceInitialiser_GUI gui0;
+        pfx::Engine e; e.prepare (48000);
+        int ty[pfx::Engine::kSlots]; float am[pfx::Engine::kSlots]; for (int k = 0; k < pfx::Engine::kSlots; ++k) { ty[k] = pfx::OFF; am[k] = 0; }
+        ty[0] = pfx::REVERB; am[0] = 1.0f;
+        std::vector<float> L (512), R (512); juce::Random rr (1);
+        auto run = [&] (const char* tag) { float pk = 0, pin = 0; for (int b = 0; b < 200; ++b) { for (int i = 0; i < 512; ++i) { L[(size_t) i] = R[(size_t) i] = (rr.nextFloat() * 2 - 1) * 0.1f; pin = juce::jmax (pin, std::abs (L[(size_t) i])); }
+              e.process (L.data(), R.data(), 512, ty, am, 120, 0, true); for (int i = 0; i < 512; ++i) pk = juce::jmax (pk, std::abs (L[(size_t) i])); } std::printf ("%s: in %.2f out %.2f\n", tag, pin, pk); };
+        run ("appena aperto");
+        ty[0] = pfx::OFF; run ("spento"); ty[0] = pfx::REVERB; run ("ricaricato");
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "extend")
     {
         Processor p; p.prepareToPlay (44100, 512); p.loadFactoryKit (1);

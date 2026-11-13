@@ -600,7 +600,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     sidePanel = { 0, 59, 210, 489 }; rightPanel = { 1020, 59, 220, 489 };
     root.addAndMakeVisible (list); root.addAndMakeVisible (disp); root.addAndMakeVisible (fxEd); root.addAndMakeVisible (tl); root.addAndMakeVisible (meter);
     for (int f = 0; f < kNumFx; ++f) root.addAndMakeVisible (pads.add (new PadBtn (*this, f)));
-    auto choice = [this] (const char* id) { return [this, id] { return (int) proc.value (id); }; };
+    auto choice = [this] (const char* id) { return [this, id] { return juce::roundToInt (proc.value (id)); }; };
     auto setC = [this] (const char* id) { return [this, id] (int i) { pushUndo(); auto* pr = proc.apvts.getParameter (id); pr->setValueNotifyingHost (pr->convertTo0to1 ((float) i)); fxEd.repaint(); for (auto* pd : pads) pd->repaint(); tl.repaint(); }; };
     modeSeg = std::make_unique<Seg> (juce::StringArray { "Hold", "One-shot" }, choice ("mode"), setC ("mode"));
     qSeg = std::make_unique<Seg> (juce::StringArray { "Off", "1/16", "1/4", "Bar" }, choice ("quant"), setC ("quant"));
@@ -665,7 +665,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 }
 Editor::~Editor() { setLookAndFeel (nullptr); }
 
-int Editor::steps() const { static const int b[] = { 1, 2, 4, 8 }; return b[juce::jlimit (0, 3, (int) proc.value ("bars"))] * 16; }
+int Editor::steps() const { static const int b[] = { 1, 2, 4, 8 }; return b[juce::jlimit (0, 3, juce::roundToInt (proc.value ("bars")))] * 16; }
 void Editor::select (int f) { if (f != sel) { sel = f; fxEd.rebuild(); } list.repaint(); }
 
 void Editor::pushUndo()

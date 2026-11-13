@@ -82,11 +82,11 @@ Settings Processor::settings() const
         X.on = g (0) > 0.5f; X.rateHz = g (1); X.sync = g (2) > 0.5f; X.div = (int) g (3); X.depth = g (4); X.character = g (5);
         X.fb = g (6); X.freq = g (7); X.stereo = g (8); X.shape = (int) g (9); X.mix = g (10); X.dryDb = ptr[f][11] != nullptr ? g (11) : 0.0f;
     }
-    auto& O = S.fx[OMNIVOX]; O.key = (int) value ("omni_key"); O.scale = (int) value ("omni_scale");
+    auto& O = S.fx[OMNIVOX]; O.key = juce::roundToInt (value ("omni_key")); O.scale = juce::roundToInt (value ("omni_scale"));
     for (int v = 0; v < 4; ++v) { O.deg[v] = (int) value (("omni_v" + juce::String (v + 1)).toRawUTF8()); O.lvlDb[v] = value (("omni_l" + juce::String (v + 1)).toRawUTF8()); }
     S.tone = value ("tone"); S.width = value ("width"); S.bassMono = value ("bassmono"); S.outDb = value ("out");
-    S.panOn = value ("pan") > 0.5f; S.panHz = value ("panrate"); S.panSync = value ("pansync") > 0.5f; S.panDiv = (int) value ("pandiv");
-    S.panDepth = value ("pandepth"); S.panShape = (int) value ("panshape");
+    S.panOn = value ("pan") > 0.5f; S.panHz = value ("panrate"); S.panSync = value ("pansync") > 0.5f; S.panDiv = juce::roundToInt (value ("pandiv"));
+    S.panDepth = value ("pandepth"); S.panShape = juce::roundToInt (value ("panshape"));
     return S;
 }
 

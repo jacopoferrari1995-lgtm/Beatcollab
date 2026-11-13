@@ -30,12 +30,12 @@ bool Processor::isBusesLayoutSupported (const BusesLayout& l) const
 }
 void Processor::prepareToPlay (double s, int)
 {
-    sr = s; eng.prepare (s, kChunk); lastOs = (int) value ("os"); setLatencySamples (eng.latency (lastOs));
+    sr = s; eng.prepare (s, kChunk); lastOs = juce::roundToInt (value ("os")); setLatencySamples (eng.latency (lastOs));
 }
 Settings Processor::settings() const
 {
     Settings S;
-    S.driveDb = value ("drive"); S.ceilDb = value ("ceil"); S.mode = (int) value ("mode"); S.os = (int) value ("os");
+    S.driveDb = value ("drive"); S.ceilDb = value ("ceil"); S.mode = juce::roundToInt (value ("mode")); S.os = juce::roundToInt (value ("os"));
     S.punch = value ("punch"); S.mix = value ("mix"); S.outDb = value ("out"); S.split = value ("split") > 0.5f; S.splitHz = value ("splitHz");
     S.link = value ("link") > 0.5f; S.delta = value ("delta") > 0.5f;
     return S;

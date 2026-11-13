@@ -297,10 +297,10 @@ bool Processor::isBusesLayoutSupported (const BusesLayout& l) const
 Settings Processor::settings() const
 {
     Settings S;
-    S.mode = (int) value ("mode"); S.pitch = value ("pitch"); S.formant = value ("formant"); S.link = value ("link") > 0.5f;
-    S.key = (int) value ("key"); S.scale = (int) value ("scale");
-    S.drift = value ("drift"); S.driftRate = value ("driftRate"); S.driftType = (int) value ("driftType");
-    S.pmix = value ("pmix"); S.bands = (int) value ("bands");
+    S.mode = juce::roundToInt (value ("mode")); S.pitch = value ("pitch"); S.formant = value ("formant"); S.link = value ("link") > 0.5f;
+    S.key = juce::roundToInt (value ("key")); S.scale = juce::roundToInt (value ("scale"));
+    S.drift = value ("drift"); S.driftRate = value ("driftRate"); S.driftType = juce::roundToInt (value ("driftType"));
+    S.pmix = value ("pmix"); S.bands = juce::roundToInt (value ("bands"));
     for (int k = 0; k < 3; ++k) S.xo[k] = value (("x" + juce::String (k + 1)).toRawUTF8());
     for (int b = 0; b < kBandsMax; ++b)
     {
@@ -309,9 +309,9 @@ Settings Processor::settings() const
         B.mix = value ((p + "mix").toRawUTF8()); B.lvlDb = value ((p + "lvl").toRawUTF8()); B.solo = value ((p + "solo").toRawUTF8()) > 0.5f; B.byp = value ((p + "byp").toRawUTF8()) > 0.5f;
     }
     S.vWide = value ("vWide"); S.vPan = value ("vPan"); S.vEcho = value ("vEcho") > 0.5f;
-    S.eOn = value ("eOn") > 0.5f; S.eSync = value ("eSync") > 0.5f; S.eDiv = (int) value ("eDiv"); S.eMs = value ("eMs"); S.eFb = value ("eFb");
+    S.eOn = value ("eOn") > 0.5f; S.eSync = value ("eSync") > 0.5f; S.eDiv = juce::roundToInt (value ("eDiv")); S.eMs = value ("eMs"); S.eFb = value ("eFb");
     S.eMix = value ("eMix"); S.eLo = value ("eLo"); S.eHi = value ("eHi"); S.eSat = value ("eSat"); S.ePing = value ("ePing") > 0.5f;
-    S.order = (int) value ("order"); S.autoGain = value ("auto") > 0.5f; S.mix = value ("mix"); S.outDb = value ("out");
+    S.order = juce::roundToInt (value ("order")); S.autoGain = value ("auto") > 0.5f; S.mix = value ("mix"); S.outDb = value ("out");
     return S;
 }
 
