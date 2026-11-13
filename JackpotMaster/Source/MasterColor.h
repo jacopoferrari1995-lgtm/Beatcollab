@@ -97,7 +97,13 @@ public:
         ap.prepare (sp); ap.setType (juce::dsp::LinkwitzRileyFilterType::allpass);
         for (auto& b : st) for (auto& c : b) c = {};
         lx1 = lx2 = -1;
-        for (int b = 0; b < kExBands; ++b) for (int c = 0; c < 2; ++c) { st[b][c].warm.set (Biquad::HCUT, 9000, 0, 0.7, sr); st[b][c].bright.set (Biquad::LCUT, 3000, 0, 0.7, sr); }
+        for (int b = 0; b < kExBands; ++b) for (int c = 0; c < 2; ++c)
+        {
+            st[b][c].warm.set (Biquad::HCUT, 9000, 0, 0.7, sr); st[b][c].bright.set (Biquad::LCUT, 3000, 0, 0.7, sr);
+            static const double hpHz[kExBands] = { 60, 400, 3000 };   // sotto queste frequenze le "armoniche" sono solo intermodulazione: via
+            st[b][c].hpA = (float) std::exp (-juce::MathConstants<double>::twoPi * hpHz[b] / sr);
+            st[b][c].eK = (float) std::exp (-1.0 / (0.08 * sr));
+        }
     }
     void process (float* L, float* R, int n, const ExSettings& S)
     {
@@ -128,7 +134,7 @@ public:
     }
     float meter = 0;
 private:
-    struct St { AdaaTanh s; Biquad warm, bright; };
+    struct St { AdaaTanh s; Biquad warm, bright; float hpS = 0, hpA = 0.99f, eIn = 0, eOut = 0, eK = 0.999f, gS = 1; };
     // aggiunge armoniche: in parallelo alla banda, la parte lineare si cancella e restano le armoniche
     inline float excite (St& t, float x, int mode, float amt)
     {
@@ -143,10 +149,70 @@ private:
             case RETRO:     h = t.s (x * g * 1.8f, 0.0f) / (g * 1.8f); break;
             default:        { const float hp = t.bright (x); h = x + t.s (hp * g * 1.5f, 0.5f) / (g * 1.5f) - hp; break; }   // armoniche solo della parte alta
         }
-        // la differenza tra banda saturata e pulita = solo armoniche; la si aggiunge dosata
-        return x + (h - x) * amt * 1.6f;
+        // armoniche = banda saturata meno banda pulita, ripulite dalle intermodulazioni sotto la banda (passa alto) e aggiunte dosate.
+        // La saturazione abbassa un po' la fondamentale: un inviluppo lento rimette il livello della banda dov'era (si aggiunge brillantezza, non volume giu').
+        float harm = h - x;
+        t.hpS = harm + t.hpA * (t.hpS - harm); harm -= t.hpS;
+        const float y = x + harm * amt * amt * 1.6f;   // curva morbida: 50% = colore, 100% = deciso
+        t.eIn = t.eK * t.eIn + (1 - t.eK) * std::abs (x); t.eOut = t.eK * t.eOut + (1 - t.eK) * std::abs (y);
+        const float gc = t.eOut > 1e-6f ? juce::jlimit (0.7f, 1.4f, t.eIn / t.eOut) : 1.0f;
+        t.gS += (gc - t.gS) * 0.001f;
+        return y * t.gS;
     }
     double sr = 48000; float lx1 = -1, lx2 = -1;
     juce::dsp::LinkwitzRileyFilter<float> x1, x2, ap; St st[kExBands][2];
+};
+
+// --------------------------------------------------------------------------- EQ 432 (ispirato al classico parametrico da mastering a 5 bande)
+// Curve larghe e "musicali", bande sovrapposte, gamma di guadagno commutabile (6 / 9 / 12 dB come le tre versioni hardware),
+// BASSI e ALTI campana o shelf. COLORE aggiunge l'impronta dello stadio discreto in classe A (armoniche pari leggerissime).
+constexpr int k432Bands = 5;
+struct Eq432Settings { float f[k432Bands] { 60, 250, 1000, 4000, 12000 }, g[k432Bands] {}, q[k432Bands] { 0.7f, 0.8f, 0.8f, 0.8f, 0.7f }; bool shelf[2] { true, true }; int range = 1; float colour = 0; bool delta = false; };
+inline float eq432Range (int r) { return r == 0 ? 6.0f : r == 2 ? 12.0f : 9.0f; }
+inline juce::NormalisableRange<float> eq432Freq (int b)
+{
+    static const float lo[k432Bands] = { 20, 60, 200, 800, 2000 }, hi[k432Bands] = { 400, 1200, 4000, 12000, 20000 };
+    return { lo[b], hi[b], 0, 0.4f };
+}
+class Eq432
+{
+public:
+    void prepare (double s) { sr = s; for (auto& c : f) for (auto& x : c) x.reset(); for (auto& k : key) k = -1; for (auto& a : sat) a = {}; dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0; }
+    void process (float* L, float* R, int n, const Eq432Settings& S)
+    {
+        const float rng = eq432Range (S.range);
+        bool act[k432Bands];
+        for (int b = 0; b < k432Bands; ++b)
+        {
+            const float gdb = juce::jlimit (-1.0f, 1.0f, S.g[b]) * rng;
+            act[b] = std::abs (gdb) > 0.01f;
+            const int type = (b == 0 && S.shelf[0]) ? Biquad::LSHELF : (b == k432Bands - 1 && S.shelf[1]) ? Biquad::HSHELF : Biquad::BELL;
+            // Q proporzionale: con poco guadagno la campana si allarga (comportamento tipico dei parametrici passivi/discreti d'epoca)
+            const float q = type == Biquad::BELL ? S.q[b] * (0.6f + 0.4f * std::abs (gdb) / rng) : juce::jmin (1.0f, S.q[b]);
+            const float k = (float) type * 100000.0f + S.f[b] + gdb * 1000.0f + q * 10.0f;
+            if (k != key[b]) { key[b] = k; for (int c = 0; c < 2; ++c) { const double z1 = f[c][b].z1, z2 = f[c][b].z2; f[c][b].set (type, S.f[b], gdb, q, sr); f[c][b].z1 = z1; f[c][b].z2 = z2; } }
+        }
+        const float col = S.colour, drv = 1.0f + col * 2.5f;
+        const float dA = 1.0f - (float) (juce::MathConstants<double>::twoPi * 8.0 / sr);
+        float* io[2] = { L, R };
+        for (int c = 0; c < 2; ++c)
+        {
+            float* x = io[c];
+            for (int i = 0; i < n; ++i)
+            {
+                const float in = x[i]; float y = in;
+                for (int b = 0; b < k432Bands; ++b) if (act[b]) y = f[c][b] (y);
+                if (col > 0.001f)
+                {   // classe A: un filo di asimmetria (pari) che cresce col livello, livello d'uscita invariato
+                    float v = sat[c] (y * drv, 0.12f * col) / drv;
+                    const float o = v - dcX[c] + dA * dcY[c]; dcX[c] = v; dcY[c] = o;
+                    y = y + (o - y) * col;
+                }
+                x[i] = S.delta ? y - in : y;
+            }
+        }
+    }
+private:
+    double sr = 48000; Biquad f[2][k432Bands]; float key[k432Bands] { -1, -1, -1, -1, -1 }; AdaaTanh sat[2]; float dcX[2] {}, dcY[2] {};
 };
 }

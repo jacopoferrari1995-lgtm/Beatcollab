@@ -70,7 +70,7 @@ inline float busRel (int i) { static const float r[] = { 100, 300, 600, 1200, -1
 class BusComp
 {
 public:
-    void prepare (double s) { sr = s; for (auto& h : hp) h.reset(); lastHp = -1; ms = 0; gdb = 0; slow = 0; }
+    void prepare (double s) { sr = s; for (auto& h : hp) h.reset(); lastHp = -1; ms = 0; gdb = 0; slow = 0; avgGr = 0; }
     void process (float* L, float* R, int n, const BusSettings& S)
     {
         if (std::abs (S.scHpf - lastHp) > 0.5f) { lastHp = S.scHpf; for (auto& h : hp) { h.set (Biquad::LCUT, juce::jmax (20.0f, S.scHpf), 0, 0.7, sr); h.reset(); } }
@@ -78,8 +78,12 @@ public:
         const float aK = (float) std::exp (-1.0 / (juce::jmax (0.3f, attMs) * 0.001 * sr));
         const float rFast = (float) std::exp (-1.0 / ((relMs > 0 ? relMs : 150.0f) * 0.001 * sr)), rSlow = (float) std::exp (-1.0 / (1.2 * sr));
         const float msK = (float) std::exp (-1.0 / (0.012 * sr));                 // finestra RMS 12 ms
-        const float knee = 10.0f;
-        const float mk = dbToG (S.makeup + (S.autoMakeup ? juce::jmin (S.range, -downGain (-6.0f, S.thr, ratio, knee)) * 0.6f : 0.0f));
+        // ginocchio legato al rapporto: 1.5:1 e 2:1 morbidissimi (colla), 4:1 medio, 10:1 quasi un limitatore
+        const float knee = ratio < 1.8f ? 12.0f : ratio < 3.0f ? 10.0f : ratio < 6.0f ? 6.0f : 3.0f;
+        // AUTO MAKEUP che segue il programma: restituisce la riduzione media (finestra di 3 s), cosi' il confronto on/off e' a volume pari
+        const float avK = (float) std::exp (-(double) n / (3.0 * sr));
+        const float mkDb = S.makeup + (S.autoMakeup ? juce::jmin (S.range, avgGr) * 0.85f : 0.0f);
+        const float mkStart = mkG < 0 ? dbToG (mkDb) : mkG, mkEnd = dbToG (mkDb);
         float grMaxB = 0;
         for (int i = 0; i < n; ++i)
         {
@@ -96,15 +100,16 @@ public:
                 const float k = gdb < slow - 1.5f ? rFast : (float) std::exp (-1.0 / (0.7 * sr));
                 gdb = k * gdb + (1 - k) * target;
             }
-            grMaxB = juce::jmin (grMaxB, gdb);
-            const float g = dbToG (gdb) * mk;
+            grMaxB = juce::jmin (grMaxB, gdb); grSum += gdb;
+            const float g = dbToG (gdb) * (mkStart + (mkEnd - mkStart) * (float) (i + 1) / (float) n);
             L[i] = L[i] + (L[i] * g - L[i]) * S.mix; R[i] = R[i] + (R[i] * g - R[i]) * S.mix;
         }
-        gr = -grMaxB;
+        gr = -grMaxB; mkG = mkEnd;
+        avgGr = avK * avgGr + (1 - avK) * (-grSum / (float) juce::jmax (1, n)); grSum = 0;
     }
     float gr = 0;
 private:
-    double sr = 48000; Biquad hp[2]; float lastHp = -1, ms = 0, gdb = 0, slow = 0;
+    double sr = 48000; Biquad hp[2]; float lastHp = -1, ms = 0, gdb = 0, slow = 0, avgGr = 0, grSum = 0, mkG = -1;
 };
 
 // --------------------------------------------------------------------------- MULTIBANDA (3 bande, giu + su, stile OTT)

@@ -252,8 +252,19 @@ void AdvPanel::resized()
     auto b = getLocalBounds().toFloat();
     closeR = { b.getRight() - 46, 14, 30, 24 }; resetR = { b.getRight() - 160, 14, 106, 24 };
     const int n = knobs.size(); if (n == 0) return;
-    const int S = 76, w = S + 22, gap = 34, tot = n * w + (n - 1) * gap, x0 = (int) b.getCentreX() - tot / 2;
-    for (int i = 0; i < n; ++i) knobs[i]->setBounds (juce::Rectangle<int> (x0 + i * (w + gap), 76, w, S + 38).expanded (Knob::pad));
+    if (n <= 6)
+    {
+        const int S = 76, w = S + 22, gap = 34, tot = n * w + (n - 1) * gap, x0 = (int) b.getCentreX() - tot / 2;
+        for (int i = 0; i < n; ++i) knobs[i]->setBounds (juce::Rectangle<int> (x0 + i * (w + gap), 76, w, S + 38).expanded (Knob::pad));
+        return;
+    }
+    // tanti parametri (riverbero, delay): due file da 5
+    const int per = (n + 1) / 2, S = 46, w = S + 50, gap = 30, tot = per * w + (per - 1) * gap, x0 = (int) b.getCentreX() - tot / 2;
+    for (int i = 0; i < n; ++i)
+    {
+        const int row = i / per, col = i % per;
+        knobs[i]->setBounds (juce::Rectangle<int> (x0 + col * (w + gap), 44 + row * 92, w, S + 38).expanded (Knob::pad));
+    }
 }
 void AdvPanel::paint (juce::Graphics& g)
 {
@@ -264,7 +275,7 @@ void AdvPanel::paint (juce::Graphics& g)
     g.setFont (f (14.0f, 1)); g.setColour (K::ink);
     g.drawText ("SLOT " + juce::String (k + 1) + U ("  \xc2\xb7  ") + pfx::info (t).name, juce::Rectangle<float> (104, 14, 400, 24), juce::Justification::centredLeft);
     g.setFont (f (9.0f)); g.setColour (K::faint);
-    g.drawText (U ("solo con il mouse  \xc2\xb7  la manopola del controller resta quella grande  \xc2\xb7  doppio clic = valore base"), juce::Rectangle<float> (20, b.getBottom() - 30, b.getWidth() - 40, 16), juce::Justification::centredLeft);
+    if (knobs.size() <= 6) g.drawText (U ("solo con il mouse  \xc2\xb7  la manopola del controller resta quella grande  \xc2\xb7  doppio clic = valore base"), juce::Rectangle<float> (20, b.getBottom() - 30, b.getWidth() - 40, 16), juce::Justification::centredLeft);
     chip (g, resetR, "RIPRISTINA", false, K::amber, 8.0f);
     chip (g, closeR, U ("\xc3\x97"), false, K::pink, 11.0f);
 }

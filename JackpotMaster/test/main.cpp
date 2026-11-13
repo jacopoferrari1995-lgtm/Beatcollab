@@ -39,7 +39,7 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI gui;
     const double sr = 48000;
     auto blank = [&] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); return p; };
-    auto fresh = [&] { auto p = blank(); setP (*p, "mx_on", 1); setP (*p, "lm_on", 1); setP (*p, "mx_gain", 4); return p; };
+    auto fresh = [&] { auto p = blank(); setP (*p, "mode", 1); setP (*p, "mx_on", 1); setP (*p, "lm_on", 1); setP (*p, "mx_gain", 4); return p; };
     juce::Random rnd (7);
     // materiale di prova "beat": cassa (sinusoide che scende), rullante (rumore), 808, hat, con picchi tra i campioni
     auto beat = [&] (int i, float& l, float& r)
@@ -173,6 +173,8 @@ int main (int argc, char** argv)
         Editor ed (*p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         if (auto* pg = std::getenv ("JPAGE")) ed.select (std::atoi (pg));
+        if (auto* av = std::getenv ("JAVIEW")) { ed.advView = std::atoi (av); ed.applyAdvView(); }
+        if (std::getenv ("JEQPOP")) { ed.eqPage.view.tick(); ed.eqPage.view.sel = 2; ed.eqPage.view.popBand = 2; auto* d = p->apvts.getParameter (eqId (2, "dyn")); d->setValueNotifyingHost (1); auto* gg = p->apvts.getParameter (eqId (2, "g")); gg->setValueNotifyingHost (gg->convertTo0to1 (-3)); ed.eqPage.view.updatePop(); }
         if (std::getenv ("JREF"))
         {
             juce::File wf ("/tmp/jref.wav"); wf.deleteFile();
@@ -205,7 +207,7 @@ int main (int argc, char** argv)
         std::printf ("default neutro: differenza %.1f dB (deve essere molto bassa)\n", 10 * std::log10 (e / a.size() + 1e-30));
     }
     {   // delta del bass control: solo sotto la frequenza
-        auto p = blank(); setP (*p, "bc_on", 1); setP (*p, "bc_punch", 0.8f); setP (*p, "bc_bal", 3); setP (*p, "bc_delta", 1); setP (*p, "bc_freq", 120);
+        auto p = blank(); setP (*p, "mode", 1); setP (*p, "bc_on", 1); setP (*p, "bc_punch", 0.8f); setP (*p, "bc_bal", 3); setP (*p, "bc_delta", 1); setP (*p, "bc_freq", 120);
         std::vector<float> a, b; run (*p, [&] (int i, float& l, float& r) { const double t = i / sr; l = r = (float) (0.3 * std::sin (2 * 3.14159265 * 50 * t) * (std::fmod (t, 0.5) < 0.2 ? 1 : 0.2) + 0.3 * std::sin (2 * 3.14159265 * 2000 * t)); }, 96000, a, b);
         juce::dsp::FFT f (15); std::vector<float> d (65536, 0); for (int i = 0; i < 32768; ++i) d[(size_t) i] = a[(size_t) (48000 + i)] * (0.5f - 0.5f * std::cos (6.2831853f * i / 32768));
         f.performFrequencyOnlyForwardTransform (d.data(), true);
@@ -213,7 +215,7 @@ int main (int argc, char** argv)
         std::printf ("delta bassi: 50 Hz %.1f dB, 2 kHz %.1f dB (deve sparire)\n", at (50), at (2000));
     }
     {   // exciter acceso ma a zero = piatto; tape: armoniche
-        auto p = blank(); setP (*p, "ex_on", 1);
+        auto p = blank(); setP (*p, "mode", 1); setP (*p, "ex_on", 1);
         std::vector<float> a, b; run (*p, [] (int i, float& l, float& r) { l = r = i == 100 ? 0.5f : 0.0f; }, 65536, a, b);
         juce::dsp::FFT f (16); std::vector<float> d (131072, 0); for (int i = 0; i < 65536; ++i) d[(size_t) i] = a[(size_t) i];
         f.performFrequencyOnlyForwardTransform (d.data(), true);
@@ -221,18 +223,18 @@ int main (int argc, char** argv)
         std::printf ("exciter a zero: %.2f .. %.2f dB\n", mn, mx2);
         for (int m = 0; m < 3; ++m)
         {
-            auto q = blank(); setP (*q, "tp_on", 1); setP (*q, "tp_model", (float) m); setP (*q, "tp_drive", 0.5f);
+            auto q = blank(); setP (*q, "mode", 1); setP (*q, "tp_on", 1); setP (*q, "tp_model", (float) m); setP (*q, "tp_drive", 0.5f);
             std::vector<float> x, y; run (*q, [&] (int i, float& l, float& r) { l = r = 0.4f * (float) std::sin (2 * 3.14159265 * 100 * i / sr); }, 96000, x, y);
             bool ok = true; for (auto v : x) ok &= std::isfinite (v);
             std::printf ("tape %d drive 50%%: THD %.2f%% %s\n", m, thd (x, 48000, sr, 100), ok ? "" : "NaN");
         }
-        auto e = blank(); setP (*e, "ex_on", 1); setP (*e, "ex2_amt", 0.5f); setP (*e, "ex2_mode", 0);
+        auto e = blank(); setP (*e, "mode", 1); setP (*e, "ex_on", 1); setP (*e, "ex2_amt", 0.5f); setP (*e, "ex2_mode", 0);
         std::vector<float> x, y; run (*e, [&] (int i, float& l, float& r) { l = r = 0.3f * (float) std::sin (2 * 3.14159265 * 1000 * i / sr); }, 96000, x, y);
         std::printf ("exciter medi valvola 50%%: THD %.2f%%\n", thd (x, 48000, sr, 1000));
     }
     // fase 2: moduli neutri = somma piatta (risposta all'impulso, spettro)
     {
-        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "bc_on", 1); setP (*p, "eq_on", 1); setP (*p, "im_on", 1);
+        auto p = fresh(); setP (*p, "mode", 1); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "bc_on", 1); setP (*p, "eq_on", 1); setP (*p, "im_on", 1);
         std::vector<float> a, b; run (*p, [] (int i, float& l, float& r) { l = i == 100 ? 1.0f : 0.0f; r = i == 100 ? 0.5f : 0.0f; }, 65536, a, b);
         juce::dsp::FFT f (16); std::vector<float> d (131072, 0); for (int i = 0; i < 65536; ++i) d[(size_t) i] = a[(size_t) i];
         f.performFrequencyOnlyForwardTransform (d.data(), true);
@@ -252,7 +254,7 @@ int main (int argc, char** argv)
     {   // EQ dinamico: banda a 1 kHz, soglia -30, range -9: un tono forte viene abbassato, uno debole no
         for (float amp : { 0.5f, 0.01f })
         {
-            auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "eq_on", 1); setP (*p, eqId (2, "f"), 1000); setP (*p, eqId (2, "dyn"), 1); setP (*p, eqId (2, "thr"), -30); setP (*p, eqId (2, "rng"), -9); setP (*p, eqId (2, "q"), 1.5f);
+            auto p = fresh(); setP (*p, "mode", 1); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "eq_on", 1); setP (*p, eqId (2, "f"), 1000); setP (*p, eqId (2, "dyn"), 1); setP (*p, eqId (2, "thr"), -30); setP (*p, eqId (2, "rng"), -9); setP (*p, eqId (2, "q"), 1.5f);
             std::vector<float> a, b; run (*p, [&] (int i, float& l, float& r) { l = r = amp * (float) std::sin (2 * 3.14159265 * 1000 * i / sr); }, 48000, a, b);
             float pk = 0; for (size_t i = 30000; i < a.size(); ++i) pk = juce::jmax (pk, std::abs (a[i]));
             std::printf ("EQ dinamico, tono %.2f: uscita %.1f dB rispetto all'ingresso (dinamica %.1f dB)\n", amp, gToDb (pk / amp), p->eqDyn[2].load());

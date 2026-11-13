@@ -104,6 +104,21 @@ int main (int argc, char** argv)
                 std::printf ("reverb 80%% con MIX slot %3.0f%%: differenza dal pulito %.1f dB\n", m * 100, 10 * std::log10 (d / e + 1e-20));
             }
         }
+        // riverbero: tempo di decadimento misurato (T30 x 2) per ogni tipo
+        for (int ty = 0; ty < pfx::Verb::kTypes; ++ty)
+            for (float dec : { 1.0f, 3.0f })
+            {
+                pfx::Verb v; v.prepare (sr); pfx::Verb::Params vp; vp.type = ty; vp.decay = dec;
+                const int NN = (int) (sr * 8); std::vector<float> il ((size_t) NN, 0.0f), ol ((size_t) NN), orr ((size_t) NN);
+                il[100] = 1.0f;
+                for (int o = 0; o < NN; o += 512) v.process (il.data() + o, il.data() + o, ol.data() + o, orr.data() + o, std::min (512, NN - o), vp);
+                // curva di Schroeder
+                std::vector<double> e ((size_t) NN); double acc = 0; bool nan = false;
+                for (int i = NN - 1; i >= 0; --i) { if (! std::isfinite (ol[(size_t) i])) nan = true; acc += (double) ol[(size_t) i] * ol[(size_t) i] + (double) orr[(size_t) i] * orr[(size_t) i]; e[(size_t) i] = acc; }
+                auto tAt = [&] (double db) { for (int i = 0; i < NN; ++i) if (10 * std::log10 (e[(size_t) i] / e[0] + 1e-30) < db) return i / sr; return NN / sr; };
+                float pk = 0; for (float x : ol) pk = std::max (pk, std::abs (x));
+                std::printf ("riverbero %-8s decay %.0f s: misurato RT60 %.2f s  picco %.2f  nan %d\n", pfx::Verb::typeName (ty), dec, (tAt (-35) - tAt (-5)) * 2.0, pk, (int) nan);
+            }
         pc.swapSlots (0, 4); std::printf ("scambio 1<->5: slot1 %s, slot5 %s\n", pfx::info (pc.slotType (0)).name, pfx::info (pc.slotType (4)).name);
         return 0;
     }
@@ -114,6 +129,7 @@ int main (int argc, char** argv)
         p.P (amtId (2))->setValueNotifyingHost (0.55f); p.P (amtId (0))->setValueNotifyingHost (0.3f);
         std::vector<float> o; run (p, 400, o);
         Editor ed (p); for (int i = 0; i < 10; ++i) ed.repaint();
+        if (auto* ss = std::getenv ("JSLOT")) p.setSlot (2, std::atoi (ss), 0.5f);
         if (std::getenv ("JADV")) { p.setAdv (2, 0, 0.3f); ed.advPanel.open (std::atoi (std::getenv ("JADV"))); for (auto* c : ed.cards) c->repaint(); }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);

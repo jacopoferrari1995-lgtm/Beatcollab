@@ -145,7 +145,7 @@ private:
 };
 
 // --------------------------------------------------------------------------- EQ DINAMICO (6 bande, stereo / mid / side)
-constexpr int kEqBands = 6;
+constexpr int kEqBands = 12;
 struct EqBand { bool on = true, dyn = false; int type = 0, ch = 0; float f = 1000, g = 0, q = 1, thr = -24, rng = -6; };
 class DynEq
 {
@@ -209,7 +209,7 @@ public:
     double sampleRate() const { return sr; }
 private:
     double sr = 48000;
-    Biquad flt[kEqBands][2], det[kEqBands], det2[kEqBands]; Env env[kEqBands]; EqBand last[kEqBands]; float lastG[kEqBands] { 99, 99, 99, 99, 99, 99 };
+    Biquad flt[kEqBands][2], det[kEqBands], det2[kEqBands]; Env env[kEqBands]; EqBand last[kEqBands]; float lastG[kEqBands] { 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99 };
 };
 
 // --------------------------------------------------------------------------- IMAGER (4 bande, M/S)

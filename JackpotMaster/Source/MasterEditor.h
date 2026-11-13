@@ -142,7 +142,7 @@ class ActBtn : public juce::Component
 {
 public:
     ActBtn (juce::String t, juce::Colour c, std::function<void()> f) : text (std::move (t)), col (c), fn (std::move (f)) {}
-    void paint (juce::Graphics& g) override { jlook::button (g, getLocalBounds().toFloat(), col, down, hover, text, jlook::ui (11.0f, 2)); }
+    void paint (juce::Graphics& g) override { neo::chip (g, getLocalBounds().toFloat().reduced (2, 1), text, down, col, 9.0f, hover); }
     void mouseDown (const juce::MouseEvent&) override { down = true; repaint(); if (fn) fn(); }
     void mouseUp (const juce::MouseEvent&) override { down = false; repaint(); }
     void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::PointingHandCursor); repaint(); }
@@ -150,22 +150,49 @@ public:
     juce::String text; juce::Colour col; std::function<void()> fn; bool down = false, hover = false;
 };
 
+// EQ stile Pro-Q: grafico con i punti, finestrella della banda, spettro prima/dopo
+class EqView;
+class EqPop : public juce::Component
+{
+public:
+    explicit EqPop (EqView& v) : view (v) {}
+    void show (int band);
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override { dragK = -1; }
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    EqView& view; int band = -1;
+    struct Hot { juce::Rectangle<float> r; int id; };
+    std::vector<Hot> hots;
+private:
+    int dragK = -1; float dragStart = 0; int hit (juce::Point<float>) const;
+};
 class EqView : public juce::Component
 {
 public:
-    EqView (Editor& e) : ed (e) {}
+    explicit EqView (Editor&);
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
-    float xOf (float f) const { return (float) (std::log (f / 20.0) / std::log (1000.0) * getWidth()); }
-    float fOf (float x) const { return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, x / (float) getWidth())); }
-    float yOf (float db) const { return getHeight() * 0.5f - db / 20.0f * getHeight() * 0.5f; }
-    float dbOf (float y) const { return (getHeight() * 0.5f - y) / (getHeight() * 0.5f) * 20.0f; }
-    juce::Point<float> node (int b) const;
-    Editor& ed; int drag = -1; float sp[240] {}; Analyzer an;
+    void tick();
+    void bandMenu (int b);
+    void updatePop();
+    float val (int b, const char* k) const;
+    void setV (int b, const char* k, float v);
+    float xOf (float f) const; float fOf (float x) const; float yOf (float db) const; float dbOf (float y) const;
+    juce::Point<float> nodeOf (int b) const; int hit (juce::Point<float>) const;
+    juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (8).withTrimmedTop (6).withTrimmedBottom (16).withTrimmedLeft (26); }
+    Editor& ed; EqPop pop { *this };
+    int hover = -1, drag = -1, sel = -1, popBand = -1, popHold = 0;
+private:
+    juce::dsp::FFT fft { 12 }; std::vector<float> win, buf, specPre, specPost;
 };
 class EqPage : public ModPage
 {
@@ -173,14 +200,7 @@ public:
     EqPage (Editor&);
     void paint (juce::Graphics& g) override;
     void resized() override;
-    void mouseDown (const juce::MouseEvent&) override;
-    void selectBand (int b);
-    juce::Rectangle<float> chip (int b) const { return { 16 + b * 138.0f, 356, 130, 28 }; }
-    EqView view; int band = 0; std::unique_ptr<ActBtn> solo;
-    juce::Rectangle<float> soloBox (int b) const { return chip (b).removeFromRight (28).reduced (3, 4); }
-    void toggleSolo (int b);
-    std::unique_ptr<Segs> type[kEqBands], ch[kEqBands]; std::unique_ptr<Switch> bon[kEqBands], dyn[kEqBands];
-    Knob* fk[kEqBands] {}; Knob* gk[kEqBands] {}; Knob* qk[kEqBands] {}; Knob* tk[kEqBands] {}; Knob* rk[kEqBands] {};
+    EqView view;
 };
 
 class ImView : public juce::Component
@@ -309,6 +329,23 @@ public:
     ExView view; std::unique_ptr<Segs> mode[kExBands]; std::unique_ptr<Switch> solo[kExBands];
 };
 
+// EQ 432: curva in alto, 5 colonne di manopole (frequenza, guadagno, larghezza)
+class E4View : public juce::Component
+{
+public:
+    E4View (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    Editor& ed;
+};
+class Eq432Page : public ModPage
+{
+public:
+    Eq432Page (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    E4View view; std::unique_ptr<Segs> range; std::unique_ptr<Switch> sh1, sh5;
+};
+
 constexpr int TOOL_BAL = 100, TOOL_REF = 101;
 
 // bilanciamento tonale rispetto al genere
@@ -362,6 +399,8 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     EasyPage& page; Analyzer anIn, anOut; float specIn[300] {}, specOut[300] {}; juce::Rectangle<float> loadR, listenR;
+    int fixedView = -1;   // usata nell'AVANZATO: vista fissa, indipendente dalla pagina FACILE
+    int curView() const;
     neo::Bloom bloom;
 private:
     void wave (juce::Graphics&, juce::Rectangle<float>); void spectrum (juce::Graphics&, juce::Rectangle<float>);
@@ -428,7 +467,7 @@ public:
     BusPage busPage { *this };
     MultiPage mbPage { *this };
     TapePage tpPage { *this };
-    ExciterPage exPage { *this };
+    ExciterPage exPage { *this }; Eq432Page e4Page { *this };
     BalancePage balPage { *this };
     RefPage refPage { *this };
     ThirdAnalyzer live;   // spettro medio dell'uscita (mobile, ~3 s)
@@ -437,6 +476,7 @@ public:
     SoonPage soon { *this };
     LoudPanel loud { *this };
     EasyPage easyPage { *this };
+    EasyStage advStage { easyPage }; int advView = 0; neo::Segments advTabs; void applyAdvView();
     void applyMode();
     juce::Rectangle<int> modeR[2]; bool lastEasy = false;
     juce::Image neoBg; float neoScale = 0; neo::Segments modeSeg;

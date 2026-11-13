@@ -4,11 +4,12 @@
 #include "MasterColor.h"
 #include "MasterAnalysis.h"
 #include "MasterEasy.h"
+#include "JkProEq.h"
 
 namespace jms
 {
 // moduli della catena di master (in ordine). Fase 1: MAXIMIZER e LIMITER.
-enum ModId { BASS, DYNEQ, DEESS, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT, kNumMods };
+enum ModId { BASS, DYNEQ, DEESS, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT, EQ432, kNumMods };   // EQ432 aggiunto in fondo (i progetti salvati restano giusti)
 struct ModInfo { const char* name; const char* sub; bool ready; juce::uint32 colour; };
 inline const ModInfo& modInfo (int m)
 {
@@ -16,7 +17,8 @@ inline const ModInfo& modInfo (int m)
         { "BASS CONTROL", "sub e punch", true, 0xffffb000 }, { "EQ DINAMICO", "bande che reagiscono", true, 0xff5ef2ff }, { "DE-ESSER", "sibilanti e piatti", true, 0xff7dff5a },
         { "BUS COMP", "colla da console", true, 0xffa66bff }, { "MULTIBANDA", "dinamica + OTT", true, 0xffff7a3d },
         { "EXCITER", "armoniche per banda", true, 0xffff5ea8 }, { "TAPE", "nastro analogico", true, 0xffffd23d },
-        { "IMAGER", "stereo per banda", true, 0xff3dffd2 }, { "MAXIMIZER", "volume e carattere", true, 0xffff2e88 }, { "LIMITER", "true peak finale", true, 0xffff3b5c } };
+        { "IMAGER", "stereo per banda", true, 0xff3dffd2 }, { "MAXIMIZER", "volume e carattere", true, 0xffff2e88 }, { "LIMITER", "true peak finale", true, 0xffff3b5c },
+        { "EQ 432", "eq classico da mastering", true, 0xffffd27a } };
     return I[juce::jlimit (0, kNumMods - 1, m)];
 }
 
@@ -37,6 +39,8 @@ struct StereoRing
     void read (float* a, float* b, int n) const { int p = (w.load() - n) & (kSize - 1); for (int i = 0; i < n; ++i) { a[i] = l[p]; if (b) b[i] = r[p]; p = (p + 1) & (kSize - 1); } }
 };
 
+inline const juce::StringArray& eqTypeNames() { static const juce::StringArray n { "CAMPANA", "SHELF BASSI", "SHELF ALTI", "TAGLIO BASSI", "TAGLIO ALTI", "NOTCH", "PASSA BANDA", "TILT" }; return n; }
+inline const juce::StringArray& eqChNames() { static const juce::StringArray n { "STEREO", "MID", "SIDE", "SINISTRO", "DESTRO" }; return n; }
 inline const char* eqId (int b, const char* k) { static thread_local char buf[24]; std::snprintf (buf, sizeof (buf), "eq%d_%s", b + 1, k); return buf; }
 
 const char* onParam (int m);
@@ -112,7 +116,7 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100;
     EasyEngine easyEng; double inAcc = 0; int inAccN = 0; float grSm = 0;
-    BassControl bass; DynEq deq; Imager img; DeEsser dess; BusComp bus; Multiband mband; TapeMachine tape; Exciter exc; VarDelay deltaVar[2];
+    BassControl bass; DynEq deq; jmx::ProEq peq; Eq432 e432; Imager img; DeEsser dess; BusComp bus; Multiband mband; TapeMachine tape; Exciter exc; VarDelay deltaVar[2];
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2];
     juce::AudioBuffer<float> tmp, keep;

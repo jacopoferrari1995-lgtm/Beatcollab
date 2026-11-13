@@ -265,10 +265,11 @@ void EasyMeters::paint (juce::Graphics& g)
 }
 
 // ---------------------------------------------------------------------------------------------------- PALCO
+int EasyStage::curView() const { return fixedView >= 0 ? fixedView : page.view; }
 void EasyStage::paint (juce::Graphics& g)
 {
     auto p = getLocalBounds().toFloat();
-    switch (page.view) { case 1: spectrum (g, p.reduced (0, 8)); break; case 2: gain (g, p.reduced (0, 8)); break; case 3: ref (g, p.reduced (0, 8)); break; default: wave (g, p); break; }
+    switch (curView()) { case 1: spectrum (g, p.reduced (0, 8)); break; case 2: gain (g, p.reduced (0, 8)); break; case 3: ref (g, p.reduced (0, 8)); break; default: wave (g, p); break; }
 }
 // tempo sull'asse orizzontale: gli ultimi 20 s, "ora" a destra
 static void timeAxis (juce::Graphics& g, juce::Rectangle<float> p, float y)
@@ -428,7 +429,7 @@ void EasyStage::ref (juce::Graphics& g, juce::Rectangle<float> p)
 }
 void EasyStage::mouseDown (const juce::MouseEvent& e)
 {
-    if (page.view != 3) return;
+    if (curView() != 3) return;
     auto& P = page.ed.proc;
     if (loadR.contains (e.position))
     {

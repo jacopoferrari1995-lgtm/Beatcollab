@@ -1,1 +1,1 @@
-JackpotMaster JackpotMeter JackpotAlter JackpotClip
+JackpotFX JackpotPad JackpotMaster JackpotMix

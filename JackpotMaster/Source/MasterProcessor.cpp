@@ -5,12 +5,12 @@ namespace jms
 {
 const char* onParam (int m)
 {
-    static const char* p[kNumMods] = { "bc_on", "eq_on", "ds_on", "bus_on", "mb_on", "ex_on", "tp_on", "im_on", "mx_on", "lm_on" };
+    static const char* p[kNumMods] = { "bc_on", "eq_on", "ds_on", "bus_on", "mb_on", "ex_on", "tp_on", "im_on", "mx_on", "lm_on", "e4_on" };
     return p[juce::jlimit (0, kNumMods - 1, m)];
 }
 const char* deltaParam (int m)
 {
-    static const char* p[kNumMods] = { "bc_delta", "eq_delta", "ds_delta", "bus_delta", "mb_delta", "ex_delta", "tp_delta", "im_delta", "mx_delta", "lm_delta" };
+    static const char* p[kNumMods] = { "bc_delta", "eq_delta", "ds_delta", "bus_delta", "mb_delta", "ex_delta", "tp_delta", "im_delta", "mx_delta", "lm_delta", "e4_delta" };
     return p[juce::jlimit (0, kNumMods - 1, m)];
 }
 void Processor::setOrder (const std::array<int, kNumMods>& o) { for (int k = 0; k < kNumMods; ++k) order[k] = o[(size_t) k]; }
@@ -38,20 +38,40 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "eq_on", 1 }, "EQ On", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "eq_delta", 1 }, "EQ Delta", false));
     {
-        static const float df[kEqBands] = { 45, 150, 500, 2000, 6000, 12000 };
-        static const int dt[kEqBands] = { Biquad::LSHELF, Biquad::BELL, Biquad::BELL, Biquad::BELL, Biquad::BELL, Biquad::HSHELF };
+        // 12 bande libere stile Pro-Q: le prime 6 accese (piatte) come prima, le altre si creano con doppio clic
+        static const float df[kEqBands] = { 45, 150, 500, 2000, 6000, 12000, 80, 300, 1000, 3000, 8000, 16000 };
+        static const int dt[kEqBands] = { jmx::BT_LSHELF, jmx::BT_BELL, jmx::BT_BELL, jmx::BT_BELL, jmx::BT_BELL, jmx::BT_HSHELF, 0, 0, 0, 0, 0, 0 };
         for (int b = 0; b < kEqBands; ++b)
         {
             const String P = "EQ " + String (b + 1) + " ";
-            l.add (std::make_unique<AudioParameterBool> (ParameterID { eqId (b, "on"), 1 }, P + "On", true));
-            l.add (std::make_unique<AudioParameterChoice> (ParameterID { eqId (b, "type"), 1 }, P + "Type", StringArray { "CAMPANA", "SHELF BASSI", "SHELF ALTI", "TAGLIO BASSI", "TAGLIO ALTI" }, dt[b]));
-            l.add (std::make_unique<AudioParameterChoice> (ParameterID { eqId (b, "ch"), 1 }, P + "Channel", StringArray { "STEREO", "MID", "SIDE" }, 0));
+            l.add (std::make_unique<AudioParameterBool> (ParameterID { eqId (b, "on"), 1 }, P + "On", b < 6));
+            l.add (std::make_unique<AudioParameterChoice> (ParameterID { eqId (b, "type"), 1 }, P + "Type", eqTypeNames(), dt[b]));
+            l.add (std::make_unique<AudioParameterChoice> (ParameterID { eqId (b, "ch"), 1 }, P + "Channel", eqChNames(), 0));
+            l.add (std::make_unique<AudioParameterChoice> (ParameterID { eqId (b, "slope"), 1 }, P + "Slope", StringArray { "12 dB/ott", "24 dB/ott", "48 dB/ott", "96 dB/ott" }, 1));
             l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "f"), 1 }, P + "Freq", NormalisableRange<float> (20, 20000, 0, 0.25f), df[b], AudioParameterFloatAttributes().withLabel ("Hz")));
             l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "g"), 1 }, P + "Gain", NormalisableRange<float> (-18, 18, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
-            l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "q"), 1 }, P + "Q", NormalisableRange<float> (0.3f, 8, 0, 0.45f), 0.9f));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "q"), 1 }, P + "Q", NormalisableRange<float> (0.1f, 18, 0, 0.3f), 0.9f));
             l.add (std::make_unique<AudioParameterBool> (ParameterID { eqId (b, "dyn"), 1 }, P + "Dynamic", false));
             l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "thr"), 1 }, P + "Threshold", NormalisableRange<float> (-60, 0, 0.1f), -30, AudioParameterFloatAttributes().withLabel ("dB")));
             l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "rng"), 1 }, P + "Range", NormalisableRange<float> (-18, 18, 0.1f), -6, AudioParameterFloatAttributes().withLabel ("dB")));
+        }
+    }
+    // EQ 432
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "e4_on", 1 }, "EQ432 On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "e4_delta", 1 }, "EQ432 Delta", false));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "e4_range", 1 }, "EQ432 Range", StringArray { "6 dB", "9 dB", "12 dB" }, 1));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "e4_col", 1 }, "EQ432 Colour", NormalisableRange<float> (0, 1), 0));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "e4_sh1", 1 }, "EQ432 Low Shelf", true));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "e4_sh5", 1 }, "EQ432 High Shelf", true));
+    {
+        static const char* bn[k432Bands] = { "Low", "Low Mid", "Mid", "High Mid", "High" };
+        static const float df[k432Bands] = { 60, 250, 1000, 4000, 12000 }, dq[k432Bands] = { 0.7f, 0.8f, 0.8f, 0.8f, 0.7f };
+        for (int b = 0; b < k432Bands; ++b)
+        {
+            const String id = "e4_" + String (b + 1), nm = String ("EQ432 ") + bn[b] + " ";
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "f", 1 }, nm + "Freq", eq432Freq (b), df[b], AudioParameterFloatAttributes().withLabel ("Hz")));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "g", 1 }, nm + "Gain", NormalisableRange<float> (-1, 1, 0.005f), 0));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "q", 1 }, nm + "Bandwidth", NormalisableRange<float> (0.3f, 3.0f, 0, 0.5f), dq[b]));
         }
     }
     // de-esser
@@ -173,7 +193,7 @@ Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "JMS", layout())
 {
-    for (int k = 0; k < kNumMods; ++k) order[k] = k;
+    { static const int def[kNumMods] = { BASS, DYNEQ, EQ432, DEESS, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT }; for (int k = 0; k < kNumMods; ++k) order[k] = def[k]; }
     for (int i = 0; i < kHist; ++i) { hIn[i] = -60; hOut[i] = -60; hGrM[i] = 0; hGrL[i] = 0; hS[i] = -60; hRaw[i] = -100; hRawR[i] = -100; hOutR[i] = -100; }
     startTimerHz (5);
 }
@@ -188,7 +208,7 @@ void Processor::prepareToPlay (double s, int maxBlock)
     sr = s;
     const int mb = juce::jmax (64, maxBlock);
     mx.prepare (s, mb); lim.prepare (s); easyEng.prepare (s);
-    bass.prepare (s); deq.prepare (s); img.prepare (s); dess.prepare (s); bus.prepare (s); mband.prepare (s); tape.prepare (s); exc.prepare (s);
+    bass.prepare (s); deq.prepare (s); peq.prepare (s, mb); e432.prepare (s); img.prepare (s); dess.prepare (s); bus.prepare (s); mband.prepare (s); tape.prepare (s); exc.prepare (s);
     for (auto& d : deltaVar) { d.b.assign ((size_t) (mx.latency() + lim.latency() + 1), 0.0f); d.w = 0; }
     for (auto& d : mxBy) d.prepare (mx.latency());
     for (auto& d : limBy) d.prepare (lim.latency());
@@ -297,38 +317,20 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             case DYNEQ:
                 if (! on) break;
                 {
-                    EqBand B[kEqBands];
+                    jmx::EqSet S; S.live = true;   // live: niente modo spettrale (nessuna latenza in piu' nel master)
+                    const int sb = eqSolo.load();
                     for (int b = 0; b < kEqBands; ++b)
                     {
-                        B[b].on = value (eqId (b, "on")) > 0.5f; B[b].type = (int) value (eqId (b, "type")); B[b].ch = (int) value (eqId (b, "ch"));
-                        B[b].f = value (eqId (b, "f")); B[b].g = value (eqId (b, "g")); B[b].q = value (eqId (b, "q"));
-                        B[b].dyn = value (eqId (b, "dyn")) > 0.5f; B[b].thr = value (eqId (b, "thr")); B[b].rng = value (eqId (b, "rng"));
+                        auto& B = S.b[b];
+                        B.on = value (eqId (b, "on")) > 0.5f; B.type = (int) value (eqId (b, "type")); B.ch = (int) value (eqId (b, "ch")); B.slope = (int) value (eqId (b, "slope"));
+                        B.f = value (eqId (b, "f")); B.g = value (eqId (b, "g")); B.q = value (eqId (b, "q"));
+                        B.dyn = value (eqId (b, "dyn")) > 0.5f; B.thr = value (eqId (b, "thr")); B.range = value (eqId (b, "rng"));
+                        B.solo = ! d && b == sb && B.on;
                     }
                     if (d) copyIn();
-                    deq.process (L, R, n, B);
+                    peq.process (L, R, n, S);
                     if (d) subIn();
-                    // SOLO di una banda: si sente solo la zona di frequenze che la banda tocca, sul canale che lavora
-                    const int sb = eqSolo.load();
-                    if (sb >= 0 && sb < kEqBands && ! d)
-                    {
-                        const auto& E = B[sb];
-                        const int ft = E.type == Biquad::LSHELF || E.type == Biquad::HCUT ? (E.type == Biquad::LSHELF ? Biquad::HCUT : Biquad::LCUT)
-                                     : E.type == Biquad::HSHELF || E.type == Biquad::LCUT ? (E.type == Biquad::HSHELF ? Biquad::LCUT : Biquad::HCUT) : Biquad::BPASS;
-                        const float q = ft == Biquad::BPASS ? juce::jmax (0.7f, E.q) : 0.707f;
-                        if (solKey[0] != (float) ft || solKey[1] != E.f || solKey[2] != q)
-                        {
-                            solKey[0] = (float) ft; solKey[1] = E.f; solKey[2] = q;
-                            for (auto& ch : solF) for (auto& f : ch) f.set (ft, E.f, 0, q, sr);
-                        }
-                        for (int i = 0; i < n; ++i)
-                        {
-                            float l = solF[0][1] (solF[0][0] (L[i])), r = solF[1][1] (solF[1][0] (R[i]));
-                            if (E.ch == 1) { const float m = 0.5f * (l + r); l = r = m; }
-                            else if (E.ch == 2) { const float sd = 0.5f * (l - r); l = sd; r = -sd; }
-                            L[i] = l; R[i] = r;
-                        }
-                        deltaFrom = id;   // il resto della catena si salta, come per il delta
-                    }
+                    if (! d && sb >= 0 && sb < kEqBands && S.b[sb].on) deltaFrom = id;   // in SOLO il resto della catena si salta, come per il delta
                 }
                 break;
             case DEESS:
@@ -359,6 +361,20 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 if (! on) break;
                 { TapeSettings t; t.model = (int) value ("tp_model"); t.drive = value ("tp_drive"); t.bias = value ("tp_bias"); t.noise = value ("tp_noise"); t.mix = value ("tp_mix"); t.delta = d;
                   tape.process (L, R, n, t); }
+                break;
+            case EQ432:
+                if (! on) break;
+                {
+                    Eq432Settings e; e.range = (int) value ("e4_range"); e.colour = value ("e4_col"); e.shelf[0] = value ("e4_sh1") > 0.5f; e.shelf[1] = value ("e4_sh5") > 0.5f;
+                    for (int b = 0; b < k432Bands; ++b)
+                    {
+                        const juce::String id = "e4_" + juce::String (b + 1);
+                        e.f[b] = value ((id + "f").toRawUTF8()); e.g[b] = value ((id + "g").toRawUTF8()); e.q[b] = value ((id + "q").toRawUTF8());
+                    }
+                    if (d) copyIn();
+                    e432.process (L, R, n, e);
+                    if (d) subIn();
+                }
                 break;
             case EXCITER:
                 if (! on) break;
@@ -424,7 +440,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     bassGain = bass.gainDb; bassLow = bass.lowShare; bassPeak = value ("bc_on") > 0.5f ? bass.peakGr : 0.0f;
     dsGr = value ("ds_on") > 0.5f ? dess.gr : 0.0f; dsRel = dess.relNow; busGr = value ("bus_on") > 0.5f ? bus.gr : 0.0f;
     for (int b = 0; b < kMbBands; ++b) { mbLevel[b] = mband.level[b]; mbDown[b] = value ("mb_on") > 0.5f ? mband.down[b] : 0.0f; mbUp[b] = value ("mb_on") > 0.5f ? mband.up[b] : 0.0f; }
-    for (int b = 0; b < kEqBands; ++b) { eqDyn[b] = value ("eq_on") > 0.5f ? deq.dynNow[b] : 0.0f; eqLvl[b] = deq.levelDb[b]; }
+    for (int b = 0; b < kEqBands; ++b) { eqDyn[b] = value ("eq_on") > 0.5f ? peq.dynUi[b].load() : 0.0f; eqLvl[b] = 0; }
     for (int b = 0; b < kImBands; ++b) imCorr[b] = img.corr (b);
 
     // ---- misure d'uscita (prima di confronto e ascolto normalizzato)
@@ -659,6 +675,12 @@ void Processor::setStateInformation (const void* data, int size)
     if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0);
         if (! t.getChildWithProperty ("id", "mode").isValid()) { juce::ValueTree pm ("PARAM"); pm.setProperty ("id", "mode", nullptr); pm.setProperty ("value", 1.0f, nullptr); t.appendChild (pm, nullptr); }
         const auto o = juce::StringArray::fromTokens (t.getProperty ("order", "").toString(), ",", "");
+        if (o.size() == kNumMods - 1)
+        {   // progetto di prima dell'EQ 432: stesso ordine, l'EQ 432 subito dopo l'EQ dinamico
+            std::array<int, kNumMods> a {}; int j = 0; bool ok = true;
+            for (int k = 0; k < o.size(); ++k) { const int m = o[k].getIntValue(); ok &= m >= 0 && m < kNumMods - 1; a[(size_t) j++] = m; if (m == DYNEQ) a[(size_t) j++] = EQ432; }
+            if (ok && j == kNumMods) setOrder (a);
+        }
         if (o.size() == kNumMods) { std::array<int, kNumMods> a {}; bool ok = true; for (int k = 0; k < kNumMods; ++k) { a[(size_t) k] = o[k].getIntValue(); ok &= a[(size_t) k] >= 0 && a[(size_t) k] < kNumMods; } if (ok) setOrder (a); }
         apvts.replaceState (t); } }
 }

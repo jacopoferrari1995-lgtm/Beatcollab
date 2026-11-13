@@ -223,7 +223,7 @@ bool Processor::loadPreset (const juce::File& f)
         setSlot (k, t, (float) s->getDoubleAttribute ("amt", -1)); P (onId (k))->setValueNotifyingHost (s->getIntAttribute ("on", 1) ? 1.0f : 0.0f);
         P (mixId (k))->setValueNotifyingHost ((float) s->getDoubleAttribute ("mix", 1));
         const auto av = juce::StringArray::fromTokens (s->getStringAttribute ("adv"), ",", "");
-        if (av.size() == kAdv) for (int i = 0; i < kAdv; ++i) setAdv (k, i, av[i].getFloatValue());
+        for (int i = 0; i < juce::jmin (kAdv, av.size()); ++i) setAdv (k, i, av[i].getFloatValue());
         ++k;
     }
     P ("mix")->setValueNotifyingHost ((float) x->getDoubleAttribute ("mix", 1));
