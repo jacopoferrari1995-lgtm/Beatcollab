@@ -97,7 +97,7 @@ void Overview::paint (juce::Graphics& g)
     for (int s = 0; s <= (int) totSec; s += stepS)
     {
         const float x = xOf (viewEnd - (juce::int64) (s * P.sampleRate()));
-        g.setColour (juce::Colours::white.withAlpha (s % labS == 0 ? 0.12f : 0.05f)); g.drawVerticalLine ((int) x, top, bot);
+        g.setColour (neo::K::hi.withAlpha (s % labS == 0 ? 0.12f : 0.05f)); g.drawVerticalLine ((int) x, top, bot);
         if (s % labS == 0) { g.setColour (C::dim); g.drawText (s == 0 ? juce::String ("ORA") : "-" + ed.timeText (s), juce::Rectangle<float> (x - 30, bot + 2, 60, 14), juce::Justification::centred); }
     }
     if (P.hold.load()) glowText (g, "BLOCCATO", { b.getRight() - 120, 4, 110, 14 }, C::red, mf (10.0f), juce::Justification::centredRight);
@@ -140,7 +140,7 @@ void Detail::paint (juce::Graphics& g)
         for (double bt = firstBeat; ; bt += 1)
         {
             const juce::int64 s = ed.selA + (juce::int64) ((bt - ppq) * spb); if (s > v1) break;
-            const bool bar = std::fmod (bt, (double) num) == 0; g.setColour (juce::Colours::white.withAlpha (bar ? 0.16f : 0.05f)); g.drawVerticalLine ((int) X (s), top, bot);
+            const bool bar = std::fmod (bt, (double) num) == 0; g.setColour (neo::K::hi.withAlpha (bar ? 0.16f : 0.05f)); g.drawVerticalLine ((int) X (s), top, bot);
             if (bar) { g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText (juce::String ((int) (bt / num) + 1), juce::Rectangle<float> (X (s) + 2, 2, 30, 12), juce::Justification::centredLeft); }
         }
     }
@@ -203,6 +203,7 @@ void DragZone::mouseUp (const juce::MouseEvent& e) { if (! dragging && e.getDist
 // ======================================================================= editor
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("rewind", { 0xffd8b98a, 0xffde6c5c, 0xff8fb9b0, 0xffccccc7 }, 0xffff7a1a); C::sync(); themeRect = { 952, 15, 100, 36 };
     setLookAndFeel (&lnf);
     auto pill = [&] (std::function<juce::String()> t, std::function<void()> click, std::function<bool()> lit, juce::Colour c)
     { auto pl = std::make_unique<Pill> (P ("snap"), c, std::move (t)); pl->click = std::move (click); pl->lit = std::move (lit); addAndMakeVisible (*pl); pills.push_back (std::move (pl)); };
@@ -242,6 +243,7 @@ void Editor::resized()
 }
 void Editor::paint (juce::Graphics& g)
 {
+    skin::apply(); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     jlook::backdrop (g, { 0, 0, (float) W, (float) H }, acc, acc2);
     jlook::header (g, { 0, 0, (float) W, 64 }, "REWIND", acc, "JR-8  REGISTRATORE RETROATTIVO", acc, acc2);
@@ -274,9 +276,11 @@ void Editor::paint (juce::Graphics& g)
         glowText (g, t, info, acc2, mf (12.0f));
     }
     if (lastFile.isNotEmpty()) { g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText ("salvato: " + lastFile, juce::Rectangle<float> (30, 650, 960, 14), juce::Justification::centredLeft); }
+    skin::chipDraw (g, themeRect.toFloat());
 }
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
+    { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } }
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int first = juce::jmax (0, (int) takes.size() - 7);
     for (size_t k = 0; k < takeChips.size(); ++k) if (takeChips[k].contains (e.position)) { const auto& t = takes[(size_t) ((int) takes.size() - 1 - (int) k)]; juce::ignoreUnused (first); setSel (t.a, t.b); return; }

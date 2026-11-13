@@ -13,6 +13,7 @@ void glowText (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> 
 }
 void lcd (juce::Graphics& g, juce::Rectangle<float> r, float rad)
 {
+    if (jlook::skinHooks().on && jlook::skinHooks().screen) { jlook::skinHooks().screen (g, r, rad, C::phos); return; }
     g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillRoundedRectangle (r.expanded (1.5f), rad + 1.5f);
     juce::ColourGradient cg (C::lcd1, r.getCentreX(), r.getCentreY(), C::lcd2, r.getX(), r.getY(), true); g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);
     g.setColour (C::amber.withAlpha (0.035f));
@@ -134,7 +135,7 @@ void ModView::paint (juce::Graphics& g)
             g.setColour (c.withAlpha (0.18f)); g.fillPath (f2); g.setColour (c); g.strokePath (p, juce::PathStrokeType (1.5f));
             const float gr = P.eng.gr.load();
             auto bar = juce::Rectangle<float> (r.getX(), r.getBottom() - 10, r.getWidth(), 8);
-            g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillRoundedRectangle (bar, 3);
+            g.setColour (neo::K::hi.withAlpha (0.05f)); g.fillRoundedRectangle (bar, 3);
             g.setColour (c); g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * juce::jlimit (0.0f, 1.0f, gr / 18.0f)), 3);
             glowText (g, "-" + juce::String (gr, 1) + " dB", r.withHeight (12), c, mf (10.0f), juce::Justification::centredRight);
             g.setColour (C::dim); g.drawText ("riduzione", r.withHeight (12), juce::Justification::centredLeft);
@@ -193,7 +194,7 @@ void ModView::paint (juce::Graphics& g)
             // disco che gira con i crackle che compaiono
             const float rad = r.getHeight() * 0.48f; const auto ctr = juce::Point<float> (r.getCentreX(), r.getCentreY());
             g.setColour (juce::Colour (0xff050505)); g.fillEllipse (juce::Rectangle<float> (rad * 2, rad * 2).withCentre (ctr));
-            for (int k = 1; k < 8; ++k) { g.setColour (juce::Colours::white.withAlpha (0.04f + 0.01f * (k % 2))); g.drawEllipse (juce::Rectangle<float> (rad * 2 * k / 8, rad * 2 * k / 8).withCentre (ctr), 0.8f); }
+            for (int k = 1; k < 8; ++k) { g.setColour (neo::K::hi.withAlpha (0.04f + 0.01f * (k % 2))); g.drawEllipse (juce::Rectangle<float> (rad * 2 * k / 8, rad * 2 * k / 8).withCentre (ctr), 0.8f); }
             g.setColour (c.withAlpha (0.8f)); g.fillEllipse (juce::Rectangle<float> (rad * 0.5f, rad * 0.5f).withCentre (ctr));
             juce::Random rr ((juce::int64) (spin * 10));
             const int dots = on ? (int) (P.value ("n_vinyl") * 30 + P.value ("n_pops") * 6) : 0;
@@ -217,6 +218,7 @@ void Scope::paint (juce::Graphics& g)
 // ======================================================================= editor
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("dust", { 0xffe8cf86, 0xffd9814f, 0xffb5bf86, 0xffd8cdb8 }, 0xffffa020); C::sync(); themeRect = { 952, 15, 100, 36 };
     setLookAndFeel (&lnf);
     auto turnOn = [this] (int m) { return [this, m] { if (! isOn (m)) P (onId (m))->setValueNotifyingHost (1.0f); }; };
     auto knob = [&] (int m, const char* id, const char* label, std::function<juce::String()> txt, bool bip = false) -> Knob*
@@ -315,6 +317,7 @@ void Editor::resized()
 
 void Editor::paint (juce::Graphics& g)
 {
+    skin::apply(); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float Wf = (float) W, Hf = (float) H;
     jlook::backdrop (g, { 0, 0, Wf, Hf }, C::amber, C::rust);
@@ -359,7 +362,7 @@ void Editor::paint (juce::Graphics& g)
         {
             auto m = juce::Rectangle<float> (996, y + c * 7.0f, 172, 5);
             const float dbv = gToDb (c ? r : l), n = juce::jlimit (0.0f, 1.0f, (dbv + 60) / 63);
-            for (int k = 0; k < 30; ++k) { const float t2 = k / 30.0f; g.setColour (t2 <= n ? (t2 > 0.93f ? C::red : t2 > 0.8f ? C::amber : C::olive) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (m.getX() + k * m.getWidth() / 30, m.getY(), m.getWidth() / 30 - 1.2f, m.getHeight()); }
+            for (int k = 0; k < 30; ++k) { const float t2 = k / 30.0f; g.setColour (t2 <= n ? (t2 > 0.93f ? C::red : t2 > 0.8f ? C::amber : C::olive) : neo::K::hi.withAlpha (0.05f)); g.fillRect (m.getX() + k * m.getWidth() / 30, m.getY(), m.getWidth() / 30 - 1.2f, m.getHeight()); }
         }
     };
     meter (630, "IN", proc.inPk[0].load(), proc.inPk[1].load());
@@ -367,6 +370,7 @@ void Editor::paint (juce::Graphics& g)
     g.setColour (C::dim); g.setFont (uf (9.5f, false));
     g.drawFittedText ("Ordine: sampler, saturazione, filtri, compressore, nastro, polvere. Latenza " + juce::String (proc.getLatencySamples()) + " campioni, compensata.",
                       juce::Rectangle<int> (962, 680, 206, 56), juce::Justification::topLeft, 4);
+    skin::chipDraw (g, themeRect.toFloat());
 }
 
 void Editor::mouseMove (const juce::MouseEvent& e0)
@@ -380,6 +384,7 @@ void Editor::mouseMove (const juce::MouseEvent& e0)
 }
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
+    { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } }
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     for (int m = 0; m < kMods; ++m) if (card (m).withHeight (32).contains (e.position)) { auto* p = P (onId (m)); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
     const int n = (int) presets().size();

@@ -33,6 +33,7 @@ static float rms (const std::vector<float>& x, int a, int b) { double e = 0; for
 
 int main (int argc, char** argv)
 {
+    if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
     juce::ScopedJuceInitialiser_GUI gui;
     const double sr = 48000;
     auto fresh = [&] () { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); return p; };

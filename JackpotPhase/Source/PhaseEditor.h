@@ -1,5 +1,6 @@
 #pragma once
 #include "PhaseProcessor.h"
+#include "Skin.h"
 
 namespace jphs
 {
@@ -10,6 +11,7 @@ class StatusView : public juce::Component { public: explicit StatusView (Editor&
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    juce::Rectangle<int> themeRect;
 public:
     explicit Editor (Processor&);
     ~Editor() override { setLookAndFeel (nullptr); }

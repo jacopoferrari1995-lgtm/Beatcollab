@@ -454,28 +454,63 @@ void Gallery::mouseDown (const juce::MouseEvent& e)
 // ---------------------------------------------------------------------------------------------------- barra di stato
 void StatusBar::paint (juce::Graphics& g)
 {
+    // COSA STA SUCCEDENDO: riga 1 = tutta la catena dal vivo (cosa fa ogni effetto adesso), riga 2 = spiegazione e perche
     setTheme (ed.proc.uiTheme.load() == 2 ? 2 : 1);
+    auto& P = ed.proc;
     auto b = getLocalBounds().toFloat();
     g.setColour (K::lo.withAlpha (light() ? 0.06f : 0.3f)); g.fillRoundedRectangle (b, 10);
     g.setColour (K::hi.withAlpha (0.05f)); g.drawRoundedRectangle (b.reduced (0.5f), 10, 1.0f);
+    // ---- riga 1: catena
+    g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText ("ADESSO", juce::Rectangle<float> (12, 4, 60, 22), juce::Justification::centredLeft);
+    float x = 64; int shown = 0;
+    for (int k = 0; k < kNumMods; ++k)
+    {
+        const int m = P.order[k].load(); if (m < 0 || m >= kNumMods || ! P.inRack[m].load()) continue;
+        const bool on = P.value (onParam (m)) > 0.5f; const auto st = statOf (ed, m);
+        const auto c = on ? acc (juce::Colour (modInfo (m).colour)) : K::faint;
+        const juce::String nm = modInfo (m).name, br = st.brief;
+        const float w = 18 + juce::GlyphArrangement::getStringWidth (cap (7.5f), nm) + 6 + juce::GlyphArrangement::getStringWidth (num (9.0f), br) + 12;
+        if (x + w > b.getRight() - 8) break;
+        auto r = juce::Rectangle<float> (x, 6, w, 18);
+        const bool sel = ed.sel == m;
+        g.setColour (sel ? c.withAlpha (0.18f) : K::hi.withAlpha (0.04f)); g.fillRoundedRectangle (r, 9);
+        if (sel) { g.setColour (c.withAlpha (0.7f)); g.drawRoundedRectangle (r.reduced (0.5f), 9, 1.0f); }
+        g.setColour (c); g.fillEllipse (r.getX() + 7, r.getCentreY() - 3, 6, 6);
+        g.setFont (cap (7.5f)); g.setColour (on ? K::ink : K::faint); const float wn = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), nm);
+        g.drawText (nm, juce::Rectangle<float> (r.getX() + 17, r.getY(), wn + 2, r.getHeight()), juce::Justification::centredLeft);
+        g.setFont (num (9.0f)); g.setColour (c); g.drawText (br, juce::Rectangle<float> (r.getX() + 23 + wn, r.getY(), r.getRight() - (r.getX() + 23 + wn), r.getHeight()), juce::Justification::centredLeft);
+        x += w + 5; ++shown;
+        if (k < kNumMods - 1) { g.setColour (K::faint); }
+    }
+    if (shown == 0) { g.setFont (f (9.5f)); g.setColour (K::sub); g.drawText ("catena vuota: aggiungi un effetto con + o scegli un preset", juce::Rectangle<float> (64, 4, 600, 22), juce::Justification::centredLeft); }
+    g.setColour (K::hi.withAlpha (0.06f)); g.fillRect (b.getX() + 10, 29.0f, b.getWidth() - 20, 1.0f);
+    // ---- riga 2: spiegazione dell'effetto aperto (o del master intero) e perche
     juce::String name, doing, tip; juce::Colour c = K::violet;
-    if (ed.sel < kNumMods && ed.proc.inRack[ed.sel].load())
+    if (ed.sel < kNumMods && P.inRack[ed.sel].load())
     {
         const auto st = statOf (ed, ed.sel); name = modInfo (ed.sel).name; doing = st.doing; tip = st.tip; c = acc (juce::Colour (modInfo (ed.sel).colour));
     }
     else
-    {   // nessun effetto aperto: loudness rispetto al target
-        const float lu = ed.proc.lufsS.load(), tgt = target ((int) ed.proc.value ("target")).lufs;
-        name = "MASTER"; doing = lu > -60 ? "short-term " + juce::String (lu, 1) + " LUFS, obiettivo " + juce::String ((int) tgt) : juce::String ("in attesa del segnale");
-        tip = lu < -60 ? juce::String ("Fai partire la traccia: le misure si accendono da sole.") : lu < tgt - 2 ? juce::String ("Sotto il target: alza il gain del MAXIMIZER.") : lu > tgt + 1.5f ? juce::String ("Sopra il target: lo streaming ti abbassera, guadagni solo distorsione.") : juce::String ("Sei sul target: ora conta solo come suona.");
+    {   // nessun effetto aperto: il master nel suo insieme
+        const float lu = P.lufsS.load(), tgt = target ((int) P.value ("target")).lufs, tp = P.tpMax.load();
+        float grTot = P.grMax.load() + P.grLim.load();
+        name = "MASTER";
+        doing = lu > -60 ? "esce a " + juce::String (lu, 1) + " LUFS (obiettivo " + juce::String ((int) tgt) + "), picchi tagliati di " + juce::String (grTot, 1) + " dB, true peak " + juce::String (tp, 1)
+                         : juce::String ("in attesa del segnale");
+        tip = lu < -60 ? juce::String ("Fai partire la traccia: le misure si accendono da sole.")
+            : grTot > 6 ? juce::String ("Stai schiacciando tanto: i colpi perdono forza. Abbassa il gain del maximizer o usa uno stile piu morbido.")
+            : lu < tgt - 2 ? juce::String ("Sotto il target: alza il gain del MAXIMIZER finche arrivi vicino all'obiettivo.")
+            : lu > tgt + 1.5f ? juce::String ("Sopra il target: lo streaming ti abbassera comunque, guadagni solo distorsione.")
+            : juce::String ("Sei sul target: ora conta solo come suona. Usa CONFRONTA per sentire se il master migliora davvero.");
     }
-    if (ed.modNote.isNotEmpty() && juce::Time::getMillisecondCounter() - ed.modNoteT < 9000) { tip = ed.modNote; }
-    g.setColour (c); g.fillEllipse (b.getX() + 12, b.getCentreY() - 4, 8, 8);
-    g.setFont (cap (8.5f)); g.setColour (K::ink); g.drawText (name, juce::Rectangle<float> (b.getX() + 28, b.getY(), 150, b.getHeight()), juce::Justification::centredLeft);
-    g.setFont (num (9.5f)); g.setColour (c); g.drawFittedText (doing, juce::Rectangle<int> ((int) b.getX() + 170, 0, 470, getHeight()), juce::Justification::centredLeft, 1, 0.8f);
-    g.setColour (K::hi.withAlpha (0.1f)); g.fillRect (b.getX() + 650, b.getY() + 8, 1.0f, b.getHeight() - 16);
-    g.setFont (cap (7.0f)); g.setColour (K::mint); g.drawText ("CONSIGLIO", juce::Rectangle<float> (b.getX() + 664, b.getY(), 70, b.getHeight()), juce::Justification::centredLeft);
-    g.setFont (f (9.5f)); g.setColour (K::sub); g.drawFittedText (tip, juce::Rectangle<int> ((int) b.getX() + 736, 0, (int) b.getWidth() - 836, getHeight()), juce::Justification::centredLeft, 2, 0.85f);
+    if (ed.modNote.isNotEmpty() && juce::Time::getMillisecondCounter() - ed.modNoteT < 9000) tip = ed.modNote;
+    const float y2 = 32, h2 = b.getHeight() - 34;
+    g.setColour (c); g.fillEllipse (14, y2 + h2 * 0.5f - 4, 8, 8);
+    g.setFont (cap (8.5f)); g.setColour (K::ink); g.drawText (name, juce::Rectangle<float> (28, y2, 140, h2), juce::Justification::centredLeft);
+    g.setFont (f (10.0f)); g.setColour (c); g.drawFittedText (doing, juce::Rectangle<int> (150, (int) y2, 520, (int) h2), juce::Justification::centredLeft, 1, 0.8f);
+    g.setColour (K::hi.withAlpha (0.1f)); g.fillRect (680.0f, y2 + 3, 1.0f, h2 - 6);
+    g.setFont (cap (7.0f)); g.setColour (K::mint); g.drawText (juce::String::fromUTF8 ("PERCH\xc3\x89"), juce::Rectangle<float> (692, y2, 60, h2), juce::Justification::centredLeft);
+    g.setFont (f (9.5f)); g.setColour (K::sub); g.drawFittedText (tip, juce::Rectangle<int> (748, (int) y2, (int) b.getWidth() - 860, (int) h2), juce::Justification::centredLeft, 2, 0.85f);
 }
 
 // ---------------------------------------------------------------------------------------------------- scheda dei preset

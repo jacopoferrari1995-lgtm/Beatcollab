@@ -17,7 +17,7 @@ target_sources(JackpotPhase PRIVATE Source/PhaseProcessor.cpp Source/PhaseEditor
 target_include_directories(JackpotPhase PRIVATE ${CMAKE_SOURCE_DIR}/Common)
 target_compile_definitions(JackpotPhase PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
 target_link_libraries(JackpotPhase
-  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts
+  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 if(J60_TEST)
@@ -25,5 +25,5 @@ if(J60_TEST)
   target_include_directories(PhaseTest PRIVATE ${CMAKE_SOURCE_DIR}/Common)
   target_sources(PhaseTest PRIVATE test/main.cpp Source/PhaseProcessor.cpp Source/PhaseEditor.cpp)
   target_compile_definitions(PhaseTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotPhase")
-  target_link_libraries(PhaseTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts)
+  target_link_libraries(PhaseTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo)
 endif()

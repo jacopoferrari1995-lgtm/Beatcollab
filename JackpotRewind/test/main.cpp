@@ -8,6 +8,7 @@ struct Head : juce::AudioPlayHead
 };
 int main (int argc, char** argv)
 {
+    if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
     juce::ScopedJuceInitialiser_GUI gui;
     const double sr = 44100;
     Processor p; Head h; p.setPlayHead (&h); p.prepareToPlay (sr, 512);

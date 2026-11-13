@@ -1,5 +1,6 @@
 #pragma once
 #include "RewindProcessor.h"
+#include "Skin.h"
 
 namespace jrwd
 {
@@ -47,6 +48,7 @@ public:
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    juce::Rectangle<int> themeRect;
 public:
     explicit Editor (Processor&);
     ~Editor() override { setLookAndFeel (nullptr); }

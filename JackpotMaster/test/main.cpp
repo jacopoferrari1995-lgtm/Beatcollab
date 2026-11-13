@@ -148,6 +148,14 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "xmode")
+    {   // un preset non cambia modalita e l'altra vista viene tradotta
+        juce::ScopedJuceInitialiser_GUI gui2; Processor p; p.prepareToPlay (48000, 512);
+        int fi = -1, gi = -1; for (int i = 1; i < (int) presets().size(); ++i) { juce::String n (presets()[(size_t) i].name); if (fi < 0 && n.startsWith ("Facile")) fi = i; if (gi < 0 && n.startsWith ("Genere")) gi = i; }
+        p.loadPreset (fi); std::printf ("FACILE preset %s -> mode %d  mx_on %.0f mx_gain %.1f bus_on %.0f eq_on %.0f ex_on %.0f tp %.0f im %.0f\n", presets()[(size_t) fi].name, (int) p.value ("mode"), p.value ("mx_on"), p.value ("mx_gain"), p.value ("bus_on"), p.value ("eq_on"), p.value ("ex_on"), p.value ("tp_on"), p.value ("im_on"));
+        p.loadPreset (gi); std::printf ("AVANZ preset %s -> mode %d  e_loud %.1f e_glue %.2f e_low %.1f e_high %.1f e_calm %.2f e_wide %.2f\n", presets()[(size_t) gi].name, (int) p.value ("mode"), p.value ("e_loud"), p.value ("e_glue"), p.value ("e_low"), p.value ("e_high"), p.value ("e_calm"), p.value ("e_wide"));
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "emul")
     {   // risposta del Pultec contro le specifiche dell'EQP-1A
         auto resp = [] (PultecSettings S, std::initializer_list<float> fs)

@@ -16,6 +16,7 @@ static void gen (std::vector<float>& k, std::vector<float>& b, double sr, int le
 }
 int main (int argc, char** argv)
 {
+    if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
     juce::ScopedJuceInitialiser_GUI gui;
     const double sr = 44100;
     float trueCorr = 0;

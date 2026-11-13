@@ -10,9 +10,17 @@ namespace jkit
 {
 namespace C
 {
-    const juce::Colour bg { 0xff0b0c10 }, text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
-    const juce::Colour amber { 0xffffb000 }, rust { 0xffff7a1a }, cream { 0xfff3d9a4 }, phos { 0xff5ef2ff }, red { 0xffff3b5c }, green { 0xff4dff88 };
-    const juce::Colour magenta { 0xffff2e88 }, violet { 0xffa78bfa }, yellow { 0xffffe14d }, blue { 0xff60a5fa };
+    inline juce::Colour bg { 0xff0b0c10 }, text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
+    inline juce::Colour amber { 0xffffb000 }, rust { 0xffff7a1a }, cream { 0xfff3d9a4 }, phos { 0xff5ef2ff }, red { 0xffff3b5c }, green { 0xff4dff88 };
+    inline juce::Colour magenta { 0xffff2e88 }, violet { 0xffa78bfa }, yellow { 0xffffe14d }, blue { 0xff60a5fa };
+    // colori presi dal tema della pelle (se il plugin la usa)
+    inline void sync()
+    {
+        if (! jlook::skinHooks().on) return;
+        const auto& p = jlook::skinPal();
+        bg = p.bg; text = p.text; dim = p.dim; faint = p.faint; amber = p.amber; rust = p.red.interpolatedWith (p.amber, 0.5f); cream = p.light ? p.text : p.amber.interpolatedWith (p.hi, 0.6f);
+        phos = p.cyan; red = p.red; green = p.green; magenta = p.pink; violet = p.violet; yellow = p.amber.interpolatedWith (p.hi, p.light ? 0.0f : 0.3f); blue = p.blue;
+    }
 }
 inline juce::Font uf (float size, bool bold = true) { return jlook::ui (size, bold ? 2 : 1); }
 inline juce::Font mf (float size) { return jlook::mono (size); }
@@ -25,6 +33,7 @@ inline void glowText (juce::Graphics& g, const juce::String& t, juce::Rectangle<
 // schermo scuro con griglia leggera del colore del plugin
 inline void lcd (juce::Graphics& g, juce::Rectangle<float> r, float rad, juce::Colour tint = C::phos)
 {
+    if (jlook::skinHooks().on && jlook::skinHooks().screen) { jlook::skinHooks().screen (g, r, rad, tint); return; }
     g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillRoundedRectangle (r.expanded (1.5f), rad + 1.5f);
     juce::ColourGradient cg (tint.interpolatedWith (juce::Colours::black, 0.9f), r.getCentreX(), r.getCentreY(), tint.interpolatedWith (juce::Colours::black, 0.96f), r.getX(), r.getY(), true);
     g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);

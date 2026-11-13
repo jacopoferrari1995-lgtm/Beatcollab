@@ -473,10 +473,8 @@ void Editor::computeTips()
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
     // tema MACCHINA: rack da studio anni 70, alluminio scuro, scritte crema, VU ambra
-    // tema MACCHINA = POSTER: schede piatte arancio, salmone, salvia e grigio, nero pesante
-    skin::init ("comp", "POSTER", { 0xff141414, 0xff1c1c1c, 0xff141414, 0xff3d3a36, 0xff6d6a64, 0xffe8a466, 0xffd9cfc0, 0xffefe8dc, 0xffe4dccd, 0xffdb6e5e },
-                { 0xffd9483a, 0xff5b4fc9, 0xff23897d, 0xff5e9b45, 0xffd98a1c, 0xffd2392c, 0xff3567c9 }, true, 3,
-                { 0xffe8a466, 0xffdb6e5e, 0xff9fb69a, 0xffc9c8c4 });
+    // CBRPNK: arancio, salmone, salvia, grigio. HUD: rosso
+    skin::init ("comp", { 0xffe9a260, 0xffde6c5c, 0xffa8bea0, 0xffccccc7 }, 0xffff2828);
     C::sync();
     setLookAndFeel (&lnf);
     addAndMakeVisible (rack); addAndMakeVisible (stage); addAndMakeVisible (graph); addAndMakeVisible (guide);

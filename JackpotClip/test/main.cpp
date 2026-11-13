@@ -4,6 +4,7 @@ using namespace jclp;
 static void setP (Processor& p, const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); }
 int main (int argc, char** argv)
 {
+    if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {

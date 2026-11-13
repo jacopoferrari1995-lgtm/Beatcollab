@@ -2099,7 +2099,7 @@ void Editor::resized()
     for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &balPage, &refPage, &soon }) pg->setBounds (centreR);
     easyPage.setBounds (0, 64, 1280, 736); neoBg = {};
     rack.setBounds (16, 72, 232, 662);
-    status.setBounds (16, 744, 1248, 34);
+    status.setBounds (16, 740, 1248, 56);
     gallery.setBounds (centreR.withTrimmedTop (-34));
     browser.setBounds (0, 0, W, H);
     for (int t = 0; t < kNumTargets; ++t) tgtR[t] = { 1136, 136 + t * 30, 118, 26 };

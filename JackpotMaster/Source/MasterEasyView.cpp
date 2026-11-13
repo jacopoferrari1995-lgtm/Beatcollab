@@ -66,6 +66,7 @@ void EasyPage::resized()
     themeR = { 1182, 6, 82, 26 }; cmpR = { themeR.getX() - 84, 6, 78, 26 }; deltaR = { cmpR.getX() - 72, 6, 66, 26 }; targetR = { deltaR.getX() - 150, 6, 144, 26 };
     { styles.layout ({ 0, 700, 0, 24 }, styleNames(), 8.0f); const float ww = styles.width(), dx = 640 - ww * 0.5f - styles.r[0].getX(); for (int i = 0; i < styles.n; ++i) styles.r[i].translate (dx, 0); styles.ax = -1; }
     for (int b = 0; b < 3; ++b) bandR[b] = { 70.0f + 76.0f * b - 20, kKnobY + kS + 44, 40, 18 };
+    loudDR = { 604, 676, 72, 22 };   // DELTA della LOUDNESS: senti solo cosa toglie/sporca il limiter
     bg = {};
 }
 
@@ -103,6 +104,7 @@ void EasyPage::paint (juce::Graphics& g)
     const bool cmp = ed.proc.value ("compare") > 0.5f;
     chip (g, cmpR, cmp ? "ORIGINALE" : "BYPASS", cmp, K::cyan, 8.5f, hover == 11);
     chip (g, deltaR, "DELTA", ed.proc.value ("e_delta") > 0.5f, K::amber, 8.5f, hover == 12);
+    chip (g, loudDR, U ("\xce\x94 LOUD"), ed.proc.value ("e_ldelta") > 0.5f, K::amber, 7.5f, hover == 14);
     chip (g, guideR, guide.isVisible() ? U ("CHIUDI") : U ("? GUIDA"), guide.isVisible(), K::violet, 8.5f, hover == 13);
     chip (g, themeR, light() ? U ("CHIARO") : U ("SCURO"), false, K::sub, 8.5f, hover == 14);
     // ascolto delle bande dell'EQ: S = solo la zona, D = solo cosa fa la banda
@@ -116,7 +118,7 @@ void EasyPage::paint (juce::Graphics& g)
 }
 void EasyPage::mouseMove (const juce::MouseEvent& e)
 {
-    int h = tabs.hit (e.position); if (targetR.contains (e.position)) h = 10; if (guideR.contains (e.position)) h = 13; if (cmpR.contains (e.position)) h = 11; if (deltaR.contains (e.position)) h = 12;
+    int h = tabs.hit (e.position); if (targetR.contains (e.position)) h = 10; if (guideR.contains (e.position)) h = 13; if (cmpR.contains (e.position)) h = 11; if (deltaR.contains (e.position)) h = 12; if (loudDR.contains (e.position)) h = 14;
     if (themeR.contains (e.position)) h = 14;
     for (int b = 0; b < 3; ++b) if (bandR[b].contains (e.position)) h = 20 + b;
     if (const int sh = styles.hit (e.position); sh >= 0) h = 30 + sh;
@@ -130,6 +132,7 @@ void EasyPage::mouseDown (const juce::MouseEvent& e)
     if (themeR.contains (e.position)) { P.uiTheme = P.uiTheme.load() == 2 ? 1 : 2; ed.neoBg = {}; ed.repaint(); return; }
     if (const int t = tabs.hit (e.position); t >= 0) { view = t; repaint (0, 0, getWidth(), 40); stage.repaint(); return; }
     if (cmpR.contains (e.position)) { auto* p = ed.P ("compare"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint (0, 0, getWidth(), 40); return; }
+    if (loudDR.contains (e.position)) { auto* p = ed.P ("e_ldelta"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
     if (deltaR.contains (e.position)) { auto* p = ed.P ("e_delta"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint (0, 0, getWidth(), 40); return; }
     for (int b = 0; b < 3; ++b)
         if (bandR[b].contains (e.position))
@@ -485,13 +488,18 @@ void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p, bool bipolar,
         const juce::String key = juce::String (W) + "|" + juce::String (H) + "|" + juce::String (cw) + "|" + (bipolar ? "b" : "u") + "|" + juce::String (win) + "|" + outC.toString() + inC.toString();
         if (R.key != key || R.img.isNull()) { R.img = juce::Image (juce::Image::ARGB, W * cw, H, true); R.key = key; R.valid = false; R.W = W; R.cw = cw; R.H = H; }
         const long oldest = e.g0 - npx, newest = e.g0 - 1;
+        // una colonna si congela solo quando tutti i suoi dati sono arrivati (l'ultima colonna dell'audio e' ancora a meta'):
+        // prima congelavo anche quelle a meta' o vuote, e l'onda compariva e spariva a scatti, al ritmo dei blocchi audio
+        const double cppR = (win / Processor::kColSec) / npx;
+        const long ready = juce::jmin (newest, (long) std::floor ((P.hTot.load() - 3) / cppR) - 1);
         long from = oldest;
         if (R.valid && R.last >= oldest - 1 && R.last <= newest) from = R.last + 1;
-        if (from <= newest)
+        for (long G = juce::jmax (from, ready + 1); G <= newest; ++G) { const int ix = (int) (((G % W) + W) % W) * cw; R.img.clear ({ ix, 0, cw, H }); }
+        if (from <= ready)
         {
             juce::Graphics ig (R.img);
             const float c = H * 0.5f, hp = H * 0.5f - 2.0f * cw, cap = (float) cw;
-            for (long G = from; G <= newest; ++G)
+            for (long G = from; G <= ready; ++G)
             {
                 const int x = (int) (G - oldest); const int ix = (int) (((G % W) + W) % W) * cw;
                 R.img.clear ({ ix, 0, cw, H });
@@ -510,7 +518,7 @@ void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p, bool bipolar,
                     if (o >= -80) { ig.setColour (capC); ig.fillRect (juce::Rectangle<float> ((float) ix, yy (o), (float) cw, cap)); }
                 }
             }
-            R.last = newest; R.valid = true;
+            R.last = ready; R.valid = true;
         }
         g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
         auto blit = [&] (int col, int n, float x0)

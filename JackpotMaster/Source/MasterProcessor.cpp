@@ -212,6 +212,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     // carattere del LOUD (come gli algoritmi dei limiter moderni) e ascolto della differenza
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "e_style", 1 }, "Loud Style", StringArray { "MODERN", "AGGRESSIVE", "SMOOTH", "SAFE", "CLASSIC" }, 0));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "e_delta", 1 }, "Delta", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "e_ldelta", 1 }, "Loud Delta", false));
     return l;
 }
 
@@ -242,6 +243,7 @@ void Processor::prepareToPlay (double s, int maxBlock)
     for (auto& d : limBy) d.prepare (lim.latency());
     for (auto& d : mxIn) d.prepare (mx.latency());
     for (auto& d : deltaPad) d.prepare (lim.latency());
+    for (auto& d : loudPad) d.prepare (mx.latency() + lim.latency());
     const int total = mx.latency() + lim.latency();
     for (auto& d : dry) d.prepare (total);
     setLatencySamples (total);
@@ -318,10 +320,15 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 case 4:  ms.style = PULITO;     ms.clip = 0.0f; ms.character = 0.35f + 0.5f * spd; break;                              // CLASSIC (alla L2)
                 default: ms.style = PUNCH;      ms.clip = (0.1f + 0.7f * pres) * adapt; ms.character = spd; break;                     // MODERN
             }
+            copyIn();   // per il DELTA della LOUDNESS: cosa toglie/sporca il limiter rispetto al suono solo alzato
             if (ms.gainDb > 0.01f) mx.process (L, R, n, ms);
             else for (int i = 0; i < n; ++i) { L[i] = mxBy[0] (L[i]); R[i] = mxBy[1] (R[i]); }   // LOUD a zero: solo il ritardo, suono intatto
             LimSettings ls; ls.ceilDb = value ("lm_ceil"); ls.relMs = 80; ls.autoRel = true; ls.truePeak = true;
             lim.process (L, R, n, ls);
+            {
+                const bool ld = value ("e_ldelta") > 0.5f; const float lg = dbToG (ms.gainDb);
+                for (int i = 0; i < n; ++i) { const float a = loudPad[0] (tL[i]) * lg, b = loudPad[1] (tR[i]) * lg; if (ld) { L[i] -= a; R[i] -= b; } }
+            }
             // SOLO di una banda: si sente solo la zona di frequenze di BASSI / MEDI / ALTI, a valle di tutto
             if (lst >= 0 && lst < 3)
             {
@@ -623,9 +630,113 @@ void Processor::autoInput()
     inAvg = kInOpt;
 }
 
+// ---------------------------------------------------------------------------------------------------- FACILE <-> AVANZATO
+namespace
+{
+    bool skipSig (const juce::String& id) { return id == "mode" || id == "trim" || id == "target" || id == "dither" || id == "compare" || id == "norm" || id == "lm_ceil" || id.endsWith ("delta") || id.contains ("solo") || id == "mx_learn"; }
+}
+juce::String Processor::sigEasy() const
+{
+    juce::String s; for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) if (rp->paramID.startsWith ("e_") && ! skipSig (rp->paramID)) s << juce::String (rp->getValue(), 4) << ",";
+    return s;
+}
+juce::String Processor::sigAdv() const
+{
+    juce::String s; for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) if (! rp->paramID.startsWith ("e_") && ! skipSig (rp->paramID)) s << juce::String (rp->getValue(), 4) << ",";
+    return s;
+}
+void Processor::syncSnap() { snapEasy = sigEasy(); snapAdv = sigAdv(); lastMode = easy() ? 0 : 1; }
+
+// le manopole del FACILE diventano i moduli equivalenti dell'AVANZATO (sono gli stessi motori, regolati come il FACILE)
+void Processor::easyToAdv()
+{
+    auto set = [&] (const juce::String& id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
+    const float lo = value ("e_low"), mi = value ("e_mid"), hi = value ("e_high"), calm = value ("e_calm"), thick = value ("e_thick"), warm = value ("e_warm"),
+                silk = value ("e_silk"), glue = value ("e_glue"), wide = value ("e_wide"), loud = value ("e_loud"), pres = value ("e_pres"), spd = value ("e_speed");
+    const bool mb = value ("e_monob") > 0.5f; const int st = (int) value ("e_style");
+    for (int m = 0; m < kNumMods; ++m) set (onParam (m), 0);
+    // bassi mono
+    set ("bc_on", mb ? 1.0f : 0.0f); set ("bc_mono", mb ? 120.0f : 0.0f); set ("bc_freq", 120); set ("bc_thr", 0);
+    // EQ: shelf 90 Hz, campana 1200, shelf 9 kHz + CALM come tre bande dinamiche (fango 280, durezza 3200, sibilanti 7000)
+    const bool eqOn = std::abs (lo) > 0.01f || std::abs (mi) > 0.01f || std::abs (hi) > 0.01f || calm > 0.001f;
+    set ("eq_on", eqOn ? 1.0f : 0.0f);
+    for (int b = 0; b < kEqBands; ++b) set (eqId (b, "on"), 0);
+    auto band = [&] (int b, int type, float f, float g, float q, bool dyn, float rng)
+    { set (eqId (b, "on"), 1); set (eqId (b, "type"), (float) type); set (eqId (b, "f"), f); set (eqId (b, "g"), g); set (eqId (b, "q"), q); set (eqId (b, "dyn"), dyn ? 1.0f : 0.0f); set (eqId (b, "thr"), -30); set (eqId (b, "rng"), rng); set (eqId (b, "ch"), 0); };
+    if (std::abs (lo) > 0.01f) band (0, jmx::BT_LSHELF, 90, lo, 0.55f, false, -6);
+    if (calm > 0.001f) { band (1, jmx::BT_BELL, 280, 0, 1.2f, true, -6.0f * calm); band (3, jmx::BT_BELL, 3200, 0, 1.6f, true, -9.0f * calm); band (4, jmx::BT_BELL, 7000, 0, 2.0f, true, -9.0f * calm); }
+    if (std::abs (mi) > 0.01f) band (2, jmx::BT_BELL, 1200, mi, 0.45f, false, -6);
+    if (std::abs (hi) > 0.01f) band (5, jmx::BT_HSHELF, 9000, hi, 0.55f, false, -6);
+    // colore: THICK = valvola sui bassi, SILK = brillante sugli alti (exciter), WARM = nastro 15 ips
+    set ("ex_on", thick > 0.001f || silk > 0.001f ? 1.0f : 0.0f); set ("ex1_amt", thick * 0.7f); set ("ex2_amt", 0); set ("ex3_amt", silk * 0.7f); set ("ex_mix", 1);
+    set ("tp_on", warm > 0.001f ? 1.0f : 0.0f); set ("tp_model", 1); set ("tp_drive", warm); set ("tp_bias", 0.1f); set ("tp_noise", 0); set ("tp_mix", juce::jmin (1.0f, 0.5f + warm));
+    // GLUE = bus compressor 2:1 attacco 10 ms rilascio auto, filtro 90 Hz nel sidechain
+    set ("bus_on", glue > 0.001f ? 1.0f : 0.0f); set ("bus_thr", -4.0f - 22.0f * glue); set ("bus_ratio", glue > 0.75f ? 2.0f : glue > 0.35f ? 1.0f : 0.0f);
+    set ("bus_att", 4); set ("bus_rel", 4); set ("bus_hpf", 90); set ("bus_range", 9); set ("bus_auto", 1); set ("bus_mix", 1);
+    // WIDE = imager sopra 120 Hz
+    const float w = wide >= 0 ? 1.0f + 1.3f * wide : 1.0f + wide;
+    set ("im_on", std::abs (wide) > 0.001f ? 1.0f : 0.0f); set ("im_w1", 1); for (int b = 2; b <= 4; ++b) set ("im_w" + juce::String (b), juce::jlimit (0.0f, 2.0f, w));
+    // LOUD = maximizer nello stesso stile, poi il limiter true peak
+    const float adapt = 0.6f;
+    int ms = PUNCH; float clip = (0.1f + 0.7f * pres) * adapt, ch = spd;
+    if (st == 1) { ms = AGGRESSIVO; clip = (0.35f + 0.6f * pres) * adapt; ch = 0.55f + 0.45f * spd; }
+    else if (st == 2) { ms = MORBIDO; clip = 0.15f * pres * adapt; ch = 0.35f * spd; }
+    else if (st == 3) { ms = PULITO; clip = 0; ch = 0.2f + 0.4f * spd; }
+    else if (st == 4) { ms = PULITO; clip = 0; ch = 0.35f + 0.5f * spd; }
+    set ("mx_on", loud > 0.01f ? 1.0f : 0.0f); set ("mx_gain", loud); set ("mx_style", (float) ms); set ("mx_clip", clip); set ("mx_char", ch); set ("mx_link", 1);
+    set ("lm_on", 1); set ("lm_gain", 0); set ("lm_auto", 1); set ("lm_tp", 1);
+    rackFromOn();
+}
+// e viceversa: i moduli dell'AVANZATO riassunti nelle manopole del FACILE (approssimato, ma suona nella stessa direzione)
+void Processor::advToEasy()
+{
+    auto set = [&] (const juce::String& id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
+    auto on = [&] (const char* id) { return value (id) > 0.5f; };
+    float lo = 0, mi = 0, hi = 0, calm = 0;
+    if (on ("eq_on"))
+        for (int b = 0; b < kEqBands; ++b)
+        {
+            if (value (eqId (b, "on")) < 0.5f) continue;
+            const int t = (int) value (eqId (b, "type")); const float f = value (eqId (b, "f")), g = value (eqId (b, "g"));
+            if (value (eqId (b, "dyn")) > 0.5f) { calm = juce::jmax (calm, -value (eqId (b, "rng")) / 9.0f); continue; }
+            if (t == jmx::BT_LSHELF || (t == jmx::BT_BELL && f < 250)) lo += g;
+            else if (t == jmx::BT_HSHELF || (t == jmx::BT_BELL && f > 5000)) hi += g;
+            else if (t == jmx::BT_BELL) mi += g * 0.6f;
+        }
+    if (on ("ds_on")) calm = juce::jmax (calm, value ("ds_amt") * 0.8f);
+    if (on ("mb_on")) calm = juce::jmax (calm, 0.35f);
+    if (on ("pq_on")) { lo += 1.0f; hi += 1.0f; }
+    set ("e_low", lo); set ("e_mid", mi); set ("e_high", hi); set ("e_calm", juce::jlimit (0.0f, 1.0f, calm));
+    set ("e_thick", on ("ex_on") ? juce::jlimit (0.0f, 1.0f, value ("ex1_amt") / 0.7f) : 0.0f);
+    set ("e_silk", on ("ex_on") ? juce::jlimit (0.0f, 1.0f, value ("ex3_amt") / 0.7f) : 0.0f);
+    set ("e_warm", on ("tp_on") ? value ("tp_drive") : 0.0f);
+    float glue = on ("bus_on") ? juce::jlimit (0.0f, 1.0f, (-4.0f - value ("bus_thr")) / 22.0f) : 0.0f;
+    if (on ("vm_on")) glue = juce::jmax (glue, 0.4f);
+    set ("e_glue", glue);
+    float wd = 0;
+    if (on ("im_on")) { float a = 0; for (int b = 2; b <= 4; ++b) a += value (("im_w" + juce::String (b)).toRawUTF8()); a = a / 3.0f - 1.0f; wd = a >= 0 ? a / 1.3f : a; }
+    set ("e_wide", juce::jlimit (-1.0f, 1.0f, wd));
+    set ("e_monob", on ("bc_on") && value ("bc_mono") > 20 ? 1.0f : 0.0f);
+    set ("e_loud", juce::jlimit (0.0f, 14.0f, (on ("mx_on") ? value ("mx_gain") : 0.0f) + (on ("lm_on") ? value ("lm_gain") : 0.0f)));
+    const int ms = (int) value ("mx_style");
+    set ("e_style", (float) (ms == PUNCH ? 0 : ms == AGGRESSIVO ? 1 : ms == MORBIDO ? 2 : 3));
+    set ("e_speed", juce::jlimit (0.0f, 1.0f, value ("mx_char")));
+    set ("e_pres", juce::jlimit (0.0f, 1.0f, value ("mx_clip") / 0.6f));
+}
+
 // porta il maximizer al target (sul thread dei messaggi)
 void Processor::timerCallback()
 {
+    {   // cambio di modalita: se hai toccato qualcosa nella modalita che lasci, l'altra si aggiorna e suona uguale
+        const int m = easy() ? 0 : 1;
+        if (lastMode < 0) syncSnap();
+        else if (m != lastMode)
+        {
+            if (lastMode == 0 && sigEasy() != snapEasy) easyToAdv();
+            else if (lastMode == 1 && sigAdv() != snapAdv) advToEasy();
+            syncSnap();
+        }
+    }
     if (value ("mx_learn") < 0.5f || value ("mx_on") < 0.5f) return;
     const float s = lufsS.load(); if (s < -40) return;
     const float diff = target ((int) value ("target")).lufs - s;
@@ -795,9 +906,14 @@ void Processor::loadPreset (int i)
     if (! juce::isPositiveAndBelow (i, (int) presets().size())) return;
     preset = i;
     for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) if (rp->paramID != "trim" && rp->paramID != "dither" && rp->paramID != "mode" && rp->paramID != "target" && rp->paramID != "lm_ceil") rp->setValueNotifyingHost (rp->getDefaultValue());
-    if (i > 0) { auto* m = apvts.getParameter ("mode"); m->setValueNotifyingHost (m->convertTo0to1 (juce::String (presets()[(size_t) i].name).startsWith ("Facile") ? 0.0f : 1.0f)); }
+    // la modalita NON cambia: il preset si sente subito dove sei, e l'altra vista viene tradotta
     for (auto& [id, v] : presets()[(size_t) i].v) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+    if (i > 0)
+    {
+        if (juce::String (presets()[(size_t) i].name).startsWith ("Facile")) easyToAdv(); else advToEasy();
+    }
     rackFromOn();   // la catena mostra gli effetti che il preset usa
+    syncSnap();
 }
 
 

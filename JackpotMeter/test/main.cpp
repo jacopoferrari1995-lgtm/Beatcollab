@@ -6,6 +6,7 @@
 using namespace jm;
 int main (int argc, char** argv)
 {
+    if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {

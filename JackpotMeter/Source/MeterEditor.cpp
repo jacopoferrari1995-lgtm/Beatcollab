@@ -12,6 +12,7 @@ void glowText (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> 
 }
 void lcd (juce::Graphics& g, juce::Rectangle<float> r, float rad)
 {
+    if (jlook::skinHooks().on && jlook::skinHooks().screen) { jlook::skinHooks().screen (g, r, rad, C::phos); return; }
     g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillRoundedRectangle (r.expanded (1.5f), rad + 1.5f);
     juce::ColourGradient cg (C::lcd1, r.getCentreX(), r.getCentreY(), C::lcd2, r.getX(), r.getY(), true); g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);
 }
@@ -247,7 +248,7 @@ void SpecEq::paintEq (juce::Graphics& g, juce::Rectangle<float> p)
     juce::ColourGradient sg (C::phos.withAlpha (0.35f), 0, p.getY(), C::phos.withAlpha (0.04f), 0, p.getBottom(), false); g.setGradientFill (sg); g.fillPath (path (specA, true));
     g.setColour (C::phos.withAlpha (0.9f)); g.strokePath (path (specA, false), juce::PathStrokeType (1.2f));
     g.setColour (C::magenta.withAlpha (0.75f)); g.strokePath (path (specB, false), juce::PathStrokeType (1.0f));
-    g.setColour (juce::Colours::white.withAlpha (0.25f)); g.strokePath (path (peak, false), juce::PathStrokeType (0.8f));
+    g.setColour (neo::K::hi.withAlpha (0.25f)); g.strokePath (path (peak, false), juce::PathStrokeType (0.8f));
     if (hasSc && P.value ("scShow") > 0.5f) { g.setColour (juce::Colour (0xffff8a3d).withAlpha (0.25f)); g.strokePath (path (specC, false), juce::PathStrokeType (3.5f)); g.setColour (juce::Colour (0xffff8a3d)); g.strokePath (path (specC, false), juce::PathStrokeType (1.3f)); }
     const bool eqOn = P.value ("eqOn") > 0.5f;
     Biq tmp[kBands]; bool on[kBands];
@@ -497,7 +498,7 @@ void SpecEq::paintGram (juce::Graphics& g, juce::Rectangle<float> p)
     for (float f : { 50.f, 100.f, 200.f, 500.f, 1000.f, 2000.f, 5000.f, 10000.f })
     {
         const float y = y0 + H * (1.0f - std::log (f / 20.0f) / std::log (1000.0f));
-        g.setColour (juce::Colours::white.withAlpha (0.12f)); g.drawHorizontalLine ((int) y, (float) x0, (float) (x0 + W));
+        g.setColour (neo::K::hi.withAlpha (0.12f)); g.drawHorizontalLine ((int) y, (float) x0, (float) (x0 + W));
         g.setColour (C::dim); g.drawText (f >= 1000 ? juce::String ((int) f / 1000) + "k" : juce::String ((int) f), juce::Rectangle<float> ((float) x0 + W + 2, y - 5, 30, 10), juce::Justification::centredLeft);
     }
     g.setFont (uf (9.5f)); g.setColour (C::text.withAlpha (0.8f));
@@ -750,7 +751,7 @@ void Loud::paint (juce::Graphics& g)
         {
             auto r = juce::Rectangle<float> (in.getX(), in.getY() + c * 11.0f, in.getWidth(), 9);
             g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText (c ? "R" : "L", juce::Rectangle<float> (mr.getX() + 6, r.getY() - 1, 14, 11), juce::Justification::centredLeft);
-            g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillRoundedRectangle (r, 2);
+            g.setColour (neo::K::hi.withAlpha (0.05f)); g.fillRoundedRectangle (r, 2);
             const float rm = c ? P.rmsR.load() : P.rmsL.load(), pp = c ? P.pkR.load() : P.pkL.load(), ph = c ? P.pkHoldR.load() : P.pkHoldL.load();
             if (pp > -60) { g.setColour (C::phos.withAlpha (0.3f)); g.fillRoundedRectangle (r.withRight (xD (pp)), 2); }
             if (rm > -60) { juce::ColourGradient lg (C::phos, r.getX(), 0, rm > -6 ? C::red : rm > -12 ? C::amber : C::green, xD (rm), 0, false); g.setGradientFill (lg); g.fillRoundedRectangle (r.withRight (xD (rm)), 2); }
@@ -980,6 +981,7 @@ void RefPanel::paint (juce::Graphics& g)
 // ======================= Editor =======================
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("meter", { 0xffa8bea0, 0xffcbcbc6, 0xff9fd0bf, 0xffe3d3a8 }, 0xff4dff88); C::sync(); themeRect = { 952, 15, 100, 36 };
     setLookAndFeel (&lnf);
     for (auto* c : std::initializer_list<juce::Component*> { &spec, &loud, &bal, &st, &refp }) addAndMakeVisible (c);
     addAndMakeVisible (sizeChip);
@@ -997,6 +999,7 @@ void Editor::resized()
 }
 void Editor::paint (juce::Graphics& g)
 {
+    skin::apply(); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float Wf = (float) W, Hf = (float) H;
     jlook::backdrop (g, { 0, 0, Wf, Hf }, C::magenta, C::phos);
@@ -1005,9 +1008,11 @@ void Editor::paint (juce::Graphics& g)
     jlook::button (g, specRect.toFloat(), C::phos, true, false, proc.value ("spec") < 0.5f ? "SPETTRO: MID + SIDE" : "SPETTRO: L + R", uf (11.5f));
     jlook::button (g, eqRect.toFloat(), C::magenta, proc.value ("eqOn") > 0.5f, false, proc.value ("eqOn") > 0.5f ? "EQ ATTIVO" : "EQ BYPASS", uf (11.5f));
     jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, false, "MEMORIA " + proc.ab.label(), uf (11.5f));
+    skin::chipDraw (g, themeRect.toFloat());
 }
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
+    { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } }
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     if (specRect.contains (e.getPosition())) setP (P ("spec"), proc.value ("spec") < 0.5f ? 1.0f : 0.0f);
     else if (eqRect.contains (e.getPosition())) setP (P ("eqOn"), proc.value ("eqOn") > 0.5f ? 0.0f : 1.0f);

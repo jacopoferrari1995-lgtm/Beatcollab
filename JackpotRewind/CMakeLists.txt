@@ -17,7 +17,7 @@ target_sources(JackpotRewind PRIVATE Source/RewindProcessor.cpp Source/RewindEdi
 target_include_directories(JackpotRewind PRIVATE ${CMAKE_SOURCE_DIR}/Common)
 target_compile_definitions(JackpotRewind PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
 target_link_libraries(JackpotRewind
-  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts
+  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 if(J60_TEST)
@@ -25,5 +25,5 @@ if(J60_TEST)
   target_include_directories(RewindTest PRIVATE ${CMAKE_SOURCE_DIR}/Common)
   target_sources(RewindTest PRIVATE test/main.cpp Source/RewindProcessor.cpp Source/RewindEditor.cpp)
   target_compile_definitions(RewindTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotRewind")
-  target_link_libraries(RewindTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts)
+  target_link_libraries(RewindTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo)
 endif()

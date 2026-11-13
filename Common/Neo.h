@@ -20,9 +20,10 @@ namespace K
     inline juce::uint32 customAcc[7] { 0xffd2694f, 0xff8c7bb0, 0xff7fb8b0, 0xff8fbf6a, 0xffe8a33d, 0xffd8483c, 0xff6f8fc0 };
     inline bool customLight = false; inline int customStyle = 0;   // stile: 0 metallo da rack, 1 legno ai lati, 2 tolex
 }
-inline bool light() { return K::theme == 2 || (K::theme >= 5 && K::theme <= 8) || (K::theme == 9 && K::customLight); }   // 5..8: temi chiari (schermo bianco / LCD)
+inline bool light() { return K::theme == 2 || (K::theme >= 5 && K::theme <= 8) || (K::theme == 9 && K::customLight); }
+namespace K { inline juce::uint32 hudAcc = 0xffff2828; }   // 5..8: temi chiari (schermo bianco / LCD)
 // un accento neon reso leggibile sul chiaro (sul tema scuro resta com'e')
-inline juce::Colour acc (juce::Colour c) { if (K::theme == 9 && K::customStyle == 3) return c.withMultipliedSaturation (1.1f).withMultipliedBrightness (0.42f); return light() ? c.withMultipliedSaturation (1.0f).withMultipliedBrightness (0.66f) : K::theme == 1 ? c.withMultipliedSaturation (0.68f).withMultipliedBrightness (0.95f) : c; }
+inline juce::Colour acc (juce::Colour c) { if (K::theme == 10) return c.withMultipliedSaturation (0.3f).interpolatedWith (juce::Colours::white, 0.45f); if (K::theme == 9 && K::customStyle == 3) return c.withMultipliedSaturation (1.1f).withMultipliedBrightness (0.42f); return light() ? c.withMultipliedSaturation (1.0f).withMultipliedBrightness (0.66f) : K::theme == 1 ? c.withMultipliedSaturation (0.68f).withMultipliedBrightness (0.95f) : c; }
 // testo sopra un bottone acceso
 inline juce::Colour onText (juce::Colour c) { return light() ? c.darker (0.5f) : juce::Colours::white; }
 inline void setTheme (int t)
@@ -30,6 +31,16 @@ inline void setTheme (int t)
     if (t == K::theme) return;
     K::theme = t; using namespace K;
     const juce::Colour P0 { 0xffff3d9a }, V0 { 0xff8b5cff }, C0 { 0xff3ee8ff }, M0 { 0xff4dffb4 }, A0 { 0xffffb547 }, R0 { 0xffff4d6a }, B0 { 0xff4d7dff };
+    if (t == 10)
+    {   // HUD: nero, linee bianche, un solo colore acceso (rosso di base, ogni plugin puo cambiarlo)
+        const juce::Colour A (hudAcc);
+        bg0 = juce::Colour (0xff060608); bg1 = juce::Colour (0xff121216); ink = juce::Colour (0xffececec); sub = juce::Colour (0xff9a9aa0); faint = juce::Colour (0xff5c5c62);
+        panel0 = juce::Colour (0xff1c1c20); panel1 = juce::Colour (0xff0a0a0c); disp0 = A.interpolatedWith (juce::Colours::black, 0.9f); disp1 = juce::Colour (0xff050506); accent = A;
+        line = juce::Colour (0x16ffffff); hi = juce::Colours::white; lo = juce::Colours::black;
+        pink = A; red = A; violet = A.interpolatedWith (juce::Colours::white, 0.25f); amber = A.interpolatedWith (juce::Colour (0xffffb000), 0.45f);
+        cyan = juce::Colour (0xffe6e6e6); mint = juce::Colour (0xffbdbdc2); blue = juce::Colour (0xff9fa0aa);
+        return;
+    }
     if (t == 9)
     {
         const auto* q = custom;
@@ -73,13 +84,20 @@ inline void setTheme (int t)
 // ------------------------------------------------------------------------------------------------ font
 struct Fonts
 {
-    juce::Typeface::Ptr t[4];
+    juce::Typeface::Ptr t[10];
     Fonts()
     {
         t[0] = juce::Typeface::createSystemTypefaceFor (NeoData::Manrope500_ttf, NeoData::Manrope500_ttfSize);
         t[1] = juce::Typeface::createSystemTypefaceFor (NeoData::Manrope700_ttf, NeoData::Manrope700_ttfSize);
         t[2] = juce::Typeface::createSystemTypefaceFor (NeoData::Sora300_ttf, NeoData::Sora300_ttfSize);
         t[3] = juce::Typeface::createSystemTypefaceFor (NeoData::Sora600_ttf, NeoData::Sora600_ttfSize);
+        // temi CBRPNK e HUD: caratteri da poster e da schermo tecnico (licenza OFL, liberi da incorporare)
+        t[4] = juce::Typeface::createSystemTypefaceFor (NeoData::ArchivoBlackRegular_ttf, NeoData::ArchivoBlackRegular_ttfSize);
+        t[5] = juce::Typeface::createSystemTypefaceFor (NeoData::SpaceMonoRegular_ttf, NeoData::SpaceMonoRegular_ttfSize);
+        t[6] = juce::Typeface::createSystemTypefaceFor (NeoData::SpaceMonoBold_ttf, NeoData::SpaceMonoBold_ttfSize);
+        t[7] = juce::Typeface::createSystemTypefaceFor (NeoData::ShareTechMonoRegular_ttf, NeoData::ShareTechMonoRegular_ttfSize);
+        t[8] = juce::Typeface::createSystemTypefaceFor (NeoData::MichromaRegular_ttf, NeoData::MichromaRegular_ttfSize);
+        t[9] = juce::Typeface::createSystemTypefaceFor (NeoData::ChakraPetchSemiBold_ttf, NeoData::ChakraPetchSemiBold_ttfSize);
     }
 };
 inline juce::Typeface::Ptr tf (int i) { return juce::SharedResourcePointer<Fonts>()->t[i]; }

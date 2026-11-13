@@ -1,5 +1,6 @@
 #pragma once
 #include "TubeProcessor.h"
+#include "Skin.h"
 
 namespace jtbx
 {
@@ -20,6 +21,7 @@ public:
 };
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    juce::Rectangle<int> themeRect;
 public:
     explicit Editor (Processor&);
     ~Editor() override { setLookAndFeel (nullptr); }

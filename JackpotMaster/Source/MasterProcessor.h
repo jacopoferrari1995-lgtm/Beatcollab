@@ -77,6 +77,9 @@ public:
     void setStateInformation (const void*, int) override;
 
     void loadPreset (int i);
+    // FACILE e AVANZATO si parlano: un preset (o un cambio di modalita) porta il suono anche nell'altra vista
+    void easyToAdv(); void advToEasy(); juce::String sigEasy() const; juce::String sigAdv() const; void syncSnap();
+    juce::String snapEasy, snapAdv; int lastMode = -1;
     void loadModPreset (int i);
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     double sampleRate() const { return sr; }
@@ -131,7 +134,7 @@ private:
     EasyEngine easyEng; double inAcc = 0; int inAccN = 0; float grSm = 0;
     BassControl bass; DynEq deq; jmx::ProEq peq; Eq432 e432; Pultec pult; VariMu vmu; Imager img; DeEsser dess; BusComp bus; Multiband mband; TapeMachine tape; Exciter exc; VarDelay deltaVar[2];
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
-    Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2];
+    Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2], loudPad[2];
     juce::AudioBuffer<float> tmp, keep;
     double sqL = 0, sqR = 0; float matchSm = 1, normSm = 1, colIn = 0, colOut = 0, colM = 0, colL = 0, colRaw = 0; int colN = 0; double sqIn = 0, sqOut = 0;
     std::shared_ptr<RefTrack> ref; mutable juce::SpinLock refLock;

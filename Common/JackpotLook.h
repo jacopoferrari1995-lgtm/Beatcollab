@@ -23,11 +23,14 @@ struct Resources
 };
 inline juce::Typeface::Ptr face (int which) { return juce::SharedResourcePointer<Resources>()->f[juce::jlimit (0, 4, which)]; }
 // testo dell'interfaccia (Rajdhani): weight 0 medio, 1 semibold, 2 bold
-inline juce::Font ui (float size, int weight = 1) { return juce::Font (juce::FontOptions (face (juce::jlimit (0, 2, weight))).withHeight (size * 1.24f)); }
+// i temi della pelle possono cambiare i caratteri di tutta l'interfaccia (kind: 0 testo, 1 numeri, 2 logo)
+struct FontHook { bool (*fn) (int kind, float size, int weight, juce::Font& out) = nullptr; };
+inline FontHook& fontHook() { static FontHook h; return h; }
+inline juce::Font ui (float size, int weight = 1) { { juce::Font o { juce::FontOptions() }; if (fontHook().fn != nullptr && fontHook().fn (0, size, weight, o)) return o; } return juce::Font (juce::FontOptions (face (juce::jlimit (0, 2, weight))).withHeight (size * 1.24f)); }
 // display LCD (Share Tech Mono)
-inline juce::Font mono (float size) { return juce::Font (juce::FontOptions (face (3)).withHeight (size * 1.12f)); }
+inline juce::Font mono (float size) { { juce::Font o { juce::FontOptions() }; if (fontHook().fn != nullptr && fontHook().fn (1, size, 0, o)) return o; } return juce::Font (juce::FontOptions (face (3)).withHeight (size * 1.12f)); }
 // logo (Michroma)
-inline juce::Font logo (float size) { return juce::Font (juce::FontOptions (face (4)).withHeight (size)).withExtraKerningFactor (0.06f); }
+inline juce::Font logo (float size) { { juce::Font o { juce::FontOptions() }; if (fontHook().fn != nullptr && fontHook().fn (2, size, 0, o)) return o; } return juce::Font (juce::FontOptions (face (4)).withHeight (size)).withExtraKerningFactor (0.06f); }
 
 // LookAndFeel per menu e finestre native
 struct LnF : juce::LookAndFeel_V4
@@ -62,8 +65,13 @@ struct SkinHooks
     void (*knob) (juce::Graphics&, juce::Rectangle<float>, float, juce::Colour, const KnobLook&) = nullptr;
     void (*glass) (juce::Graphics&, juce::Rectangle<float>, float) = nullptr;
     void (*bubble) (juce::Graphics&, juce::Rectangle<float>, const juce::String&, juce::Colour) = nullptr;
+    void (*screen) (juce::Graphics&, juce::Rectangle<float>, float, juce::Colour) = nullptr;
 };
 inline SkinHooks& skinHooks() { static SkinHooks h; return h; }
+// tavolozza del tema attivo, per i colori propri dei plugin (C::sync la ricopia)
+struct SkinPal { juce::Colour bg { 0xff0b0c10 }, text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 }, amber { 0xffffb000 }, red { 0xffff3b5c }, green { 0xff7dff5a },
+                 cyan { 0xff5ef2ff }, pink { 0xffff2e88 }, violet { 0xffa66bff }, blue { 0xff60a5fa }, lcd0 { 0xff05161a }, lcd1 { 0xff020b0d }, hi { juce::Colours::white }; bool light = false; };
+inline SkinPal& skinPal() { static SkinPal p; return p; }
 // ombra morbida sotto un rettangolo arrotondato
 inline void softShadow (juce::Graphics& g, juce::Rectangle<float> r, float rad, float spread = 14.0f, float alpha = 0.55f, float dy = 6.0f)
 {

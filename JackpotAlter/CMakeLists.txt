@@ -17,7 +17,7 @@ target_sources(JackpotAlter PRIVATE Source/AlterProcessor.cpp Source/AlterEditor
 target_include_directories(JackpotAlter PRIVATE ${CMAKE_SOURCE_DIR}/Common)
 target_compile_definitions(JackpotAlter PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
 target_link_libraries(JackpotAlter
-  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts
+  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 if(J60_TEST)
@@ -25,5 +25,5 @@ if(J60_TEST)
   target_include_directories(AlterTest PRIVATE ${CMAKE_SOURCE_DIR}/Common)
   target_sources(AlterTest PRIVATE test/main.cpp Source/AlterProcessor.cpp Source/AlterEditor.cpp)
   target_compile_definitions(AlterTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotAlter")
-  target_link_libraries(AlterTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts)
+  target_link_libraries(AlterTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo)
 endif()

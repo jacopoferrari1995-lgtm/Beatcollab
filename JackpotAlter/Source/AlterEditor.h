@@ -1,14 +1,33 @@
 #pragma once
 #include "AlterProcessor.h"
+#include "Skin.h"
 #include "JackpotScale.h"
 
 namespace ja
 {
 namespace C
 {
-    const juce::Colour bg { 0xff0b0c10 }, text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
-    const juce::Colour magenta { 0xffff2e88 }, phos { 0xff5ef2ff }, amber { 0xffffb000 }, green { 0xff7dff5a }, red { 0xffff3b5c }, violet { 0xffa66bff };
-    const juce::Colour lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
+    inline juce::Colour bg { 0xff0b0c10 }, text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
+    inline juce::Colour magenta { 0xffff2e88 }, phos { 0xff5ef2ff }, amber { 0xffffb000 }, green { 0xff7dff5a }, red { 0xffff3b5c }, violet { 0xffa66bff };
+    inline juce::Colour lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
+    // colori presi dal tema della pelle
+    inline void sync()
+    {
+        if (! jlook::skinHooks().on) return;
+        const auto& p = jlook::skinPal();
+        bg = p.bg;
+        text = p.text;
+        dim = p.dim;
+        faint = p.faint;
+        magenta = p.pink;
+        phos = p.cyan;
+        amber = p.amber;
+        green = p.green;
+        red = p.red;
+        violet = p.violet;
+        lcd1 = p.lcd0;
+        lcd2 = p.lcd1;
+    }
 }
 juce::Font uf (float size, bool bold = true);
 juce::Font mf (float size);
@@ -119,6 +138,7 @@ public:
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    juce::Rectangle<int> themeRect;
 public:
     explicit Editor (Processor&);
     ~Editor() override { setLookAndFeel (nullptr); }

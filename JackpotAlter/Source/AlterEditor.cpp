@@ -13,6 +13,7 @@ void glowText (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> 
 }
 void lcd (juce::Graphics& g, juce::Rectangle<float> r, float rad)
 {
+    if (jlook::skinHooks().on && jlook::skinHooks().screen) { jlook::skinHooks().screen (g, r, rad, C::phos); return; }
     g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillRoundedRectangle (r.expanded (1.5f), rad + 1.5f);
     juce::ColourGradient cg (C::lcd1, r.getCentreX(), r.getCentreY(), C::lcd2, r.getX(), r.getY(), true); g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);
     g.setColour (C::phos.withAlpha (0.03f));
@@ -106,7 +107,7 @@ void ModelGrid::paint (juce::Graphics& g)
         g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillRoundedRectangle (r.expanded (1), 6);
         juce::ColourGradient cg (on ? c.withAlpha (0.32f) : juce::Colour (0xff1c1f26), r.getX(), r.getY(), on ? c.withAlpha (0.10f) : juce::Colour (0xff111318), r.getX(), r.getBottom(), false);
         g.setGradientFill (cg); g.fillRoundedRectangle (r, 6);
-        g.setColour (on ? c : (hov == m ? c.withAlpha (0.6f) : juce::Colours::white.withAlpha (0.08f))); g.drawRoundedRectangle (r.reduced (0.5f), 6, on ? 1.4f : 1.0f);
+        g.setColour (on ? c : (hov == m ? c.withAlpha (0.6f) : neo::K::hi.withAlpha (0.08f))); g.drawRoundedRectangle (r.reduced (0.5f), 6, on ? 1.4f : 1.0f);
         // led del modello
         auto led = juce::Rectangle<float> (r.getX() + 7, r.getCentreY() - 3, 6, 6);
         if (on) { g.setColour (c.withAlpha (0.4f)); g.fillEllipse (led.expanded (3)); }
@@ -219,7 +220,7 @@ void DriveView::paint (juce::Graphics& g)
     {
         const float n = juce::jlimit (0.0f, 1.0f, (harm[h] + 80) / 80);
         auto r = juce::Rectangle<float> (hb.getX() + h * bw + 3, hb.getY(), bw - 6, hb.getHeight() - 12);
-        g.setColour (juce::Colours::white.withAlpha (0.04f)); g.fillRoundedRectangle (r, 2);
+        g.setColour (neo::K::hi.withAlpha (0.04f)); g.fillRoundedRectangle (r, 2);
         auto f = r.withTop (r.getBottom() - r.getHeight() * n);
         const auto hc = h == 0 ? C::text : ((h + 1) % 2 == 0 ? C::amber : c);   // pari in ambra, dispari col colore del modello
         g.setColour (hc.withAlpha (0.25f)); g.fillRoundedRectangle (f.expanded (1.5f), 3); g.setColour (hc); g.fillRoundedRectangle (f, 2);
@@ -387,6 +388,7 @@ void DriftView::paint (juce::Graphics& g)
 // ======================================================================= Editor
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("alter", { 0xffe58aa0, 0xffb9a6e0, 0xffe9a260, 0xffcfcfca }, 0xffff2e88); C::sync(); themeRect = { 952, 15, 100, 36 };
     setLookAndFeel (&lnf);
     auto semi = [] (float v, bool fine) { return fine ? v : std::round (v); };
     kPMix = std::make_unique<Knob> (P ("pmix"), C::phos); kPMix->label = "MIX PITCH"; kPMix->text = [this] { return juce::String (juce::roundToInt (proc.value ("pmix") * 100)) + "%"; };
@@ -484,6 +486,7 @@ void Editor::resized()
 
 void Editor::paint (juce::Graphics& g)
 {
+    skin::apply(); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float Wf = (float) W, Hf = (float) H;
     const int model = (int) bv ("model"); const auto mc = modelCol (model);
@@ -547,13 +550,14 @@ void Editor::paint (juce::Graphics& g)
             auto m = juce::Rectangle<float> (r.getX() + 3 + c * (r.getWidth() / 2 - 1), r.getY() + 3, r.getWidth() / 2 - 5, r.getHeight() - 6);
             const float db = juce::Decibels::gainToDecibels (c ? rr : l, -60.0f), n = juce::jlimit (0.0f, 1.0f, (db + 60) / 63);
             const int seg = 24;
-            for (int k = 0; k < seg; ++k) { const float t2 = k / (float) seg; g.setColour (t2 <= n ? (t2 > 0.93f ? C::red : t2 > 0.8f ? C::amber : C::phos) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (m.getX(), m.getBottom() - (k + 1) * m.getHeight() / seg + 1, m.getWidth(), m.getHeight() / seg - 1.5f); }
+            for (int k = 0; k < seg; ++k) { const float t2 = k / (float) seg; g.setColour (t2 <= n ? (t2 > 0.93f ? C::red : t2 > 0.8f ? C::amber : C::phos) : neo::K::hi.withAlpha (0.05f)); g.fillRect (m.getX(), m.getBottom() - (k + 1) * m.getHeight() / seg + 1, m.getWidth(), m.getHeight() / seg - 1.5f); }
         }
     };
     meter ({ 1124, 560, 24, 196 }, proc.inPk[0].load(), proc.inPk[1].load(), "IN");
     meter ({ 1154, 560, 24, 196 }, proc.outPk[0].load(), proc.outPk[1].load(), "OUT");
     g.setColour (C::dim); g.setFont (uf (10.0f, false));
     g.drawFittedText ("PITCH > DRIVE: satura la voce gia spostata (piu naturale). DRIVE > PITCH: sposti anche la distorsione.", juce::Rectangle<int> (892, 722, 222, 44), juce::Justification::topLeft, 3);
+    skin::chipDraw (g, themeRect.toFloat());
 }
 
 void Editor::mouseMove (const juce::MouseEvent& e0)
@@ -566,6 +570,7 @@ void Editor::mouseMove (const juce::MouseEvent& e0)
 
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
+    { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } }
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int n = (int) presets().size();
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); selectBand (band); }

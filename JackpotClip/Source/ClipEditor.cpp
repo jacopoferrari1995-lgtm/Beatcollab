@@ -49,6 +49,7 @@ void CurveView::paint (juce::Graphics& g)
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("clip", { 0xffe46a4c, 0xffe9a260, 0xffccccc7, 0xffe3d3a8 }, 0xffff3030); C::sync(); themeRect = { 950, 15, 100, 36 };
     setLookAndFeel (&lnf);
     auto knob = [&] (const char* id, const char* label, std::function<juce::String()> txt, juce::Colour c, bool bip = false) -> Knob*
     {
@@ -87,6 +88,7 @@ void Editor::resized()
 }
 void Editor::paint (juce::Graphics& g)
 {
+    skin::apply(); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     jlook::backdrop (g, { 0, 0, (float) W, (float) H }, acc, acc2);
     jlook::header (g, { 0, 0, (float) W, 64 }, "CLIP", acc, "JC-9  CLIPPER A 9 CURVE", acc, acc2);
@@ -103,10 +105,12 @@ void Editor::paint (juce::Graphics& g)
         const float db = juce::Decibels::gainToDecibels (v, -60.0f); const float tt = juce::jlimit (0.0f, 1.0f, (db + 48) / 48);
         g.setColour (c); g.fillRect (juce::Rectangle<float> (x + 2, 590, 116 * tt, 6)); g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText (juce::String (t) + " " + juce::String (db, 1), juce::Rectangle<float> (x, 600, 120, 12), juce::Justification::centredLeft); };
     mt (742, "IN", proc.eng.inPk.load(), C::dim); mt (900, "OUT", proc.eng.outPk.load(), acc2);
+    skin::chipDraw (g, themeRect.toFloat());
 }
 void Editor::mouseMove (const juce::MouseEvent& e0) { const auto e = e0.withNewPosition (e0.position / scaler.s); const bool h = bar.ab.contains (e.getPosition()); if (h != bar.abHover) { bar.abHover = h; repaint(); } }
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
+    { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } }
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     bar.click (*this, proc, presets(), e.getPosition(), localAreaToGlobal (scaler.map (bar.preset)));
 }

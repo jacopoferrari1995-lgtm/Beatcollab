@@ -21,7 +21,8 @@ juce_add_binary_data(JackpotFonts HEADER_NAME JackpotFontsData.h NAMESPACE Jackp
 set_target_properties(JackpotFonts PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 # stile NEO (Master FACILE, Jackpot FX): font moderni e manopola 3D renderizzata
 juce_add_binary_data(JackpotNeo HEADER_NAME NeoData.h NAMESPACE NeoData SOURCES
-  Common/Neo/Manrope-500.ttf Common/Neo/Manrope-700.ttf Common/Neo/Sora-300.ttf Common/Neo/Sora-600.ttf Common/Neo/neo_knob.png)
+  Common/Neo/Manrope-500.ttf Common/Neo/Manrope-700.ttf Common/Neo/Sora-300.ttf Common/Neo/Sora-600.ttf Common/Neo/neo_knob.png
+  Common/Neo/ArchivoBlack-Regular.ttf Common/Neo/SpaceMono-Regular.ttf Common/Neo/SpaceMono-Bold.ttf Common/Neo/ShareTechMono-Regular.ttf Common/Neo/Michroma-Regular.ttf Common/Neo/ChakraPetch-SemiBold.ttf)
 set_target_properties(JackpotNeo PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 # campioni di transizione per gli effetti da performance (riser, snare roll, downlifter, sub drop)
 juce_add_binary_data(JackpotFxSamples HEADER_NAME FxSamplesData.h NAMESPACE FxSamplesData SOURCES
@@ -38,8 +39,18 @@ add_subdirectory(JackpotMaster)
 add_subdirectory(JackpotMotion)
 add_subdirectory(JackpotDust)
 add_subdirectory(JackpotClip)
+add_subdirectory(JackpotPreamp)
 add_subdirectory(JackpotMix)
 add_subdirectory(JackpotPhase)
 add_subdirectory(JackpotTube)
 add_subdirectory(JackpotRewind)
 add_subdirectory(JackpotFX)
+
+# controllo automazioni (solo in locale, con J60_TEST)
+if(J60_TEST)
+  foreach(PL JackpotTape JackpotPad JackpotButter JackpotComp JackpotMeter JackpotAlter JackpotMaster JackpotMotion JackpotDust JackpotClip JackpotMix JackpotPhase JackpotTube JackpotRewind JackpotFX)
+    juce_add_console_app(AutoCheck_${PL} PRODUCT_NAME "AutoCheck_${PL}")
+    target_sources(AutoCheck_${PL} PRIVATE Common/AutoCheck.cpp)
+    target_link_libraries(AutoCheck_${PL} PRIVATE ${PL} juce::juce_audio_utils JackpotFxSamples)
+  endforeach()
+endif()

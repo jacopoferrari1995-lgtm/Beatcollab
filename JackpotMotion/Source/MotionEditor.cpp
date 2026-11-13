@@ -14,6 +14,7 @@ void glowText (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> 
 }
 void lcd (juce::Graphics& g, juce::Rectangle<float> r, float rad)
 {
+    if (jlook::skinHooks().on && jlook::skinHooks().screen) { jlook::skinHooks().screen (g, r, rad, C::phos); return; }
     g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillRoundedRectangle (r.expanded (1.5f), rad + 1.5f);
     juce::ColourGradient cg (C::lcd1, r.getCentreX(), r.getCentreY(), C::lcd2, r.getX(), r.getY(), true); g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);
     g.setColour (C::phos.withAlpha (0.03f));
@@ -92,7 +93,7 @@ void FxGrid::paint (juce::Graphics& g)
         g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillRoundedRectangle (r.expanded (1), 7);
         juce::ColourGradient cg (on ? c.withAlpha (0.30f) : juce::Colour (0xff1c1f26), r.getX(), r.getY(), on ? c.withAlpha (0.08f) : juce::Colour (0xff111318), r.getX(), r.getBottom(), false);
         g.setGradientFill (cg); g.fillRoundedRectangle (r, 7);
-        g.setColour (s ? juce::Colours::white : (hov == m ? c.withAlpha (0.6f) : on ? c.withAlpha (0.6f) : juce::Colours::white.withAlpha (0.08f))); g.drawRoundedRectangle (r.reduced (0.5f), 7, s ? 2.0f : 1.0f);
+        g.setColour (s ? juce::Colours::white : (hov == m ? c.withAlpha (0.6f) : on ? c.withAlpha (0.6f) : neo::K::hi.withAlpha (0.08f))); g.drawRoundedRectangle (r.reduced (0.5f), 7, s ? 2.0f : 1.0f);
         // LED = interruttore
         auto lr = led (m); const float d = 12; auto dot = juce::Rectangle<float> (lr.getCentreX() - d / 2, lr.getCentreY() - d / 2, d, d);
         g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillRoundedRectangle (lr, 5);
@@ -329,6 +330,7 @@ void PanView::paint (juce::Graphics& g)
 // ======================================================================= editor
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("motion", { 0xff9fc3e0, 0xffb9a6e0, 0xffde6c5c, 0xffccccc7 }, 0xff3ee8ff); C::sync(); themeRect = { 952, 15, 100, 36 };
     setLookAndFeel (&lnf);
     sel = juce::jlimit (0, kNumFx - 1, proc.uiSel);
     auto knob = [this] (std::unique_ptr<Knob>& k, juce::RangedAudioParameter* prm, juce::Colour c, const char* label, bool big, std::function<juce::String()> txt = nullptr, bool bip = false)
@@ -467,6 +469,7 @@ void Editor::resized()
 
 void Editor::paint (juce::Graphics& g)
 {
+    skin::apply(); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float Wf = (float) W, Hf = (float) H;
     const int fx = sel; const auto fc = fxCol (fx);
@@ -510,11 +513,12 @@ void Editor::paint (juce::Graphics& g)
         {
             auto m = juce::Rectangle<float> (r.getX() + 3 + c * (r.getWidth() / 2 - 1), r.getY() + 3, r.getWidth() / 2 - 5, r.getHeight() - 6);
             const float db = juce::Decibels::gainToDecibels (c ? rr : l, -60.0f), n = juce::jlimit (0.0f, 1.0f, (db + 60) / 63);
-            for (int k = 0; k < 24; ++k) { const float t2 = k / 24.0f; g.setColour (t2 <= n ? (t2 > 0.93f ? C::red : t2 > 0.8f ? C::amber : C::phos) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (m.getX(), m.getBottom() - (k + 1) * m.getHeight() / 24 + 1, m.getWidth(), m.getHeight() / 24 - 1.5f); }
+            for (int k = 0; k < 24; ++k) { const float t2 = k / 24.0f; g.setColour (t2 <= n ? (t2 > 0.93f ? C::red : t2 > 0.8f ? C::amber : C::phos) : neo::K::hi.withAlpha (0.05f)); g.fillRect (m.getX(), m.getBottom() - (k + 1) * m.getHeight() / 24 + 1, m.getWidth(), m.getHeight() / 24 - 1.5f); }
         }
     };
     meter ({ 1124, 584, 24, 200 }, proc.inPk[0].load(), proc.inPk[1].load(), "IN");
     meter ({ 1152, 584, 24, 200 }, proc.outPk[0].load(), proc.outPk[1].load(), "OUT");
+    skin::chipDraw (g, themeRect.toFloat());
 }
 
 void Editor::mouseMove (const juce::MouseEvent& e0)
@@ -526,6 +530,7 @@ void Editor::mouseMove (const juce::MouseEvent& e0)
 }
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
+    { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } }
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int n = (int) presets().size();
     auto after = [this] { int first = -1; for (int f = 0; f < kNumFx; ++f) if (proc.value (pid (f, "on").toRawUTF8()) > 0.5f) { first = f; break; } if (first >= 0) select (first); else select (sel); };

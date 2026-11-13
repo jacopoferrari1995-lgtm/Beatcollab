@@ -1,14 +1,35 @@
 #pragma once
 #include "DustProcessor.h"
+#include "Skin.h"
 #include "JackpotScale.h"
 
 namespace jds
 {
 namespace C
 {
-    const juce::Colour bg { 0xff0b0c10 }, text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
-    const juce::Colour amber { 0xffffb000 }, rust { 0xffff7a1a }, cream { 0xfff3d9a4 }, olive { 0xffb5c94a }, phos { 0xff5ef2ff }, red { 0xffff3b5c }, rose { 0xffff6f91 }, green { 0xff7dff5a };
-    const juce::Colour lcd1 { 0xff1a1408 }, lcd2 { 0xff0c0904 };
+    inline juce::Colour bg { 0xff0b0c10 }, text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
+    inline juce::Colour amber { 0xffffb000 }, rust { 0xffff7a1a }, cream { 0xfff3d9a4 }, olive { 0xffb5c94a }, phos { 0xff5ef2ff }, red { 0xffff3b5c }, rose { 0xffff6f91 }, green { 0xff7dff5a };
+    inline juce::Colour lcd1 { 0xff1a1408 }, lcd2 { 0xff0c0904 };
+    // colori presi dal tema della pelle
+    inline void sync()
+    {
+        if (! jlook::skinHooks().on) return;
+        const auto& p = jlook::skinPal();
+        bg = p.bg;
+        text = p.text;
+        dim = p.dim;
+        faint = p.faint;
+        amber = p.amber;
+        rust = p.red.interpolatedWith (p.amber, 0.5f);
+        cream = (p.light ? p.text : p.amber.interpolatedWith (p.hi, 0.6f));
+        olive = p.green;
+        phos = p.cyan;
+        red = p.red;
+        rose = p.pink;
+        green = p.green;
+        lcd1 = p.lcd0;
+        lcd2 = p.lcd1;
+    }
 }
 juce::Font uf (float size, bool bold = true);
 juce::Font mf (float size);
@@ -70,6 +91,7 @@ public:
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    juce::Rectangle<int> themeRect;
 public:
     explicit Editor (Processor&);
     ~Editor() override { setLookAndFeel (nullptr); }

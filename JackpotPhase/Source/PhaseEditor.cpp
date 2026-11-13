@@ -6,7 +6,7 @@ void WaveView::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat(); lcd (g, b, 8, ed.acc);
     auto r = b.reduced (12, 26); const auto& S = ed.proc.snap; const int N = Snapshot::kLen;
-    g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawHorizontalLine ((int) r.getCentreY(), r.getX(), r.getRight());
+    g.setColour (neo::K::hi.withAlpha (0.06f)); g.drawHorizontalLine ((int) r.getCentreY(), r.getX(), r.getRight());
     if (S.serial.load() == 0)
     {
         g.setColour (C::dim); g.setFont (uf (13.0f));
@@ -56,7 +56,7 @@ void StatusView::paint (juce::Graphics& g)
     // quadrante dell'angolo
     const float th = ed.proc.eng.thetaUi.load(); const int m = (int) ed.proc.value ("mode");
     auto dial = juce::Rectangle<float> (b.getCentreX() - 44, b.getY() + 254, 88, 88);
-    g.setColour (juce::Colours::white.withAlpha (0.08f)); g.drawEllipse (dial, 1.5f);
+    g.setColour (neo::K::hi.withAlpha (0.08f)); g.drawEllipse (dial, 1.5f);
     for (int k = 0; k < 4; ++k) { const float a = k * juce::MathConstants<float>::halfPi; g.drawLine (dial.getCentreX() + std::sin (a) * 40, dial.getCentreY() - std::cos (a) * 40, dial.getCentreX() + std::sin (a) * 44, dial.getCentreY() - std::cos (a) * 44, 1.0f); }
     const float ang = juce::degreesToRadians (m == M_INV ? 180.0f : th);
     g.setColour (ed.acc2); g.drawLine (dial.getCentreX(), dial.getCentreY(), dial.getCentreX() + std::sin (ang) * 38, dial.getCentreY() - std::cos (ang) * 38, 2.5f);
@@ -67,6 +67,7 @@ void StatusView::paint (juce::Graphics& g)
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("phase", { 0xffa9b8c9, 0xffa8bea0, 0xffe9a260, 0xffccccc7 }, 0xff9b6bff); C::sync(); themeRect = { 872, 15, 100, 36 };
     setLookAndFeel (&lnf);
     auto knob = [&] (const char* id, const char* label, std::function<juce::String()> txt, juce::Colour c) -> Knob*
     { auto k = std::make_unique<Knob> (P (id), c, label); k->text = std::move (txt); addAndMakeVisible (*k); knobs.push_back (std::move (k)); return knobs.back().get(); };
@@ -99,6 +100,7 @@ void Editor::resized()
 }
 void Editor::paint (juce::Graphics& g)
 {
+    skin::apply(); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     jlook::backdrop (g, { 0, 0, (float) W, (float) H }, acc, acc2);
     jlook::header (g, { 0, 0, (float) W, 64 }, "PHASE", acc, "JF-1  FASE BASSO / 808 CONTRO CASSA", acc, acc2);
@@ -114,9 +116,11 @@ void Editor::paint (juce::Graphics& g)
                            "A ogni colpo di cassa trova l'angolo che mette il basso in fase con lei (sotto la FREQUENZA) e ci arriva con la VELOCITA scelta. Tra un colpo e l'altro tiene l'ultimo angolo." };
     g.setColour (C::text.withAlpha (0.7f)); g.setFont (uf (10.0f, false));
     g.drawFittedText (desc[juce::jlimit (0, 3, m)], juce::Rectangle<int> (650, 604, 320, 34), juce::Justification::topLeft, 3, 1.0f);
+    skin::chipDraw (g, themeRect.toFloat());
 }
 void Editor::mouseMove (const juce::MouseEvent& e0) { const auto e = e0.withNewPosition (e0.position / scaler.s); const bool h = bar.ab.contains (e.getPosition()); if (h != bar.abHover) { bar.abHover = h; repaint(); } }
-void Editor::mouseDown (const juce::MouseEvent& e0) { const auto e = e0.withNewPosition (e0.position / scaler.s); bar.click (*this, proc, presets(), e.getPosition(), localAreaToGlobal (scaler.map (bar.preset))); }
+void Editor::mouseDown (const juce::MouseEvent& e0) {
+    { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } } const auto e = e0.withNewPosition (e0.position / scaler.s); bar.click (*this, proc, presets(), e.getPosition(), localAreaToGlobal (scaler.map (bar.preset))); }
 void Editor::timerCallback()
 {
     const int m = (int) proc.value ("mode");

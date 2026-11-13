@@ -1,16 +1,34 @@
 #pragma once
 #include "MeterProcessor.h"
+#include "Skin.h"
 #include "JackpotScale.h"
 
 namespace jm
 {
 namespace C
 {
-    const juce::Colour text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
-    const juce::Colour magenta { 0xffff2e88 }, phos { 0xff5ef2ff }, amber { 0xffffb000 }, green { 0xff7dff5a }, red { 0xffff3b5c }, violet { 0xffa66bff };
-    const juce::Colour lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
-    const juce::Colour band[kBands] = { juce::Colour (0xffff6a3d), juce::Colour (0xffffd23f), juce::Colour (0xff7dff5a), juce::Colour (0xff2de2e6), juce::Colour (0xffa66bff), juce::Colour (0xffff4fd8),
+    inline juce::Colour text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
+    inline juce::Colour magenta { 0xffff2e88 }, phos { 0xff5ef2ff }, amber { 0xffffb000 }, green { 0xff7dff5a }, red { 0xffff3b5c }, violet { 0xffa66bff };
+    inline juce::Colour lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
+    inline juce::Colour band[kBands] = { juce::Colour (0xffff6a3d), juce::Colour (0xffffd23f), juce::Colour (0xff7dff5a), juce::Colour (0xff2de2e6), juce::Colour (0xffa66bff), juce::Colour (0xffff4fd8),
                                         juce::Colour (0xffff9f5a), juce::Colour (0xffd4ff4a), juce::Colour (0xff3dffb0), juce::Colour (0xff4aa8ff), juce::Colour (0xffd07bff), juce::Colour (0xffff6b9a) };
+    // colori presi dal tema della pelle
+    inline void sync()
+    {
+        if (! jlook::skinHooks().on) return;
+        const auto& p = jlook::skinPal();
+        text = p.text;
+        dim = p.dim;
+        faint = p.faint;
+        magenta = p.pink;
+        phos = p.cyan;
+        amber = p.amber;
+        green = p.green;
+        red = p.red;
+        violet = p.violet;
+        lcd1 = p.lcd0;
+        lcd2 = p.lcd1;
+    }
 }
 class Editor;
 
@@ -141,6 +159,7 @@ public:
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    juce::Rectangle<int> themeRect;
 public:
     explicit Editor (Processor&);
     ~Editor() override { setLookAndFeel (nullptr); }

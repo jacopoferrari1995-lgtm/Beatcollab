@@ -1,5 +1,6 @@
 #pragma once
 #include "ClipProcessor.h"
+#include "Skin.h"
 
 namespace jclp
 {
@@ -10,6 +11,7 @@ class CurveView : public juce::Component { public: explicit CurveView (Editor& e
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    juce::Rectangle<int> themeRect;
 public:
     explicit Editor (Processor&);
     ~Editor() override { setLookAndFeel (nullptr); }

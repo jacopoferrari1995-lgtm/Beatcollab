@@ -512,7 +512,7 @@ public:
     std::unique_ptr<neo::Toggle> monoB; std::unique_ptr<juce::FileChooser> chooser;
     EasyStage stage { *this }; EasyInput input { *this };
     GuidePanel guide; juce::Rectangle<float> guideR;
-    neo::Segments tabs, styles; juce::Rectangle<float> targetR, cmpR, deltaR, themeR, bandR[3];
+    neo::Segments tabs, styles; juce::Rectangle<float> targetR, cmpR, deltaR, themeR, bandR[3], loudDR;
     juce::Image bg; float bgScale = 0; int bgTheme = -1;
 };
 

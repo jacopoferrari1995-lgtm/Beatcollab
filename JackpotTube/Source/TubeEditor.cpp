@@ -27,7 +27,7 @@ void VuView::paint (juce::Graphics& g)
     g.saveState(); g.reduceClipRegion (b.toNearestInt());
     g.setColour (juce::Colour (0xff15110c)); g.drawLine (cx, cy, cx + std::sin (needle) * R, cy - std::cos (needle) * R, 1.6f);
     g.restoreState();
-    g.setColour (juce::Colours::white.withAlpha (0.15f)); g.drawRoundedRectangle (b, 6, 1.0f);
+    g.setColour (neo::K::hi.withAlpha (0.15f)); g.drawRoundedRectangle (b, 6, 1.0f);
 }
 void BandView::paint (juce::Graphics& g)
 {
@@ -73,6 +73,7 @@ void BandView::mouseDrag (const juce::MouseEvent& e)
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("tube", { 0xffeab066, 0xffd06a4a, 0xffe8dcc0, 0xffa8bea0 }, 0xffffb000); C::sync(); themeRect = { 972, 15, 100, 36 };
     setLookAndFeel (&lnf);
     auto knob = [&] (const juce::String& id, const juce::String& label, std::function<juce::String()> txt, int sec, juce::Colour c, bool big = false) -> Knob*
     {
@@ -139,6 +140,7 @@ void Editor::resized()
 }
 void Editor::paint (juce::Graphics& g)
 {
+    skin::apply(); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     jlook::backdrop (g, { 0, 0, (float) W, (float) H }, gold, acc2);
     jlook::header (g, { 0, 0, (float) W, 64 }, "TUBE BOX", gold, "JB-2  PENTODE / TRIODE  +  ENHANCER MULTIBANDA", gold, acc2);
@@ -184,10 +186,12 @@ void Editor::paint (juce::Graphics& g)
             g.setColour (c.withAlpha (0.25f)); g.drawRoundedRectangle (juce::Rectangle<float> (gx0, yBot + 24, 180, 92), 6, 1.0f);
         }
     }
+    skin::chipDraw (g, themeRect.toFloat());
 }
 void Editor::mouseMove (const juce::MouseEvent& e0) { const auto e = e0.withNewPosition (e0.position / scaler.s); const bool h = bar.ab.contains (e.getPosition()); if (h != bar.abHover) { bar.abHover = h; repaint(); } }
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
+    { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } }
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     if (hgCard.withHeight (32).contains (e.position)) { auto* p = P ("hg_on"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
     if (mbCard.withHeight (32).contains (e.position)) { auto* p = P ("mb_on"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }

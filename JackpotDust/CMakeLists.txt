@@ -17,7 +17,7 @@ target_sources(JackpotDust PRIVATE Source/DustProcessor.cpp Source/DustEditor.cp
 target_include_directories(JackpotDust PRIVATE ${CMAKE_SOURCE_DIR}/Common)
 target_compile_definitions(JackpotDust PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
 target_link_libraries(JackpotDust
-  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts
+  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 if(J60_TEST)
@@ -25,5 +25,5 @@ if(J60_TEST)
   target_include_directories(DustTest PRIVATE ${CMAKE_SOURCE_DIR}/Common)
   target_sources(DustTest PRIVATE test/main.cpp Source/DustProcessor.cpp Source/DustEditor.cpp)
   target_compile_definitions(DustTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotDust")
-  target_link_libraries(DustTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts)
+  target_link_libraries(DustTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo)
 endif()
