@@ -567,7 +567,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             if (k >= 0 && k < kFx)
             {
                 float v = msg.getControllerValue() / 127.0f;
-                { const int ty = (int) apvts.getRawParameterValue ("fx" + juce::String (k + 1) + "type")->load(); if (pfx::info (ty).bipolar && ty != pfx::SCRATCH && std::abs (msg.getControllerValue() - 64) <= 8) v = 0.5f; }   // centro largo, facile da ritrovare   // filtro: zona morta al centro
+                { const int ty = (int) apvts.getRawParameterValue ("fx" + juce::String (k + 1) + "type")->load(); if (pfx::info (ty).bipolar && ty != pfx::SCRATCHHAND && std::abs (msg.getControllerValue() - 64) <= 8) v = 0.5f; }   // centro largo, facile da ritrovare   // filtro: zona morta al centro
                 ccPend[k] = v;
             }
             continue;

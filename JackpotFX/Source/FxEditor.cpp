@@ -11,7 +11,8 @@ static juce::Colour groupCol (int t)
 {
     const juce::String g (pfx::info (t).group);
     if (g == "FILTRI") return K::cyan; if (g == "SPAZIO") return K::violet; if (g == "TEMPO") return K::amber;
-    if (g == "SPORCO") return K::pink; if (g == "MODULAZIONE") return K::mint; return K::faint;
+    if (g == "SPORCO") return K::pink; if (g == "MODULAZIONE") return K::mint;
+    if (g == "TRANSIZIONI") return K::red; if (g == "TONO") return K::blue; return K::faint;
 }
 // pannello a spigoli tagliati (in alto a sinistra e in basso a destra)
 static juce::Path chamfer (juce::Rectangle<float> r, float c)
@@ -187,7 +188,7 @@ void Scope::paint (juce::Graphics& g)
     {
         const int t = P.slotType (k); if (t == pfx::OFF) continue;
         const float v = P.P (amtId (k))->getValue(), nu = pfx::info (t).neutral;
-        const bool active = P.value (onId (k)) > 0.5f && std::abs (v - nu) > 0.02f && t != pfx::SCRATCH;
+        const bool active = P.value (onId (k)) > 0.5f && std::abs (v - nu) > 0.02f && t != pfx::SCRATCHHAND;
         const juce::String s = juce::String (k + 1) + " " + pfx::info (t).name;
         const float wch = juce::GlyphArrangement::getStringWidth (cap (8.0f), s) + 18;
         auto r = juce::Rectangle<float> (x, row.getY(), wch, row.getHeight()); x += wch + 6;

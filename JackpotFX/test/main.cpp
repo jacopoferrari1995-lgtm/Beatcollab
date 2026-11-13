@@ -20,10 +20,10 @@ int main (int argc, char** argv)
     };
     if (argc > 1 && juce::String (argv[1]) == "dsp")
     {
-        Processor p0; p0.prepareToPlay (sr, 512); std::vector<float> ref; run (p0, 200, ref);
+        Processor p0; p0.prepareToPlay (sr, 512); std::vector<float> ref; run (p0, 300, ref);
         // neutro: deve essere identico all'ingresso
         Processor pn; pn.prepareToPlay (sr, 512); std::vector<float> a; run (pn, 200, a);
-        std::printf ("preset di partenza a riposo: uguale all'ingresso %s\n", a == ref ? "si" : "no");
+        { bool same = true; for (size_t i = 0; i < a.size(); ++i) if (a[i] != ref[i]) same = false; std::printf ("preset di partenza a riposo: uguale all'ingresso %s\n", same ? "si" : "no"); }
         for (int i = 0; i < (int) factoryPresets().size(); ++i)
         {
             Processor p; p.prepareToPlay (sr, 512); p.loadFactory (i);
@@ -35,6 +35,31 @@ int main (int argc, char** argv)
         std::printf ("CC 76 -> slot 7 (stutter): valore in arrivo %.2f\n", pc.ccPend[6].load());
         Processor pd; pd.prepareToPlay (sr, 512); pd.ctrlOn = false; std::vector<float> d; run (pd, 30, d, [] (int k, juce::MidiBuffer& m) { if (k == 2) m.addEvent (juce::MidiMessage::controllerEvent (1, 76, 127), 0); });
         std::printf ("MIDI OFF: CC ignorato %s\n", pd.ccPend[6].load() < 0 ? "si" : "no");
+        for (int fam = 0; fam < 4; ++fam)
+        {
+            const int eff[4] = { pfx::GATE, pfx::STUTTER, pfx::BEATROLL, pfx::TREMOLO }, mx[4] = { pfx::GATEMIX, pfx::STUTMIX, pfx::ROLLMIX, pfx::TREMMIX };
+            float res[3];
+            for (int m = 0; m < 3; ++m)
+            {
+                Processor p; p.prepareToPlay (sr, 512); p.setSlot (0, eff[fam], 0.5f); p.setSlot (1, m == 0 ? pfx::OFF : mx[fam], m == 1 ? 0.3f : 0.0f);
+                for (int k = 2; k < kSlots; ++k) p.setSlot (k, pfx::OFF, -1);
+                std::vector<float> o; run (p, 200, o); double d = 0, e = 0; for (size_t i = 0; i < o.size(); ++i) { d += (o[i] - ref[i]) * (o[i] - ref[i]); e += ref[i] * ref[i]; }
+                res[m] = (float) (10 * std::log10 (d / e + 1e-20));
+            }
+            std::printf ("%-10s differenza dal pulito: senza MIX %.1f dB, MIX 30%% %.1f dB, MIX 0%% %.1f dB\n", pfx::info (eff[fam]).name, res[0], res[1], res[2]);
+        }
+        for (int t = 21; t < pfx::kNumTypes; ++t)
+        {
+            Processor p; p.prepareToPlay (sr, 512); p.setSlot (0, t, pfx::info (t).bipolar ? 0.8f : 0.6f); for (int k = 1; k < kSlots; ++k) p.setSlot (k, pfx::OFF, -1);
+            std::vector<float> o; run (p, 300, o); bool nan = false; double d = 0, e = 0; for (size_t i = 0; i < o.size() && i < ref.size(); ++i) { if (! std::isfinite (o[i])) nan = true; d += (o[i] - ref[i]) * (o[i] - ref[i]); e += ref[i] * ref[i]; }
+            std::printf ("nuovo %-14s cambia il suono di %.1f dB  nan %d\n", pfx::info (t).name, 10 * std::log10 (d / e + 1e-20), (int) nan);
+        }
+        for (int t : { pfx::CRUSH, pfx::LOFI, pfx::TAPE, pfx::VINYL })
+        {
+            Processor p; p.prepareToPlay (sr, 512); p.setSlot (0, t, 0.8f); for (int k = 1; k < kSlots; ++k) p.setSlot (k, pfx::OFF, -1);
+            std::vector<float> o; run (p, 200, o); double e = 0, e0 = 0; for (size_t i = 0; i < o.size(); ++i) { e += o[i] * o[i]; e0 += ref[i] * ref[i]; }
+            std::printf ("%-6s a 80%%: volume %+.1f dB\n", pfx::info (t).name, 10 * std::log10 (e / e0));
+        }
         pc.swapSlots (0, 4); std::printf ("scambio 1<->5: slot1 %s, slot5 %s\n", pfx::info (pc.slotType (0)).name, pfx::info (pc.slotType (4)).name);
         return 0;
     }

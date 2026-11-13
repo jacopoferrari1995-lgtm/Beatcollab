@@ -95,7 +95,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             {
                 float v = msg.getControllerValue() / 127.0f;
                 const int ty = juce::roundToInt (typeRaw[k]->load());
-                if (info (ty).bipolar && ty != SCRATCH && std::abs (msg.getControllerValue() - 64) <= 8) v = 0.5f;   // centro largo
+                if (info (ty).bipolar && ty != SCRATCHHAND && std::abs (msg.getControllerValue() - 64) <= 8) v = 0.5f;   // centro largo
                 ccPend[k] = v; ccSeen[k] = ccSeen[k].load() + 1;
             }
     }
