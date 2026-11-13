@@ -119,6 +119,29 @@ int main (int argc, char** argv)
                 float pk = 0; for (float x : ol) pk = std::max (pk, std::abs (x));
                 std::printf ("riverbero %-8s decay %.0f s: misurato RT60 %.2f s  picco %.2f  nan %d\n", pfx::Verb::typeName (ty), dec, (tAt (-35) - tAt (-5)) * 2.0, pk, (int) nan);
             }
+        // ogni effetto: quantità 0 / 50 / 100%, NaN, picco, e quantità mossa mentre suona (clic)
+        {
+            double dj = 0; for (size_t i = 1; i < ref.size(); ++i) dj = std::max (dj, (double) std::abs (ref[i] - ref[i - 1]));
+            int probs = 0;
+            for (int t = 1; t < pfx::kNumTypes; ++t)
+            {
+                float res[3]; float pk = 0; bool nan = false;
+                for (int m = 0; m < 3; ++m)
+                {
+                    Processor p; p.prepareToPlay (sr, 512); p.setSlot (0, t, m * 0.5f); for (int k = 1; k < kSlots; ++k) p.setSlot (k, pfx::OFF, -1);
+                    std::vector<float> o; run (p, 200, o); double d = 0, e = 0;
+                    for (size_t i = 0; i < o.size(); ++i) { if (! std::isfinite (o[i])) nan = true; pk = std::max (pk, std::abs (o[i])); d += (o[i] - ref[i]) * (o[i] - ref[i]); e += ref[i] * ref[i]; }
+                    res[m] = (float) (10 * std::log10 (d / e + 1e-20));
+                }
+                Processor p; p.prepareToPlay (sr, 512); p.setSlot (0, t, 0.0f); for (int k = 1; k < kSlots; ++k) p.setSlot (k, pfx::OFF, -1);
+                std::vector<float> o; run (p, 200, o, [&] (int k, juce::MidiBuffer&) { p.P (amtId (0))->setValueNotifyingHost (0.5f + 0.5f * std::sin (k * 0.15f)); });
+                double mj = 0; for (size_t i = 1; i < o.size(); ++i) mj = std::max (mj, (double) std::abs (o[i] - o[i - 1]));
+                const bool bad = nan || pk > 3 || res[2] < -25 || mj > dj * 6;
+                if (bad) ++probs;
+                std::printf ("%s %-14s 0%% %6.1f  50%% %6.1f  100%% %6.1f dB  picco %.2f  salto %.2fx%s\n", bad ? "!!" : "  ", pfx::info (t).name, res[0], res[1], res[2], pk, mj / dj, nan ? " NaN" : "");
+            }
+            std::printf ("effetti con problemi: %d\n", probs);
+        }
         pc.swapSlots (0, 4); std::printf ("scambio 1<->5: slot1 %s, slot5 %s\n", pfx::info (pc.slotType (0)).name, pfx::info (pc.slotType (4)).name);
         return 0;
     }

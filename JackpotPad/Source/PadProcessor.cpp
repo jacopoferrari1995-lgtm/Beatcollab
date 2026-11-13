@@ -662,6 +662,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         if (l.isLocked())
             for (auto& e : events)
             {
+                if (seqMuted (e.pad)) continue;
                 const double q = swingTick (e.tick), base = std::floor (t0 / L) * L;
                 for (double b = base; b <= t1; b += L)
                 {
@@ -1337,6 +1338,7 @@ juce::File Processor::writeMidi (bool withSwing)
       const double L = loopTicks();
       for (auto& e : events)
       {
+          if (seqMuted (e.pad)) continue;
           const double q = withSwing ? swingTick (e.tick) : e.tick;
           double len = PPQ / 4.0;
           auto s = getSample (e.pad);
@@ -1367,7 +1369,7 @@ void Processor::getStateInformation (juce::MemoryBlock& dest)
     x.createNewChildElement ("PATTERN")->addTextElement (ev);
     x.setAttribute ("pattern", patternIndex); x.setAttribute ("genStyle", genStyle); x.setAttribute ("bars", patternBars.load()); x.setAttribute ("loopOn", loopOn.load() ? 1 : 0); x.setAttribute ("qFx", qFx.load() ? 1 : 0); x.setAttribute ("ctrlOn", ctrlOn.load() ? 1 : 0);
     { juce::String m; for (int k = 0; k < kFx; ++k) m << ccMap[k].load() << (k < kFx - 1 ? "," : ""); x.setAttribute ("ccMap", m); }
-    x.setAttribute ("theme", uiTheme.load());
+    x.setAttribute ("uiTheme", uiTheme.load()); x.setAttribute ("seqMute", seqMute.load());
     { juce::StringArray ch; for (int p = 0; p < kPads; ++p) { juce::String c; for (int k = 0; k < chordN[p].load(); ++k) c << (k ? " " : "") << chordIv[p][k].load(); ch.add (c); } x.setAttribute ("chords", ch.joinIntoString (",")); }
     copyXmlToBinary (x, dest);
 }
@@ -1375,7 +1377,7 @@ void Processor::setStateInformation (const void* data, int size)
 {
     pendingRandom = false;
     auto x = getXmlFromBinary (data, size); if (x == nullptr || ! x->hasTagName ("JPAD")) return;
-    uiTheme = x->getIntAttribute ("theme", 1);
+    uiTheme = x->getIntAttribute ("uiTheme", 3); seqMute = x->getIntAttribute ("seqMute", 0) & 3;
     if (auto* ps = x->getChildByName (apvts.state.getType())) apvts.replaceState (juce::ValueTree::fromXml (*ps));
     if (auto* pads = x->getChildByName ("PADS")) padsFromXml (*pads);
     for (int p = 0; p < kPads; ++p) for (int k = 0; k < kAutoN; ++k) lastHost[p][k] = hpRaw[p][k]->load();   // i pad salvati vincono; il timer riallinea Ableton

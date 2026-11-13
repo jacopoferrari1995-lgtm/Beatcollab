@@ -29,9 +29,12 @@ inline void setTheme (int t)
     if (t == 0)      { bg0 = juce::Colour (0xff04050a); bg1 = juce::Colour (0xff0a0b16); ink = juce::Colour (0xfff2f3f9); sub = juce::Colour (0xff9096ad); faint = juce::Colour (0xff545a70); line = juce::Colour (0x14ffffff); hi = juce::Colours::white; lo = juce::Colours::black; }
     else if (t == 1) { bg0 = juce::Colour (0xff1b1823); bg1 = juce::Colour (0xff272231); ink = juce::Colour (0xfff5f3f9); sub = juce::Colour (0xffaaa5ba); faint = juce::Colour (0xff716c84); line = juce::Colour (0x18ffffff); hi = juce::Colours::white; lo = juce::Colour (0xff07060b);
                        panel0 = juce::Colour (0xff2d2938); panel1 = juce::Colour (0xff23202b); disp0 = juce::Colour (0xff3b2e4b); disp1 = juce::Colour (0xff261f32); }
+    else if (t == 3) { bg0 = juce::Colour (0xff06070c); bg1 = juce::Colour (0xff0f1119); ink = juce::Colour (0xffe9edf3); sub = juce::Colour (0xff8c95a9); faint = juce::Colour (0xff4f576b); line = juce::Colour (0x16ffffff); hi = juce::Colour (0xffdfe8ff); lo = juce::Colour (0xff020306);
+                       panel0 = juce::Colour (0xff1a1d28); panel1 = juce::Colour (0xff12141d); disp0 = juce::Colour (0xff0b161a); disp1 = juce::Colour (0xff050a0d); }
     else             { bg0 = juce::Colour (0xffd9d7de); bg1 = juce::Colour (0xffeceaef); ink = juce::Colour (0xff1c1a23); sub = juce::Colour (0xff5d596a); faint = juce::Colour (0xff97929f); line = juce::Colour (0x18000000); hi = juce::Colour (0xff15131c); lo = juce::Colour (0xff3a3448);
                        panel0 = juce::Colour (0xfff1f0f3); panel1 = juce::Colour (0xffe2e0e7); disp0 = juce::Colour (0xfff7f2ea); disp1 = juce::Colour (0xffe9e1d5); }
-    accent = t == 2 ? juce::Colour (0xff6b45c9) : juce::Colour (0xffc7a3ee);
+    accent = t == 2 ? juce::Colour (0xff6b45c9) : t == 3 ? juce::Colour (0xffffb84a) : juce::Colour (0xffc7a3ee);
+    if (t == 3) { pink = juce::Colour (0xffff3f8e); violet = juce::Colour (0xff9a6bff); cyan = juce::Colour (0xff38e8d8); mint = juce::Colour (0xff5dff9e); amber = juce::Colour (0xffffb84a); red = juce::Colour (0xffff4a5c); blue = juce::Colour (0xff4f8bff); return; }
     pink = acc (P0); violet = acc (V0); cyan = acc (C0); mint = acc (M0); amber = acc (A0); red = acc (R0); blue = acc (B0);
 }
 
@@ -49,10 +52,12 @@ struct Fonts
 };
 inline juce::Typeface::Ptr tf (int i) { return juce::SharedResourcePointer<Fonts>()->t[i]; }
 // testo: w 0 normale, 1/2 grassetto. Le maiuscole piccole hanno un po' di spaziatura.
-inline juce::Font f (float s, int w = 0) { return juce::Font (juce::FontOptions (tf (w > 0 ? 1 : 0)).withHeight (s * 1.18f)).withExtraKerningFactor (w > 0 ? 0.08f : 0.02f); }
-inline juce::Font cap (float s) { return juce::Font (juce::FontOptions (tf (1)).withHeight (s * 1.18f)).withExtraKerningFactor (0.16f); }
-inline juce::Font big (float s) { return juce::Font (juce::FontOptions (tf (2)).withHeight (s * 1.25f)).withExtraKerningFactor (-0.01f); }
-inline juce::Font num (float s) { return juce::Font (juce::FontOptions (tf (3)).withHeight (s * 1.2f)); }
+inline bool cyber() { return K::theme == 3; }
+// nel tema CYBER le scritte sono da strumento: Rajdhani stretto per le etichette, Share Tech Mono per i numeri, Michroma per i titoli
+inline juce::Font f (float s, int w = 0) { if (cyber()) return jlook::ui (s * 1.1f, w > 0 ? 1 : 0).withExtraKerningFactor (0.03f); return juce::Font (juce::FontOptions (tf (w > 0 ? 1 : 0)).withHeight (s * 1.18f)).withExtraKerningFactor (w > 0 ? 0.08f : 0.02f); }
+inline juce::Font cap (float s) { if (cyber()) return jlook::ui (s * 1.16f, 1).withExtraKerningFactor (0.09f); return juce::Font (juce::FontOptions (tf (1)).withHeight (s * 1.18f)).withExtraKerningFactor (0.16f); }
+inline juce::Font big (float s) { if (cyber()) return jlook::logo (s * 0.92f); return juce::Font (juce::FontOptions (tf (2)).withHeight (s * 1.25f)).withExtraKerningFactor (-0.01f); }
+inline juce::Font num (float s) { if (cyber()) return jlook::mono (s * 1.08f); return juce::Font (juce::FontOptions (tf (3)).withHeight (s * 1.2f)); }
 inline juce::String fmt (float v, int d = 1, bool sign = true) { return (sign && v > 0 ? "+" : "") + juce::String (v, d); }
 
 // ------------------------------------------------------------------------------------------------ luce: sfocatura e bloom
@@ -116,6 +121,128 @@ inline void glowStroke (juce::Graphics& g, const juce::Path& p, juce::Colour c, 
     g.setColour (c); g.strokePath (p, juce::PathStrokeType (w, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 
+// ------------------------------------------------------------------------------------------------ CYBER: primitive
+// sagoma con due angoli tagliati (in alto a sinistra e in basso a destra), gli altri appena arrotondati
+inline juce::Path chamfer (juce::Rectangle<float> r, float cut, float rad = 2.5f)
+{
+    cut = juce::jmin (cut, r.getWidth() * 0.3f, r.getHeight() * 0.45f);
+    juce::Path p; const float x0 = r.getX(), y0 = r.getY(), x1 = r.getRight(), y1 = r.getBottom();
+    p.startNewSubPath (x0 + cut, y0); p.lineTo (x1 - rad, y0); p.quadraticTo (x1, y0, x1, y0 + rad);
+    p.lineTo (x1, y1 - cut); p.lineTo (x1 - cut, y1); p.lineTo (x0 + rad, y1); p.quadraticTo (x0, y1, x0, y1 - rad);
+    p.lineTo (x0, y0 + cut); p.closeSubPath(); return p;
+}
+// staffe d'angolo da mirino (HUD)
+inline void brackets (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c, float len = 8.0f, float th = 1.2f)
+{
+    g.setColour (c);
+    for (int k = 0; k < 4; ++k)
+    {
+        const float x = (k & 1) ? r.getRight() : r.getX(), y = (k & 2) ? r.getBottom() : r.getY(), sx = (k & 1) ? -1.0f : 1.0f, sy = (k & 2) ? -1.0f : 1.0f;
+        g.fillRect (juce::Rectangle<float> (sx > 0 ? x : x - len, sy > 0 ? y : y - th, len, th));
+        g.fillRect (juce::Rectangle<float> (sx > 0 ? x : x - th, sy > 0 ? y : y - len, th, len));
+    }
+}
+// piastra di metallo: corpo, filo di luce in alto, codice a barre e tacca d'accento sull'angolo tagliato. Da disegnare nello sfondo in cache.
+inline void plate (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour tagCol, float cut = 12.0f)
+{
+    auto p = chamfer (r, cut);
+    g.setColour (K::lo.withAlpha (0.6f)); g.fillPath (p, juce::AffineTransform::translation (0, 3));
+    juce::ColourGradient cg (K::panel0, 0, r.getY(), K::panel1, 0, r.getBottom(), false); g.setGradientFill (cg); g.fillPath (p);
+    // trama a righe orizzontali finissime (metallo spazzolato)
+    { g.saveState(); g.reduceClipRegion (p); g.setColour (K::hi.withAlpha (0.012f)); for (float y = r.getY() + 1; y < r.getBottom(); y += 2) g.fillRect (r.getX(), y, r.getWidth(), 1.0f); g.restoreState(); }
+    g.setColour (K::hi.withAlpha (0.08f)); g.strokePath (p, juce::PathStrokeType (1.0f));
+    g.setColour (K::hi.withAlpha (0.16f)); g.fillRect (r.getX() + cut + 2, r.getY() + 0.5f, juce::jmin (r.getWidth() * 0.4f, 160.0f), 1.0f);
+    // tacca d'accento lungo il taglio
+    { juce::Path t; t.startNewSubPath (r.getX() + 1.5f, r.getY() + cut + 5); t.lineTo (r.getX() + 1.5f, r.getY() + cut); t.lineTo (r.getX() + cut, r.getY() + 1.5f); t.lineTo (r.getX() + cut + 14, r.getY() + 1.5f);
+      g.setColour (tagCol.withAlpha (0.9f)); g.strokePath (t, juce::PathStrokeType (1.6f)); }
+    // codice a barre in basso a destra
+    { juce::Random rr ((juce::int64) (r.getX() * 31 + r.getY())); float x = r.getRight() - cut - 46; const float y = r.getBottom() - 8;
+      for (int i = 0; i < 14 && x < r.getRight() - cut - 4; ++i) { const float w = rr.nextBool() ? 1.0f : 2.0f; g.setColour (K::hi.withAlpha (0.13f)); g.fillRect (x, y, w, 4.0f); x += w + 1.5f; } }
+}
+// schermo a tubo catodico: vetro scuro, righe di scansione, vignetta e staffe. Da disegnare nello sfondo in cache.
+inline void crt (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour edge, float cut = 8.0f)
+{
+    auto p = chamfer (r, cut, 2.0f);
+    g.setColour (K::lo.withAlpha (0.8f)); g.fillPath (chamfer (r.expanded (1.5f), cut + 1, 2.5f));
+    juce::ColourGradient cg (K::disp0, r.getCentreX(), r.getY() + r.getHeight() * 0.35f, K::disp1, r.getX(), r.getBottom(), true); g.setGradientFill (cg); g.fillPath (p);
+    g.saveState(); g.reduceClipRegion (p);
+    g.setColour (juce::Colours::black.withAlpha (0.22f)); for (float y = r.getY(); y < r.getBottom(); y += 3) g.fillRect (r.getX(), y, r.getWidth(), 1.0f);
+    juce::ColourGradient sh (edge.withAlpha (0.05f), 0, r.getY(), edge.withAlpha (0.0f), 0, r.getY() + juce::jmin (40.0f, r.getHeight() * 0.3f), false); g.setGradientFill (sh); g.fillRect (r);
+    g.restoreState();
+    g.setColour (edge.withAlpha (0.16f)); g.strokePath (p, juce::PathStrokeType (1.0f));
+    brackets (g, r.reduced (3), edge.withAlpha (0.55f), 7.0f, 1.0f);
+}
+// tasto rettangolare con un angolo tagliato e LED a sinistra quando e' acceso
+inline void key (juce::Graphics& g, juce::Rectangle<float> r, bool on, juce::Colour c, bool hover = false)
+{
+    auto p = chamfer (r, juce::jmin (6.0f, r.getHeight() * 0.3f), 2.0f);
+    if (on)
+    {
+        g.setColour (c.withAlpha (0.16f)); g.fillPath (p);
+        g.setColour (c.withAlpha (0.65f)); g.strokePath (p, juce::PathStrokeType (1.0f));
+        g.setColour (c); g.fillRect (r.getX() + 3, r.getCentreY() - juce::jmin (5.0f, r.getHeight() * 0.25f), 2.0f, juce::jmin (10.0f, r.getHeight() * 0.5f));
+    }
+    else
+    {
+        g.setColour (K::hi.withAlpha (hover ? 0.07f : 0.035f)); g.fillPath (p);
+        g.setColour (K::hi.withAlpha (hover ? 0.2f : 0.1f)); g.strokePath (p, juce::PathStrokeType (1.0f));
+    }
+}
+// anello a LED segmentati per le manopole
+inline void ledRing (juce::Graphics& g, float cx, float cy, float R, float v, bool bipolar, juce::Colour c, float th = 2.2f, int n = 27)
+{
+    const float a0 = -2.356f, a1 = 2.356f, span = (a1 - a0) / n;
+    const float vA = a0 + (a1 - a0) * v, from = bipolar ? 0.0f : a0;
+    for (int i = 0; i < n; ++i)
+    {
+        const float s0 = a0 + i * span + span * 0.18f, s1 = a0 + (i + 1) * span - span * 0.18f, mid = 0.5f * (s0 + s1);
+        const bool lit = (mid >= juce::jmin (from, vA) && mid <= juce::jmax (from, vA)) || (bipolar && std::abs (mid) < span * 0.5f);
+        juce::Path a; a.addCentredArc (cx, cy, R, R, 0, s0, s1, true);
+        g.setColour (lit ? c : K::hi.withAlpha (0.08f)); g.strokePath (a, juce::PathStrokeType (th));
+    }
+}
+
+// fondo CYBER comune: inchiostro, orizzonte al neon appena acceso, pavimento a griglia in prospettiva, testata con logo
+inline void cyberBackdrop (juce::Graphics& g, float W, float H, float horizon = 0.56f)
+{
+    juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, H, false); g.setGradientFill (base); g.fillRect (0.0f, 0.0f, W, H);
+    const float hy = H * horizon;
+    { juce::ColourGradient hz (K::pink.withAlpha (0.0f), 0, hy - 120, K::pink.withAlpha (0.09f), 0, hy, false); hz.addColour (0.8, K::violet.withAlpha (0.05f)); g.setGradientFill (hz); g.fillRect (0.0f, hy - 120, W, 120.0f); }
+    g.setColour (K::pink.withAlpha (0.18f)); g.fillRect (0.0f, hy, W, 1.0f);
+    for (int i = 1; i < 14; ++i) { const float t = (float) i / 14, y = hy + (H - hy) * t * t; g.setColour (K::violet.withAlpha (0.03f + 0.05f * t)); g.fillRect (0.0f, y, W, 1.0f); }
+    for (int i = -16; i <= 16; ++i) { g.setColour (K::violet.withAlpha (0.06f)); g.drawLine (W * 0.5f + i * 22.0f, hy, W * 0.5f + i * 180.0f, H, 1.0f); }
+    juce::Random rnd (7); for (int i = 0; i < 70; ++i) { g.setColour (K::hi.withAlpha (0.05f + rnd.nextFloat() * 0.12f)); g.fillRect (rnd.nextFloat() * W, rnd.nextFloat() * (hy - 60), 1.0f, 1.0f); }
+}
+inline void cyberHeader (juce::Graphics& g, float W, float h, const juce::String& model, const juce::String& sub)
+{
+    g.setColour (K::lo.withAlpha (0.5f)); g.fillRect (0.0f, 0.0f, W, h);
+    g.setColour (K::accent.withAlpha (0.35f)); g.fillRect (0.0f, h - 1, W, 1.0f);
+    for (int i = 0; i < 6; ++i) { g.setColour (K::accent.withAlpha (0.7f - i * 0.1f)); g.fillRect (W - 26.0f - i * 7.0f, h - 4, 4.0f, 3.0f); }
+    const float cy = h * 0.5f;
+    { auto lr = juce::Rectangle<float> (22, cy - 13, 26, 26); g.setColour (K::accent); g.strokePath (chamfer (lr, 7.0f, 1.5f), juce::PathStrokeType (1.6f)); g.setColour (K::pink); g.fillRect (lr.reduced (8)); }
+    g.setFont (jlook::logo (15.0f)); g.setColour (K::ink); g.drawText ("JACKPOT", juce::Rectangle<float> (60, cy - 14, 120, 20), juce::Justification::centredLeft);
+    g.setColour (K::accent); g.drawText (model, juce::Rectangle<float> (172, cy - 14, 160, 20), juce::Justification::centredLeft);
+    g.setFont (jlook::mono (8.5f)); g.setColour (K::faint); g.drawText (sub, juce::Rectangle<float> (60, cy + 7, 360, 12), juce::Justification::centredLeft);
+}
+// immagine in cache alla risoluzione vera dello schermo: si ridisegna solo se cambia misura, scala o chiave
+struct Cache
+{
+    juce::Image img; float sc = 0; int k = -1; juce::Rectangle<int> sz;
+    template <typename F> void draw (juce::Graphics& g, juce::Rectangle<float> area, int key, F&& paintFn)
+    {
+        const float s = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        const auto a = area.getSmallestIntegerContainer();
+        if (img.isNull() || std::abs (s - sc) > 0.01f || key != k || a.withZeroOrigin() != sz)
+        {
+            sc = s; k = key; sz = a.withZeroOrigin();
+            img = juce::Image (juce::Image::ARGB, juce::jmax (1, juce::roundToInt (a.getWidth() * s)), juce::jmax (1, juce::roundToInt (a.getHeight() * s)), true);
+            juce::Graphics ig (img); ig.addTransform (juce::AffineTransform::translation ((float) -a.getX(), (float) -a.getY()).scaled (s)); paintFn (ig);
+        }
+        g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc).translated ((float) a.getX(), (float) a.getY()));
+        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality); g.drawImageAt (img, 0, 0); g.restoreState();
+    }
+};
+
 // controllo a segmenti con cursore che scorre (anim: posizione animata del cursore, aggiornata da chi lo usa)
 struct Segments
 {
@@ -153,6 +280,7 @@ struct Segments
 // pillola di testo (bottone leggero)
 inline void chip (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& t, bool on, juce::Colour c, float fs = 9.5f, bool hover = false)
 {
+    if (cyber()) { key (g, r, on, c, hover); g.setFont (cap (fs)); g.setColour (on ? K::ink : (hover ? K::ink : K::sub)); g.drawFittedText (t, r.toNearestInt().reduced (on ? 6 : 3, 0), juce::Justification::centred, 1, 0.75f); return; }
     const float rad = r.getHeight() * 0.5f;
     if (on)
     {

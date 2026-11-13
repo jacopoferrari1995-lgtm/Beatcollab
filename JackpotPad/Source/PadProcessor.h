@@ -168,6 +168,8 @@ public:
     double swingTick (double tick) const;      // posizione con swing applicato
     juce::File writeMidi (bool withSwing);
     std::atomic<int> patternBars { 2 };
+    std::atomic<int> seqMute { 0 };            // bit0 = pad 1-8 spenti nel sequencer, bit1 = pad 9-16
+    bool seqMuted (int padIdx) const { return (seqMute.load() >> (padIdx / 8 & 1)) & 1; }
     int loopTicks() const { return patternBars.load() * kBar; }
 
     // per la UI
@@ -198,7 +200,7 @@ public:
     std::atomic<bool> ccDirty { false };
     bool pendingRandom = false; int startTicks = 0; std::atomic<int> kitVersion { 0 };
     std::atomic<int> learnSlot { -1 };     // in attesa di un CC per questo effetto
-    std::atomic<int> uiTheme { 1 };       // 1 scuro elegante, 2 chiaro
+    std::atomic<int> uiTheme { 3 };       // 3 cyber (partenza), 1 scuro elegante, 2 chiaro
     std::atomic<bool> ctrlOn { true };     // spento: i CC in arrivo (anche registrati nelle clip) si ignorano
     float velCurve (int vel) const;
     juce::AudioFormatManager formats;

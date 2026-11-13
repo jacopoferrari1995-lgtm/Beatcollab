@@ -13,21 +13,17 @@ static juce::String bip (float v) { return std::abs (v) < 0.01f ? juce::String (
 
 static void glow (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> r, juce::Colour c, juce::Font f, juce::Justification j = juce::Justification::centredLeft)
 {
-    g.setFont (f);
-    for (int k = 2; k >= 1; --k) { g.setColour (c.withAlpha (0.12f)); g.drawText (t, r.translated ((float) -k * 0.6f, 0), j); g.drawText (t, r.translated ((float) k * 0.6f, 0), j); }
-    g.setColour (c); g.drawText (t, r, j);
+    g.setFont (f); g.setColour (c); g.drawFittedText (t, r.toNearestInt(), j, 1, 0.8f);
 }
 static void inset (juce::Graphics& g, juce::Rectangle<float> r, float rad)
 {
-    g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillRoundedRectangle (r.expanded (1.5f), rad + 1.5f);
-    juce::ColourGradient cg (BC::lcd1, r.getCentreX(), r.getCentreY(), BC::lcd2, r.getX(), r.getY(), true); g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);
-    g.setColour (juce::Colours::white.withAlpha (0.05f)); g.drawLine (r.getX() + rad, r.getBottom() + 1.5f, r.getRight() - rad, r.getBottom() + 1.5f);
+    auto p = neo::chamfer (r, juce::jmin (7.0f, rad + 1.0f), 2.0f);
+    g.setColour (BC::lcd2); g.fillPath (p);
+    g.setColour (BC::phos.withAlpha (0.12f)); g.strokePath (p, juce::PathStrokeType (1.0f));
 }
 static void scan (juce::Graphics& g, juce::Rectangle<float> r)
 {
-    g.setColour (juce::Colours::black.withAlpha (0.22f)); for (float y = r.getY(); y < r.getBottom(); y += 3) g.drawHorizontalLine ((int) y, r.getX(), r.getRight());
-    juce::ColourGradient gl (juce::Colours::white.withAlpha (0.05f), r.getX(), r.getY(), juce::Colours::transparentWhite, r.getX() + r.getWidth() * 0.4f, r.getY() + r.getHeight() * 0.7f, false);
-    g.setGradientFill (gl); g.fillRect (r);
+    g.setColour (juce::Colours::black.withAlpha (0.18f)); for (float y = r.getY(); y < r.getBottom(); y += 3) g.fillRect (r.getX(), y, r.getWidth(), 1.0f);
 }
 
 // ======================= manopola 3D con anello LED =======================
@@ -37,11 +33,21 @@ void PKnob::paint (juce::Graphics& g)
     const float size = juce::jmin ((float) getWidth(), getHeight() - lh);
     const float v = param->getValue();
     actSm += ((activity ? juce::jlimit (0.0f, 1.0f, activity()) : 0.0f) - actSm) * 0.35f;
-    jlook::KnobLook kl; kl.big = isBig; kl.bipolar = bipolar; kl.hover = hover ? 1.0f : 0.0f; kl.active = active ? 1.0f : 0.0f; kl.activity = actSm;
-    jlook::drawKnob (g, { (getWidth() - size) * 0.5f, 0, size, size }, v, col, kl);
+    neo::setTheme (3);
+    // manopola CYBER: anello di LED a segmenti (si accende col segnale), disco nero, lancetta colorata
+    const float cx = getWidth() * 0.5f, cy = size * 0.5f, R = size * 0.5f - 3.0f, kr = R * (isBig ? 0.72f : 0.7f), av = -2.356f + 4.712f * v;
+    if (actSm > 0.02f) { g.setColour (col.withAlpha (0.12f * actSm)); g.fillEllipse (cx - R - 3, cy - R - 3, R * 2 + 6, R * 2 + 6); }
+    neo::ledRing (g, cx, cy, R, v, bipolar, hover || active ? col.brighter (0.2f) : col, isBig ? 3.4f : 2.4f, isBig ? 33 : 23);
+    g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillEllipse (cx - kr, cy - kr + 2, kr * 2, kr * 2);
+    juce::ColourGradient bgc (juce::Colour (0xff2a2e3a), cx, cy - kr, juce::Colour (0xff111319), cx, cy + kr, false); g.setGradientFill (bgc); g.fillEllipse (cx - kr, cy - kr, kr * 2, kr * 2);
+    g.setColour (juce::Colours::white.withAlpha (0.08f)); g.drawEllipse (cx - kr + 0.5f, cy - kr + 0.5f, kr * 2 - 1, kr * 2 - 1, 1.0f);
+    { const float r0 = kr * 0.3f, r1 = kr * 0.88f, sn = std::sin (av), cs = std::cos (av);
+      juce::Path pl; pl.startNewSubPath (cx + sn * r0, cy - cs * r0); pl.lineTo (cx + sn * r1, cy - cs * r1);
+      g.setColour (col); g.strokePath (pl, juce::PathStrokeType (isBig ? 3.0f : 2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
     if (dynLabel) label = dynLabel();
-    g.setColour (BC::dim); g.setFont (bf (isBig ? 10.5f : 9.0f, true)); g.drawText (label, juce::Rectangle<float> (0, size + 2, (float) getWidth(), 12), juce::Justification::centred);
-    glow (g, fmt ? fmt (param->convertFrom0to1 (v)) : param->getCurrentValueAsText(), juce::Rectangle<float> (0, size + 14, (float) getWidth(), 13), active ? col.brighter (0.4f) : col, bf (isBig ? 11.5f : 10.0f, true, true), juce::Justification::centred);
+    g.setColour (hover ? BC::text : BC::dim); g.setFont (neo::cap (isBig ? 9.5f : 8.0f)); g.drawFittedText (label, juce::Rectangle<int> (0, (int) size + 2, getWidth(), 12), juce::Justification::centred, 1, 0.7f);
+    g.setFont (neo::num (isBig ? 11.0f : 9.5f)); g.setColour (active ? col : BC::text.withAlpha (0.9f));
+    g.drawFittedText (fmt ? fmt (param->convertFrom0to1 (v)) : param->getCurrentValueAsText(), juce::Rectangle<int> (0, (int) size + 14, getWidth(), 13), juce::Justification::centred, 1, 0.7f);
 }
 
 void Pill::paint (juce::Graphics& g)
@@ -64,7 +70,7 @@ void Segs::paint (juce::Graphics& g)
     for (int i = 0; i < n; ++i)
     {
         auto r = juce::Rectangle<float> (i * w, 0, w, (float) getHeight()).reduced (2);
-        if (i == cur) { g.setColour (col.withAlpha (0.25f)); g.fillRoundedRectangle (r, 3); g.setColour (col); g.drawRoundedRectangle (r, 3, 1.0f); }
+        if (i == cur) { g.setColour (col.withAlpha (0.25f)); g.fillRect (r); g.setColour (col); g.fillRect (r.getX(), r.getBottom() - 2, r.getWidth(), 2.0f); }
         const auto t = param->choices[i] == "FULL" ? juce::String ("ALL") : param->choices[i].substring (0, 1);
         if (i == cur) glow (g, t, r, col, bf (9.0f, true, true), juce::Justification::centred);
         else { g.setColour (BC::dim); g.setFont (bf (9.0f, true, true)); g.drawText (t, r, juce::Justification::centred); }
@@ -90,10 +96,9 @@ void Switch::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat(); const bool on = param->getValue() > 0.5f;
     auto led = b.removeFromLeft (b.getHeight()).reduced (3);
-    g.setColour (juce::Colours::black.withAlpha (0.7f)); g.fillEllipse (led.expanded (2));
-    if (on) { g.setColour (col.withAlpha (0.3f)); g.fillEllipse (led.expanded (4)); }
-    juce::ColourGradient lg (on ? col.brighter (0.6f) : juce::Colour (0xff30333b), led.getCentreX(), led.getY(), on ? col : juce::Colour (0xff15171c), led.getCentreX(), led.getBottom(), false);
-    g.setGradientFill (lg); g.fillEllipse (led);
+    g.setColour (juce::Colours::black.withAlpha (0.7f)); g.fillRect (led.expanded (1.5f));
+    if (on) { g.setColour (col.withAlpha (0.3f)); g.fillRect (led.expanded (3)); }
+    g.setColour (on ? col : juce::Colour (0xff30333b)); g.fillRect (led);
     if (label.isNotEmpty()) { g.setColour (on ? BC::text : BC::dim); g.setFont (bf (10.0f, true)); g.drawText (label, b.withTrimmedLeft (5), juce::Justification::centredLeft); }
 }
 
@@ -382,17 +387,15 @@ void Module::paint (juce::Graphics& g)
         smalls[1]->label = t == 0 ? "FEEDBACK" : t == 1 ? "RATE" : "DEPTH";
     }
     // scheda: ombra morbida, bordo che sfuma dall'accento
-    jlook::card (g, b, 12, c, on, dragging, false);
-    // fascia di testa colorata che pulsa con il segnale
+    // scheda in cache (prima: grana e gradienti rifatti 30 volte al secondo per ogni modulo)
+    base.draw (g, getLocalBounds().toFloat(), (on ? 1 : 0) + (dragging ? 2 : 0), [&] (juce::Graphics& bg)
     {
-        const float act = big ? big->actSm : 0.0f;
-        juce::Path hp; hp.addRoundedRectangle (b.getX(), b.getY(), b.getWidth(), 36, 12, 12, true, true, false, false);
-        juce::ColourGradient hg (c.withAlpha (on ? 0.20f + 0.18f * act : 0.05f), b.getX(), b.getY(), c.withAlpha (0.0f), b.getRight(), b.getY() + 36, false);
-        g.setGradientFill (hg); g.fillPath (hp);
-        juce::ColourGradient ln (c.withAlpha (on ? 0.9f : 0.25f), b.getX() + 10, 0, c.withAlpha (on ? 0.15f : 0.05f), b.getRight() - 10, 0, false);
-        g.setGradientFill (ln); g.fillRect (b.getX() + 10, b.getY() + 35, b.getWidth() - 20, 1.6f);
-        if (on) { g.setColour (c.withAlpha (0.12f + 0.25f * act)); g.fillRect (b.getX() + 10, b.getY() + 33, (b.getWidth() - 20) * (0.3f + 0.7f * act), 5.0f); }
-    }
+        neo::setTheme (3); neo::plate (bg, b, on ? c : BC::faint, 12.0f);
+        bg.setColour (c.withAlpha (on ? 0.85f : 0.25f)); bg.fillRect (b.getX() + 10, b.getY() + 35, b.getWidth() - 20, 1.0f);
+        if (dragging) neo::brackets (bg, b.reduced (2), c, 12.0f, 1.6f);
+    });
+    // barra di segnale nella testata
+    { const float act = big ? big->actSm : 0.0f; if (on) { g.setColour (c.withAlpha (0.18f + 0.5f * act)); g.fillRect (b.getX() + 10, b.getY() + 33, (b.getWidth() - 20) * (0.15f + 0.85f * act), 2.0f); } }
     glow (g, kModNames[mod], juce::Rectangle<float> (32, 6, b.getWidth() - 62, 24), on ? BC::text : BC::dim, bf (11.5f, true), juce::Justification::centredLeft);
     // lucchetto
     const bool lk = ed.proc.locked[mod].load(); auto lr = lockRect().toFloat();
@@ -403,7 +406,7 @@ void Module::paint (juce::Graphics& g)
     // maniglia per spostare
     if ((mod >= 1 && mod <= 4) || mod == 6) { g.setColour (BC::dim.withAlpha (0.5f)); for (int k = 0; k < 3; ++k) g.fillRoundedRectangle (b.getRight() - 46, b.getY() + 12 + k * 4.0f, 10, 2, 1); }
     drawDisplay (g, displayRect());
-    if (! on) { g.setColour (BC::panel2.withAlpha (0.55f)); g.fillRoundedRectangle (b.withTrimmedTop (38), 12); }
+    if (! on) { g.setColour (BC::panel2.withAlpha (0.55f)); g.fillRect (b.withTrimmedTop (38).reduced (2, 0).withTrimmedBottom (14)); }
 }
 
 void Module::mouseDown (const juce::MouseEvent& e)
@@ -486,12 +489,12 @@ void EqPanel::updateSpectrum()
 void EqPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
-    jlook::card (g, b.reduced (1), 12, BC::phos, true, false, false);
+    base.draw (g, b, 1, [&] (juce::Graphics& bg) { neo::setTheme (3); neo::plate (bg, b.reduced (1), BC::phos, 12.0f); });
     const auto S = aeNow (ed.proc.apvts); const auto& I = aeInfo (S.model);
     glow (g, "EQ ANALOGICO", juce::Rectangle<float> (84, 6, 140, 20), BC::text, bf (11.0f, true));
     g.setFont (bf (9.0f, false, true)); g.setColour (BC::dim);
     g.drawFittedText (I.desc, juce::Rectangle<int> (190, 6, getWidth() - 390, 20), juce::Justification::centredLeft, 1, 0.8f);
-    jlook::button (g, modelRect().toFloat(), BC::amber, true, false, juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), bf (11.0f, true));
+    { auto mr = modelRect().toFloat(); neo::setTheme (3); neo::key (g, mr, true, BC::amber); g.setColour (BC::text); g.setFont (neo::cap (9.5f)); g.drawFittedText (juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), mr.toNearestInt().reduced (10, 0), juce::Justification::centred, 1, 0.7f); }
     auto r = plot(); inset (g, r, 8); auto p = r.reduced (4);
     const double sr = ed.proc.getSampleRate() > 0 ? ed.proc.getSampleRate() : 44100.0;
     for (float f : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
@@ -562,7 +565,7 @@ void PultecPanel::resized()
 void PultecPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1); const bool o = on->param->getValue() > 0.5f;
-    jlook::card (g, b, 12, BC::amber, o, false, false);
+    base.draw (g, getLocalBounds().toFloat(), o ? 1 : 0, [&] (juce::Graphics& bg) { neo::setTheme (3); neo::plate (bg, b, o ? BC::amber : BC::faint, 12.0f); });
     glow (g, "PULTEC EQP-1A", { 38, 6, 160, 24 }, o ? BC::text : BC::dim, bf (11.5f, true));
     g.setColour (BC::dim); g.setFont (bf (8.5f, false, true)); g.drawText ("boost e atten insieme = il trucco", juce::Rectangle<float> (b.getRight() - 190, 8, 180, 20), juce::Justification::centredRight);
     auto d = juce::Rectangle<float> (12, 34, b.getWidth() - 22, 66); inset (g, d, 6);
@@ -603,7 +606,7 @@ void ImagerPanel::resized()
 void ImagerPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1); const bool o = on->param->getValue() > 0.5f;
-    jlook::card (g, b, 12, BC::phos, o, false, false);
+    base.draw (g, getLocalBounds().toFloat(), o ? 1 : 0, [&] (juce::Graphics& bg) { neo::setTheme (3); neo::plate (bg, b, o ? BC::phos : BC::faint, 12.0f); });
     glow (g, "IMAGER", { 38, 6, 80, 24 }, o ? BC::text : BC::dim, bf (11.5f, true));
     auto& D = ed.proc.dsp;
     auto d = juce::Rectangle<float> (12, 38, b.getWidth() - 22, 82); inset (g, d, 6);
@@ -636,7 +639,7 @@ static juce::Rectangle<int> slotRect (int s) { return { 18 + s * 158, 78, 150, 4
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
-    setLookAndFeel (&lnf);
+    setLookAndFeel (&lnf); setOpaque (true);
     for (int m = 0; m < 7; ++m) addAndMakeVisible (modules.add (new Module (*this, m)));
     eq = std::make_unique<EqPanel> (*this); addAndMakeVisible (*eq);
     pultec = std::make_unique<PultecPanel> (*this); addAndMakeVisible (*pultec);
@@ -692,28 +695,16 @@ void Editor::moduleDropped (Module& m)
 void Editor::paint (juce::Graphics& g)
 {
     g.addTransform (juce::AffineTransform::scale (scaler.s));
-    const float Wf = (float) W, Hf = (float) H;
-    jlook::backdrop (g, { 0, 0, Wf, Hf }, BC::magenta, BC::phos);
-    jlook::header (g, { 0, 0, Wf, 64 }, "BUTTER RACK", BC::amber, "JB-7  DRUM BUS", BC::magenta, BC::phos);
-    // ombre morbide dietro le schede (disegnate dal genitore per non essere tagliate)
-    for (auto* m : modules) jlook::softShadow (g, m->getBounds().toFloat().reduced (1), 12, m->dragging ? 26.0f : 16.0f, m->dragging ? 0.75f : 0.6f, m->dragging ? 12.0f : 6.0f);
-    for (juce::Component* c : std::initializer_list<juce::Component*> { eq.get(), pultec.get(), imager.get() }) jlook::softShadow (g, c->getBounds().toFloat().reduced (1), 12);
+    // fondo, testata, piastre e scritte fisse in cache: prima tutto veniva rifatto dietro a ogni display che si muoveva
+    base.draw (g, { 0, 0, (float) W, (float) H }, 3, [this] (juce::Graphics& bg) { paintStatic (bg); });
+    neo::setTheme (3);
     // preset
-    inset (g, presetRect.toFloat(), 8); jlook::glass (g, presetRect.toFloat(), 8);
-    glow (g, proc.getProgramName (proc.preset).toUpperCase(), presetRect.toFloat(), BC::amber, bf (12.5f, true, true), juce::Justification::centred);
-    jlook::button (g, randRect.toFloat(), BC::magenta, true, randHover, "RANDOM", bf (12.5f, true));
-    jlook::button (g, abRect.toFloat(), BC::phos, proc.ab.cur == 1, abHover, "MEMORIA " + proc.ab.label(), bf (11.5f, true));
-    g.setColour (BC::phos); g.setFont (bf (20.0f, true));
+    inset (g, presetRect.toFloat(), 8);
+    g.setFont (neo::num (12.0f)); g.setColour (BC::amber); g.drawFittedText (proc.getProgramName (proc.preset).toUpperCase(), presetRect.reduced (8, 0), juce::Justification::centred, 1, 0.7f);
+    neo::key (g, randRect.toFloat(), true, BC::magenta, randHover); g.setColour (BC::text); g.setFont (neo::cap (10.0f)); g.drawText ("RANDOM", randRect.toFloat(), juce::Justification::centred);
+    neo::key (g, abRect.toFloat(), proc.ab.cur == 1, BC::phos, abHover); g.setColour (BC::text); g.setFont (neo::cap (9.5f)); g.drawFittedText ("MEMORIA " + proc.ab.label(), abRect.reduced (8, 0), juce::Justification::centred, 1, 0.7f);
+    g.setColour (BC::amber); g.setFont (bf (20.0f, true));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
-    // griglia di aerazione
-    for (int i = 0; i < 9; ++i) { auto r = juce::Rectangle<float> (Wf - 200 + i * 11.0f, 18, 5, 26); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 2.5f); }
-    // frecce della catena
-    for (int s = 0; s < 6; ++s) { const float x = (float) slotRect (s).getRight() + 4; juce::Path ar; ar.addArrow ({ x - 2, 96.0f, x + 6, 96.0f }, 1.5f, 6, 6); g.setColour (BC::phos.withAlpha (0.6f)); g.fillPath (ar); }
-    // master
-    auto mr = juce::Rectangle<float> ((float) MX, 78, 238, 726);
-    jlook::card (g, mr, 12, BC::magenta, true);
-    glow (g, "MASTER", mr.withHeight (34), BC::text, bf (12.0f, true), juce::Justification::centred);
-    g.setColour (BC::magenta); g.fillRoundedRectangle (mr.getX() + 14, mr.getY() + 33, mr.getWidth() - 28, 2.5f, 1.2f);
     // meter verticali in/out
     auto meter = [&] (juce::Rectangle<float> r, float l, float rr2, const char* t)
     {
@@ -729,6 +720,18 @@ void Editor::paint (juce::Graphics& g)
     meter ({ MX + 176.0f, 668, 40, 128 }, proc.outL.load(), proc.outR.load(), "OUT");
     g.setColour (BC::dim); g.setFont (bf (9.0f));
     g.drawFittedText ("lucchetto = blocca il modulo nei preset\ntrascina la testata per riordinare", juce::Rectangle<int> (MX + 66, 680, 104, 90), juce::Justification::centred, 6);
+}
+void Editor::paintStatic (juce::Graphics& g)
+{
+    const float Wf = (float) W, Hf = (float) H;
+    neo::setTheme (3);
+    neo::cyberBackdrop (g, Wf, Hf, 0.5f);
+    neo::cyberHeader (g, Wf, 64, "BTR-7", "BUTTER RACK // DRUM BUS");
+    for (int s = 0; s < 6; ++s) { const float x = (float) slotRect (s).getRight() + 4; juce::Path ar; ar.addArrow ({ x - 2, 96.0f, x + 6, 96.0f }, 1.5f, 6, 6); g.setColour (BC::phos.withAlpha (0.6f)); g.fillPath (ar); }
+    auto mr = juce::Rectangle<float> ((float) MX, 78, 238, 726);
+    neo::plate (g, mr, BC::magenta, 14.0f);
+    g.setFont (neo::cap (10.0f)); g.setColour (BC::text); g.drawText ("MASTER", mr.withHeight (34), juce::Justification::centred);
+    g.setColour (BC::magenta); g.fillRect (mr.getX() + 14, mr.getY() + 33, mr.getWidth() - 28, 1.0f);
 }
 
 void Editor::mouseMove (const juce::MouseEvent& e0)

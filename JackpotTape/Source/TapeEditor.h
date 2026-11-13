@@ -2,15 +2,17 @@
 #include "JackpotLook.h"
 #include "JackpotScale.h"
 #include "TapeProcessor.h"
+#include "Neo.h"
 #include <set>
 
 namespace jt
 {
 namespace K
 {
-    const juce::Colour bg { 0xff0b0c10 }, win { 0xff121419 }, p1 { 0xff1d2027 }, p2 { 0xff16181e }, p3 { 0xff2a2d36 };
-    const juce::Colour hair { 0x14ffffff }, hair2 { 0x24ffffff }, ink { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
-    const juce::Colour brand1 { 0xffff2e88 }, brand2 { 0xff5ef2ff }, amber { 0xffffb000 }, lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
+    // tavolozza CYBER (la stessa del Sampler)
+    const juce::Colour bg { 0xff06070c }, win { 0xff0f1119 }, p1 { 0xff1a1d28 }, p2 { 0xff12141d }, p3 { 0xff262a36 };
+    const juce::Colour hair { 0x16ffffff }, hair2 { 0x26ffffff }, ink { 0xffe9edf3 }, dim { 0xff8c95a9 }, faint { 0xff4f576b };
+    const juce::Colour brand1 { 0xffff3f8e }, brand2 { 0xff38e8d8 }, amber { 0xffffb84a }, lcd1 { 0xff0b161a }, lcd2 { 0xff050a0d };
 }
 juce::Font tf (float size, int weight = 0, bool mono = false);   // weight 0 normale, 1 semi, 2 bold
 
@@ -29,7 +31,8 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::UpDownResizeCursor); repaint(); }
     void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
-    bool hover = false, drag = false;
+    bool hover = false, drag = false; float shown = -1;
+    void refresh() { if (param->getValue() != shown) repaint(); }   // ridisegna solo se il valore e' cambiato
     std::function<void (float)> onUserChange;
     std::function<void()> onStart;   // inizio di un gesto: per annulla
     juce::RangedAudioParameter* param; juce::String lab; juce::Colour col; std::function<juce::String (float)> fmtFn;
@@ -80,9 +83,9 @@ public:
 class Display : public juce::Component
 {
 public:
-    explicit Display (Editor& e) : ed (e) {}
+    explicit Display (Editor& e) : ed (e) { setOpaque (true); }
     void paint (juce::Graphics&) override;
-    Editor& ed; float reelA = 0;
+    Editor& ed; float reelA = 0; neo::Cache base;
 };
 
 class PadBtn : public juce::Component
@@ -92,7 +95,7 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
-    Editor& ed; int fx; bool down = false;
+    Editor& ed; int fx; bool down = false; int shownOn = -1;
 };
 
 class FxEditor : public juce::Component
@@ -104,7 +107,7 @@ public:
     void rebuild();
     juce::Rectangle<int> curveArea() const;
     float paramSig() const;
-    Editor& ed; juce::OwnedArray<Knob> knobs; std::unique_ptr<Toggle> onTog; float lastSig = 0;
+    Editor& ed; juce::OwnedArray<Knob> knobs; std::unique_ptr<Toggle> onTog; float lastSig = 0; neo::Cache base;
 };
 
 class Timeline : public juce::Component
@@ -129,6 +132,8 @@ public:
     Editor& ed; Mode mode = NONE; int dLane = -1, anchor = 0, dOff = 0, bS = 0, bE = 0, hLane = -1, hStep = -1;
     int selLane = -1, selS = 0, selE = 0;
     bool before[kMaxSteps] = {};
+    juce::int64 sig() const;   // impronta di cio' che si vede: si ridisegna solo quando cambia
+    juce::int64 lastSig = -1;
 };
 
 class Meter : public juce::Component
@@ -142,9 +147,10 @@ public:
 class Root : public juce::Component
 {
 public:
-    explicit Root (Editor& e) : ed (e) {}
+    explicit Root (Editor& e) : ed (e) { setOpaque (true); }
     void paint (juce::Graphics&) override;
-    Editor& ed;
+    void paintStatic (juce::Graphics&);
+    Editor& ed; neo::Cache base;
 };
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
@@ -189,6 +195,6 @@ public:
 
 private:
     void timerCallback() override;
-    std::set<int> keysDown;
+    std::set<int> keysDown; int lastListSig = -1; juce::String lastFoot;
 };
 }

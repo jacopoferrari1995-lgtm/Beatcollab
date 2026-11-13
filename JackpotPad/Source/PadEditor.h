@@ -16,10 +16,10 @@ namespace Col
     inline juce::Colour magenta { 0xffff2e88 }, cyan { 0xff19e3ff }, amber { 0xffffb000 }, red { 0xffff3b4e }, green { 0xff3dff8b };
     inline juce::Colour text { 0xffd9dde6 }, dim { 0xff7d8494 }, faint { 0xff4a505d };
     inline juce::Colour lcd1 { 0xff041619 }, lcd2 { 0xff020b0d }, phos { 0xff5ef2ff };
-    inline int theme = 1;
+    inline int theme = 3;
     inline void sync()
     {
-        neo::setTheme (theme == 2 ? 2 : 1); using namespace neo;
+        neo::setTheme (theme == 2 || theme == 3 ? theme : 1); using namespace neo;
         bg = K::bg1; chassis1 = K::panel0; chassis2 = K::panel1; inset = K::panel1;
         magenta = K::pink; cyan = K::cyan; amber = K::amber; red = K::red; green = K::mint;
         text = K::ink; dim = K::sub; faint = K::faint; lcd1 = K::disp0; lcd2 = K::disp1; phos = K::accent;

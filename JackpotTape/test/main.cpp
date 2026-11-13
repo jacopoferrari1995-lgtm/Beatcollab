@@ -1,5 +1,6 @@
 #include "../Source/TapeProcessor.h"
 #include "../Source/TapeEditor.h"
+#include <cstdlib>
 using namespace jt;
 int main (int argc, char** argv)
 {
@@ -11,6 +12,17 @@ int main (int argc, char** argv)
         std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
         if (auto* e = dynamic_cast<Editor*> (ed.get())) e->select (juce::SystemStats::getEnvironmentVariable ("JFX", "9").getIntValue());
         ed->setSize (Editor::W, Editor::H);
+        if (std::getenv ("JPERF"))
+        {   // tempo di un ridisegno completo e dei soli elementi animati
+            juce::Image im (juce::Image::RGB, Editor::W * 2, Editor::H * 2, true);
+            auto t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < 20; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); ed->paintEntireComponent (g, true); }
+            auto t1 = juce::Time::getMillisecondCounterHiRes();
+            auto* e = dynamic_cast<Editor*> (ed.get());
+            for (int i = 0; i < 20; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (e->disp.getBoundsInParent()); ed->paintEntireComponent (g, true); }
+            auto t2 = juce::Time::getMillisecondCounterHiRes();
+            std::printf ("ridisegno completo (retina) %.1f ms   solo display %.1f ms\n", (t1 - t0) / 20, (t2 - t1) / 20);
+        }
         auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

@@ -26,6 +26,20 @@ int main (int argc, char** argv)
             p.processBlock (b, m);
             if (k % 3 == 0) ed.eq->updateSpectrum();
         }
+        if (std::getenv ("JPERF"))
+        {   // un fotogramma tipico: i 7 display dei moduli + analizzatore EQ, come fa il timer
+            juce::Image im (juce::Image::RGB, ed.getWidth() * 2, ed.getHeight() * 2, true);
+            auto t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < 10; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); ed.paintEntireComponent (g, true); }
+            auto t1 = juce::Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < 10; ++i)
+            {
+                for (auto* m : ed.modules) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (m->getBounds().withHeight (125)); ed.paintEntireComponent (g, true); }
+                juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (ed.eq->getBounds().withHeight (130)); ed.paintEntireComponent (g, true);
+            }
+            auto t2 = juce::Time::getMillisecondCounterHiRes();
+            std::printf ("ridisegno completo (retina) %.1f ms   fotogramma animato %.1f ms\n", (t1 - t0) / 10, (t2 - t1) / 10);
+        }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

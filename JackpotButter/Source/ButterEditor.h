@@ -2,14 +2,16 @@
 #include "JackpotLook.h"
 #include "JackpotScale.h"
 #include "ButterProcessor.h"
+#include "Neo.h"
 #include <juce_dsp/juce_dsp.h>
 
 namespace jb
 {
 namespace BC
 {
-    const juce::Colour bg { 0xff0b0c10 }, panel1 { 0xff1d2027 }, panel2 { 0xff121419 }, lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
-    const juce::Colour text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff474d59 }, phos { 0xff5ef2ff }, amber { 0xffffb000 }, magenta { 0xffff2e88 };
+    // tavolozza CYBER (la stessa del Sampler)
+    const juce::Colour bg { 0xff06070c }, panel1 { 0xff1a1d28 }, panel2 { 0xff12141d }, lcd1 { 0xff0b161a }, lcd2 { 0xff050a0d };
+    const juce::Colour text { 0xffe9edf3 }, dim { 0xff8c95a9 }, faint { 0xff4f576b }, phos { 0xff38e8d8 }, amber { 0xffffb84a }, magenta { 0xffff3f8e };
     const juce::Colour mod[7] = { juce::Colour (0xffff6a3d), juce::Colour (0xffa66bff), juce::Colour (0xffffd23f), juce::Colour (0xffff3b5c), juce::Colour (0xff2de2e6), juce::Colour (0xff7dff5a), juce::Colour (0xffff4fd8) };
 }
 juce::Font bf (float size, bool bold = false, bool mono = false);
@@ -82,7 +84,7 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void drawDisplay (juce::Graphics&, juce::Rectangle<float>);
-    Editor& ed; int mod; bool dragging = false; int dragX = 0;
+    Editor& ed; int mod; bool dragging = false; int dragX = 0; neo::Cache base;
     std::unique_ptr<PKnob> big; juce::OwnedArray<PKnob> smalls; std::unique_ptr<Pill> type, extraPill; std::unique_ptr<Segs> focus; std::unique_ptr<Target> target;
     std::unique_ptr<Switch> power, extra;
     juce::Rectangle<int> lockRect() const { return { getWidth() - 28, 9, 18, 18 }; }
@@ -96,7 +98,7 @@ public:
     explicit PultecPanel (Editor& e);
     void paint (juce::Graphics&) override;
     void resized() override;
-    Editor& ed; std::unique_ptr<Switch> on; juce::OwnedArray<PKnob> knobs;
+    Editor& ed; std::unique_ptr<Switch> on; juce::OwnedArray<PKnob> knobs; neo::Cache base;
 };
 class ImagerPanel : public juce::Component
 {
@@ -104,7 +106,7 @@ public:
     explicit ImagerPanel (Editor& e);
     void paint (juce::Graphics&) override;
     void resized() override;
-    Editor& ed; std::unique_ptr<Switch> on; std::unique_ptr<PKnob> width, mono;
+    Editor& ed; std::unique_ptr<Switch> on; std::unique_ptr<PKnob> width, mono; neo::Cache base;
 };
 
 // EQ analogico: modelli MAAG / SSL / NEVE / LINDELL 81 / 73 / PE 1C, con analizzatore
@@ -118,7 +120,7 @@ public:
     void updateSpectrum();
     juce::Rectangle<float> plot() const { return { 14, 30, (float) getWidth() - 28, 92 }; }
     juce::Rectangle<int> modelRect() const { return { getWidth() - 190, 4, 176, 22 }; }
-    Editor& ed;
+    Editor& ed; neo::Cache base;
     juce::dsp::FFT fft { 11 };
     std::vector<float> fftBuf, specIn, specOut;
     std::unique_ptr<Switch> on; juce::OwnedArray<PKnob> knobs;   // 4 x (gain, freq), drive, q
@@ -133,6 +135,8 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void layoutModules();
+    void paintStatic (juce::Graphics&);
+    neo::Cache base;
     void moduleDropped (Module& m);
     static constexpr int W = 1386, H = 820, MX = 1130;
     jlook::LnF lnf;
