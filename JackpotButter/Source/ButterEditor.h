@@ -139,7 +139,7 @@ public:
     neo::Cache base;
     void moduleDropped (Module& m);
     static constexpr int W = 1386, H = 820, MX = 1130;
-    jlook::LnF lnf;
+    neo::KeepFonts keepFonts; jlook::LnF lnf;
     Processor& proc;
     jlook::Scaler scaler { *this, "butter", W, H };
     jlook::SizeChip sizeChip { scaler };

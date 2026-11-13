@@ -121,7 +121,7 @@ public:
     };
     std::vector<Hot> hots;
     std::function<void (const juce::MouseEvent&)> drag;
-    Editor& ed; int kitScroll = 0, randMode = 2; bool kitSmall = false; juce::Rectangle<float> waveR; float dragStart = 0;   // colonna dei kit ridotta: piu spazio al monitor
+    Editor& ed; int kitScroll = 0, randMode = 2; bool kitSmall = true; juce::Rectangle<float> waveR; float dragStart = 0;   // colonna dei kit ridotta: piu spazio al monitor
     // chop
     int chopMode = 0, chopDiv = 1; bool chopSnap = true; int dragMark = -1; float lastFx = 0;
     std::vector<float> marks, onsets; const SampleData* chopSmp = nullptr;
@@ -189,6 +189,22 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     Editor& ed; bool dragging = false;
+};
+
+// scheda dei kit (come quella dei preset del Master): i tuoi kit grandi e leggibili, kit casuale, salva / apri
+class KitBrowser : public juce::Component
+{
+public:
+    explicit KitBrowser (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    void open() { scroll = 0; hov = -1; setVisible (true); toFront (true); }
+    juce::Rectangle<float> box() const { return { 190, 70, (float) getWidth() - 380, (float) getHeight() - 120 }; }
+    juce::Rectangle<float> act (int i) const { auto b = box(); return { b.getX() + 20, b.getY() + 64 + i * 46.0f, 210, 38 }; }
+    juce::Rectangle<float> list() const { auto b = box(); return { b.getX() + 250, b.getY() + 64, b.getWidth() - 270, b.getHeight() - 84 }; }
+    Editor& ed; int hov = -1; float scroll = 0;
 };
 
 class Root : public juce::Component
@@ -280,6 +296,7 @@ public:
     ~Editor() override { proc.loopOn = false; proc.requestPlay (false); setLookAndFeel (nullptr); }   // chiudi la finestra = si ferma anche il loop interno
     void resized() override;
     void paint (juce::Graphics& g) override { g.fillAll (Col::bg); }
+    void parentHierarchyChanged() override { jlook::preferFastRenderer (*this); }
     bool keyPressed (const juce::KeyPress&) override;
     bool keyStateChanged (bool) override;
     void selectPad (int p);
@@ -288,7 +305,7 @@ public:
     void stopPad (int p) { proc.uiNoteOff (p); }
     static constexpr int W = 1400, H = 830;
 
-    jlook::LnF lnf;
+    neo::KeepFonts keepFonts; jlook::LnF lnf;
     Processor& proc;
     jlook::Scaler scaler { *this, "pad", W, H };
     jlook::SizeChip sizeChip { scaler };
@@ -322,6 +339,7 @@ public:
     ChopView chop { *this };
     void openChop (int pad) { chop.open (pad); }
     PatternView pattern { *this };
+    KitBrowser kitBrowser { *this };
     DragMidi drag { *this };
     juce::OwnedArray<PadComp> pads;
     juce::OwnedArray<Knob> qlinks, globalKnobs;

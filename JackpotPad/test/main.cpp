@@ -365,6 +365,27 @@ int main (int argc, char** argv)
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         if (auto* pg = std::getenv ("JPAGE")) { ed.selectPad (0); ed.setPage (std::atoi (pg)); ed.screen.kitSmall = std::getenv ("JSMALL") != nullptr; if (std::getenv ("JFX")) { p.qFx = true; ed.bindQlinks(); } for (int i = 0; i < 3; ++i) ed.screen.repaint(); }
         else { ed.openChop (0); ed.chop.selSlice = 2; ed.chop.hovPad = 5; ed.chop.assigned[3] = 1; ed.chop.pGlow[6] = 1.0f; ed.chop.pGlow[3] = 0.5f; }
+        if (std::getenv ("JPERF"))
+        {   // costo dei pezzi che si ridisegnano mentre suona (a 2x come uno schermo retina)
+            juce::Image im (juce::Image::ARGB, ed.getWidth() * 2, ed.getHeight() * 2, true);
+            auto timeIt = [&] (juce::Component& c, const char* nm, int n = 20)
+            {
+                const auto r = ed.getLocalArea (&c, c.getLocalBounds());
+                const double t0 = juce::Time::getMillisecondCounterHiRes();
+                for (int i = 0; i < n; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (r); ed.paintEntireComponent (g, true); }
+                std::printf ("  %-14s %6.2f ms  (%dx%d)\n", nm, (juce::Time::getMillisecondCounterHiRes() - t0) / n, r.getWidth(), r.getHeight());
+            };
+            p.uiRunning = true;
+            for (auto* c : ed.getChildren()) for (auto* cc : c->getChildren()) juce::ignoreUnused (cc);
+            timeIt (ed, "TUTTO", 5);
+            timeIt (ed.screen, "schermo", std::getenv ("JN") ? 100000 : 20); timeIt (ed.pattern, "sequencer"); timeIt (*ed.pads[0], "un pad");
+            { const auto r = ed.getLocalArea (ed.pads[0], ed.pads[0]->getLocalBounds()).getUnion (ed.getLocalArea (ed.pads[15], ed.pads[15]->getLocalBounds()));
+              const double t0 = juce::Time::getMillisecondCounterHiRes();
+              for (int i = 0; i < 20; ++i) for (auto* pc : ed.pads) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (ed.getLocalArea (pc, pc->getLocalBounds())); ed.paintEntireComponent (g, true); }
+              std::printf ("  16 pad accesi   %6.2f ms\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 20); juce::ignoreUnused (r); }
+            return 0;
+        }
+        if (std::getenv ("JKITS")) ed.kitBrowser.open();
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

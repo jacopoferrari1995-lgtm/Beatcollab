@@ -129,7 +129,7 @@ void PadComp::paint (juce::Graphics& g)
         auto pth = neo::chamfer (b, 10.0f, 3.0f);
         g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillPath (pth, juce::AffineTransform::translation (0, 3));
         juce::ColourGradient rub (juce::Colour (0xff23262f).interpolatedWith (c, 0.05f), 0, b.getY(), juce::Colour (0xff15171d), 0, b.getBottom(), false); g.setGradientFill (rub); g.fillPath (pth);
-        if (lum > 0.01f) { juce::ColourGradient bl (c.withAlpha (0.7f * lum), b.getCentreX(), b.getCentreY() + b.getHeight() * 0.15f, c.withAlpha (0.08f * lum), b.getX(), b.getY(), true); g.setGradientFill (bl); g.fillPath (pth); }
+        if (lum > 0.01f) { g.setColour (c.withAlpha (0.38f * lum)); g.fillPath (pth); g.setColour (c.withAlpha (0.3f * lum)); g.fillRect (b.reduced (b.getWidth() * 0.22f, b.getHeight() * 0.22f)); }
         g.setColour (glass (0.09f)); g.strokePath (pth, juce::PathStrokeType (1.0f));
         auto led = juce::Rectangle<float> (b.getX() + 10, b.getBottom() - 9, b.getWidth() - 20, 3.0f);
         g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillRect (led.expanded (1));
@@ -140,9 +140,10 @@ void PadComp::paint (juce::Graphics& g)
     else
     {
     g.setColour (juce::Colours::black.withAlpha (neo::light() ? 0.12f : 0.35f)); g.fillRoundedRectangle (b.translated (0, 3), 12);
-    const juce::Colour top = neo::light() ? juce::Colour (0xfff7f6f9) : juce::Colour (0xff2e2a37), bot = neo::light() ? juce::Colour (0xffe4e2ea) : juce::Colour (0xff221f29);
+    const juce::Colour top = neo::light() ? neo::K::panel0.brighter (0.06f) : juce::Colour (0xff2e2a37), bot = neo::light() ? neo::K::panel1 : juce::Colour (0xff221f29);
     juce::ColourGradient rub (top.interpolatedWith (c, neo::light() ? 0.06f : 0.07f), 0, b.getY(), bot, 0, b.getBottom(), false); g.setGradientFill (rub); g.fillRoundedRectangle (b, 12);
-    if (lum > 0.01f) { juce::ColourGradient bl (c.withAlpha (0.75f * lum), b.getCentreX(), b.getCentreY(), c.withAlpha (0.12f * lum), b.getX(), b.getY(), true); g.setGradientFill (bl); g.fillRoundedRectangle (b, 12); }
+    // pad acceso: velo pieno del colore (prima un gradiente radiale, pesante con 16 pad che lampeggiano)
+    if (lum > 0.01f) { g.setColour (c.withAlpha (0.42f * lum)); g.fillRoundedRectangle (b, 12); g.setColour (c.withAlpha (0.35f * lum)); g.fillRoundedRectangle (b.reduced (b.getWidth() * 0.22f, b.getHeight() * 0.22f), 10); }
     g.setColour (glass (0.08f)); g.drawRoundedRectangle (b.reduced (0.5f), 12, 1.0f);
     // filo colorato in basso
     g.setColour (c.withAlpha (0.45f + 0.55f * lum)); g.fillRoundedRectangle (b.getX() + 16, b.getBottom() - 6, b.getWidth() - 32, 2.0f, 1.0f);
@@ -270,7 +271,8 @@ void Screen::paint (juce::Graphics& g)
             juce::ignoreUnused (go);
         }
     }
-    g.drawImage (bgImg, b);
+    // copia diretta pixel per pixel (prima era ricampionata su tutta l'area a ogni aggiornamento: da sola piu di meta del costo)
+    { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / imgScale)); g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality); g.drawImageAt (bgImg, 0, 0); g.restoreState(); }
     // schede
     // la scheda SAMPLE non c'e' piu: e' tutta dentro la pagina KIT (il CHOP grande resta dal tasto CHOP)
     const float tw = (s.getWidth() - 12) / (kNumPages - 1);
@@ -320,7 +322,7 @@ void Screen::paint (juce::Graphics& g)
             else if (ed.page == PG_COMP) pageComp (g, c);
             else if (ed.page == PG_FX) pageFx (g, c);
     }
-    g.drawImage (ovImg, b);
+    // (l'immagine di sovrapposizione e' vuota: non si disegna piu, costava una passata intera a ogni aggiornamento)
     // spiegazione del controllo sotto il mouse
     if (hint.isNotEmpty())
     {
@@ -466,12 +468,12 @@ void Screen::pageBrowse (juce::Graphics& g, juce::Rectangle<float> c)
 void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
 {
     auto& P = ed.proc;
-    if (kitSmall)
+    if (true)   // i kit stanno nella scheda (nome del kit in alto): qui solo la colonna stretta
     {   // colonna stretta: si riapre con un clic, restano a portata i RANDOM
         auto left = c.removeFromLeft (112); c.removeFromLeft (10);
         auto tg = left.removeFromTop (30); left.removeFromTop (6);
-        chip (g, tg, "", juce::String::fromUTF8 ("KIT  \xe2\x96\xb6"), false, [this] (const juce::MouseEvent&) { kitSmall = false; repaint(); }, Col::phos);
-        hots.back().tip = "Mostra di nuovo l'elenco dei kit.";
+        chip (g, tg, "", juce::String::fromUTF8 ("KIT  \xe2\x96\xbe"), false, [this] (const juce::MouseEvent&) { ed.kitBrowser.open(); }, Col::phos);
+        hots.back().tip = "Apre la scheda dei kit: i tuoi kit, kit casuale, salva e apri.";
         g.setFont (ft (10.5f, true, true)); g.setColour (Col::magenta);
         g.drawFittedText (P.kitName.toUpperCase(), left.removeFromTop (40).toNearestInt(), juce::Justification::centred, 3, 0.7f);
         left.removeFromTop (6);
@@ -484,6 +486,10 @@ void Screen::pageKit (juce::Graphics& g, juce::Rectangle<float> c)
             g.setFont (neo::f (8.5f)); g.setColour (Col::dim); g.drawFittedText (sub, r.withTrimmedTop (r.getHeight() - 20).toNearestInt(), juce::Justification::centred, 1, 0.8f);
             hots.push_back ({ r, std::move (fn), nullptr, nullptr, nullptr });
         };
+        {   // tonalita del kit in fondo alla colonna
+            auto kr = left.removeFromBottom (40); left.removeFromBottom (6); const int kl = P.keyLock();
+            chip (g, kr, "TONALITA", kl < 0 ? juce::String ("LIBERA") : keyName (kl) + (kl >= 12 ? " min" : " magg"), kl >= 0, [this] (const juce::MouseEvent&) { ed.keyLockMenu(); }, Col::cyan);
+        }
         const float bh = juce::jmin (78.0f, (left.getHeight() - 12) / 3);
         bigV (left.removeFromTop (bh), "RANDOM KIT", "tutti i pad", true, [this] (const juce::MouseEvent&) { randomKit (ed.proc, randMode); ed.kitChanged(); ed.playPad (0, 100); }); left.removeFromTop (6);
         bigV (left.removeFromTop (bh), "RANDOM PAD", "solo il pad " + juce::String (ed.sel + 1), true, [this] (const juce::MouseEvent&) { randomPad (ed.proc, ed.sel, randMode); ed.kitChanged(); ed.playPad (ed.sel, 100); }); left.removeFromTop (6);
@@ -1616,6 +1622,62 @@ void DragMidi::mouseDrag (const juce::MouseEvent& e)
     juce::DragAndDropContainer::performExternalDragDropOfFiles ({ f.getFullPathName() }, false, this, [this] { dragging = false; repaint(); });
 }
 
+
+// ======================= scheda dei kit =======================
+void KitBrowser::paint (juce::Graphics& g)
+{
+    Col::theme = ed.proc.uiTheme.load(); Col::sync(); using namespace neo;
+    g.fillAll (K::lo.withAlpha (light() ? 0.25f : 0.6f));
+    auto bx = box();
+    if (cyber()) plate (g, bx, K::accent, 16.0f);
+    else { g.setColour (K::lo.withAlpha (0.4f)); g.fillRoundedRectangle (bx.translated (0, 6), 20); juce::ColourGradient bg (K::panel0, 0, bx.getY(), K::panel1, 0, bx.getBottom(), false); g.setGradientFill (bg); g.fillRoundedRectangle (bx, 20); }
+    g.setFont (big (20.0f)); g.setColour (K::ink); g.drawText ("Kit", juce::Rectangle<float> (bx.getX() + 22, bx.getY() + 14, 200, 32), juce::Justification::centredLeft);
+    g.setFont (f (10.5f)); g.setColour (K::sub); g.drawText (juce::String::fromUTF8 ("clic per caricare  \xc2\xb7  clic fuori per chiudere"), juce::Rectangle<float> (bx.getX() + 90, bx.getY() + 14, 400, 32), juce::Justification::centredLeft);
+    static const char* acts[] = { "KIT CASUALE", "SALVA", "SALVA COME...", "APRI DA FILE..." };
+    for (int i = 0; i < 4; ++i) neo::chip (g, act (i), acts[i], i == 0, i == 0 ? K::accent : K::violet, 10.0f, hov == 1000 + i);
+    g.setFont (f (9.0f)); g.setColour (K::faint);
+    g.drawFittedText ("I kit si salvano nella cartella dei kit Jackpot: li ritrovi qui in ogni progetto.", act (4).withHeight (60).toNearestInt(), juce::Justification::topLeft, 4);
+    auto l = list(); const auto kits = ed.proc.userKits();
+    g.setFont (cap (8.5f)); g.setColour (K::sub); g.drawText ("I TUOI KIT  (" + juce::String (kits.size()) + ")", l.withHeight (14).translated (0, -20), juce::Justification::centredLeft);
+    if (kits.isEmpty()) { g.setFont (f (12.0f)); g.setColour (K::sub); g.drawFittedText ("Non hai ancora kit salvati. Fai un kit casuale o carica i tuoi suoni, poi SALVA.", l.reduced (20).toNearestInt(), juce::Justification::centred, 3); return; }
+    g.saveState(); g.reduceClipRegion (l.toNearestInt());
+    const float rh = 46;
+    for (int i = 0; i < kits.size(); ++i)
+    {
+        auto r = juce::Rectangle<float> (l.getX(), l.getY() + i * rh - scroll, l.getWidth(), rh - 6);
+        if (r.getBottom() < l.getY() || r.getY() > l.getBottom()) continue;
+        const bool cur = kits[i] == ed.proc.kitFile;
+        g.setColour (cur ? K::accent.withAlpha (0.18f) : K::hi.withAlpha (hov == i ? 0.08f : 0.035f)); g.fillRoundedRectangle (r, 9);
+        if (cur) { g.setColour (K::accent.withAlpha (0.7f)); g.drawRoundedRectangle (r.reduced (0.5f), 9, 1.0f); }
+        g.setFont (f (14.0f, 1)); g.setColour (K::ink); g.drawText (kits[i].getFileNameWithoutExtension(), r.withTrimmedLeft (16), juce::Justification::centredLeft);
+        g.setFont (num (9.0f)); g.setColour (K::faint); g.drawText (kits[i].getLastModificationTime().formatted ("%d/%m/%y"), r.withTrimmedRight (14), juce::Justification::centredRight);
+    }
+    g.restoreState();
+}
+void KitBrowser::mouseMove (const juce::MouseEvent& e)
+{
+    int h = -1; for (int i = 0; i < 4; ++i) if (act (i).contains (e.position)) h = 1000 + i;
+    if (list().contains (e.position)) { const int k = (int) ((e.position.y - list().getY() + scroll) / 46); if (k >= 0 && k < ed.proc.userKits().size()) h = k; }
+    if (h != hov) { hov = h; repaint(); }
+    setMouseCursor (h >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+void KitBrowser::mouseDown (const juce::MouseEvent& e)
+{
+    if (! box().contains (e.position)) { setVisible (false); return; }
+    for (int i = 0; i < 4; ++i) if (act (i).contains (e.position))
+    {
+        setVisible (false);
+        if (i == 0) { randomKit (ed.proc, ed.screen.randMode); ed.kitChanged(); ed.playPad (0, 100); }
+        else if (i == 1) ed.saveKit (false); else if (i == 2) ed.saveKit (true); else ed.loadKitDialog();
+        return;
+    }
+    if (hov >= 0 && hov < 1000) { const auto kits = ed.proc.userKits(); if (hov < kits.size()) { ed.proc.loadKit (kits[hov]); ed.kitChanged(); setVisible (false); } }
+}
+void KitBrowser::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
+{
+    const float total = ed.proc.userKits().size() * 46.0f; scroll = juce::jlimit (0.0f, juce::jmax (0.0f, total - list().getHeight()), scroll - w.deltaY * 220.0f); repaint();
+}
+
 // ======================= Root =======================
 void Root::paintStatic (juce::Graphics& g)
 {
@@ -1673,6 +1735,7 @@ void Root::paintStatic (juce::Graphics& g)
 }
 void Root::mouseDown (const juce::MouseEvent& e)
 {
+    if (juce::Rectangle<float> (380, 12, 410, 40).contains (e.position)) { ed.kitBrowser.open(); return; }
     if (juce::Rectangle<float> (800, 20, 90, 26).contains (e.position)) { const int t = ed.proc.uiTheme.load(); ed.proc.uiTheme = t == 3 ? 1 : t == 1 ? 2 : 3; bg = {}; ed.repaint(); }
 }
 void Root::paint (juce::Graphics& g)
@@ -1690,7 +1753,7 @@ void Root::paint (juce::Graphics& g)
     }
     { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality); g.drawImageAt (bg, 0, 0); g.restoreState(); }   // copia pixel per pixel
     g.setFont (neo::cap (8.0f)); g.setColour (Col::dim); g.drawText ("KIT", juce::Rectangle<float> (430, 12, 40, 40), juce::Justification::centredLeft);
-    glowText (g, ed.proc.kitName.toUpperCase(), { 462, 12, 330, 40 }, Col::text, neo::cap (9.5f));
+    glowText (g, ed.proc.kitName.toUpperCase() + juce::String::fromUTF8 ("  \xe2\x96\xbe"), { 462, 12, 330, 40 }, Col::text, neo::cap (9.5f));
     neo::chip (g, { 800, 20, 90, 26 }, neo::cyber() ? "CYBER" : neo::light() ? "CHIARO" : "SCURO", false, Col::dim, 8.5f);
     // meter master
     const float m[2] = { ed.proc.meterL.load(), ed.proc.meterR.load() };
@@ -1874,7 +1937,7 @@ void ChopView::paint (juce::Graphics& g)
         juce::Graphics gi (chrome); gi.addTransform (juce::AffineTransform::scale (ps));
         gi.fillAll (Col::bg); paintChrome (gi);
     }
-    g.drawImage (chrome, getLocalBounds().toFloat());
+    { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / chromeScale)); g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality); g.drawImageAt (chrome, 0, 0); g.restoreState(); }
     if (! smp) return;
     const auto pc = padColour (colour); const double dur = smp->buf.getNumSamples() / smp->sr;
     auto w = wave();
@@ -2340,6 +2403,8 @@ void Editor::resized()
     const float s = scaler.update();
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     root.setBounds (0, 0, W, H); root.setTransform (juce::AffineTransform::scale (s));
+    if (kitBrowser.getParentComponent() == nullptr) root.addChildComponent (kitBrowser);
+    kitBrowser.setBounds (0, 0, W, H);
     screen.setBounds (24, 78, 928, 450);
     chop.setBounds (0, 0, W, H);
     named (root, "stop")->setBounds (W - 128, 18, 100, 30);

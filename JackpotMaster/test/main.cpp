@@ -178,6 +178,7 @@ int main (int argc, char** argv)
         for (int i = 0; i < 30; ++i) ed.tickForTest();
         if (auto* jsc = std::getenv ("JSCALE")) { ed.scaler.set ((float) std::atof (jsc)); ed.tickForTest(); }
         if (std::getenv ("JADV")) { setP (*p, "mode", 1); ed.tickForTest(); }
+        if (std::getenv ("JBACK")) { setP (*p, "mode", 1); ed.tickForTest(); setP (*p, "mode", 0); ed.tickForTest(); }
         if (std::getenv ("JSTAGE"))
         {   { for (auto& x : gStageT) x = 0; }   // costo di un fotogramma dell'onda: il display si ridisegna insieme a quello che ha dietro
             auto& st = ed.easyPage.stage; const auto r = ed.getLocalArea (&st, st.getLocalBounds());

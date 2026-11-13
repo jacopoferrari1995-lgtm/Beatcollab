@@ -31,8 +31,9 @@ inline void setTheme (int t)
                        panel0 = juce::Colour (0xff2d2938); panel1 = juce::Colour (0xff23202b); disp0 = juce::Colour (0xff3b2e4b); disp1 = juce::Colour (0xff261f32); }
     else if (t == 3) { bg0 = juce::Colour (0xff06070c); bg1 = juce::Colour (0xff0f1119); ink = juce::Colour (0xffe9edf3); sub = juce::Colour (0xff8c95a9); faint = juce::Colour (0xff4f576b); line = juce::Colour (0x16ffffff); hi = juce::Colour (0xffdfe8ff); lo = juce::Colour (0xff020306);
                        panel0 = juce::Colour (0xff1a1d28); panel1 = juce::Colour (0xff12141d); disp0 = juce::Colour (0xff0b161a); disp1 = juce::Colour (0xff050a0d); }
-    else             { bg0 = juce::Colour (0xffd9d7de); bg1 = juce::Colour (0xffeceaef); ink = juce::Colour (0xff1c1a23); sub = juce::Colour (0xff5d596a); faint = juce::Colour (0xff97929f); line = juce::Colour (0x18000000); hi = juce::Colour (0xff15131c); lo = juce::Colour (0xff3a3448);
-                       panel0 = juce::Colour (0xfff1f0f3); panel1 = juce::Colour (0xffe2e0e7); disp0 = juce::Colour (0xfff7f2ea); disp1 = juce::Colour (0xffe9e1d5); }
+    else             // chiaro ma non abbagliante: grigi caldi e morbidi, contrasto piu basso (niente bianco pieno)
+                     { bg0 = juce::Colour (0xffbdbac3); bg1 = juce::Colour (0xffcbc8d0); ink = juce::Colour (0xff2b2833); sub = juce::Colour (0xff5f5a69); faint = juce::Colour (0xff8a8592); line = juce::Colour (0x16000000); hi = juce::Colour (0xff1d1a24); lo = juce::Colour (0xff3a3448);
+                       panel0 = juce::Colour (0xffd3d0d8); panel1 = juce::Colour (0xffc6c3cc); disp0 = juce::Colour (0xffd8d2c9); disp1 = juce::Colour (0xffcbc4b9); }
     accent = t == 2 ? juce::Colour (0xff6b45c9) : t == 3 ? juce::Colour (0xffffb84a) : juce::Colour (0xffc7a3ee);
     if (t == 3) { pink = juce::Colour (0xffff3f8e); violet = juce::Colour (0xff9a6bff); cyan = juce::Colour (0xff38e8d8); mint = juce::Colour (0xff5dff9e); amber = juce::Colour (0xffffb84a); red = juce::Colour (0xffff4a5c); blue = juce::Colour (0xff4f8bff); return; }
     pink = acc (P0); violet = acc (V0); cyan = acc (C0); mint = acc (M0); amber = acc (A0); red = acc (R0); blue = acc (B0);
@@ -51,6 +52,9 @@ struct Fonts
     }
 };
 inline juce::Typeface::Ptr tf (int i) { return juce::SharedResourcePointer<Fonts>()->t[i]; }
+// da tenere come membro dell'editor: senza un proprietario fisso i caratteri venivano ricaricati dal file a ogni scritta
+// (la causa principale degli scatti di grafici e numeri)
+struct KeepFonts { juce::SharedResourcePointer<Fonts> keep; };
 // testo: w 0 normale, 1/2 grassetto. Le maiuscole piccole hanno un po' di spaziatura.
 inline bool cyber() { return K::theme == 3; }
 // nel tema CYBER le scritte sono da strumento: Rajdhani stretto per le etichette, Share Tech Mono per i numeri, Michroma per i titoli

@@ -445,7 +445,7 @@ enum EasyView { V_WAVE, V_GAIN, V_SPEC, V_IMAGE, V_METER, V_IDEAL, V_REF, kEasyV
 // colonne della storia ridotte a pixel (il massimo di quelle che ci cadono), in modo SCROLL o SCAN
 struct PxEnv
 {
-    std::vector<float> pk, rm, gr; std::vector<int> beat; int n = 0; float cursor = -1;
+    std::vector<float> pk, rm, gr; std::vector<int> beat; int n = 0; float cursor = -1; float shift = 0;   // shift: frazione di pixel di cui scorrere il disegno (scorrimento rigido)
     void size (int w) { n = w; pk.assign ((size_t) w, -200.0f); rm.assign ((size_t) w, -200.0f); gr.assign ((size_t) w, 0.0f); beat.assign ((size_t) w, -1); }
 };
 class EasyStage : public juce::Component
@@ -593,7 +593,7 @@ public:
     void tickForTest() { for (int i = 0; i < 5; ++i) timerCallback(); }
     void select (int m);
     static constexpr int W = 1280, H = 800;
-    jlook::LnF lnf;
+    neo::KeepFonts keepFonts; jlook::LnF lnf;
     Processor& proc;
     jlook::Scaler scaler { *this, "master", W, H };
     jlook::SizeChip sizeChip { scaler };
@@ -638,7 +638,8 @@ public:
     juce::Rectangle<int> centreR { 260, 106, 854, 628 }, tgtR[kNumTargets], dthR[4];
     juce::Rectangle<int> modeR[2]; bool lastEasy = false;
     juce::Image neoBg; float neoScale = 0; int neoTheme = -1; neo::Segments modeSeg;
-    void paintOverChildren (juce::Graphics&) override { neo::setTheme (0); }   // gli altri plugin Jackpot nella stessa DAW tornano al loro tema
+    void paintOverChildren (juce::Graphics&) override { neo::setTheme (0); }
+    void parentHierarchyChanged() override { jlook::preferFastRenderer (*this); }   // gli altri plugin Jackpot nella stessa DAW tornano al loro tema
     void paintNeo (juce::Graphics&);
 private:
     void timerCallback() override;

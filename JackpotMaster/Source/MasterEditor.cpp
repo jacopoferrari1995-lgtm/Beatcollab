@@ -794,7 +794,7 @@ void EqPop::paint (juce::Graphics& g)
             juce::Path va; va.addCentredArc (cx, cy, R, R, 0, juce::jmin (as, av), juce::jmax (as, av), true);
             g.setColour (col.withAlpha (0.3f)); g.strokePath (va, juce::PathStrokeType (6.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             g.setColour (col); g.strokePath (va, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            g.setColour ((neo::light() ? juce::Colour (0xffe4e1ea) : juce::Colour (0xff1a1d28))); g.fillEllipse (cx - R + 5, cy - R + 5, (R - 5) * 2, (R - 5) * 2);
+            g.setColour ((neo::light() ? neo::K::panel1 : juce::Colour (0xff1a1d28))); g.fillEllipse (cx - R + 5, cy - R + 5, (R - 5) * 2, (R - 5) * 2);
             g.setColour (C::text); g.drawLine (cx + std::sin (av) * (R - 9), cy - std::cos (av) * (R - 9), cx + std::sin (av) * (R - 4), cy - std::cos (av) * (R - 4), 1.6f);
             hots.push_back ({ rr, id });
         }
@@ -1975,7 +1975,10 @@ void Editor::applyMode()
     if (e)
     {
         for (auto* c : parts) { c->setTransform ({}); easyPage.addAndMakeVisible (c); }
-        easyPage.trim->toFront (false); easyPage.input.toFront (false); easyPage.resized();
+        // il display torna DIETRO alle manopole (la LOUD gli sta sopra per meta), come all'apertura
+        st.toBack(); easyPage.trim->toFront (false); easyPage.input.toFront (false);
+        for (auto* k : easyPage.knobs) if (k != easyPage.trim) k->toFront (false);
+        easyPage.resized(); easyPage.bg = {}; easyPage.repaint();
         for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &balPage, &refPage, &soon }) pg->setVisible (false);
     }
     else

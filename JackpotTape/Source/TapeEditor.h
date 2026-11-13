@@ -163,7 +163,7 @@ public:
     bool keyPressed (const juce::KeyPress&) override;
     bool keyStateChanged (bool) override;
 
-    jlook::LnF lnf;
+    neo::KeepFonts keepFonts; jlook::LnF lnf;
     Processor& proc;
     jlook::Scaler scaler { *this, "tape", W, H };
     jlook::SizeChip sizeChip { scaler };

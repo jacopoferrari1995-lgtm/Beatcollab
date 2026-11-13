@@ -14,6 +14,17 @@ inline juce::PropertiesFile::Options settingsOptions()
 inline float loadScale (const juce::String& id) { juce::PropertiesFile pf (settingsOptions()); return juce::jlimit (0.25f, 1.5f, (float) pf.getDoubleValue ("scale_" + id, 1.0)); }
 inline void saveScale (const juce::String& id, float s) { juce::PropertiesFile pf (settingsOptions()); pf.setValue ("scale_" + id, (double) s); pf.saveIfNeeded(); }
 
+// su Mac usa il disegnatore interno di JUCE invece di CoreGraphics: con gradienti, tracciati e immagini
+// e' molto piu leggero, e il plugin disegna sullo stesso filo di Ableton (se e' pesante rallenta anche Ableton)
+inline void preferFastRenderer (juce::Component& c)
+{
+   #if JUCE_MAC
+    if (auto* peer = c.getPeer()) if (peer->getCurrentRenderingEngine() != 0 && peer->getAvailableRenderingEngines().size() > 1) peer->setCurrentRenderingEngine (0);
+   #else
+    juce::ignoreUnused (c);
+   #endif
+}
+
 // trasforma i figli dell'editor (non la maniglia di ridimensionamento di JUCE)
 inline void scaleChildren (juce::Component& parent, float s)
 {

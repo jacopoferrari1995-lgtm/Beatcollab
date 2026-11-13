@@ -373,6 +373,7 @@ void EasyStage::envelope (PxEnv& e, int npx, double winSec)
     const double pos = clock(), cols = winSec / Processor::kColSec, cpp = cols / npx;
     const bool scan = P.uiScan.load() == 1;
     const double sweep0 = std::floor (pos / cols) * cols;
+    e.shift = scan ? 0.0f : (float) ((pos - std::floor (pos / cpp) * cpp) / cpp);
     if (scan) e.cursor = (float) ((pos - sweep0) / cpp);
     auto ok = [&] (long a) { return a <= tot - 1 && a > tot - N + 2; };
     auto ring = [&] (long a) { const long back = tot - a; return (int) (((w0 - back) % N + N) % N); };
@@ -385,9 +386,9 @@ void EasyStage::envelope (PxEnv& e, int npx, double winSec)
             const double k = x * cpp; a0 = sweep0 + k;
             if (a0 > pos) { if (a0 - pos < cols * 0.012) continue; a0 -= cols; }   // poco dopo il cursore: vuoto
         }
-        // SCROLL: se un pixel raccoglie piu colonne, i gruppi restano agganciati a una griglia fissa nel tempo
-        // (prima si spostavano di una frazione a ogni fotogramma e l'onda tremolava, soprattutto sui display stretti)
-        else a0 = (cpp >= 1.0 ? std::floor (pos / cpp) * cpp : pos) - (npx - x) * cpp;
+        // SCROLL rigido: ogni pixel e' agganciato a una griglia fissa nel tempo, cosi' il suo valore non cambia mentre scorre;
+        // il movimento fine (meno di un pixel) lo fa il disegno con e.shift. Prima la forma si ricalcolava a ogni fotogramma e tremava
+        else a0 = std::floor (pos / cpp) * cpp - (npx - x) * cpp;
         const double a1 = a0 + cpp;
         float pk = -200, rm = -200, gr = 0;
         if (cpp >= 1.0)
@@ -452,6 +453,7 @@ void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p, bool bipolar,
         }
     }
     g.saveState(); g.reduceClipRegion (area.toNearestInt());
+    g.addTransform (juce::AffineTransform::translation (-e.shift * dx, 0));   // scorrimento rigido al sotto-pixel
     const float cl = P.value ("lm_ceil");
     auto lin = [] (float db) { return db < -80 ? 0.0f : juce::jlimit (0.0f, 1.05f, juce::Decibels::decibelsToGain (db)); };
     // forma dell'onda: picchi (velo) e volume medio (pieno), una linea sola e morbida
