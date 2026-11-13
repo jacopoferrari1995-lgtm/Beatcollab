@@ -148,6 +148,21 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "emul")
+    {   // risposta del Pultec contro le specifiche dell'EQP-1A
+        auto resp = [] (PultecSettings S, std::initializer_list<float> fs)
+        {
+            Biquad f[4]; bool act[4]; pultecDesign (S, 48000, f, act); juce::String o;
+            for (float fr : fs) { double d = 0; for (int b = 0; b < 4; ++b) if (act[b]) d += f[b].magDb (fr, 48000); o << juce::String ((int) fr) << "Hz " << juce::String (d, 1) << "  "; }
+            return o;
+        };
+        PultecSettings a; a.lf = 2; a.lb = 10; std::printf ("LF boost 10 @60:     %s\n", resp (a, { 20, 40, 60, 100, 200, 500 }).toRawUTF8());
+        PultecSettings b; b.lf = 2; b.la = 10; std::printf ("LF atten 10 @60:     %s\n", resp (b, { 20, 40, 60, 100, 200, 500 }).toRawUTF8());
+        PultecSettings c; c.lf = 2; c.lb = 10; c.la = 10; std::printf ("trucco 10+10 @60:    %s\n", resp (c, { 20, 40, 60, 100, 200, 300, 500, 1000 }).toRawUTF8());
+        PultecSettings d; d.hf = 4; d.hb = 10; d.bw = 5; std::printf ("HF boost 10 @10k:    %s\n", resp (d, { 2000, 5000, 10000, 15000, 20000 }).toRawUTF8());
+        PultecSettings e; e.as = 2; e.ha = 10; std::printf ("HF atten 10 @20k:    %s\n", resp (e, { 2000, 5000, 10000, 15000, 20000 }).toRawUTF8());
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "presets")
     {   // ogni preset (anche quelli per effetto): niente NaN, picchi sotto il ceiling, loudness ragionevole
         int bad = 0;

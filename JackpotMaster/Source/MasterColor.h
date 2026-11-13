@@ -231,8 +231,8 @@ inline void pultecDesign (const PultecSettings& S, double sr, Biquad* f /* 4 fil
     act[0] = S.lb > 0.01f; act[1] = S.la > 0.01f; act[2] = S.hb > 0.01f; act[3] = S.ha > 0.01f;
     // boost bassi: shelf con un filo di risonanza, fino a +14 dB
     f[0].set (Biquad::LSHELF, lf, S.lb * 1.4, 0.8, sr);
-    // atten bassi: shelf molto dolce con l'angolo ~2 volte piu' in alto, fino a -11 dB
-    f[1].set (Biquad::LSHELF, lf * 2.2, -S.la * 1.1, 0.4, sr);
+    // da solo arriva a ~ -17 dB come l'EQP-1A; col boost attivo la rete passiva interagisce e il taglio si ammorbidisce (trucco Pultec)
+    f[1].set (Biquad::LSHELF, lf * 2.2, -S.la * 1.75 * (1.0f - 0.045f * S.lb), 0.35, sr);
     // boost alti: campana, BANDWIDTH 0 = stretta (Q 2.2), 10 = larga (Q 0.35), fino a +16 dB
     const double q = 2.2 * std::pow (0.35 / 2.2, S.bw / 10.0);
     f[2].set (Biquad::BELL, pultecHf (S.hf), S.hb * 1.6, q, sr);

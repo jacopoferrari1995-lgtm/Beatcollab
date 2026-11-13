@@ -464,6 +464,7 @@ public:
     bool easy() const { return fixedView < 0; }
     int genreSel = -1; juce::Rectangle<float> genreR;
     float mtPk[2] { -100, -100 }, mtHold[2] {}; float bandCr[4] { 1, 1, 1, 1 };
+    float barAge[40] {}, specAge[300] {}; double lastSpecT = 0;   // tacche dei picchi: ferme un attimo, poi scendono nel tempo vero
     float pkHold[2] { -100, -100 }, holdS[2] {}, mPk[2] { -100, -100 }, mLu = -100, mRms[2] { -100, -100 }, barHold[40] {}, normOff = 0, crS = 1, crushS = 0.5f, wS = 0;
     double mLast = 0, disp = -1, lastT = 0, lastFrame = 0;
     double clock();   // posizione mostrata (in colonne), scorre col tempo vero e insegue i dati senza scatti

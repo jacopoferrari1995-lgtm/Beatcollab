@@ -2122,6 +2122,7 @@ void Editor::paint (juce::Graphics& g)
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     paintNeo (g);   // stesso sfondo e stessa testata in tutte e due le modalita
     if (proc.easy()) return;
+    neo::chip (g, { 1150, 20, 110, 26 }, neo::light() ? "CHIARO" : "SCURO", false, C::dim, 8.5f);   // tema anche in AVANZATO
     const auto mc = sel < kNumMods ? neo::acc (juce::Colour (modInfo (sel).colour)) : (sel == TOOL_BAL ? C::green : C::phos);
     auto card = [&] (juce::Rectangle<float> r, juce::Colour c)
     {   // zona senza scatola: velo scuro, un filo di luce del colore del modulo in basso
@@ -2211,6 +2212,7 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int n = (int) presets().size();
     if (modeR[0].contains (e.getPosition()) || modeR[1].contains (e.getPosition())) { auto* p = P ("mode"); p->setValueNotifyingHost (p->convertTo0to1 (modeR[0].contains (e.getPosition()) ? 0.0f : 1.0f)); applyMode(); return; }
+    if (! proc.easy() && juce::Rectangle<int> (1150, 20, 110, 26).contains (e.getPosition())) { proc.uiTheme = proc.uiTheme.load() == 2 ? 1 : 2; neoBg = {}; repaint(); return; }
     if (! proc.easy()) for (int d = 0; d < 4; ++d) if (dthR[d].contains (e.getPosition())) { auto* p = P ("dither"); p->setValueNotifyingHost (p->convertTo0to1 ((float) d)); repaint(); return; }
     if (! proc.easy()) for (int t = 0; t < kNumTargets; ++t) if (tgtR[t].contains (e.getPosition())) { auto* p = P ("target"); p->setValueNotifyingHost (p->convertTo0to1 ((float) t)); repaint(); return; }
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); repaint(); }

@@ -427,7 +427,8 @@ void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p, bool bipolar,
     const int npx = juce::jmax (16, (int) p.getWidth());
     PxEnv e; envelope (e, npx, win);
     const float dx = p.getWidth() / (float) npx;
-    const auto wc = tint.isTransparent() ? waveCol() : tint, lineC = light() ? K::ink : juce::Colours::white;
+    // limiter e maximizer: rosso/rosa sul tema scuro, blu sul chiaro (il rosso sul chiaro stancava)
+    const auto wc = tint.isTransparent() ? waveCol() : (light() ? juce::Colour (0xff3a63c4) : tint), lineC = light() ? K::ink : juce::Colours::white;
     const bool over = easy() && ! small;   // nel FACILE l'onda scende fin sotto i numeri, le etichette del tempo vanno in alto
     const float bottomPad = small ? 2.0f : over ? (bipolar ? 30.0f : 0.0f) : 16.0f;
     auto area = p.withTrimmedBottom (bottomPad);
@@ -564,6 +565,9 @@ void EasyStage::spectrum (juce::Graphics& g, juce::Rectangle<float> p, int mode,
     auto xOf = [&p] (float fr) { return p.getX() + p.getWidth() * std::log (fr / 20.0f) / std::log (1000.0f); };
     auto yOf = [&p, this] (float db) { return p.getBottom() - juce::jlimit (0.0f, 1.0f, (db + normOff + 92.0f) / 86.0f) * p.getHeight(); };
     auto ptOf = [] (float fr) { return juce::jlimit (0, 299, (int) (std::log (fr / 20.0f) / std::log (1000.0f) * 300)); };
+    // picchi grigi: restano fermi 0.25 s, poi scendono a 60 dB al secondo (prima 0.35 dB per fotogramma: lenti)
+    const double nowT = juce::Time::getMillisecondCounterHiRes(); const float dtS = (float) juce::jlimit (0.0, 0.1, (nowT - lastSpecT) / 1000.0); lastSpecT = nowT;
+    auto holdStep = [dtS] (float v, float& hold, float& age) { if (v >= hold) { hold = v; age = 0; } else { age += dtS; if (age > 0.25f) hold = juce::jmax (v, hold - 60.0f * dtS); } };
     const auto wc = waveCol();
     if (! small)
     {
@@ -580,7 +584,7 @@ void EasyStage::spectrum (juce::Graphics& g, juce::Rectangle<float> p, int mode,
         {
             const float x = p.getX() + p.getWidth() * (i + 0.5f) / NP, y = yOf (specOut[i]);
             fill.lineTo (x, y); if (i == 0) line.startNewSubPath (x, y); else line.lineTo (x, y);
-            specHold[i] = juce::jmax (specOut[i], specHold[i] - 0.35f);
+            holdStep (specOut[i], specHold[i], specAge[i]);
         }
         fill.lineTo (p.getRight(), p.getBottom()); fill.closeSubPath();
         juce::ColourGradient cg (wc.withAlpha (light() ? 0.55f : 0.6f), 0, p.getY(), wc.withAlpha (0.06f), 0, p.getBottom(), false); g.setGradientFill (cg); g.fillPath (fill);
@@ -598,7 +602,7 @@ void EasyStage::spectrum (juce::Graphics& g, juce::Rectangle<float> p, int mode,
         {
             const float lo = juce::jmax (20.0f, edges[b]), hi = juce::jmin (20000.0f, edges[b + 1]); if (hi <= lo) continue;
             float v = -200; for (int i = ptOf (lo); i <= ptOf (hi); ++i) v = juce::jmax (v, specOut[i]);
-            barHold[b] = juce::jmax (v, barHold[b] - 0.35f);
+            holdStep (v, barHold[b], barAge[b]);
             const float x0 = xOf (lo) + 1.5f, x1 = xOf (hi) - 1.5f, y = yOf (v);
             juce::ColourGradient cg (wc.withAlpha (light() ? 0.9f : 0.95f), 0, y, wc.withAlpha (0.35f), 0, p.getBottom(), false); g.setGradientFill (cg);
             g.fillRect (juce::Rectangle<float>::leftTopRightBottom (x0, y, x1, p.getBottom()));
