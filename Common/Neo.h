@@ -15,8 +15,12 @@ namespace K
     inline juce::Colour hi { 0xffffffff }, lo { 0xff000000 }, panel0 { 0xff221d2c }, panel1 { 0xff1a1622 }, disp0 { 0xff2b2238 }, disp1 { 0xff1b1724 };
     inline juce::Colour accent { 0xffc9a0f0 };
     inline int theme = 0;
+    // tema 9 = MACCHINA: tavolozza propria di ogni plugin (ispirata alla macchina che emula), impostata dall'editor
+    inline juce::uint32 custom[10] { 0xff15181d, 0xff2a2f37, 0xffece7dc, 0xffa59f92, 0xff6c6a66, 0xff3a3f48, 0xff2a2e35, 0xff1d1a14, 0xff0f0d0a, 0xffe8a33d };
+    inline juce::uint32 customAcc[7] { 0xffd2694f, 0xff8c7bb0, 0xff7fb8b0, 0xff8fbf6a, 0xffe8a33d, 0xffd8483c, 0xff6f8fc0 };
+    inline bool customLight = false; inline int customStyle = 0;   // stile: 0 metallo da rack, 1 legno ai lati, 2 tolex
 }
-inline bool light() { return K::theme == 2 || K::theme >= 5; }   // 5..8: temi chiari (schermo bianco / LCD)
+inline bool light() { return K::theme == 2 || (K::theme >= 5 && K::theme <= 8) || (K::theme == 9 && K::customLight); }   // 5..8: temi chiari (schermo bianco / LCD)
 // un accento neon reso leggibile sul chiaro (sul tema scuro resta com'e')
 inline juce::Colour acc (juce::Colour c) { return light() ? c.withMultipliedSaturation (1.0f).withMultipliedBrightness (0.66f) : K::theme == 1 ? c.withMultipliedSaturation (0.68f).withMultipliedBrightness (0.95f) : c; }
 // testo sopra un bottone acceso
@@ -26,6 +30,15 @@ inline void setTheme (int t)
     if (t == K::theme) return;
     K::theme = t; using namespace K;
     const juce::Colour P0 { 0xffff3d9a }, V0 { 0xff8b5cff }, C0 { 0xff3ee8ff }, M0 { 0xff4dffb4 }, A0 { 0xffffb547 }, R0 { 0xffff4d6a }, B0 { 0xff4d7dff };
+    if (t == 9)
+    {
+        const auto* q = custom;
+        bg0 = juce::Colour (q[0]); bg1 = juce::Colour (q[1]); ink = juce::Colour (q[2]); sub = juce::Colour (q[3]); faint = juce::Colour (q[4]);
+        panel0 = juce::Colour (q[5]); panel1 = juce::Colour (q[6]); disp0 = juce::Colour (q[7]); disp1 = juce::Colour (q[8]); accent = juce::Colour (q[9]);
+        line = customLight ? juce::Colour (0x16000000) : juce::Colour (0x16ffffff); hi = customLight ? juce::Colour (0xff1d1a24) : juce::Colours::white; lo = customLight ? juce::Colour (0xff3a3448) : juce::Colour (0xff050403);
+        pink = juce::Colour (customAcc[0]); violet = juce::Colour (customAcc[1]); cyan = juce::Colour (customAcc[2]); mint = juce::Colour (customAcc[3]); amber = juce::Colour (customAcc[4]); red = juce::Colour (customAcc[5]); blue = juce::Colour (customAcc[6]);
+        return;
+    }
     if (t == 0)      { bg0 = juce::Colour (0xff04050a); bg1 = juce::Colour (0xff0a0b16); ink = juce::Colour (0xfff2f3f9); sub = juce::Colour (0xff9096ad); faint = juce::Colour (0xff545a70); line = juce::Colour (0x14ffffff); hi = juce::Colours::white; lo = juce::Colours::black; }
     else if (t == 1) { bg0 = juce::Colour (0xff1b1823); bg1 = juce::Colour (0xff272231); ink = juce::Colour (0xfff5f3f9); sub = juce::Colour (0xffaaa5ba); faint = juce::Colour (0xff716c84); line = juce::Colour (0x18ffffff); hi = juce::Colours::white; lo = juce::Colour (0xff07060b);
                        panel0 = juce::Colour (0xff2d2938); panel1 = juce::Colour (0xff23202b); disp0 = juce::Colour (0xff3b2e4b); disp1 = juce::Colour (0xff261f32); }

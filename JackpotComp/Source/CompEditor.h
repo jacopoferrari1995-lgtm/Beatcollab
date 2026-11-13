@@ -1,15 +1,24 @@
 #pragma once
 #include "CompProcessor.h"
 #include "JackpotScale.h"
+#include "Skin.h"
 
 namespace jc
 {
 namespace C
 {
-    const juce::Colour bg { 0xff0b0c10 }, text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
-    const juce::Colour magenta { 0xffff2e88 }, phos { 0xff5ef2ff }, amber { 0xffffb000 }, green { 0xff7dff5a }, red { 0xffff3b5c };
-    const juce::Colour lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
-    const juce::Colour stage[kStages] = { juce::Colour (0xff5ef2ff), juce::Colour (0xffffb000), juce::Colour (0xffff2e88), juce::Colour (0xff7dff5a), juce::Colour (0xffa66bff), juce::Colour (0xffff7a3d) };
+    inline juce::Colour bg { 0xff0b0c10 }, text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
+    inline juce::Colour magenta { 0xffff2e88 }, phos { 0xff5ef2ff }, amber { 0xffffb000 }, green { 0xff7dff5a }, red { 0xffff3b5c };
+    inline juce::Colour lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
+    inline juce::Colour stage[kStages] = { juce::Colour (0xff5ef2ff), juce::Colour (0xffffb000), juce::Colour (0xffff2e88), juce::Colour (0xff7dff5a), juce::Colour (0xffa66bff), juce::Colour (0xffff7a3d) };
+    // colori presi dal tema scelto
+    inline void sync()
+    {
+        using namespace neo;
+        bg = K::bg0; text = K::ink; dim = K::sub; faint = K::faint; magenta = K::pink; phos = K::cyan; amber = K::amber; green = K::mint; red = K::red; lcd1 = K::disp0; lcd2 = K::disp1;
+        const juce::Colour s[kStages] = { K::cyan, K::amber, K::pink, K::mint, K::violet, K::red.interpolatedWith (K::amber, 0.4f) };
+        for (int i = 0; i < kStages; ++i) stage[i] = s[i];
+    }
 }
 juce::Font uf (float size, bool bold = true);
 juce::Font mf (float size);
@@ -142,7 +151,8 @@ private:
     std::unique_ptr<Segs> route, scSrc, scTo;
     std::unique_ptr<Knob> scHpf, gMix, gOut;
     std::unique_ptr<Switch> listen, autoG;
-    juce::Rectangle<int> presetRect, prevRect, nextRect, abRect; bool abHover = false;
+    juce::Rectangle<int> presetRect, prevRect, nextRect, abRect, themeRect { 1112, 19, 100, 28 }; bool abHover = false;
+    void recolor();
     int tick = 0;
 };
 }

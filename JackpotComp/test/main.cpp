@@ -10,6 +10,7 @@ int main (int argc, char** argv)
         juce::ScopedJuceInitialiser_GUI gui2;
         Processor p; p.prepareToPlay (48000, 480);
         for (int i = 0; i < p.getNumPrograms(); ++i) if (p.getProgramName (i).contains (std::getenv ("JPRESET") ? std::getenv ("JPRESET") : "Voce a 4")) p.loadPreset (i);
+        if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
         Editor ed (p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer m; juce::Random r (5); double ph = 0;

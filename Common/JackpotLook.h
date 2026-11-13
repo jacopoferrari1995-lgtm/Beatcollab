@@ -50,9 +50,24 @@ struct LnF : juce::LookAndFeel_V4
     }
 };
 
+struct KnobLook { bool big = false, bipolar = false; float hover = 0, active = 0, activity = 0; bool enabled = true; };
+// PELLE: se un plugin installa i ganci (Common/Skin.h), card, sfondo, testata, pulsanti, manopole e vetri si disegnano col tema scelto
+struct SkinHooks
+{
+    bool on = false;
+    void (*card) (juce::Graphics&, juce::Rectangle<float>, float, juce::Colour, bool, bool) = nullptr;
+    void (*backdrop) (juce::Graphics&, juce::Rectangle<float>, juce::Colour, juce::Colour) = nullptr;
+    void (*header) (juce::Graphics&, juce::Rectangle<float>, const juce::String&, juce::Colour, const juce::String&) = nullptr;
+    void (*button) (juce::Graphics&, juce::Rectangle<float>, juce::Colour, bool, bool, const juce::String&, juce::Font) = nullptr;
+    void (*knob) (juce::Graphics&, juce::Rectangle<float>, float, juce::Colour, const KnobLook&) = nullptr;
+    void (*glass) (juce::Graphics&, juce::Rectangle<float>, float) = nullptr;
+    void (*bubble) (juce::Graphics&, juce::Rectangle<float>, const juce::String&, juce::Colour) = nullptr;
+};
+inline SkinHooks& skinHooks() { static SkinHooks h; return h; }
 // ombra morbida sotto un rettangolo arrotondato
 inline void softShadow (juce::Graphics& g, juce::Rectangle<float> r, float rad, float spread = 14.0f, float alpha = 0.55f, float dy = 6.0f)
 {
+    if (skinHooks().on) return;
     // l'ombra sfocata costa molto: si salta se e fuori dalla zona da ridisegnare e si tiene in cache come immagine
     // (prima veniva rifatta a ogni ridisegno, anche per un LED: il plugin e la DAW andavano a scatti)
     const auto area = r.translated (0, dy).expanded (spread + 2);
@@ -95,6 +110,7 @@ inline void vignette (juce::Graphics& g, juce::Rectangle<float> r, float amt = 0
 // riflesso "vetro" su un display
 inline void glass (juce::Graphics& g, juce::Rectangle<float> r, float rad)
 {
+    if (skinHooks().on && skinHooks().glass) { skinHooks().glass (g, r, rad); return; }
     juce::Path p; p.addRoundedRectangle (r, rad);
     g.saveState(); g.reduceClipRegion (p);
     juce::ColourGradient gl (juce::Colours::white.withAlpha (0.07f), r.getX(), r.getY(), juce::Colours::transparentWhite, r.getX(), r.getY() + r.getHeight() * 0.45f, false);
@@ -111,6 +127,7 @@ struct Smooth
 // scheda/pannello: ombra morbida, metallo spazzolato, bordo che sfuma dall'accento in alto
 inline void card (juce::Graphics& g, juce::Rectangle<float> r, float rad, juce::Colour accent, bool active = true, bool lifted = false, bool shadow = true)
 {
+    if (skinHooks().on && skinHooks().card) { skinHooks().card (g, r, rad, accent, active, lifted); return; }
     if (shadow) softShadow (g, r, rad, lifted ? 26.0f : 16.0f, lifted ? 0.75f : 0.6f, lifted ? 12.0f : 6.0f);
     juce::ColourGradient body (juce::Colour (0xff22252d), r.getX(), r.getY(), juce::Colour (0xff121419), r.getX(), r.getBottom(), false);
     body.addColour (0.12, juce::Colour (0xff1d2027));
@@ -138,6 +155,7 @@ inline void card (juce::Graphics& g, juce::Rectangle<float> r, float rad, juce::
 // sfondo della finestra: gradiente, luci ambientali, grana, vignettatura
 inline void backdrop (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour a1, juce::Colour a2)
 {
+    if (skinHooks().on && skinHooks().backdrop) { skinHooks().backdrop (g, r, a1, a2); return; }
     juce::ColourGradient bg (juce::Colour (0xff1a1c22), r.getX(), r.getY(), juce::Colour (0xff08090c), r.getX(), r.getBottom(), false);
     g.setGradientFill (bg); g.fillRect (r);
     juce::ColourGradient l1 (a1.withAlpha (0.10f), r.getRight() * 0.82f, r.getY() + 120, juce::Colours::transparentBlack, r.getRight() * 0.82f + 620, r.getY() + 120, true); g.setGradientFill (l1); g.fillRect (r);
@@ -148,6 +166,7 @@ inline void backdrop (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour 
 // barra superiore con logo
 inline void header (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& product, juce::Colour pc, const juce::String& model, juce::Colour a1, juce::Colour a2)
 {
+    if (skinHooks().on && skinHooks().header) { skinHooks().header (g, r, product, pc, model); return; }
     juce::ColourGradient hg (juce::Colour (0xff25282f), 0, r.getY(), juce::Colour (0xff111317), 0, r.getBottom(), false); g.setGradientFill (hg); g.fillRect (r);
     grain (g, r.toNearestInt(), 0.04f);
     g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawHorizontalLine ((int) r.getY() + 1, r.getX(), r.getRight());
@@ -172,6 +191,7 @@ inline void header (juce::Graphics& g, juce::Rectangle<float> r, const juce::Str
 // pulsante in rilievo morbido
 inline void button (juce::Graphics& g, juce::Rectangle<float> b, juce::Colour accent, bool lit, bool hover, const juce::String& text, juce::Font f)
 {
+    if (skinHooks().on && skinHooks().button) { skinHooks().button (g, b, accent, lit, hover, text, f); return; }
     softShadow (g, b, 7, 8.0f, 0.5f, 3.0f);
     juce::ColourGradient rg (hover ? juce::Colour (0xff353944) : juce::Colour (0xff2b2e37), 0, b.getY(), juce::Colour (0xff15171c), 0, b.getBottom(), false); g.setGradientFill (rg); g.fillRoundedRectangle (b, 7);
     if (lit) { juce::ColourGradient lg (accent.withAlpha (0.22f), 0, b.getY(), accent.withAlpha (0.05f), 0, b.getBottom(), false); g.setGradientFill (lg); g.fillRoundedRectangle (b, 7); }
@@ -192,6 +212,7 @@ inline void knobHalo (juce::Graphics& g, float cx, float cy, float R, juce::Colo
 // fumetto col valore durante il trascinamento
 inline void valueBubble (juce::Graphics& g, juce::Rectangle<float> area, const juce::String& t, juce::Colour c)
 {
+    if (skinHooks().on && skinHooks().bubble) { skinHooks().bubble (g, area, t, c); return; }
     auto f = mono (11.0f); const float w = juce::GlyphArrangement::getStringWidth (f, t) + 14;
     auto r = juce::Rectangle<float> (area.getCentreX() - w / 2, area.getY(), w, 18);
     g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (r, 5);
@@ -213,9 +234,9 @@ struct ABCompare
     juce::String label() const { return cur == 0 ? "A" : "B"; }
 };
 // manopola della serie: corpo ottagonale sfaccettato che ruota, anello di LED a segmenti, punta al neon
-struct KnobLook { bool big = false, bipolar = false; float hover = 0, active = 0, activity = 0; bool enabled = true; };
 inline void drawKnob (juce::Graphics& g, juce::Rectangle<float> area, float v, juce::Colour col, const KnobLook& k)
 {
+    if (skinHooks().on && skinHooks().knob) { skinHooks().knob (g, area, v, col, k); return; }
     using namespace juce;
     const float size = jmin (area.getWidth(), area.getHeight());
     const float cx = area.getCentreX(), cy = area.getY() + size * 0.5f;
