@@ -1772,7 +1772,7 @@ void Root::paint (juce::Graphics& g)
     g.setFont (neo::cap (8.0f)); g.setColour (Col::dim); g.drawText ("KIT", juce::Rectangle<float> (430, 12, 40, 40), juce::Justification::centredLeft);
     glowText (g, ed.proc.kitName.toUpperCase() + juce::String::fromUTF8 ("  \xe2\x96\xbe"), { 462, 12, 190, 40 }, Col::text, neo::cap (9.5f));
     neo::chip (g, { 660, 20, 128, 26 }, "SALVA COME", true, Col::magenta, 8.5f);
-    neo::chip (g, { 340, 20, 80, 26 }, ed.live ? juce::String::fromUTF8 ("â  NORMALE") : juce::String ("LIVE"), ed.live, Col::red, 8.5f);
+    neo::chip (g, { 340, 20, 80, 26 }, ed.live ? juce::String ("NORMALE") : juce::String ("LIVE"), ed.live, Col::red, 8.5f);
     { const int t = ed.proc.uiTheme.load(); neo::chip (g, { 800, 20, 90, 26 }, t == 3 ? "CYBER" : t == 4 ? "ROSSO" : t == 8 ? "RETRO" : t == 2 ? "CHIARO" : "SCURO", false, Col::dim, 8.5f); }
     // meter master
     const float m[2] = { ed.proc.meterL.load(), ed.proc.meterR.load() };
