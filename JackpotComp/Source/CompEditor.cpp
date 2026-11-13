@@ -473,8 +473,10 @@ void Editor::computeTips()
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
     // tema MACCHINA: rack da studio anni 70, alluminio scuro, scritte crema, VU ambra
-    skin::init ("comp", "STUDIO", { 0xff14161a, 0xff262a31, 0xffece6d8, 0xffa8a294, 0xff6e6b64, 0xff3b3f47, 0xff2b2e35, 0xff1b1812, 0xff0e0c09, 0xffe8a33d },
-                { 0xffd2694f, 0xff9a86c0, 0xff86c0b6, 0xff9cc472, 0xffe8a33d, 0xffd8483c, 0xff7b9bd0 }, false, 0);
+    // tema MACCHINA = POSTER: schede piatte arancio, salmone, salvia e grigio, nero pesante
+    skin::init ("comp", "POSTER", { 0xff141414, 0xff1c1c1c, 0xff141414, 0xff3d3a36, 0xff6d6a64, 0xffe8a466, 0xffd9cfc0, 0xffefe8dc, 0xffe4dccd, 0xffdb6e5e },
+                { 0xffd9483a, 0xff5b4fc9, 0xff23897d, 0xff5e9b45, 0xffd98a1c, 0xffd2392c, 0xff3567c9 }, true, 3,
+                { 0xffe8a466, 0xffdb6e5e, 0xff9fb69a, 0xffc9c8c4 });
     C::sync();
     setLookAndFeel (&lnf);
     addAndMakeVisible (rack); addAndMakeVisible (stage); addAndMakeVisible (graph); addAndMakeVisible (guide);

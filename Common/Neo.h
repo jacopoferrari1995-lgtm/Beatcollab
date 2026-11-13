@@ -22,7 +22,7 @@ namespace K
 }
 inline bool light() { return K::theme == 2 || (K::theme >= 5 && K::theme <= 8) || (K::theme == 9 && K::customLight); }   // 5..8: temi chiari (schermo bianco / LCD)
 // un accento neon reso leggibile sul chiaro (sul tema scuro resta com'e')
-inline juce::Colour acc (juce::Colour c) { return light() ? c.withMultipliedSaturation (1.0f).withMultipliedBrightness (0.66f) : K::theme == 1 ? c.withMultipliedSaturation (0.68f).withMultipliedBrightness (0.95f) : c; }
+inline juce::Colour acc (juce::Colour c) { if (K::theme == 9 && K::customStyle == 3) return c.withMultipliedSaturation (1.1f).withMultipliedBrightness (0.42f); return light() ? c.withMultipliedSaturation (1.0f).withMultipliedBrightness (0.66f) : K::theme == 1 ? c.withMultipliedSaturation (0.68f).withMultipliedBrightness (0.95f) : c; }
 // testo sopra un bottone acceso
 inline juce::Colour onText (juce::Colour c) { return light() ? c.darker (0.5f) : juce::Colours::white; }
 inline void setTheme (int t)
