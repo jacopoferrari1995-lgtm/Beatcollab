@@ -99,7 +99,7 @@ struct AdvSpec { int n; const char* name[kAdv]; float def[kAdv]; };
 inline const AdvSpec& adv (int t)
 {
     static const AdvSpec none { 0, {}, {} };
-    static const AdvSpec rv { 9, { "TIPO", "DECADIMENTO", "PRE-DELAY", "TAGLIA BASSI", "TAGLIA ALTI", "COLORE CODA", "RATE", "DEPTH", "WIDTH" }, { 0.08f, 0.5485f, 0, 0, 1, 0.5f, 0.4515f, 0.35f, 0.6667f } };
+    static const AdvSpec rv { 9, { "TIPO", "DECADIMENTO", "PRE-DELAY", "TAGLIA BASSI", "TAGLIA ALTI", "COLORE CODA", "RATE", "DEPTH", "WIDTH" }, { 0.08f, 0.5731f, 0.1f, 0, 1, 0.5f, 0.4515f, 0.35f, 0.6667f } };
     static const AdvSpec dl { 10, { "TEMPO", "FEEDBACK", "TAGLIA BASSI", "TAGLIA ALTI", "AGE", "DRIVE", "WOW", "FLUTTER", "SPREAD", "PING PONG" }, { 0.1875f, 0.5f, 0, 0.58f, 0, 0, 0, 0, 0, 1 } };
     static const AdvSpec wd { 1, { "FREQUENZA" }, { 0 } };
     static const AdvSpec fi { 3, { "RISONANZA", "PENDENZA", "DRIVE" }, { 0.3333f, 0, 0 } };

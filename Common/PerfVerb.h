@@ -16,6 +16,12 @@ public:
     enum { HALL, ROOM, PLATE, SPRING, CHAMBER, AMBIENCE, kTypes };
     static const char* typeName (int t) { static const char* n[kTypes] = { "HALL", "ROOM", "PLATE", "SPRING", "CHAMBER", "AMBIENCE" }; return n[juce::jlimit (0, kTypes - 1, t)]; }
 
+    // tempo e pre-delay tipici di ogni tipo: quando si cambia TIPO si parte da qui (come i preset dei riverberi hardware)
+    static void typeDefaults (int t, float& decaySec, float& preMs)
+    {
+        static const float d[kTypes] = { 2.8f, 0.9f, 1.8f, 2.0f, 1.4f, 0.6f }, p[kTypes] = { 25, 6, 10, 0, 14, 0 };
+        const int i = juce::jlimit (0, kTypes - 1, t); decaySec = d[i]; preMs = p[i];
+    }
     struct Params { int type = HALL; float decay = 2.5f, preMs = 0, lowHz = 0, highHz = 0, color = 0.5f, rate = 0.4f, depth = 0.35f, width = 1.0f; };
 
     void prepare (double s)
@@ -35,7 +41,7 @@ public:
         for (auto& c : ap) for (auto& a : c) std::fill (a.begin(), a.end(), 0.0f);
         std::fill (pre.begin(), pre.end(), 0.0f); std::fill (er.begin(), er.end(), 0.0f);
         for (auto& s2 : spLine) std::fill (s2.begin(), s2.end(), 0.0f);
-        for (auto& d : damp) d = 0; for (auto& x : lc) x = 0; for (auto& x : hc) x = 0; for (auto& x : hc2) x = 0;
+        for (auto& d : damp) d = 0; for (auto& x : lc) x = 0; for (auto& x : hc) x = 0; for (auto& x : hc2) x = 0; for (auto& x : tl) x = 0;
         w = 0; lfoC = 1; lfoS = 0;
     }
     // in: L/R originali; out: solo la coda (wet), da sommare fuori
@@ -49,14 +55,15 @@ public:
         float g[8], len[8];
         for (int i = 0; i < 8; ++i) { len[i] = (float) (kLen[i] * size * k); g[i] = (float) std::pow (10.0, -3.0 * len[i] / (T * sr)); }
         // colore della coda: quanto in fretta muoiono gli alti rispetto ai bassi (0 scuro, 1 brillante)
-        const float dA = juce::jlimit (0.0f, 0.92f, (1.0f - P.color) * 0.85f * dampK + (type == PLATE ? -0.05f : 0.0f));
+        const float dA = juce::jlimit (0.0f, 0.92f, (1.0f - P.color) * 0.85f * dampK + (type == PLATE ? -0.12f : type == HALL ? 0.08f : 0.0f));
         const int preN = juce::jlimit (0, (int) pre.size() - 2, (int) (P.preMs * 0.001 * sr));
+        const float tlA = tlHz > 1 ? (float) std::exp (-juce::MathConstants<double>::twoPi * tlHz / sr) : -1.0f;
         const float lcA = P.lowHz > 1 ? (float) std::exp (-juce::MathConstants<double>::twoPi * P.lowHz / sr) : -1.0f;
         const float hcA = P.highHz > 1 ? (float) std::exp (-juce::MathConstants<double>::twoPi * P.highHz / sr) : -1.0f;
         const float modAmt = P.depth * modK * (float) k * size;    // in campioni
         const float dw = (float) (juce::MathConstants<double>::twoPi * P.rate / sr), cw = std::cos (dw), sw = std::sin (dw);
         const int LN = (int) line[0].size(), PN = (int) pre.size(), EN = (int) er.size();
-        const float wid = juce::jlimit (0.0f, 1.5f, P.width);
+        const float wid = juce::jlimit (0.0f, 1.5f, P.width), oc = outCal[type];
         for (int s = 0; s < n; ++s)
         {
             // pre-delay
@@ -125,26 +132,30 @@ public:
             float y[2] = { yL, yR };
             for (int c = 0; c < 2; ++c)
             {
+                if (tlA >= 0) { tl[c] = y[c] + tlA * (tl[c] - y[c]); y[c] -= tl[c]; }   // corpo tipico del tipo (piastra e molla sono sottili)
                 if (lcA >= 0) { lc[c] = y[c] + lcA * (lc[c] - y[c]); y[c] -= lc[c]; }
                 if (hcA >= 0) { hc[c] = y[c] + hcA * (hc[c] - y[c]); hc2[c] = hc[c] + hcA * (hc2[c] - hc[c]); y[c] = hc2[c]; }
             }
-            outL[s] = y[0] * outK; outR[s] = y[1] * outK;
+            outL[s] = y[0] * outK * oc; outR[s] = y[1] * outK * oc;
         }
         // la sinusoide non deve allontanarsi da ampiezza 1 (errori di arrotondamento)
         const float a = 1.0f / std::sqrt (lfoC * lfoC + lfoS * lfoS); lfoC *= a; lfoS *= a;
     }
 private:
+public:
+    float outCal[kTypes] = { 1, 1, 1, 1, 1, 1 };
+private:
     void setType (int t)
     {
-        type = t; erN = 0; erMix = 0;
+        type = t; erN = 0; erMix = 0; tlHz = 0;
         switch (t)
         {
-            case HALL:     size = 1.35f; diff = 0.62f; dampK = 0.8f; decayK = 1.15f; modK = 9; outK = 1.46f; break;
-            case ROOM:     size = 0.42f; diff = 0.55f; dampK = 1.0f; decayK = 1.2f; modK = 3; outK = 0.76f; setEr (0); break;
-            case PLATE:    size = 0.62f; diff = 0.75f; dampK = 0.45f; decayK = 1.15f; modK = 6; outK = 0.9f; break;
-            case SPRING:   size = 1.0f; diff = 0.5f; dampK = 1.0f; decayK = 1.0f; modK = 0; outK = 0.59f; break;
-            case CHAMBER:  size = 0.75f; diff = 0.7f; dampK = 1.1f; decayK = 1.19f; modK = 4; outK = 1.12f; setEr (1); break;
-            default:       size = 0.28f; diff = 0.6f; dampK = 0.9f; decayK = 1.24f; modK = 2; outK = 0.56f; setEr (2); break;
+            case HALL:     size = 1.35f; diff = 0.62f; dampK = 0.8f; decayK = 1.15f; modK = 9; outK = 3.02f; break;
+            case ROOM:     size = 0.42f; diff = 0.55f; dampK = 1.0f; decayK = 1.2f; modK = 3; outK = 2.09f; setEr (0); tlHz = 70; break;
+            case PLATE:    size = 0.62f; diff = 0.75f; dampK = 0.45f; decayK = 1.15f; modK = 6; outK = 4.78f; tlHz = 220; break;
+            case SPRING:   size = 1.0f; diff = 0.5f; dampK = 1.0f; decayK = 1.0f; modK = 0; outK = 2.67f; break;
+            case CHAMBER:  size = 0.75f; diff = 0.7f; dampK = 1.1f; decayK = 1.19f; modK = 4; outK = 3.23f; setEr (1); tlHz = 110; break;
+            default:       size = 0.28f; diff = 0.6f; dampK = 0.9f; decayK = 1.24f; modK = 2; outK = 1.65f; setEr (2); tlHz = 90; break;
         }
         reset();
     }
@@ -152,7 +163,7 @@ private:
     {   // prime riflessioni: ritardi (ms) e guadagni, alternati sinistra / destra
         static const float ms[3][8] = { { 4.3f, 7.9f, 11.2f, 15.7f, 19.1f, 23.6f, 29.4f, 34.9f }, { 6.1f, 10.4f, 15.3f, 21.7f, 27.2f, 34.6f, 41.9f, 52.3f }, { 2.1f, 3.7f, 5.9f, 8.3f, 11.1f, 13.9f, 17.2f, 21.4f } };
         static const float gn[3][8] = { { 0.8f, 0.72f, 0.6f, 0.52f, 0.43f, 0.37f, 0.29f, 0.23f }, { 0.6f, 0.55f, 0.48f, 0.42f, 0.36f, 0.31f, 0.26f, 0.2f }, { 0.9f, 0.8f, 0.7f, 0.6f, 0.5f, 0.42f, 0.34f, 0.26f } };
-        erN = 8; erMix = which == 2 ? 0.4f : which == 0 ? 0.3f : 0.2f;
+        erN = 8; erMix = which == 2 ? 0.9f : which == 0 ? 0.65f : 0.35f;
         for (int i = 0; i < 8; ++i) { erTap[i] = juce::jlimit (1, (int) er.size() - 1, (int) (ms[which][i] * 0.001 * sr)); erG[i] = gn[which][i]; }
     }
     static constexpr float kLen[8] = { 1307, 1637, 1811, 1931, 2357, 2641, 2987, 3229 };   // campioni a 44.1k (circa 30-73 ms), primi fra loro
@@ -166,6 +177,6 @@ private:
     std::vector<float> pre; int preW = 0;
     std::vector<float> er; int erW = 0, erN = 0, erTap[8] {}; float erG[8] {}, erMix = 0;
     std::vector<float> spLine[2]; int spW[2] {}; float spAp[2][16] {}, spHp[2] {}, spLp[2] {};
-    float lc[2] {}, hc[2] {}, hc2[2] {}, lfoC = 1, lfoS = 0;
+    float lc[2] {}, hc[2] {}, hc2[2] {}, tl[2] {}, tlHz = 0, lfoC = 1, lfoS = 0;
 };
 }

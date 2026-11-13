@@ -233,7 +233,7 @@ void Scope::paint (juce::Graphics& g)
 // ======================================================================= pannello avanzato
 void AdvPanel::open (int kk)
 {
-    k = kk; shownType = ed.proc.slotType (k);
+    k = kk; shownType = ed.proc.slotType (k); verbZone = -1;
     knobs.clear();
     const auto& sp = pfx::adv (shownType); const auto c = groupCol (shownType);
     for (int i = 0; i < sp.n; ++i)
@@ -288,6 +288,16 @@ void AdvPanel::tick()
 {
     if (! isVisible() || k < 0) return;
     if (ed.proc.slotType (k) != shownType) { if (pfx::adv (ed.proc.slotType (k)).n == 0) setVisible (false); else open (k); return; }
+    if (shownType == pfx::REVERB)
+    {   // cambiando TIPO il tempo e il pre-delay vanno a quelli tipici del tipo (poi si regolano a piacere)
+        const int z = pfx::zoneOf (ed.proc.P (advId (k, 0))->getValue(), pfx::Verb::kTypes);
+        if (verbZone >= 0 && z != verbZone)
+        {
+            float dec, pre; pfx::Verb::typeDefaults (z, dec, pre);
+            ed.proc.setAdv (k, 1, (float) (std::log (dec / 0.2) / std::log (100.0))); ed.proc.setAdv (k, 2, pre / 250.0f);
+        }
+        verbZone = z;
+    }
     bool any = false; for (auto* kn : knobs) if (kn->animate()) { kn->repaint(); any = true; }
     if (any && k >= 0) ed.cards[k]->repaint (ed.cards[k]->gearR.expanded (4).toNearestInt());
 }

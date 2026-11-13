@@ -45,7 +45,7 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void tick();
-    Editor& ed; int k = -1, shownType = -1;
+    Editor& ed; int k = -1, shownType = -1, verbZone = -1;
     juce::OwnedArray<neo::Knob> knobs;
     juce::Rectangle<float> closeR, resetR;
 };
