@@ -201,6 +201,7 @@ static bool reallyLong (const SampleData& s, float minSec)
 
 void randomKit (Processor& P, int mode)
 {
+    P.progSrc = -1;
     juce::Random r;
     // pad 1-8: 70% classico, 15% variato (tom/perc e piatto diventano altri one shot), 15% sperimentale
     // pad 9-16: 70% almeno 4 campioni (uno e sempre 808/basso) + altri one shot, 30% inventato
@@ -255,7 +256,7 @@ void randomKit (Processor& P, int mode)
     const int order[] = { 9, 10, 11, 8, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7 };
     for (int p : order)
     {
-        auto& pd = P.pad[p]; pd.reset(); P.setLayer (p, nullptr);
+        auto& pd = P.pad[p]; pd.reset(); P.setLayer (p, nullptr); P.setChord (p, {}); P.chordName[p] = {};
         bool done = false; juce::String cat;
         // pad 9-16 dei ruoli "campione": serve un suono lungo (loop, frase, melodia), non un altro one shot
         const bool longOnly = wantLong[(size_t) p];

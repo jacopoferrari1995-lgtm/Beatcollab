@@ -1,5 +1,6 @@
 #pragma once
 #include "JackpotLook.h"
+#include "Neo.h"
 #include "JackpotScale.h"
 #include "PadProcessor.h"
 #include "Library.h"
@@ -8,13 +9,24 @@
 
 namespace jp
 {
+// colori: seguono il tema (scuro elegante / chiaro) come Master e FX
 namespace Col
 {
-    const juce::Colour bg { 0xff0a0b0e }, chassis1 { 0xff1c1f26 }, chassis2 { 0xff101217 }, inset { 0xff08090c };
-    const juce::Colour magenta { 0xffff2e88 }, cyan { 0xff19e3ff }, amber { 0xffffb000 }, red { 0xffff3b4e }, green { 0xff3dff8b };
-    const juce::Colour text { 0xffd9dde6 }, dim { 0xff7d8494 }, faint { 0xff4a505d };
-    const juce::Colour lcd1 { 0xff041619 }, lcd2 { 0xff020b0d }, phos { 0xff5ef2ff };
+    inline juce::Colour bg { 0xff0a0b0e }, chassis1 { 0xff1c1f26 }, chassis2 { 0xff101217 }, inset { 0xff08090c };
+    inline juce::Colour magenta { 0xffff2e88 }, cyan { 0xff19e3ff }, amber { 0xffffb000 }, red { 0xffff3b4e }, green { 0xff3dff8b };
+    inline juce::Colour text { 0xffd9dde6 }, dim { 0xff7d8494 }, faint { 0xff4a505d };
+    inline juce::Colour lcd1 { 0xff041619 }, lcd2 { 0xff020b0d }, phos { 0xff5ef2ff };
+    inline int theme = 1;
+    inline void sync()
+    {
+        neo::setTheme (theme == 2 ? 2 : 1); using namespace neo;
+        bg = K::bg1; chassis1 = K::panel0; chassis2 = K::panel1; inset = K::panel1;
+        magenta = K::pink; cyan = K::cyan; amber = K::amber; red = K::red; green = K::mint;
+        text = K::ink; dim = K::sub; faint = K::faint; lcd1 = K::disp0; lcd2 = K::disp1; phos = K::accent;
+    }
 }
+inline juce::Colour veil (float a) { return neo::K::lo.withAlpha (neo::light() ? a * 0.22f : a); }
+inline juce::Colour glass (float a) { return neo::K::hi.withAlpha (neo::light() ? juce::jmin (1.0f, a * 1.3f) : a); }
 juce::Colour padColour (int i);
 juce::Font ft (float size, bool bold = false, bool mono = false);
 
@@ -183,6 +195,8 @@ class Root : public juce::Component
 {
 public:
     explicit Root (Editor& e) : ed (e) { setOpaque (true); }
+    void mouseDown (const juce::MouseEvent&) override;
+    int bgTheme = -1;
     void paint (juce::Graphics&) override;
     void paintStatic (juce::Graphics&);
     Editor& ed; juce::Image bg; float bgScale = 0;
@@ -278,6 +292,7 @@ public:
     Processor& proc;
     jlook::Scaler scaler { *this, "pad", W, H };
     jlook::SizeChip sizeChip { scaler };
+    int seenKit = 0;
     int sel = 0, page = PG_KIT, octave = 1, kbVel = 100, genre = 0, undoTick = 0, genPreset = 0;
     void runGen (juce::uint32 seed);   // genera nello stile scelto e mostra cosa ha fatto
     bool fullLevel = false, kbOn = false, exportSwing = false;

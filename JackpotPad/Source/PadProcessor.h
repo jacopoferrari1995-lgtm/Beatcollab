@@ -130,14 +130,19 @@ public:
     void stopAll() { stopReq = true; }
     static float estimateBpmAudio (const juce::AudioBuffer<float>& b, double sampleRate, double& strength);
     double hostBpm() const { return curBpm; }
-    void clearPad (int p) { setSample (p, nullptr); setLayer (p, nullptr); padCat[p] = {}; }
+    void clearPad (int p) { setSample (p, nullptr); setLayer (p, nullptr); padCat[p] = {}; setChord (p, {}); }
+    // pad accordo (progressioni MPC): semitoni delle note sopra il suono del pad (vuoto = pad normale)
+    std::atomic<int> chordN[kPads] {}; std::atomic<int> chordIv[kPads][5] {};
+    void setChord (int p, const std::vector<int>& iv) { const int n = juce::jmin (5, (int) iv.size()); for (int k = 0; k < n; ++k) chordIv[p][k] = iv[(size_t) k]; chordN[p] = n; }
+    juce::String chordName[kPads];
+    int progSrc = -1, lastProg = -1;   // suono da cui sono nati i pad accordo (le progressioni lo riusano invece delle copie)
     juce::String padCat[kPads];               // categoria della banca da cui arriva il suono (serve al generatore)
     int genStyle = 0; juce::uint32 genSeed = 1; juce::String genInfo;
     void detectBpm (int p);
     static float estimateBpm (const juce::String& name, double seconds, bool& confident);
 
     // kit
-    juce::String kitName { "Boom Bap Classico" };
+    juce::String kitName { "Kit casuale" };
     juce::File kitFile;                       // vuoto = kit di fabbrica
     static juce::File kitFolder();
     static juce::File baseFolder();
@@ -185,8 +190,15 @@ public:
     static const int kFxDefault[kFx];
     std::atomic<float> ccPend[kFx];        // valore (0..1) arrivato dal controller, da passare al parametro
     std::atomic<bool> qFx { false };       // le 8 manopole sotto lo schermo fanno da effetti
-    std::atomic<int> ccMap[kFx];           // quale CC muove ogni effetto (di fabbrica 70-77, l'MPK); si cambia con MIDI learn
+    // quale CC muove ogni effetto (di fabbrica 70-77, l'MPK); si cambia con MIDI learn.
+    // E' unica per tutti i Sampler aperti e salvata sul Mac: la mappi una volta e vale su ogni traccia
+    // (il controller comanda il Sampler della traccia che riceve il MIDI, cioe' quella armata/selezionata).
+    static inline std::atomic<int> ccMap[kFx] { 70, 71, 72, 73, 74, 75, 76, 77 };
+    static inline std::atomic<bool> ccLoaded { false };
+    std::atomic<bool> ccDirty { false };
+    bool pendingRandom = false; int startTicks = 0; std::atomic<int> kitVersion { 0 };
     std::atomic<int> learnSlot { -1 };     // in attesa di un CC per questo effetto
+    std::atomic<int> uiTheme { 1 };       // 1 scuro elegante, 2 chiaro
     std::atomic<bool> ctrlOn { true };     // spento: i CC in arrivo (anche registrati nelle clip) si ignorano
     float velCurve (int vel) const;
     juce::AudioFormatManager formats;
@@ -195,6 +207,8 @@ public:
 private:
     juce::RangedAudioParameter* hp[kPads][kAutoN] {}; std::atomic<float>* hpRaw[kPads][kAutoN] {}; std::atomic<float> lastHost[kPads][kAutoN];
     void timerCallback() override;
+    struct Gesture { juce::RangedAudioParameter* p; double t; }; std::vector<Gesture> gestures;
+    void touch (juce::RangedAudioParameter*, float norm);
     float colPk = 0; int colN = 0, colHits = 0, colVel = 0;
     struct Grain { double start = 0, ph = 0; };
     struct Voice
@@ -241,7 +255,7 @@ private:
     // loudness
     Biquad kw1, kw2; double lufsAcc = 0; int lufsN = 0; float lufsBins[30] {}; int lufsBi = 0;
     void startVoice (int p, int vel, float r0 = -1, float r1 = -1);
-    void launch (int p, int vel, float r0, float r1, const SamplePtr& s, bool layer);
+    void launch (int p, int vel, float r0, float r1, const SamplePtr& s, bool layer, float extraSemis = 0, float gmul = 1);
     void releasePad (int p);
     void render (Voice& v, float* L, float* R, int i);
 

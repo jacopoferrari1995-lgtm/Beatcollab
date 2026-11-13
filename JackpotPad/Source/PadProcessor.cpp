@@ -214,7 +214,13 @@ Processor::Processor()
     for (int i = 0; i < kPads; ++i) { padGlow[i] = 0; padMeter[i] = 0; padGr[i] = 0; lastVel[i] = 0; hits[i] = 0; pad[i].colour = i; }
     for (int i = 0; i < kScope; ++i) { scPk[i] = 0; scHit[i] = 0; scVel[i] = 0; }
     for (int i = 0; i < kPads; ++i) padPos[i] = -1.0f;
-    for (int k = 0; k < kFx; ++k) { ccPend[k] = -1.0f; ccMap[k] = 70 + k; }
+    for (int k = 0; k < kFx; ++k) ccPend[k] = -1.0f;
+    if (! ccLoaded.exchange (true))
+    {
+        juce::PropertiesFile pf (jlook::settingsOptions());
+        const auto t = juce::StringArray::fromTokens (pf.getValue ("sampler_ccmap"), ",", "");
+        if (t.size() == kFx) for (int k = 0; k < kFx; ++k) ccMap[k] = t[k].getIntValue();
+    }
     trigs.reserve (1024); events.reserve (1024); pend.reserve (512);
     for (int p = 0; p < kPads; ++p)
         for (int k = 0; k < kAutoN; ++k)
@@ -222,25 +228,46 @@ Processor::Processor()
             const auto id = "p" + juce::String (p + 1).paddedLeft ('0', 2) + "_" + kPInfo[kAutoParams[k]].id;
             hp[p][k] = apvts.getParameter (id); hpRaw[p][k] = apvts.getRawParameterValue (id); lastHost[p][k] = hpRaw[p][k]->load();
         }
-    loadFactoryKit (1);
-    loadPattern (0);
+    pendingRandom = true;   // kit casuale appena aperto (se non arriva un progetto salvato): lo fa il timer, cosi' il caricamento e' immediato
     startTimerHz (15);
 }
 
 // Ableton -> pad (nel processBlock) e pad -> Ableton (qui, sul thread dei messaggi)
+// I movimenti che arrivano dal controller o dall'interfaccia sono "gesti" per Ableton (inizio ... fine):
+// cosi' in registrazione l'automazione viene scritta, e quando smetti di girare la riprende a leggere.
+void Processor::touch (juce::RangedAudioParameter* pp, float norm)
+{
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    auto it = std::find_if (gestures.begin(), gestures.end(), [pp] (const Gesture& g) { return g.p == pp; });
+    if (it == gestures.end()) { pp->beginChangeGesture(); gestures.push_back ({ pp, now }); } else it->t = now;
+    pp->setValueNotifyingHost (norm);
+}
 void Processor::timerCallback()
 {
+    if (pendingRandom && ++startTicks >= 3)
+    {
+        pendingRandom = false;
+        randomKit (*this, 1); loadBankByRoles (*this, 0); ++kitVersion;
+    }
     for (int k = 0; k < kFx; ++k)
     {
         const float v = ccPend[k].exchange (-1.0f);
-        if (v >= 0) if (auto* pp = apvts.getParameter (kFxIds[k])) pp->setValueNotifyingHost (v);
+        if (v >= 0) if (auto* pp = apvts.getParameter (kFxIds[k])) touch (pp, v);
     }
     for (int p = 0; p < kPads; ++p)
         for (int k = 0; k < kAutoN; ++k)
         {
             const float v = pad[p].get (kAutoParams[k]);
-            if (std::abs (v - lastHost[p][k].load()) > 1e-5f) { lastHost[p][k] = v; hp[p][k]->setValueNotifyingHost (hp[p][k]->convertTo0to1 (v)); lastHost[p][k] = hpRaw[p][k]->load(); }
+            if (std::abs (v - lastHost[p][k].load()) > 1e-5f) { lastHost[p][k] = v; touch (hp[p][k], hp[p][k]->convertTo0to1 (v)); lastHost[p][k] = hpRaw[p][k]->load(); }
         }
+    if (ccDirty.exchange (false))
+    {
+        juce::String m; for (int k = 0; k < kFx; ++k) m << ccMap[k].load() << (k < kFx - 1 ? "," : "");
+        juce::PropertiesFile pf (jlook::settingsOptions()); pf.setValue ("sampler_ccmap", m); pf.saveIfNeeded();
+    }
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    for (auto it = gestures.begin(); it != gestures.end();)
+        if (now - it->t > 350) { it->p->endChangeGesture(); it = gestures.erase (it); } else ++it;
 }
 void Processor::setPadValue (int p, int i, float v)
 {
@@ -312,12 +339,18 @@ void Processor::startVoice (int p, int vel, float r0, float r1)
     bool playA = okA, playB = okB && vel >= thr;
     if (sw && okB && thr > 0) { playA = okA && vel < thr; playB = vel >= thr; }
     if (! playA && ! playB) playA = okA;
-    if (playA) launch (p, vel, r0, r1, s, false);
+    const int cn = juce::jlimit (0, 5, chordN[p].load());
+    if (playA && cn > 0 && r0 < 0)
+    {   // pad accordo (progressioni MPC): lo stesso suono intonato su ogni nota dell'accordo
+        const float gm = 1.0f / std::sqrt ((float) cn);
+        for (int k = 0; k < cn; ++k) launch (p, vel, r0, r1, s, false, (float) chordIv[p][k].load(), gm);
+    }
+    else if (playA) launch (p, vel, r0, r1, s, false);
     if (playB) launch (p, vel, -1, -1, s2, true);
     chain[p].active = (int) (sr * 1.5);
 }
 
-void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, bool layer)
+void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, bool layer, float extraSemis, float gmul)
 {
     auto& P = pad[p];
     const bool loop = P.get (LOOP) > 0.5f;
@@ -329,7 +362,7 @@ void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, 
     double a0 = (layer ? 0.0 : (r0 >= 0 ? r0 : P.get (START))) * n, a1 = (layer ? 1.0 : (r1 >= 0 ? r1 : P.get (END))) * n; if (a1 - a0 < 32) a1 = juce::jmin ((double) n, a0 + 32);
     const double sa0 = a0;
     a0 += (1.0 - vv) * P.get (VSTART) * 0.2 * (a1 - a0);
-    const double semis = P.get (TUNE) + P.get (FINE) / 100.0 + (vv - 0.75) * P.get (VPITCH) * 4.0 + (layer ? P.get (LTUNE) : 0.0f);
+    const double semis = P.get (TUNE) + P.get (FINE) / 100.0 + (vv - 0.75) * P.get (VPITCH) * 4.0 + (layer ? P.get (LTUNE) : 0.0f) + extraSemis;
     const double pitch = std::pow (2.0, semis / 12.0) * s->sr / sr;
     const int warp = layer ? 0 : juce::roundToInt (P.get (WARP)); const float sb = layer ? 0.0f : P.get (SBPM);
     const double tempo = (warp > 0 && sb > 40.0f) ? curBpm / sb : 1.0;
@@ -349,7 +382,7 @@ void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, 
         v->gr[1] = { v->pos, 0.0 };
     }
     else v->inc = pitch * (v->warp == 1 ? tempo : 1.0);
-    v->gain = 0.708f * juce::Decibels::decibelsToGain ((layer ? P.get (LGAIN) : P.get (GAIN)) - (1.0f - vv) * 18.0f * P.get (VLEVEL));   // -3 dB di margine
+    v->gain = gmul * 0.708f * juce::Decibels::decibelsToGain ((layer ? P.get (LGAIN) : P.get (GAIN)) - (1.0f - vv) * 18.0f * P.get (VLEVEL));   // -3 dB di margine
     const float atk = P.get (ATTACK);
     v->env = atk < 0.5f ? 1.0f : 0.0f; v->atkDone = atk < 0.5f; v->atkInc = atk < 0.5f ? 1.0f : (float) (1.0 / (atk * 0.001 * sr));
     const float dec = P.get (DECAY); v->hold = dec >= 3990 || loop;
@@ -562,7 +595,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         {
             if (! ctrlOn.load() && learnSlot.load() < 0) continue;   // MPK: le 8 manopole mandano CC 70-77 -> effetti da performance
             const int cc = msg.getControllerNumber();
-            if (const int ls = learnSlot.load(); ls >= 0 && ls < kFx) { for (int j = 0; j < kFx; ++j) if (ccMap[j].load() == cc) ccMap[j] = -1; ccMap[ls] = cc; learnSlot = -1; }
+            if (const int ls = learnSlot.load(); ls >= 0 && ls < kFx) { for (int j = 0; j < kFx; ++j) if (ccMap[j].load() == cc) ccMap[j] = -1; ccMap[ls] = cc; learnSlot = -1; ccDirty = true; }
             int k = -1; for (int j = 0; j < kFx; ++j) if (ccMap[j].load() == cc) k = j;
             if (k >= 0 && k < kFx)
             {
@@ -1212,6 +1245,7 @@ std::unique_ptr<juce::XmlElement> Processor::padsToXml() const
 }
 void Processor::padsFromXml (const juce::XmlElement& pads)
 {
+    for (int p = 0; p < kPads; ++p) { setChord (p, {}); chordName[p] = {}; } progSrc = -1;
     int p = 0;
     for (auto* e : pads.getChildIterator())
     {
@@ -1253,6 +1287,7 @@ static std::vector<const KitPad*> arrangeKit (const std::vector<KitPad>& src)
 
 void Processor::loadFactoryKit (int k)
 {
+    for (int p = 0; p < kPads; ++p) { setChord (p, {}); chordName[p] = {}; } progSrc = -1;
     const auto& K = factoryKits()[(size_t) juce::jlimit (0, (int) factoryKits().size() - 1, k)];
     const auto lay = arrangeKit (K.pads);
     for (int p = 0; p < kPads; ++p)
@@ -1332,17 +1367,23 @@ void Processor::getStateInformation (juce::MemoryBlock& dest)
     x.createNewChildElement ("PATTERN")->addTextElement (ev);
     x.setAttribute ("pattern", patternIndex); x.setAttribute ("genStyle", genStyle); x.setAttribute ("bars", patternBars.load()); x.setAttribute ("loopOn", loopOn.load() ? 1 : 0); x.setAttribute ("qFx", qFx.load() ? 1 : 0); x.setAttribute ("ctrlOn", ctrlOn.load() ? 1 : 0);
     { juce::String m; for (int k = 0; k < kFx; ++k) m << ccMap[k].load() << (k < kFx - 1 ? "," : ""); x.setAttribute ("ccMap", m); }
+    x.setAttribute ("theme", uiTheme.load());
+    { juce::StringArray ch; for (int p = 0; p < kPads; ++p) { juce::String c; for (int k = 0; k < chordN[p].load(); ++k) c << (k ? " " : "") << chordIv[p][k].load(); ch.add (c); } x.setAttribute ("chords", ch.joinIntoString (",")); }
     copyXmlToBinary (x, dest);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
+    pendingRandom = false;
     auto x = getXmlFromBinary (data, size); if (x == nullptr || ! x->hasTagName ("JPAD")) return;
+    uiTheme = x->getIntAttribute ("theme", 1);
     if (auto* ps = x->getChildByName (apvts.state.getType())) apvts.replaceState (juce::ValueTree::fromXml (*ps));
     if (auto* pads = x->getChildByName ("PADS")) padsFromXml (*pads);
     for (int p = 0; p < kPads; ++p) for (int k = 0; k < kAutoN; ++k) lastHost[p][k] = hpRaw[p][k]->load();   // i pad salvati vincono; il timer riallinea Ableton
     kitName = x->getStringAttribute ("kit", kitName);
     patternIndex = x->getIntAttribute ("pattern", 0); qFx = x->getIntAttribute ("qFx", 0) != 0; ctrlOn = x->getIntAttribute ("ctrlOn", 1) != 0;
-    { const auto t = juce::StringArray::fromTokens (x->getStringAttribute ("ccMap"), ",", ""); if (t.size() == kFx) for (int k = 0; k < kFx; ++k) ccMap[k] = t[k].getIntValue(); } loopOn = false; patternBars = juce::jlimit (1, 8, x->getIntAttribute ("bars", 2)); genStyle = x->getIntAttribute ("genStyle", 0);   // il loop interno parte solo a mano
+    // la mappatura del controller e' quella del Mac (unica per tutti i Sampler): quella salvata nel progetto non la sovrascrive
+    { const auto ch = juce::StringArray::fromTokens (x->getStringAttribute ("chords"), ",", "");
+      for (int p = 0; p < kPads; ++p) { std::vector<int> iv; if (p < ch.size()) for (auto& t : juce::StringArray::fromTokens (ch[p], " ", "")) if (t.isNotEmpty()) iv.push_back (t.getIntValue()); setChord (p, iv); } } loopOn = false; patternBars = juce::jlimit (1, 8, x->getIntAttribute ("bars", 2)); genStyle = x->getIntAttribute ("genStyle", 0);   // il loop interno parte solo a mano
     const auto kf = x->getStringAttribute ("kitFile"); kitFile = kf.isNotEmpty() ? juce::File (kf) : juce::File();
     if (auto* pt = x->getChildByName ("PATTERN"))
     {

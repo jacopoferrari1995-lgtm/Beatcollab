@@ -23,6 +23,32 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "ctor")
+    {
+        { Processor p; for (int m = 0; m < 3; ++m) { const double t0 = juce::Time::getMillisecondCounterHiRes(); randomKit (p, m); std::printf ("randomKit modo %d: %.0f ms\n", m, juce::Time::getMillisecondCounterHiRes() - t0); }
+          const double t1 = juce::Time::getMillisecondCounterHiRes(); p.loadFactoryKit (1); std::printf ("kit fabbrica: %.0f ms\n", juce::Time::getMillisecondCounterHiRes() - t1); }
+        for (int k = 0; k < 3; ++k) { const double t0 = juce::Time::getMillisecondCounterHiRes(); Processor p; std::printf ("costruttore %d: %.0f ms  kit %s\n", k, juce::Time::getMillisecondCounterHiRes() - t0, p.kitName.toRawUTF8()); }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "prog")
+    {
+        Processor p; p.prepareToPlay (44100, 512); p.loadFactoryKit (1);
+        std::vector<int> ids; stylesInCat (GC_PROG, ids);
+        for (int st : ids) for (juce::uint32 sd : { 3u, 4u, 5u }) std::printf ("%s\n", generate (p, st, sd, -1).toRawUTF8());
+        stylesInCat (GC_PROGMPC, ids);
+        for (int k = 0; k < 4; ++k) std::printf ("%s\n", generate (p, ids[(size_t) k * 5], 9, -1).toRawUTF8());
+        // suono di un pad accordo
+        juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; double e = 0;
+        m.addEvent (juce::MidiMessage::noteOn (1, (int) p.rootNote() + 13, (juce::uint8) 100), 0);
+        for (int k = 0; k < 40; ++k) { b.clear(); p.processBlock (b, m); m.clear(); e += b.getRMSLevel (0, 0, 512); }
+        std::printf ("pad accordo (%d note): rms medio %.4f\n", p.chordN[13].load(), e / 40);
+        // 4 -> 2 -> 8 battute
+        generate (p, 0, 11, -1); std::printf ("battute %d\n", p.patternBars.load());
+        extendPattern (p, 4, 1); extendPattern (p, 2, 1); extendPattern (p, 8, 2);
+        int perBar[8] {}; for (auto& ev : p.events) perBar[juce::jlimit (0, 7, (int) (ev.tick / kBar))]++;
+        std::printf ("dopo 4->2->8: note per battuta"); for (int k = 0; k < 8; ++k) std::printf (" %d", perBar[k]); std::printf ("\n");
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "perf")
     {
         Processor p; p.prepareToPlay (44100, 512); p.loadFactoryKit (1);
@@ -334,6 +360,7 @@ int main (int argc, char** argv)
         p.loadFile (wf, 0);
         if (std::getenv ("JLAYER")) { p.loadLayerFile (wf, 0); p.pad[0].v[LGAIN] = -4; p.pad[0].v[LTUNE] = 12; }
         std::printf ("BPM rilevato %.2f  warp %d  mode %d\n", p.pad[0].get (SBPM), (int) p.pad[0].get (WARP), (int) p.pad[0].get (MODE));
+        if (auto* jt = std::getenv ("JTHEME")) p.uiTheme = std::atoi (jt);
         Editor ed (p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         if (auto* pg = std::getenv ("JPAGE")) { ed.selectPad (0); ed.setPage (std::atoi (pg)); ed.screen.kitSmall = std::getenv ("JSMALL") != nullptr; if (std::getenv ("JFX")) { p.qFx = true; ed.bindQlinks(); } for (int i = 0; i < 3; ++i) ed.screen.repaint(); }

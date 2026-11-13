@@ -38,7 +38,7 @@ target_compile_definitions(JackpotPad PUBLIC
   JUCE_DISPLAY_SPLASH_SCREEN=0)
 
 target_link_libraries(JackpotPad
-  PRIVATE juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp JackpotFonts JackpotFxSamples
+  PRIVATE juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp JackpotFonts JackpotFxSamples JackpotNeo
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 
@@ -47,5 +47,5 @@ if(J60_TEST)
   target_include_directories(PadTest PRIVATE ${CMAKE_SOURCE_DIR}/Common)
   target_sources(PadTest PRIVATE test/main.cpp Source/PadProcessor.cpp Source/PadEditor.cpp Source/KitGen.cpp Source/Synth.cpp Source/Kits.cpp Source/Patterns.cpp Source/Generator.cpp Source/Library.cpp Source/SampleScan.cpp)
   target_compile_definitions(PadTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotPad")
-  target_link_libraries(PadTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotFxSamples)
+  target_link_libraries(PadTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotFxSamples JackpotNeo)
 endif()

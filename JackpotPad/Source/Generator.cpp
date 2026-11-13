@@ -53,7 +53,55 @@ Role padRole (const Processor& P, int p)
 }
 
 // ======================================================================= stili
-const char* genCatName (int c) { static const char* n[] = { "DRUM", "MPC", "PROGRESSIONI" }; return n[juce::jlimit (0, kGenCats - 1, c)]; }
+const char* genCatName (int c) { static const char* n[] = { "DRUM", "MPC", "PROGRESSIONI", "PROGRESSIONI MPC" }; return n[juce::jlimit (0, kGenCats - 1, c)]; }
+
+// ----------------------------------------------------------------------- banca di progressioni (accordi veri, come le Progressions della MPC)
+// qualita degli accordi: semitoni sopra la fondamentale (massimo 4 note, voicing compatti)
+static const std::vector<int>& qualIv (int q)
+{
+    static const std::vector<int> Q[] = { { 0, 3, 7 }, { 0, 4, 7 }, { 0, 3, 7, 10 }, { 0, 4, 7, 11 }, { 0, 4, 7, 10 }, { 0, 3, 10, 14 }, { 0, 4, 11, 14 }, { 0, 4, 10, 14 },
+                                          { 0, 2, 7 }, { 0, 5, 7 }, { 0, 3, 6 }, { 0, 3, 6, 10 }, { 0, 4, 7, 14 }, { 0, 3, 7, 14 } };
+    return Q[juce::jlimit (0, 13, q)];
+}
+static const char* qualName (int q) { static const char* n[] = { "m", "", "m7", "maj7", "7", "m9", "maj9", "9", "sus2", "sus4", "dim", "m7b5", "add9", "m(add9)" }; return n[juce::jlimit (0, 13, q)]; }
+enum { Qm, QM, Qm7, QM7, Q7, Qm9, QM9, Q9, Qs2, Qs4, Qdim, Qhd, QA9, QmA9 };
+struct Chd { int root; int q; };
+struct ProgDef { const char* name; const char* genre; bool minor; std::vector<Chd> ch; };
+const std::vector<ProgDef>& progBank()
+{
+    static const std::vector<ProgDef> B = {
+        { "Trap Minore", "Trap", true, { { 0, Qm }, { 8, QM }, { 3, QM }, { 10, QM } } },
+        { "Trap Scura", "Trap", true, { { 0, Qm }, { 5, Qm }, { 8, QM }, { 7, QM } } },
+        { "Trap Epica", "Trap", true, { { 0, Qm }, { 10, QM }, { 8, QM }, { 10, QM } } },
+        { "Trap Frigia", "Trap", true, { { 0, Qm }, { 1, QM }, { 0, Qm }, { 10, QM } } },
+        { "Drill Notte", "Drill", true, { { 0, Qm }, { 8, QM }, { 5, Qm }, { 7, QM } } },
+        { "Drill Armonica", "Drill", true, { { 0, Qm }, { 0, Qm }, { 8, QM }, { 7, Q7 } } },
+        { "Neo Soul 1", "R&B", false, { { 2, Qm9 }, { 7, Q9 }, { 0, QM9 }, { 9, Qm9 } } },
+        { "Neo Soul 2", "R&B", false, { { 0, QM7 }, { 4, Qm7 }, { 9, Qm7 }, { 5, QM7 } } },
+        { "R&B Anni 90", "R&B", false, { { 9, Qm9 }, { 2, Qm9 }, { 7, Q7 }, { 0, QM7 } } },
+        { "R&B Lento", "R&B", false, { { 5, QM7 }, { 4, Qm7 }, { 2, Qm7 }, { 0, QM9 } } },
+        { "Lo-fi Jazz", "Lo-fi", false, { { 2, Qm7 }, { 7, Q7 }, { 0, QM7 }, { 9, Qm7 } } },
+        { "Lo-fi Notte", "Lo-fi", true, { { 0, Qm9 }, { 5, Qm7 }, { 10, Q7 }, { 3, QM7 } } },
+        { "Lo-fi Pioggia", "Lo-fi", false, { { 5, QM9 }, { 4, Qm7 }, { 9, Qm9 }, { 0, QM7 } } },
+        { "Boom Bap Soul", "Boom Bap", true, { { 0, Qm9 }, { 5, Qm9 }, { 0, Qm9 }, { 7, Qm7 } } },
+        { "Boom Bap Minore", "Boom Bap", true, { { 0, Qm7 }, { 8, QM7 }, { 5, Qm7 }, { 7, Qm7 } } },
+        { "Jazz Turnaround", "Boom Bap", false, { { 0, QM7 }, { 9, Qm7 }, { 2, Qm7 }, { 7, Q7 } } },
+        { "Gospel", "R&B", false, { { 5, QM7 }, { 7, Q7 }, { 4, Qm7 }, { 9, Qm7 } } },
+        { "Pop Classico", "Pop", false, { { 0, QM }, { 7, QM }, { 9, Qm }, { 5, QM } } },
+        { "Pop Malinconico", "Pop", false, { { 9, Qm }, { 5, QM }, { 0, QM }, { 7, QM } } },
+        { "Doo-wop", "Pop", false, { { 0, QM }, { 9, Qm }, { 5, QM }, { 7, QM } } },
+        { "Andalusa", "Afro / Latin", true, { { 0, Qm }, { 10, QM }, { 8, QM }, { 7, QM } } },
+        { "Afro", "Afro / Latin", true, { { 0, Qm7 }, { 5, Qm7 }, { 10, QM }, { 3, QM7 } } },
+        { "Reggaeton", "Afro / Latin", true, { { 0, Qm }, { 8, QM }, { 3, QM }, { 10, QM } } },
+        { "Sospesa", "Ambient", false, { { 0, Qs2 }, { 5, Qs2 }, { 9, QmA9 }, { 7, Qs4 } } },
+        { "Cinematica", "Ambient", true, { { 0, QmA9 }, { 8, QM7 }, { 3, QA9 }, { 10, QA9 } } } };
+    return B;
+}
+static juce::String chordLabel (int keyPc, const Chd& c)
+{
+    static const char* nn[] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+    return juce::String (nn[(keyPc + c.root) % 12]) + qualName (c.q);
+}
 
 namespace
 {
@@ -215,9 +263,23 @@ const std::vector<DStyle>& dstyles()
         { "Footwork", "Chicago: cassa a terzine e clap fitti", "Old School",
           { "X..X..X..X..X...", "X..X..X...X..X.." }, { "....X.......X...", "..X...X...X...X." }, { "x.x.x.x.x.x.x.x." }, { "" }, { "" },
           1, 0.0f, 0.0f, 2, { "X..X..X..X..X..." }, 0, 0.0f, -1, 2, 0.1f, false, 0 },
-        { "Trap Half Time", "Meta tempo: cassa rada, rullante sul 3, hat in quarti e ottavi, tanto spazio", "Trap",
-          { "X...............", "X.........X.....", "X.............X." }, { "........X......." }, { "x...x...x...x...", "x...x...x.x.x...", "x.......x...x.x." }, { "......x.........", "" }, { "" },
-          1, 0.2f, 0.0f, 2, { "X...............", "X.........X.....", "X.....X........." }, 0, 0.3f, -1, 4, 0.2f, false, 0 },
+        { "Trap Half Time", "Meta tempo: cassa che rimbalza prima del 3, clap pieno sul 3, hat in ottavi con rulli, 808 lunghi", "Trap",
+          { "X.........X.....", "X......X..X.....", "X.........X...X.", "X..X......X.....", "X.....X...X..X.." }, { "........X......." },
+          { "x.x.x.x.x.x.x.x.", "x.x.x.x.x.xxx.x.", "x...x.x.x...x.x." }, { "..............x.", "", "......x........." }, { "", "...........x....", "...x............" },
+          1, 0.35f, 0.0f, 2, { "X.........X.....", "X......X..X.....", "X.........X...X.", "X.....X...X..X.." }, 1, 0.45f, -1, 4, 0.2f, false, 0 },
+        { "Half Time Boom Bap", "Boom bap a meta tempo: rullante pesante sul 3, cassa con ghost, hat swingati", "Boom Bap",
+          { "X......x..x.....", "X.......xX......", "X..x......x..x..", "X......X.x......" }, { "........X.......", "........X.....o." },
+          { "x.x.x.x.x.x.x.x.", "x.xox.xox.xox.xo" }, { "..............x.", "" }, { "", "....o.......o..." },
+          0, 0.2f, 0.45f, 0, {}, 0, 0.0f, 58, 4, 0.3f, true, 0 },
+        { "Half Time Lo-fi", "Meta tempo lento e caldo: cassa morbida, rim sul 3, vinile", "Lo-fi",
+          { "X.........x.....", "X.......x.....x.", "X.....x...x....." }, { "........X......." }, { "x..x.x..x..x.x..", "x.x.x.x.x.x.x.x." }, { "" }, { "....o.......o...", "" },
+          2, 0.0f, 0.5f, 0, {}, 0, 0.0f, 60, 4, 0.5f, true, 3 },
+        { "Half Time R&B", "Meta tempo morbido: snap sul 3 in ritardo, cassa sincopata, sub che segue", "R&B",
+          { "X.........x..x..", "X......x...x....", "X.........X....x" }, { "........X.......", "........X......o" }, { "x.x.x.x.x.x.x.x.", "x.xox.xox.xox.xo" }, { "" }, { "xoxoxoxoxoxoxoxo", "" },
+          1, 0.0f, 0.3f, 2, { "X.........x..x..", "X......x...x...." }, 0, 0.0f, 56, 4, 0.5f, false, 5 },
+        { "Half Time Drill", "Drill lenta: rullante sul 3 e nel levare, hat a terzine radi, 808 che scivola", "Drill",
+          { "X.........X.....", "X.......X.....X.", "X..........X...." }, { "........X.......", "........X..x...." }, {}, { "" }, { "" },
+          0, 0.25f, 0.2f, 2, { "X.........X.....", "X.......X.....X.", "X..........X..X." }, 2, 0.35f, -1, 4, 0.15f, false, 0 },
         { "Trap Terzine Lente", "Hat e rullante a terzine su un groove lento", "Trap",
           { "X.........X.....", "X..........X...." }, { "........X......." }, {}, { "" }, { "" },
           1, 0.0f, 0.0f, 2, { "X.........X.....", "X.....X...X....." }, 2, 0.75f, -1, 4, 0.15f, false, 0 },
@@ -269,6 +331,7 @@ const std::vector<MStyle>& mstyles()
     return M;
 }
 struct PStyle { const char* name; const char* desc; };
+juce::String progMpc (Processor& P, int bankIdx, juce::uint32 seed, int sel);
 const std::vector<PStyle>& pstyles()
 {
     static const std::vector<PStyle> Pp = {
@@ -530,16 +593,113 @@ juce::String mpc (Processor& P, const MStyle& S, juce::uint32 seed, int sel)
 }
 
 // ----------------------------------------------------------------------- progressioni
+// sorgente melodica: il pad selezionato (se melodico), poi quello usato l'ultima volta, poi il primo melodico.
+// I pad accordo/intonati creati dalle progressioni non diventano mai la sorgente (si ripartirebbe dalle copie).
+static int melSource (Processor& P, int sel, bool preferNote)
+{
+    auto isMel = [&] (int p) { return p >= 0 && p < kPads && P.getSample (p) != nullptr && padRole (P, p) == R_MEL && P.chordN[p].load() == 0 && P.chordName[p].isEmpty(); };
+    auto isNote = [&] (int p) { return isMel (p) && P.pad[p].get (SKEY) >= 24; };
+    if (isMel (sel) && (! preferNote || isNote (sel))) return sel;
+    if (P.progSrc >= 0 && P.getSample (P.progSrc) != nullptr && (! preferNote || P.pad[P.progSrc].get (SKEY) >= 24)) return P.progSrc;
+    if (preferNote) for (int p = 0; p < kPads; ++p) if (isNote (p)) return p;
+    for (int p = 0; p < kPads; ++p) if (isMel (p)) return p;
+    return -1;
+}
+// suono a nota singola di riserva (pluck sintetico in Do) se nel kit non ce n'e' uno
+static int ensureNote (Processor& P, int pad)
+{
+    DrumDesc d { S_PLUCK, 60.0f, 2.4f, 0.55f, 0, 0, "Keys pluck C" };
+    auto s = makeDrum (d); if (s == nullptr) return -1;
+    P.pad[pad].reset(); P.setSample (pad, s); P.setLayer (pad, nullptr); P.padCat[pad] = "MELODICI"; P.pad[pad].v[SKEY] = 24; P.pad[pad].colour = 5;
+    return pad;
+}
+// tonica su cui costruire: tonalita fissata, altrimenti quella del kit, altrimenti la nota del suono
+static int tonicPc (Processor& P, int src)
+{
+    if (P.keyLock() >= 0) return P.keyLock() % 12;
+    const int k = P.kitEffectiveKey (src); if (k >= 0) return k % 12;
+    const int sk = juce::roundToInt (P.pad[src].get (SKEY)); return sk >= 24 ? (sk - 24) % 12 : (sk >= 0 ? sk % 12 : 0);
+}
+// trasforma i pad in pad accordo: stesso suono a nota singola, intonato sulla fondamentale, piu voci sopra
+static void makeChordPads (Processor& P, int src, int tonic, const std::vector<std::pair<int, Chd>>& at)
+{
+    float pv[kNumPadParams]; for (int i = 0; i < kNumPadParams; ++i) pv[i] = P.pad[src].get (i);
+    const int col = P.pad[src].colour.load(); auto s = P.getSample (src), l2 = P.getLayer (src);
+    const int sp = juce::roundToInt (pv[SKEY]) >= 24 ? (juce::roundToInt (pv[SKEY]) - 24) % 12 : 0;
+    for (auto& [p, c] : at)
+    {
+        for (int i = 0; i < kNumPadParams; ++i) P.pad[p].v[i] = pv[i];
+        P.pad[p].colour = col; P.setSample (p, s); P.setLayer (p, l2); P.padCat[p] = "MELODICI";
+        int d = ((tonic + c.root - sp) % 12 + 12) % 12; if (d > 6) d -= 12;
+        P.pad[p].v[TUNE] = (float) d; P.pad[p].v[CHOKE] = 7; P.pad[p].v[MODE] = 0;
+        std::vector<int> iv; for (int v : qualIv (c.q)) iv.push_back (d + v > 12 ? v - 12 : v);
+        std::sort (iv.begin(), iv.end()); iv.erase (std::unique (iv.begin(), iv.end()), iv.end());
+        P.setChord (p, iv); P.chordName[p] = chordLabel (tonic, c);
+        P.pad[p].v[TUNE] = (float) d;
+    }
+    P.progSrc = src;
+}
+static int progFor (juce::Random& r, std::initializer_list<const char*> genres)
+{
+    std::vector<int> ok; const auto& B = progBank();
+    for (int i = 0; i < (int) B.size(); ++i) for (auto* g : genres) if (juce::String (B[(size_t) i].genre) == g) ok.push_back (i);
+    if (ok.empty()) for (int i = 0; i < (int) B.size(); ++i) ok.push_back (i);
+    return ok[(size_t) r.nextInt ((int) ok.size())];
+}
+// ritmo degli accordi: un grado per battuta con il carattere dello stile
+static void chordRhythm (std::vector<PatEv>& ev, juce::Random& r, int style, const int* padOfChord, int nCh, int bars)
+{
+    auto add = [&] (int k, double t, int v) { const int p = padOfChord[((k % nCh) + nCh) % nCh]; if (p >= 0) ev.push_back ({ t, p, juce::jlimit (30, 127, v + r.nextInt ({ -4, 5 })) }); };
+    for (int b = 0; b < bars; ++b)
+    {
+        const int k = b % nCh; const double t = b * (double) kBar;
+        switch (style)
+        {
+            case 0: add (k, t, 104); add (k, t + 10 * 24.0, 82); break;                                    // soul: ripreso sul levare del 3
+            case 1: add (k, t, 110); break;                                                                 // trap: lungo
+            case 2: for (int i : { 0, 6, 10 }) add (k, t + i * 24.0, i == 0 ? 108 : 90); break;             // drill 3-3-2
+            case 3: add (k, t, 96); for (int i : { 3, 7, 11 }) if (r.nextFloat() < 0.7f) add (k, t + i * 24.0, 80); break;   // lo-fi in levare
+            case 4: add (k, t, 100); add (k, t + 8 * 24.0, 86); add (k + 1, t + 14 * 24.0, 96); break;      // r&b: il cambio in anticipo
+            case 5: for (int i : { 0, 6, 8, 14 }) if (i == 0 || r.nextFloat() < 0.75f) add (k, t + i * 24.0, 100); break;   // stab
+            case 6: add (k * 2, t, 104); add (k * 2 + 1, t + 192.0, 98); break;                            // ballad: due per battuta
+            default: add (k, t, 104); break;
+        }
+    }
+}
 juce::String prog (Processor& P, const PStyle& S, juce::uint32 seed, int sel)
 {
     juce::Random r (mix (seed));
     const int idx = (int) (&S - &pstyles()[0]);
-    int src = -1;
-    if (sel >= 0 && padRole (P, sel) == R_MEL) src = sel;
-    for (int p = 0; p < kPads && src < 0; ++p) if (padRole (P, p) == R_MEL && p < 12) src = p;
-    for (int p = 0; p < kPads && src < 0; ++p) if (padRole (P, p) == R_MEL) src = p;
+    int src = melSource (P, sel, true);
+    const bool noteSrc = src >= 0 && P.pad[src].get (SKEY) >= 24;
+    if (idx != 7 && (noteSrc || src < 0))
+    {   // accordi veri: una progressione della banca, scelta a ogni giro (ogni GENERA ne prova una diversa)
+        if (src < 0) src = ensureNote (P, 8);
+        if (src < 0) return "Per le progressioni serve un suono melodico";
+        static const std::vector<std::vector<const char*>> gen = { { "R&B", "Boom Bap" }, { "Trap" }, { "Drill" }, { "Lo-fi" }, { "R&B" }, { "Boom Bap" }, { "Pop", "R&B", "Ambient" } };
+        const auto& G = gen[(size_t) juce::jlimit (0, 6, idx)];
+        std::vector<int> pool; for (int i = 0; i < (int) progBank().size(); ++i) for (auto* g : G) if (juce::String (progBank()[(size_t) i].genre) == g) pool.push_back (i);
+        // non ripetere la stessa di prima
+        int bi = pool[(size_t) r.nextInt ((int) pool.size())];
+        if (pool.size() > 1 && bi == P.lastProg) bi = pool[(size_t) ((std::find (pool.begin(), pool.end(), bi) - pool.begin() + 1) % (long) pool.size())];
+        P.lastProg = bi;
+        const auto& B = progBank()[(size_t) bi];
+        const int tonic = tonicPc (P, src);
+        std::vector<std::pair<int, Chd>> at; int padOf[4];
+        for (int k = 0; k < 4; ++k) { padOf[k] = 12 + k; at.push_back ({ 12 + k, B.ch[(size_t) k % B.ch.size()] }); }
+        makeChordPads (P, src, tonic, at);
+        std::vector<PatEv> ev; { const juce::SpinLock::ScopedLockType l (P.recLock); for (auto& e : P.events) if (e.pad < 12 && e.pad != src) ev.push_back (e); }
+        chordRhythm (ev, r, idx, padOf, 4, 4);
+        std::sort (ev.begin(), ev.end(), [] (const PatEv& a, const PatEv& b) { return a.tick < b.tick; });
+        { const juce::SpinLock::ScopedLockType l (P.recLock); P.events = ev; P.patternBars = juce::jmax (P.patternBars.load(), 4); }
+        if (idx == 3) applySwing (P, 58);
+        juce::String deg; for (int k = 0; k < 4; ++k) deg << (k ? " - " : "") << P.chordName[12 + k];
+        return juce::String (S.name) + ": " + B.name + "  " + deg + "  (accordi sui pad 13-16)";
+    }
+    if (src < 0) src = melSource (P, sel, false);
     if (src < 0) return "Per le progressioni serve un suono melodico (accordo o nota): caricane uno su un pad e selezionalo";
     auto s = P.getSample (src);
+    P.progSrc = src;
     // qualita del suono: dalla tonalita rilevata o dal nome
     const int key = juce::roundToInt (P.pad[src].get (SKEY));
     const auto nm = s->name.toLowerCase();
@@ -549,58 +709,52 @@ juce::String prog (Processor& P, const PStyle& S, juce::uint32 seed, int sel)
     else if (nm.contains ("sus")) q = SUS;
     else if (q == MAJOR && (nm.contains ("7") || nm.contains ("9")) && ! nm.contains ("maj")) q = DOM;
     if (idx == 7) q = NOTE;
-    // gradi ammessi: solo accordi della scala con la stessa qualita del campione (niente note fuori scala)
+    // l'accordo campionato si sposta intero: solo gradi che restano nella scala con la stessa qualita
     std::vector<std::vector<int>> seqs; juce::String what;
     switch (q)
     {
-        case MINOR: seqs = { { 0, 0, 5, 7 }, { 0, 5, 0, 7 }, { 0, 7, 5, 0 }, { 0, 5, 5, 7 }, { 0, 0, 7, 5 }, { 0, 5, 7, 5 } }; what = "minore: i, iv, v (minore naturale)"; break;
-        case MAJOR: seqs = { { 0, 5, 7, 5 }, { 0, 7, 5, 0 }, { 0, 0, 5, 7 }, { 0, 5, 0, 7 } }; what = "maggiore: I, IV, V"; break;
-        case MAJ7:  seqs = { { 0, 5, 0, 5 }, { 0, 0, 5, 5 }, { 0, 5, 5, 0 }, { 0, 5, 0, 0 } }; what = "maj7: I e IV"; break;
-        case SUS:   seqs = { { 0, 9, 5, 7 }, { 0, 5, 9, 7 }, { 0, 7, 9, 5 }, { 0, 2, 5, 7 } }; what = "sus: gradi della scala maggiore"; break;
-        case DOM:   seqs = { { 0, 0, 0, 0 } }; what = "dominante: un accordo solo, ritmo"; break;
-        case NOTE:  seqs = { { 0, 3, 5, 7 }, { 0, 7, 5, 3 }, { 0, 5, 3, 7 }, { 0, 3, 7, 10 } }; what = "nota singola: giro nella scala minore"; break;
+        case MINOR: seqs = { { 0, 0, 5, 7 }, { 0, 5, 0, 7 }, { 0, 7, 5, 0 }, { 0, 5, 5, 7 }, { 0, 0, 7, 5 }, { 0, 5, 7, 5 }, { 0, 7, 0, 5 }, { 0, 5, 7, 7 }, { 7, 5, 0, 0 }, { 0, 0, 5, 5 } }; what = "minore: i, iv, v"; break;
+        case MAJOR: seqs = { { 0, 5, 7, 5 }, { 0, 7, 5, 0 }, { 0, 0, 5, 7 }, { 0, 5, 0, 7 }, { 0, 7, 7, 5 }, { 5, 0, 7, 0 }, { 0, 5, 5, 0 } }; what = "maggiore: I, IV, V"; break;
+        case MAJ7:  seqs = { { 0, 5, 0, 5 }, { 0, 0, 5, 5 }, { 0, 5, 5, 0 }, { 0, 5, 0, 0 }, { 5, 0, 5, 0 } }; what = "maj7: I e IV"; break;
+        case SUS:   seqs = { { 0, 9, 5, 7 }, { 0, 5, 9, 7 }, { 0, 7, 9, 5 }, { 0, 2, 5, 7 }, { 0, 5, 7, 9 } }; what = "sus: gradi della scala maggiore"; break;
+        case DOM:   seqs = { { 0, 0, 0, 0 }, { 0, 5, 0, 0 } }; what = "dominante"; break;
+        case NOTE:  seqs = { { 0, 3, 5, 7 }, { 0, 7, 5, 3 }, { 0, 5, 3, 7 }, { 0, 3, 7, 10 }, { 0, 10, 7, 5 }, { 0, 3, 10, 7 } }; what = "nota singola: giro nella scala minore"; break;
     }
-    const auto seq = seqs[(size_t) r.nextInt ((int) seqs.size())];
-    // un pad per ogni intervallo (pad 13-16), stesso suono intonato sul grado giusto
+    int pick = r.nextInt ((int) seqs.size());
+    if (seqs.size() > 1 && pick == P.lastProg - 1000) pick = (pick + 1) % (int) seqs.size();
+    P.lastProg = 1000 + pick;
+    const auto seq = seqs[(size_t) pick];
     std::vector<int> ivs; for (int v : seq) if (std::find (ivs.begin(), ivs.end(), v) == ivs.end()) ivs.push_back (v);
     std::map<int, int> padOf; const float baseTune = P.pad[src].get (TUNE);
+    float pv[kNumPadParams]; for (int i = 0; i < kNumPadParams; ++i) pv[i] = P.pad[src].get (i);
     for (size_t k = 0; k < ivs.size() && k < 4; ++k)
     {
         const int p = 12 + (int) k; if (p == src) continue;
-        for (int i = 0; i < kNumPadParams; ++i) P.pad[p].v[i] = P.pad[src].get (i);
+        for (int i = 0; i < kNumPadParams; ++i) P.pad[p].v[i] = pv[i];
         P.pad[p].colour = P.pad[src].colour.load();
         const int iv = ivs[k]; const int shift = iv > 7 ? iv - 12 : iv;
         P.pad[p].v[TUNE] = juce::jlimit (-24.0f, 24.0f, baseTune + shift);
-        P.pad[p].v[CHOKE] = 7;   // l'accordo nuovo taglia il precedente
-        P.setSample (p, s); P.setLayer (p, P.getLayer (src)); P.padCat[p] = "MELODICI";
+        P.pad[p].v[CHOKE] = 7;
+        P.setSample (p, s); P.setLayer (p, P.getLayer (src)); P.padCat[p] = "MELODICI"; P.setChord (p, {});
+        static const char* rom[] = { "I", "bII", "II", "bIII", "III", "IV", "#IV", "V", "bVI", "VI", "bVII", "VII" };
+        P.chordName[p] = q == MINOR || q == NOTE ? juce::String (rom[iv]).toLowerCase() : juce::String (rom[iv]);
         padOf[iv] = p;
     }
     if (padOf.count (0) == 0) padOf[0] = src;
     if (src >= 12) P.pad[src].v[CHOKE] = 7;
-    // ritmo: 4 battute, un grado per battuta (la ballad ne fa due)
     std::vector<PatEv> keep;
     { const juce::SpinLock::ScopedLockType l (P.recLock); for (auto& e : P.events) if (e.pad < 12 && e.pad != src) keep.push_back (e); }
     std::vector<PatEv> ev = keep; const int bars = 4;
-    auto add = [&] (int iv, double t, int v) { auto it = padOf.find (iv); if (it != padOf.end()) ev.push_back ({ t, it->second, juce::jlimit (30, 127, v + r.nextInt ({ -4, 5 })) }); };
-    for (int b = 0; b < bars; ++b)
+    if (idx == 7)
     {
-        const int iv = seq[(size_t) b % seq.size()], nx = seq[(size_t) (b + 1) % seq.size()]; const double t = b * kBar;
-        switch (idx)
-        {
-            case 0: add (iv, t, 104); add (iv, t + 10 * 24.0, 82); break;
-            case 1: add (iv, t, 110); break;
-            case 2: for (int i : { 0, 6, 10 }) add (iv, t + i * 24.0, i == 0 ? 108 : 90); break;
-            case 3: add (iv, t, 96); for (int i : { 3, 7, 11 }) if (r.nextFloat() < 0.7f) add (iv, t + i * 24.0, 80); break;
-            case 4: add (iv, t, 100); add (iv, t + 8 * 24.0, 86); if (b < bars - 1 || true) add (nx, t + 14 * 24.0, 96); break;
-            case 5: for (int i : { 0, 6, 8, 14 }) if (i == 0 || r.nextFloat() < 0.75f) add (iv, t + i * 24.0, 100); break;
-            case 6: add (iv, t, 104); add (seq[(size_t) (b * 2 + 1) % seq.size()], t + 192.0, 98); break;
-            default:
-            {   // riff di note nella scala, sedicesimi scelti
-                static const char* rows[] = { "X..x..x...x.x...", "X.x...x.x...x.x.", "X...x.x...x...x." };
-                const char* row = rows[r.nextInt (3)];
-                for (int i = 0; i < 16; ++i) if (row[i] != '.') add (ivs[(size_t) r.nextInt ((int) ivs.size())], t + i * 24.0, row[i] == 'X' ? 108 : 88);
-            }
-        }
+        auto add = [&] (int iv, double t, int v) { auto it = padOf.find (iv); if (it != padOf.end()) ev.push_back ({ t, it->second, juce::jlimit (30, 127, v + r.nextInt ({ -4, 5 })) }); };
+        static const char* rows[] = { "X..x..x...x.x...", "X.x...x.x...x.x.", "X...x.x...x...x." };
+        for (int b = 0; b < bars; ++b) { const char* row = rows[r.nextInt (3)]; for (int i = 0; i < 16; ++i) if (row[i] != '.') add (ivs[(size_t) r.nextInt ((int) ivs.size())], b * kBar + i * 24.0, row[i] == 'X' ? 108 : 88); }
+    }
+    else
+    {
+        int po[8]; for (int k = 0; k < 8; ++k) po[k] = padOf[seq[(size_t) k % seq.size()]];
+        chordRhythm (ev, r, idx, po, (int) seq.size(), bars);
     }
     std::sort (ev.begin(), ev.end(), [] (const PatEv& a, const PatEv& b) { return a.tick < b.tick; });
     { const juce::SpinLock::ScopedLockType l (P.recLock); P.events = ev; P.patternBars = juce::jmax (P.patternBars.load(), bars); }
@@ -609,8 +763,44 @@ juce::String prog (Processor& P, const PStyle& S, juce::uint32 seed, int sel)
     for (int v : seq) deg << (deg.isEmpty() ? "" : " - ") << (q == MINOR || q == NOTE ? juce::String (rom[v]).toLowerCase() : juce::String (rom[v]));
     return S.name + juce::String (": ") + deg + "  (" + what + ", pad 13-16)";
 }
+// PROGRESSIONI MPC: la progressione sui pad 13-16 e altri accordi della stessa tonalita sui pad 10-12, da suonare a mano.
+// Sotto: batteria del genere e gli accordi uno per battuta.
+juce::String progMpc (Processor& P, int bankIdx, juce::uint32 seed, int sel)
+{
+    juce::Random r (mix (seed));
+    const auto& B = progBank()[(size_t) juce::jlimit (0, (int) progBank().size() - 1, bankIdx)];
+    int src = melSource (P, sel, true);
+    if (src < 0 || P.pad[src].get (SKEY) < 24) src = ensureNote (P, 9);   // serve una nota singola: se non c'e' uso un pluck
+    if (src < 0) return "Serve un suono a nota singola";
+    const int tonic = tonicPc (P, src);
+    std::vector<std::pair<int, Chd>> at;
+    for (int k = 0; k < 4; ++k) at.push_back ({ 12 + k, B.ch[(size_t) k % B.ch.size()] });
+    // accordi in piu della stessa scala (quelli che la progressione non usa)
+    const std::vector<Chd> dia = B.minor ? std::vector<Chd> { { 0, Qm7 }, { 3, QM7 }, { 5, Qm7 }, { 7, Qm7 }, { 8, QM7 }, { 10, Q7 }, { 2, Qhd } }
+                                         : std::vector<Chd> { { 0, QM7 }, { 2, Qm7 }, { 4, Qm7 }, { 5, QM7 }, { 7, Q7 }, { 9, Qm7 }, { 11, Qhd } };
+    int extra = 0;
+    for (auto& c : dia)
+    {
+        if (extra >= 3) break; bool used = false; for (auto& x : B.ch) if (x.root == c.root) used = true;
+        if (used) continue; const int p = 9 + extra; if (p == src) continue; at.push_back ({ p, c }); ++extra;
+    }
+    makeChordPads (P, src, tonic, at);
+    // batteria del genere sui pad 1-9, accordi sopra
+    static const std::pair<const char*, const char*> gmap[] = { { "Trap", "Trap" }, { "Drill", "Drill UK" }, { "R&B", "R&B" }, { "Lo-fi", "Lo-fi" }, { "Boom Bap", "Boom Bap" }, { "Pop", "R&B" }, { "Afro / Latin", "Afrobeats" }, { "Ambient", "Lo-fi Bedroom" } };
+    int dsi = 0; for (auto& [g, d] : gmap) if (juce::String (B.genre) == g) for (int i = 0; i < (int) dstyles().size(); ++i) if (juce::String (dstyles()[(size_t) i].name) == d) dsi = i;
+    Ctx c (P, seed);
+    for (auto& v : c.pads) v.erase (std::remove_if (v.begin(), v.end(), [] (int p) { return p >= 9; }), v.end());
+    c.bars = 4; drums (c, dstyles()[(size_t) dsi], false);
+    const int st = juce::String (B.genre) == "Trap" ? 1 : juce::String (B.genre) == "Drill" ? 2 : juce::String (B.genre) == "Lo-fi" ? 3 : juce::String (B.genre) == "R&B" ? 4 : juce::String (B.genre) == "Boom Bap" ? 0 : 1;
+    int po[4] = { 12, 13, 14, 15 };
+    chordRhythm (c.ev, r, st, po, 4, 4);
+    c.finish();
+    { const juce::SpinLock::ScopedLockType l (P.recLock); P.events = c.ev; P.patternBars = 4; }
+    applySwing (P, dstyles()[(size_t) dsi].swing);
+    juce::String deg; for (int k = 0; k < 4; ++k) deg << (k ? " - " : "") << P.chordName[12 + k];
+    return juce::String ("Progressione ") + B.name + ": " + deg + "  (pad 13-16, altri accordi su 10-12)";
 }
-
+}
 const std::vector<GenStyle>& genStyles()
 {
     static const std::vector<GenStyle> all = []
@@ -619,6 +809,12 @@ const std::vector<GenStyle>& genStyles()
         for (int i = 0; i < (int) dstyles().size(); ++i) v.push_back ({ dstyles()[(size_t) i].name, GC_DRUM, i, dstyles()[(size_t) i].desc });
         for (int i = 0; i < (int) mstyles().size(); ++i) v.push_back ({ mstyles()[(size_t) i].name, GC_MPC, i, mstyles()[(size_t) i].desc });
         for (int i = 0; i < (int) pstyles().size(); ++i) v.push_back ({ pstyles()[(size_t) i].name, GC_PROG, i, pstyles()[(size_t) i].desc });
+        for (int i = 0; i < (int) progBank().size(); ++i)
+        {
+            juce::String d = juce::String (progBank()[(size_t) i].genre) + ": ";
+            for (size_t k = 0; k < progBank()[(size_t) i].ch.size(); ++k) d << (k ? " - " : "") << chordLabel (progBank()[(size_t) i].minor ? 0 : 0, progBank()[(size_t) i].ch[k]);
+            v.push_back ({ progBank()[(size_t) i].name, GC_PROGMPC, i, d + " (in Do)" });
+        }
         return v;
     }();
     return all;
@@ -646,6 +842,7 @@ juce::String generate (Processor& P, int style, juce::uint32 seed, int sel)
     const auto& st = genStyles()[(size_t) juce::jlimit (0, (int) genStyles().size() - 1, style)];
     if (st.cat == GC_MPC) return mpc (P, mstyles()[(size_t) st.idx], seed, sel);
     if (st.cat == GC_PROG) return prog (P, pstyles()[(size_t) st.idx], seed, sel);
+    if (st.cat == GC_PROGMPC) return progMpc (P, st.idx, seed, sel);
     const auto& ds = dstyles()[(size_t) st.idx];
     Ctx c (P, seed);
     c.bars = c.r.nextFloat() < 0.2f ? 2 : ds.bars;
@@ -714,11 +911,17 @@ namespace jp
 // come si fa a mano. Se oltre la lunghezza attuale c'erano gia note (pattern accorciato prima) non tocca nulla.
 void extendPattern (Processor& P, int newBars, juce::uint32 seed)
 {
-    const int cur = juce::jmax (1, P.patternBars.load());
+    int cur = juce::jmax (1, P.patternBars.load());
     if (newBars <= cur) { P.patternBars = newBars; return; }
     std::vector<PatEv> ev; { const juce::SpinLock::ScopedLockType l (P.recLock); ev = P.events; }
-    for (auto& e : ev) if (e.tick >= cur * (double) kBar) { P.patternBars = newBars; return; }
     if (ev.empty()) { P.patternBars = newBars; return; }
+    // quanto e' lungo davvero il materiale (es. da 4 a 2 e poi a 8: le battute 3-4 c'erano ancora)
+    double last = 0; for (auto& e : ev) last = juce::jmax (last, e.tick);
+    int have = juce::jlimit (1, 8, (int) std::floor (last / kBar) + 1);
+    for (int b : { 1, 2, 4, 8 }) if (b >= have) { have = b; break; }   // si ripete a blocchi di 1, 2, 4 battute
+    if (have >= newBars) { P.patternBars = newBars; return; }   // c'e' gia' tutto
+    cur = juce::jmax (cur, have);
+    ev.erase (std::remove_if (ev.begin(), ev.end(), [cur] (const PatEv& e) { return e.tick >= cur * (double) kBar; }), ev.end());
     juce::Random r ((juce::int64) seed);
     constexpr double st = kBar / 16.0;
     int padOf[kRoles]; for (auto& x : padOf) x = -1;

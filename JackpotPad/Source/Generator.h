@@ -10,7 +10,7 @@ const char* roleName (int r);
 Role roleOfCategory (const juce::String& cat);
 Role padRole (const Processor&, int pad);
 
-enum GenCat { GC_DRUM, GC_MPC, GC_PROG, kGenCats };
+enum GenCat { GC_DRUM, GC_MPC, GC_PROG, GC_PROGMPC, kGenCats };
 const char* genCatName (int c);
 struct GenStyle { juce::String name; int cat; int idx; juce::String desc; };
 const std::vector<GenStyle>& genStyles();

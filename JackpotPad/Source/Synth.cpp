@@ -1,3 +1,4 @@
+#include <map>
 #include "Synth.h"
 #include "PadProcessor.h"
 
@@ -22,7 +23,18 @@ inline float env (double t, double decay) { return (float) std::exp (-t * 4.6 / 
 inline double mtof (double m) { return 440.0 * std::pow (2.0, (m - 69.0) / 12.0); }
 }
 
+static SamplePtr makeDrumRaw (const DrumDesc& d);
+// i suoni sintetici si calcolano una volta sola: i kit casuali successivi sono immediati
 SamplePtr makeDrum (const DrumDesc& d)
+{
+    static juce::CriticalSection lock; static std::map<juce::String, SamplePtr> cache;
+    const auto key = juce::String ((int) d.type) + "|" + juce::String (d.a) + "|" + juce::String (d.b) + "|" + juce::String (d.c) + "|" + juce::String (d.d) + "|" + juce::String (d.e) + "|" + d.name;
+    { const juce::ScopedLock sl (lock); auto it = cache.find (key); if (it != cache.end()) return it->second; }
+    auto s = makeDrumRaw (d);
+    { const juce::ScopedLock sl (lock); if (cache.size() < 600) cache[key] = s; }
+    return s;
+}
+static SamplePtr makeDrumRaw (const DrumDesc& d)
 {
     juce::Random rng (juce::String (d.name + juce::String (d.a) + juce::String (d.b)).hashCode());
     auto noise = [&rng] { return rng.nextFloat() * 2.0f - 1.0f; };
