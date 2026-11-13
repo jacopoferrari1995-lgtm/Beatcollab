@@ -374,6 +374,7 @@ void EasyStage::envelope (PxEnv& e, int npx, double winSec)
     const bool scan = P.uiScan.load() == 1;
     const double sweep0 = std::floor (pos / cols) * cols;
     e.shift = scan ? 0.0f : (float) ((pos - std::floor (pos / cpp) * cpp) / cpp);
+    e.g0 = (long) std::floor (pos / cpp);
     if (scan) e.cursor = (float) ((pos - sweep0) / cpp);
     auto ok = [&] (long a) { return a <= tot - 1 && a > tot - N + 2; };
     auto ring = [&] (long a) { const long back = tot - a; return (int) (((w0 - back) % N + N) % N); };
@@ -390,13 +391,13 @@ void EasyStage::envelope (PxEnv& e, int npx, double winSec)
         // il movimento fine (meno di un pixel) lo fa il disegno con e.shift. Prima la forma si ricalcolava a ogni fotogramma e tremava
         else a0 = std::floor (pos / cpp) * cpp - (npx - x) * cpp;
         const double a1 = a0 + cpp;
-        float pk = -200, rm = -200, gr = 0;
+        float pk = -200, rm = -200, gr = 0, in = -200;
         if (cpp >= 1.0)
         {
             for (long a = (long) std::ceil (a0); a < (long) std::ceil (a1); ++a)
             {
                 if (! ok (a)) continue; const int i = ring (a);
-                pk = juce::jmax (pk, P.hOut[i].load()); rm = juce::jmax (rm, P.hOutR[i].load()); gr = juce::jmax (gr, P.hGrM[i].load() + P.hGrL[i].load());
+                pk = juce::jmax (pk, P.hOut[i].load()); rm = juce::jmax (rm, P.hOutR[i].load()); in = juce::jmax (in, P.hRaw[i].load()); gr = juce::jmax (gr, P.hGrM[i].load() + P.hGrL[i].load());
             }
         }
         else
@@ -405,11 +406,11 @@ void EasyStage::envelope (PxEnv& e, int npx, double winSec)
             if (ok (a) && ok (a + 1))
             {
                 const int i = ring (a), j = ring (a + 1);
-                pk = juce::jmap (t, P.hOut[i].load(), P.hOut[j].load()); rm = juce::jmap (t, P.hOutR[i].load(), P.hOutR[j].load());
+                pk = juce::jmap (t, P.hOut[i].load(), P.hOut[j].load()); in = juce::jmap (t, P.hRaw[i].load(), P.hRaw[j].load()); rm = juce::jmap (t, P.hOutR[i].load(), P.hOutR[j].load());
                 gr = juce::jmap (t, P.hGrM[i].load() + P.hGrL[i].load(), P.hGrM[j].load() + P.hGrL[j].load());
             }
         }
-        e.pk[(size_t) x] = pk; e.rm[(size_t) x] = rm; e.gr[(size_t) x] = gr;
+        e.pk[(size_t) x] = pk; e.rm[(size_t) x] = rm; e.in[(size_t) x] = in; e.gr[(size_t) x] = gr;
         // battito che cade in questo pixel
         const long ac = (long) std::floor (a1);
         if (ok (ac) && ok (ac - 1) && cpp > 0)
@@ -424,28 +425,47 @@ void EasyStage::envelope (PxEnv& e, int npx, double winSec)
 void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p, bool bipolar, double win, bool small)
 {
     auto& P = page.ed.proc;
+    // scala in dB fissa a lato (non scorre): 0 in alto, verso il basso il silenzio
+    juce::Rectangle<float> scaleR; if (! small) scaleR = p.removeFromLeft (30);
     const int npx = juce::jmax (16, (int) p.getWidth());
     PxEnv e; envelope (e, npx, win);
     const float dx = p.getWidth() / (float) npx;
+    const bool scan = P.uiScan.load() == 1;
     // limiter e maximizer: rosso/rosa sul tema scuro, blu sul chiaro (il rosso sul chiaro stancava)
     const auto wc = tint.isTransparent() ? waveCol() : (light() ? juce::Colour (0xff3a63c4) : tint), lineC = light() ? K::ink : juce::Colours::white;
+    // due onde: l'ENTRATA scura e intera dietro, l'USCITA sopra; dove il master alza, l'uscita sborda e si vede la differenza
+    const auto outC = wc.withAlpha (light() ? 0.88f : 0.92f);
+    const auto inC = light() ? wc.interpolatedWith (juce::Colour (0xff4a5266), 0.6f).withAlpha (0.92f) : wc.withMultipliedSaturation (0.55f).interpolatedWith (juce::Colours::black, 0.38f).withAlpha (1.0f);
+    const auto capC = light() ? wc.darker (0.35f) : wc.brighter (0.45f);
     const bool over = easy() && ! small;   // nel FACILE l'onda scende fin sotto i numeri, le etichette del tempo vanno in alto
     const float bottomPad = small ? 2.0f : over ? (bipolar ? 30.0f : 0.0f) : 16.0f;
     auto area = p.withTrimmedBottom (bottomPad);
+    if (! small) scaleR = scaleR.withY (area.getY()).withHeight (area.getHeight());
     const float labY = over ? area.getY() + 2 : area.getBottom() + 2;
-    // griglia del tempo: battute del pezzo se la DAW suona, altrimenti secondi
+    const float cy = area.getCentreY(), hh = area.getHeight() * 0.5f - 2;
+    auto lin = [] (float db) { return db < -80 ? 0.0f : juce::jlimit (0.0f, 1.05f, juce::Decibels::decibelsToGain (db)); };
+    auto yD = [&] (float db) { return area.getY() + juce::jlimit (0.0f, 1.0f, -db / 36.0f) * area.getHeight(); };
+    // righe fisse della scala
+    static const float bipDb[] = { 0, -3, -6, -12 }, uniDb[] = { 0, -6, -12, -18, -24, -30 };
+    if (! small)
+    {
+        if (bipolar) for (float d : bipDb) for (int sd = -1; sd <= 1; sd += 2) { const float y = cy + sd * lin (d) * hh; g.setColour (K::hi.withAlpha (d == 0 ? 0.07f : 0.04f)); g.fillRect (area.getX(), y, area.getWidth(), 1.0f); }
+        else for (float d : uniDb) { const float y = yD (d); g.setColour (K::hi.withAlpha (d == 0 ? 0.07f : 0.05f)); g.fillRect (area.getX(), y, area.getWidth(), 1.0f); }
+    }
+    // griglia del tempo: battute del pezzo se la DAW suona, altrimenti secondi (le battute scorrono insieme all'onda)
     bool beats = false; for (int b : e.beat) if (b >= 0) { beats = true; break; }
     g.setFont (num (7.5f));
     if (beats)
         for (int x = 0; x < npx; ++x)
         {
-            const int b = e.beat[(size_t) x]; if (b < 0) continue; const bool bar = b >= 100000; const float xx = p.getX() + x * dx;
+            const int b = e.beat[(size_t) x]; if (b < 0) continue; const bool bar = b >= 100000; const float xx = p.getX() + (x - e.shift) * dx;
+            if (xx < area.getX()) continue;
             g.setColour (K::hi.withAlpha (bar ? 0.11f : 0.04f)); g.fillRect (xx, area.getY(), 1.0f, area.getHeight());
             if (bar && ! small) { g.setColour (K::faint); g.drawText (juce::String (b - 100000), juce::Rectangle<float> (xx + 3, labY, 28, 12), juce::Justification::centredLeft); }
         }
     else if (! small)
     {
-        const bool scan = P.uiScan.load() == 1; const int step = win <= 4 ? 1 : win <= 8 ? 2 : 4;
+        const int step = win <= 4 ? 1 : win <= 8 ? 2 : 4;
         for (int s = 0; s <= (int) win; s += step)
         {
             const float xx = scan ? p.getX() + p.getWidth() * s / (float) win : p.getRight() - p.getWidth() * s / (float) win;
@@ -456,43 +476,85 @@ void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p, bool bipolar,
     g.saveState(); g.reduceClipRegion (area.toNearestInt());
     g.addTransform (juce::AffineTransform::translation (-e.shift * dx, 0));   // scorrimento rigido al sotto-pixel
     const float cl = P.value ("lm_ceil");
-    auto lin = [] (float db) { return db < -80 ? 0.0f : juce::jlimit (0.0f, 1.05f, juce::Decibels::decibelsToGain (db)); };
-    // forma dell'onda: picchi (velo) e volume medio (pieno), una linea sola e morbida
-    auto shape = [&] (const std::vector<float>& v, float alpha)
+    if (! scan && ! small)
     {
-        juce::Path path; int x = 0;
-        while (x < npx)
+        // SCROLL: anello di colonne. Si disegnano solo le colonne nuove, il resto e' una copia dell'immagine
+        auto& R = ring;
+        const int cw = juce::jmax (1, juce::roundToInt (g.getInternalContext().getPhysicalPixelScaleFactor()));
+        const int W = npx + 8, H = juce::jmax (4, juce::roundToInt (area.getHeight() * cw));
+        const juce::String key = juce::String (W) + "|" + juce::String (H) + "|" + juce::String (cw) + "|" + (bipolar ? "b" : "u") + "|" + juce::String (win) + "|" + outC.toString() + inC.toString();
+        if (R.key != key || R.img.isNull()) { R.img = juce::Image (juce::Image::ARGB, W * cw, H, true); R.key = key; R.valid = false; R.W = W; R.cw = cw; R.H = H; }
+        const long oldest = e.g0 - npx, newest = e.g0 - 1;
+        long from = oldest;
+        if (R.valid && R.last >= oldest - 1 && R.last <= newest) from = R.last + 1;
+        if (from <= newest)
         {
-            while (x < npx && v[(size_t) x] < -80) ++x;
-            if (x >= npx) break;
-            const int s0 = x; while (x < npx && v[(size_t) x] >= -80) ++x; const int s1 = x;
-            if (bipolar)
+            juce::Graphics ig (R.img);
+            const float c = H * 0.5f, hp = H * 0.5f - 2.0f * cw, cap = (float) cw;
+            for (long G = from; G <= newest; ++G)
             {
-                const float cy = area.getCentreY(), h = area.getHeight() * 0.5f - 2;
-                path.startNewSubPath (p.getX() + s0 * dx, cy);
-                for (int k = s0; k < s1; ++k) path.lineTo (p.getX() + (k + 0.5f) * dx, cy - lin (v[(size_t) k]) * h);
-                path.lineTo (p.getX() + s1 * dx, cy);
-                for (int k = s1 - 1; k >= s0; --k) path.lineTo (p.getX() + (k + 0.5f) * dx, cy + lin (v[(size_t) k]) * h);
-                path.closeSubPath();
+                const int x = (int) (G - oldest); const int ix = (int) (((G % W) + W) % W) * cw;
+                R.img.clear ({ ix, 0, cw, H });
+                const float o = e.pk[(size_t) x], i = e.in[(size_t) x];
+                if (bipolar)
+                {
+                    if (o >= -80) { const float a = lin (o) * hp; ig.setColour (outC); ig.fillRect (juce::Rectangle<float> ((float) ix, c - a, (float) cw, 2 * a)); }
+                    if (i >= -80) { const float a = lin (i) * hp; ig.setColour (inC); ig.fillRect (juce::Rectangle<float> ((float) ix, c - a, (float) cw, 2 * a)); }
+                    if (o >= -80) { const float a = lin (o) * hp; ig.setColour (capC); ig.fillRect (juce::Rectangle<float> ((float) ix, c - a, (float) cw, cap)); ig.fillRect (juce::Rectangle<float> ((float) ix, c + a - cap, (float) cw, cap)); }
+                }
+                else
+                {
+                    auto yy = [&] (float db) { return juce::jlimit (0.0f, 1.0f, -db / 36.0f) * H; };
+                    if (o >= -80) { ig.setColour (outC); ig.fillRect (juce::Rectangle<float> ((float) ix, yy (o), (float) cw, H - yy (o))); }
+                    if (i >= -80) { ig.setColour (inC); ig.fillRect (juce::Rectangle<float> ((float) ix, yy (i), (float) cw, H - yy (i))); }
+                    if (o >= -80) { ig.setColour (capC); ig.fillRect (juce::Rectangle<float> ((float) ix, yy (o), (float) cw, cap)); }
+                }
             }
-            else
-            {
-                auto yD = [&] (float db) { return area.getY() + juce::jlimit (0.0f, 1.0f, -db / 36.0f) * area.getHeight(); };
-                path.startNewSubPath (p.getX() + s0 * dx, area.getBottom());
-                for (int k = s0; k < s1; ++k) path.lineTo (p.getX() + (k + 0.5f) * dx, yD (v[(size_t) k]));
-                path.lineTo (p.getX() + s1 * dx, area.getBottom()); path.closeSubPath();
-            }
+            R.last = newest; R.valid = true;
         }
-        if (bipolar) g.setColour (wc.withAlpha (alpha));
-        else { juce::ColourGradient cg (wc.withAlpha (alpha), 0, area.getY(), wc.withAlpha (alpha * 0.55f), 0, area.getBottom(), false); g.setGradientFill (cg); }
-        g.fillPath (path);
-    };
-    if (! small && ! bipolar)
-    {   // scala in dB (GAIN)
-        g.setFont (num (7.5f));
-        for (int d = -6; d >= -30; d -= 6) { const float y = area.getY() + (-d / 36.0f) * area.getHeight(); g.setColour (K::hi.withAlpha (0.05f)); g.fillRect (area.getX(), y, area.getWidth(), 1.0f); g.setColour (K::faint); g.drawText (juce::String (d), juce::Rectangle<float> (area.getX() + 2, y - 11, 26, 10), juce::Justification::centredLeft); }
+        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+        auto blit = [&] (int col, int n, float x0)
+        {
+            if (n <= 0) return;
+            auto sub = R.img.getClippedImage ({ col * cw, 0, n * cw, H });
+            g.drawImageTransformed (sub, juce::AffineTransform::scale (dx / cw, area.getHeight() / (float) H).translated (x0, area.getY()));
+        };
+        const int io = (int) (((oldest % W) + W) % W), n1 = juce::jmin (npx, W - io);
+        blit (io, n1, p.getX()); blit (0, npx - n1, p.getX() + n1 * dx);
     }
-    shape (e.pk, light() ? 0.88f : 0.92f);   // una sola onda: il suono che esce dal master
+    else
+    {
+        // SCAN e miniature: forme vettoriali
+        auto shape = [&] (const std::vector<float>& v)
+        {
+            juce::Path path; int x = 0;
+            while (x < npx)
+            {
+                while (x < npx && v[(size_t) x] < -80) ++x;
+                if (x >= npx) break;
+                const int s0 = x; while (x < npx && v[(size_t) x] >= -80) ++x; const int s1 = x;
+                if (bipolar)
+                {
+                    path.startNewSubPath (p.getX() + s0 * dx, cy);
+                    for (int k = s0; k < s1; ++k) path.lineTo (p.getX() + (k + 0.5f) * dx, cy - lin (v[(size_t) k]) * hh);
+                    path.lineTo (p.getX() + s1 * dx, cy);
+                    for (int k = s1 - 1; k >= s0; --k) path.lineTo (p.getX() + (k + 0.5f) * dx, cy + lin (v[(size_t) k]) * hh);
+                    path.closeSubPath();
+                }
+                else
+                {
+                    path.startNewSubPath (p.getX() + s0 * dx, area.getBottom());
+                    for (int k = s0; k < s1; ++k) path.lineTo (p.getX() + (k + 0.5f) * dx, yD (v[(size_t) k]));
+                    path.lineTo (p.getX() + s1 * dx, area.getBottom()); path.closeSubPath();
+                }
+            }
+            return path;
+        };
+        const auto po = shape (e.pk);
+        g.setColour (outC); g.fillPath (po);
+        g.setColour (inC); g.fillPath (shape (e.in));
+        if (! small) { g.setColour (capC.withAlpha (0.9f)); g.strokePath (po, juce::PathStrokeType (1.0f)); }
+    }
     // l'intervento del master: la linea del limiter. Ferma e tenue quando non lavora, si piega (e si accende) quando toglie
     {
         auto yLine = [&] (float gr, bool top)
@@ -541,6 +603,14 @@ void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p, bool bipolar,
     }
     if (e.cursor >= 0) { const float xx = p.getX() + e.cursor * dx; g.setColour (lineC.withAlpha (0.5f)); g.fillRect (xx, area.getY(), 1.0f, area.getHeight()); }
     g.restoreState();
+    if (! small)
+    {   // la scala fissa
+        g.setColour (K::hi.withAlpha (0.06f)); g.fillRect (scaleR.getRight() - 1, area.getY(), 1.0f, area.getHeight());
+        g.setFont (num (7.5f)); g.setColour (K::faint);
+        auto lab = [&] (float y, float d) { g.drawText (d == 0 ? juce::String ("0") : juce::String ((int) d), juce::Rectangle<float> (scaleR.getX(), juce::jlimit (area.getY(), area.getBottom() - 10, y - 5), scaleR.getWidth() - 5, 10), juce::Justification::centredRight); };
+        if (bipolar) { for (float d : bipDb) { lab (cy - lin (d) * hh, d); lab (cy + lin (d) * hh, d); } g.setColour (K::faint.withAlpha (0.6f)); g.drawText ("dB", juce::Rectangle<float> (scaleR.getX(), cy - 5, scaleR.getWidth() - 5, 10), juce::Justification::centredRight); }
+        else for (float d : uniDb) lab (yD (d), d);
+    }
     if (! small && P.lufsS.load() < -69 && P.hTot.load() < 10) { g.setFont (f (12.0f)); g.setColour (K::sub); g.drawText ("premi play", area, juce::Justification::centred); }
 }
 

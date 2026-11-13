@@ -445,8 +445,9 @@ enum EasyView { V_WAVE, V_GAIN, V_SPEC, V_IMAGE, V_METER, V_IDEAL, V_REF, kEasyV
 // colonne della storia ridotte a pixel (il massimo di quelle che ci cadono), in modo SCROLL o SCAN
 struct PxEnv
 {
-    std::vector<float> pk, rm, gr; std::vector<int> beat; int n = 0; float cursor = -1; float shift = 0;   // shift: frazione di pixel di cui scorrere il disegno (scorrimento rigido)
-    void size (int w) { n = w; pk.assign ((size_t) w, -200.0f); rm.assign ((size_t) w, -200.0f); gr.assign ((size_t) w, 0.0f); beat.assign ((size_t) w, -1); }
+    std::vector<float> pk, rm, gr, in; std::vector<int> beat; int n = 0; float cursor = -1; float shift = 0;   // shift: frazione di pixel di cui scorrere il disegno (scorrimento rigido)
+    long g0 = 0;   // SCROLL: indice di griglia del pixel subito dopo l'ultimo (il pixel x vale g0 - (n - x))
+    void size (int w) { n = w; pk.assign ((size_t) w, -200.0f); rm.assign ((size_t) w, -200.0f); in.assign ((size_t) w, -200.0f); gr.assign ((size_t) w, 0.0f); beat.assign ((size_t) w, -1); }
 };
 class EasyStage : public juce::Component
 {
@@ -471,6 +472,8 @@ public:
     void envelope (PxEnv&, int npx, double winSec);
     struct Hot { juce::Rectangle<float> r; int id; }; std::vector<Hot> hots; int hov = -1;
     juce::Image scope; std::unique_ptr<juce::VBlankAttachment> vb;
+    // SCROLL come un registratore: ogni colonna di pixel si disegna una volta sola in un'immagine ad anello, poi si copia spostata
+    struct WaveRing { juce::Image img; juce::String key; long last = 0; bool valid = false; int W = 0, cw = 1, H = 1; } ring;
 private:
     juce::Rectangle<float> visual();
     juce::Image panelImg, veilImg; juce::String panelKey; void panelDraw (juce::Graphics&);
