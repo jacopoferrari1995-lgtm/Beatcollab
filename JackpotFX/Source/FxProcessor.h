@@ -12,6 +12,8 @@ constexpr int kSlots = 8;
 inline juce::String typeId (int k) { return "s" + juce::String (k + 1) + "type"; }
 inline juce::String amtId (int k)  { return "s" + juce::String (k + 1); }
 inline juce::String onId (int k)   { return "s" + juce::String (k + 1) + "on"; }
+inline juce::String mixId (int k)  { return "s" + juce::String (k + 1) + "mix"; }
+inline juce::String advId (int k, int i) { return "s" + juce::String (k + 1) + "a" + juce::String (i + 1); }
 
 struct FxPreset { const char* name; const char* note; int type[kSlots]; float amt[kSlots]; };
 const std::vector<FxPreset>& factoryPresets();
@@ -47,7 +49,9 @@ public:
     // azioni dall'interfaccia (thread dei messaggi)
     void setSlot (int k, int type, float amt);
     void swapSlots (int a, int b);
-    void resetAmounts();                  // tutte le manopole al neutro, effetti scelti invariati
+    void resetAmounts();
+    void setAdv (int k, int i, float v);
+    void resetAdv (int k);                // parametri avanzati dello slot ai valori base dell'effetto                  // tutte le manopole al neutro, effetti scelti invariati
     void loadFactory (int i);
     bool savePreset (const juce::File&);
     bool loadPreset (const juce::File&);
@@ -73,6 +77,7 @@ private:
     pfx::Engine eng;
     juce::AudioBuffer<float> dry;
     std::atomic<float>* typeRaw[kSlots] {}; std::atomic<float>* amtRaw[kSlots] {}; std::atomic<float>* onRaw[kSlots] {};
+    std::atomic<float>* mixRaw[kSlots] {}; std::atomic<float>* advRaw[kSlots][pfx::kAdv] {};
     double sr = 48000, freeTicks = 0; float mixS = 1, outS = 1;
     float colIn = 0, colOut = 0; int colN = 0;
 };

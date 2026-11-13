@@ -3,14 +3,43 @@
 // Lo stesso codice serve al Sampler e servira' al plugin Jackpot FX: e' il "motore" degli effetti.
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <cmath>
+#include "FxSamplesData.h"
 
 namespace pfx
 {
 enum Type { OFF, FILTER, GAIN, REVERB, DELAY, SCRATCH, TAPESTOP, STUTTER, GLITCH, GATE, CRUSH, LOFI, TAPE, VINYL,
             FLANGER, PHASER, CHORUS, DIMENSION, TREMOLO, AUTOPAN, WIDE,
             // aggiunti dopo (in fondo, cosi' i progetti salvati restano giusti)
-            GATEMIX, STUTMIX, BEATROLL, ROLLMIX, TREMMIX, SCRATCHHAND, BEATREPEAT, RISER, DOWNLIFTER, REVERSE, HALFSPEED, PITCH, PUMP, FREEZE, kNumTypes };
+            GATEMIX, STUTMIX, BEATROLL, ROLLMIX, TREMMIX, SCRATCHHAND, BEATREPEAT, RISER, DOWNLIFTER, REVERSE, HALFSPEED, PITCH, PUMP, FREEZE,
+            RISERSYN, SNAREROLL, SUBDROP, kNumTypes };
+// effetti che "muovono il tempo" (riletture del passato): suonano per primi, cosi' gli altri effetti si sommano sopra (freeze + reverb, ecc.)
+inline bool isTimeFx (int t)
+{
+    return t == FREEZE || t == SCRATCH || t == SCRATCHHAND || t == TAPESTOP || t == STUTTER || t == BEATROLL || t == BEATREPEAT || t == GLITCH || t == REVERSE || t == HALFSPEED;
+}
+// campioni di transizione (veri, renderizzati e inclusi nel plugin), decodificati una volta sola
+struct FxSample { juce::AudioBuffer<float> buf; double sr = 44100; };
+inline const FxSample& fxSample (int which)
+{
+    struct Bank
+    {
+        FxSample s[5];
+        Bank()
+        {
+            const void* d[5] = { FxSamplesData::riser_noise_ogg, FxSamplesData::riser_synth_ogg, FxSamplesData::riser_snareroll_ogg, FxSamplesData::down_noise_ogg, FxSamplesData::down_subdrop_ogg };
+            const int sz[5] = { FxSamplesData::riser_noise_oggSize, FxSamplesData::riser_synth_oggSize, FxSamplesData::riser_snareroll_oggSize, FxSamplesData::down_noise_oggSize, FxSamplesData::down_subdrop_oggSize };
+            juce::OggVorbisAudioFormat ogg;
+            for (int i = 0; i < 5; ++i)
+                if (std::unique_ptr<juce::AudioFormatReader> r (ogg.createReaderFor (new juce::MemoryInputStream (d[i], (size_t) sz[i], false), true)); r != nullptr)
+                {
+                    s[i].sr = r->sampleRate; s[i].buf.setSize (2, (int) r->lengthInSamples); r->read (&s[i].buf, 0, (int) r->lengthInSamples, 0, true, true);
+                }
+        }
+    };
+    static Bank bank; return bank.s[juce::jlimit (0, 4, which)];
+}
 // famiglie con la seconda manopola MIX: velocita' su una manopola, quantita' su un'altra
 enum Family { F_GATE, F_STUT, F_ROLL, F_TREM, kFamilies };
 inline int familyOfMix (int t) { return t == GATEMIX ? F_GATE : t == STUTMIX ? F_STUT : t == ROLLMIX ? F_ROLL : t == TREMMIX ? F_TREM : -1; }
@@ -51,14 +80,87 @@ inline const Info& info (int t)
         { "TREMOLO MIX",1.0f, false, false, "MODULAZIONE", "Quanto pulsa il TREMOLO (seconda manopola)." },
         { "SCRATCH MANO",0.5f, true, true,  "TEMPO",     "La manopola e' la mano sul vinile: muovila avanti e indietro. Ferma, il disco riparte." },
         { "BEAT REPEAT",0.0f, true,  false, "TEMPO",     "Come in Ableton: aspetta il battito, prende quel pezzo e lo ripete abbassandolo. La manopola sceglie la lunghezza (1/4, 1/8, 1/16)." },
-        { "RISER",      0.0f, false, false, "TRANSIZIONI", "Rumore e tono che salgono: gira piano per 4-8 battute prima del drop." },
-        { "DOWNLIFTER", 0.0f, false, false, "TRANSIZIONI", "Rumore che scende: per gli arrivi e le uscite." },
-        { "REVERSE",    0.0f, true,  false, "TEMPO",     "L'ultimo battito suonato al contrario, finche' tieni." },
+        { "RISER",      0.0f, false, false, "TRANSIZIONI", "Rumore che sale per 2 battute: parte quando giri, la manopola e' il volume. Torna a zero per rilanciarlo." },
+        { "DOWNLIFTER", 0.0f, false, false, "TRANSIZIONI", "Rumore che scende, per gli arrivi e le uscite. Parte quando giri, la manopola e' il volume." },
+        { "REVERSE",    0.0f, true,  false, "TEMPO",     "L'ultima battuta suonata al contrario. La manopola e' il mix: piu giri, piu si sente il reverse." },
         { "HALF SPEED", 0.0f, true,  false, "TONO",      "Tutto a meta velocita, un'ottava sotto: il classico rallenty." },
         { "PITCH",      0.5f, false, true,  "TONO",      "Intonazione da -12 a +12 semitoni, al centro 0." },
         { "PUMP",       0.0f, false, false, "MODULAZIONE", "Sidechain finto: il volume pompa sui quarti, come con la cassa." },
-        { "FREEZE",     0.0f, true,  false, "TEMPO",     "Ferma il suono in una nota sospesa, finche' tieni." } };
+        { "FREEZE",     0.0f, true,  false, "TEMPO",     "Ferma il suono in una nota sospesa, finche' tieni. Gli altri effetti si sommano sopra." },
+        { "RISER SYNTH",0.0f, false, false, "TRANSIZIONI", "Synth che sale di due ottave con il filtro che apre, 2 battute. La manopola e' il volume." },
+        { "SNARE ROLL", 0.0f, false, false, "TRANSIZIONI", "Rullata che accelera da ottavi a trentaduesimi, 2 battute. La manopola e' il volume." },
+        { "SUB DROP",   0.0f, false, false, "TRANSIZIONI", "Sub che cade, per l'arrivo del drop. La manopola e' il volume." } };
     return I[juce::jlimit (0, kNumTypes - 1, t)];
+}
+
+// parametri avanzati (solo con il mouse, in Jackpot FX): fino a 6 per effetto, 0..1. I default riproducono il suono base.
+constexpr int kAdv = 6;
+struct AdvSpec { int n; const char* name[kAdv]; float def[kAdv]; };
+inline const AdvSpec& adv (int t)
+{
+    static const AdvSpec none { 0, {}, {} };
+    static const AdvSpec rv { 6, { "GRANDEZZA", "SMORZA", "PRE-DELAY", "TAGLIA BASSI", "TAGLIA ALTI", "LARGHEZZA" }, { 0.82f, 0.45f, 0, 0, 1, 1 } };
+    static const AdvSpec dl { 5, { "TEMPO", "FEEDBACK", "FILTRO", "PING PONG", "SATURA" }, { 0.1875f, 0.5f, 0.58f, 1, 0 } };
+    static const AdvSpec fi { 3, { "RISONANZA", "PENDENZA", "DRIVE" }, { 0.3333f, 0, 0 } };
+    static const AdvSpec ga { 3, { "FORMA", "APERTURA", "SWING" }, { 0.1236f, 0.5f, 0 } };
+    static const AdvSpec st { 3, { "CALO", "PITCH", "SFUMA" }, { 0, 0.5f, 0.05f } };
+    static const AdvSpec br { 1, { "CALO" }, { 0.36f } };
+    static const AdvSpec tr { 2, { "FORMA", "STEREO" }, { 0, 0 } };
+    static const AdvSpec cr { 3, { "CAMPIONI", "TONO", "VOLUME" }, { 0, 1, 1 } };
+    static const AdvSpec lf { 3, { "RUMORE", "TONO", "VOLUME" }, { 0, 0.5f, 1 } };
+    static const AdvSpec tp { 3, { "SATURA", "WOW", "VOLUME" }, { 0.5f, 0.5f, 1 } };
+    static const AdvSpec vn { 3, { "FRUSCIO", "CREPITIO", "VOLUME" }, { 0.5f, 0.5f, 1 } };
+    static const AdvSpec fl { 2, { "VELOCITA", "FEEDBACK" }, { 0.4002f, 0.6f } };
+    static const AdvSpec ph { 2, { "VELOCITA", "FEEDBACK" }, { 0.4778f, 0.5f } };
+    static const AdvSpec ch { 2, { "VELOCITA", "PROFONDITA" }, { 0.6157f, 0.5f } };
+    static const AdvSpec dm { 2, { "VELOCITA", "PROFONDITA" }, { 0.4215f, 0.5f } };
+    static const AdvSpec ts { 1, { "FRENATA" }, { 0.4376f } };
+    static const AdvSpec rs { 1, { "DURATA" }, { 0.375f } };
+    static const AdvSpec re { 1, { "DURATA" }, { 0.625f } };
+    static const AdvSpec pu { 2, { "VELOCITA", "RILASCIO" }, { 0.5f, 0.477f } };
+    static const AdvSpec fr { 1, { "GRANO" }, { 0.4628f } };
+    switch (t)
+    {
+        case REVERB: return rv; case DELAY: return dl; case FILTER: return fi; case GATE: return ga;
+        case STUTTER: case BEATROLL: return st; case BEATREPEAT: return br; case TREMOLO: return tr;
+        case CRUSH: return cr; case LOFI: return lf; case TAPE: return tp; case VINYL: return vn;
+        case FLANGER: return fl; case PHASER: return ph; case CHORUS: return ch; case DIMENSION: return dm;
+        case TAPESTOP: return ts; case RISER: case RISERSYN: case SNAREROLL: return rs; case REVERSE: return re;
+        case PUMP: return pu; case FREEZE: return fr;
+        default: return none;
+    }
+}
+inline int zoneOf (float v, int n) { return juce::jlimit (0, n - 1, (int) (v * (float) n)); }
+inline double delayBeats (float v) { static const double b[8] = { 1.0, 0.75, 0.5, 1.0 / 3.0, 0.375, 0.25, 1.0 / 6.0, 0.125 }; return b[zoneOf (v, 8)]; }
+inline double lfoHz (float v) { return 0.02 * std::pow (400.0, (double) v); }
+inline juce::String advText (int t, int i, float v)
+{
+    auto pct = [v] { return juce::String (juce::roundToInt (v * 100)) + "%"; };
+    auto hz = [] (double f) { return f >= 1000 ? juce::String (f / 1000.0, 1) + " kHz" : juce::String (juce::roundToInt (f)) + " Hz"; };
+    switch (t)
+    {
+        case REVERB:
+            if (i == 2) return juce::String (juce::roundToInt (v * 250)) + " ms";
+            if (i == 3) return v < 0.01f ? juce::String ("OFF") : hz (20.0 * std::pow (40.0, (double) v));
+            if (i == 4) return v > 0.99f ? juce::String ("OFF") : hz (20000.0 * std::pow (0.1, 1.0 - v));
+            return pct();
+        case DELAY:
+        {
+            static const char* n[8] = { "1/4", "1/8 .", "1/8", "1/8T", "1/16 .", "1/16", "1/16T", "1/32" };
+            if (i == 0) return n[zoneOf (v, 8)];
+            if (i == 2) return hz (1000.0 * std::pow (16.0, (double) v));
+            return pct();
+        }
+        case FILTER: if (i == 1) return v < 0.5f ? juce::String ("12 dB") : juce::String ("24 dB"); return pct();
+        case STUTTER: case BEATROLL: if (i == 1) { const float st = (v - 0.5f) * 4; return std::abs (st) < 0.05f ? juce::String ("0") : (st > 0 ? "+" : "") + juce::String (st, 1) + " st"; } return pct();
+        case FLANGER: case PHASER: case CHORUS: case DIMENSION: if (i == 0) return juce::String (lfoHz (v), 2) + " Hz"; return pct();
+        case TAPESTOP: return juce::String (juce::roundToInt (10.0 * std::pow (60.0, (double) v) * 4)) + " ms";
+        case RISER: case RISERSYN: case SNAREROLL: { static const char* n[4] = { "1 BATT", "2 BATT", "4 BATT", "8 BATT" }; return n[zoneOf (v, 4)]; }
+        case REVERSE: { static const char* n[4] = { "1/4 BATT", "1/2 BATT", "1 BATT", "2 BATT" }; return n[zoneOf (v, 4)]; }
+        case PUMP: if (i == 0) { static const char* n[3] = { "1/2", "1/4", "1/8" }; return n[zoneOf (v, 3)]; } return pct();
+        case FREEZE: return juce::String (juce::roundToInt (50.0 * std::pow (20.0, (double) v))) + " ms";
+        default: return pct();
+    }
 }
 
 // ritardo modulabile, piccolo (fino a ~60 ms)
@@ -81,7 +183,8 @@ public:
     void prepare (double s)
     {
         sr = s;
-        hist.setSize (2, (int) (sr * 3)); hist.clear(); hw = 0;
+        hist.setSize (2, (int) (sr * 5)); hist.clear(); hw = 0;
+        fxSample (0);   // decodifica i campioni di transizione adesso, non mentre suona
         dly.setSize (2, (int) (sr * 2)); dly.clear(); dw = 0;
         md.prepare (sr);
         rev.setSampleRate (sr); rev.reset();
@@ -91,12 +194,13 @@ public:
     void reset()
     {
         stOn = stuOn = scOn = false; stX = stuX = scX = 0; stSpeed = 1; scV = -1; glX = 0;
-        for (int c = 0; c < 2; ++c) { ic1[c] = ic2[c] = 0; lfHold[c] = lfLp[c] = 0; tLp[c] = 0; vLp[c] = 0; for (auto& a : ap[c]) a = 0; dlLp[c] = 0; phFb[c] = 0; }
+        for (int c = 0; c < 2; ++c) { ic1[c] = ic2[c] = ic3[c] = ic4[c] = rvLc[c] = rvHc[c] = 0; lfHold[c] = lfLp[c] = 0; tLp[c] = 0; vLp[c] = 0; for (auto& a : ap[c]) a = 0; dlLp[c] = 0; phFb[c] = 0; }
         djMode = 0; fxG = 1; amtS = -1; phLfo = 0; free = 0;
-        stuWait = brOn = rvOn = hsOn = frOn = false; brX = rvX = hsX = frX = 0; faderS = 1; psPh = 0; rsI1 = rsI2 = rsF = 0; lastPh = brLastPh = 1;
+        stuWait = brOn = rvOn = hsOn = frOn = plOn = plDone = false; plG = 0; brX = rvX = hsX = frX = 0; faderS = 1; psPh = 0; rsI1 = rsI2 = rsF = 0; lastPh = brLastPh = 1;
     }
     void setType (int t) { if (t != type) { type = t; reset(); } }
     int type = OFF;
+    float a[kAdv] { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f };   // parametri avanzati (li mette l'Engine)
     // amt: valore della manopola (0..1). bpm, ppq e playing: per gli effetti a tempo
     void process (float* L, float* R, int N, float amt, double bpm, double ppq, bool playing, const float* fam = nullptr)
     {
@@ -131,8 +235,11 @@ public:
             case AUTOPAN:   tremolo (L, R, N, amt, spb, beat0, true); pushHist (L, R, N); break;
             case WIDE:      wide (L, R, N, amt); pushHist (L, R, N); break;
             case BEATREPEAT: beatRepeat (L, R, N, amt, spb, beat0); break;
-            case RISER:     riser (L, R, N, amt, false); pushHist (L, R, N); break;
-            case DOWNLIFTER: riser (L, R, N, amt, true); pushHist (L, R, N); break;
+            case RISER:     player (L, R, N, amt, 0, spb, true); pushHist (L, R, N); break;
+            case RISERSYN:  player (L, R, N, amt, 1, spb, true); pushHist (L, R, N); break;
+            case SNAREROLL: player (L, R, N, amt, 2, spb, true); pushHist (L, R, N); break;
+            case DOWNLIFTER: player (L, R, N, amt, 3, spb, false); pushHist (L, R, N); break;
+            case SUBDROP:   player (L, R, N, amt, 4, spb, false); pushHist (L, R, N); break;
             case REVERSE:   reverse (L, R, N, amt, spb); break;
             case HALFSPEED: halfSpeed (L, R, N, amt); break;
             case PITCH:     pitch (L, R, N, amt); pushHist (L, R, N); break;
@@ -154,9 +261,11 @@ private:
     bool stuWait = false; double lastPh = 1; int stuFill = 0; float faderS = 1;
     bool brOn = false; double brStart = 0, brLastPh = 1; int brPos = 0, brN = 0, brLen = 1; float brX = 0;
     bool rvOn = false; double rvStart = 0; int rvPos = 0; float rvX = 0;
+    bool plOn = false, plDone = false; double plPos = 0; float plG = 0;
     bool hsOn = false; double hsR = 0; float hsX = 0;
     bool frOn = false; double frStart = 0; int frPh[3] {}, frOff[3] {}; float frX = 0;
     float psPh = 0, rsI1 = 0, rsI2 = 0, rsF = 0;
+    float ic3[2] {}, ic4[2] {}, rvP[3] { -1, -1, -1 }, rvLc[2] {}, rvHc[2] {}, liftK = 1; int stuRep = 0;
 
     void pushHist (const float* L, const float* R, int N)
     {
@@ -173,11 +282,11 @@ private:
     void filter (float* L, float* R, int N, float amt)
     {
         const float x = (amt - 0.5f) * 2.0f;
-        if (std::abs (x) <= 0.03f) { djMode = 0; for (int c = 0; c < 2; ++c) ic1[c] = ic2[c] = 0; return; }
+        if (std::abs (x) <= 0.03f) { djMode = 0; for (int c = 0; c < 2; ++c) ic1[c] = ic2[c] = ic3[c] = ic4[c] = 0; return; }
         const float mode = x < 0 ? -1.0f : 1.0f, t = (std::abs (x) - 0.03f) / 0.97f;
         const float fc = x < 0 ? (float) (20000.0 * std::pow (0.008, (double) t)) : (float) (20.0 * std::pow (150.0, (double) t));
-        if (mode != djMode) { djMode = mode; djFc = fc; for (int c = 0; c < 2; ++c) ic1[c] = ic2[c] = 0; }
-        const float k = 2.0f - 2.0f * 0.3f;
+        if (mode != djMode) { djMode = mode; djFc = fc; for (int c = 0; c < 2; ++c) ic1[c] = ic2[c] = ic3[c] = ic4[c] = 0; }
+        const float k = 2.0f - 1.8f * a[0], k2 = 1.4f; const bool s24 = a[1] >= 0.5f; const float drv = 1.0f + a[2] * 6.0f;
         for (int i = 0; i < N; ++i)
         {
             djFc += (fc - djFc) * 0.002f;
@@ -186,28 +295,59 @@ private:
             float* io[2] = { L + i, R + i };
             for (int c = 0; c < 2; ++c)
             {
-                const float v0 = *io[c], v3 = v0 - ic2[c], v1 = a1 * ic1[c] + a2 * v3, v2 = ic2[c] + a2 * ic1[c] + a3 * v3;
+                float v0 = *io[c]; if (a[2] > 0.01f) v0 = std::tanh (v0 * drv) / std::sqrt (drv);
+                const float v3 = v0 - ic2[c], v1 = a1 * ic1[c] + a2 * v3, v2 = ic2[c] + a2 * ic1[c] + a3 * v3;
                 ic1[c] = 2 * v1 - ic1[c]; ic2[c] = 2 * v2 - ic2[c];
-                *io[c] = mode < 0 ? v2 : v0 - k * v1 - v2;
+                float y = mode < 0 ? v2 : v0 - k * v1 - v2;
+                if (s24)
+                {
+                    const float b1 = 1.0f / (1.0f + g * (g + k2)), b2 = g * b1, b3 = g * b2;
+                    const float u3 = y - ic4[c], u1 = b1 * ic3[c] + b2 * u3, u2 = ic4[c] + b2 * ic3[c] + b3 * u3;
+                    ic3[c] = 2 * u1 - ic3[c]; ic4[c] = 2 * u2 - ic4[c];
+                    y = mode < 0 ? u2 : y - k2 * u1 - u2;
+                }
+                *io[c] = y;
             }
         }
     }
     void reverb (float* L, float* R, int N, float amt)
     {
         if (amt < 0.005f && amtS < 0.005f) { amtS = amt; return; }
+        if (a[0] != rvP[0] || a[1] != rvP[1] || a[5] != rvP[2])
+        {
+            rvP[0] = a[0]; rvP[1] = a[1]; rvP[2] = a[5];
+            juce::Reverb::Parameters rp; rp.roomSize = a[0]; rp.damping = a[1]; rp.wetLevel = 1; rp.dryLevel = 0; rp.width = a[5]; rev.setParameters (rp);
+        }
+        const int pre = juce::jlimit (0, dly.getNumSamples() - 2, (int) (a[2] * 0.25 * sr));
+        const bool lc = a[3] >= 0.01f, hc = a[4] <= 0.99f;
+        const float cL = lc ? (float) std::exp (-juce::MathConstants<double>::twoPi * 20.0 * std::pow (40.0, (double) a[3]) / sr) : 0;
+        const float cH = hc ? (float) std::exp (-juce::MathConstants<double>::twoPi * 20000.0 * std::pow (0.1, 1.0 - a[4]) / sr) : 0;
+        const int len = dly.getNumSamples(); float* d0 = dly.getWritePointer (0); float* d1 = dly.getWritePointer (1);
         for (int off = 0; off < N; off += kChunk)
         {
             const int m = juce::jmin (kChunk, N - off);
-            for (int i = 0; i < m; ++i) { wl[i] = L[off + i]; wr[i] = R[off + i]; }
+            for (int i = 0; i < m; ++i)
+            {
+                float x0 = L[off + i], x1 = R[off + i];
+                if (pre > 0) { d0[dw] = x0; d1[dw] = x1; int r = dw - pre; if (r < 0) r += len; x0 = d0[r]; x1 = d1[r]; if (++dw >= len) dw = 0; }
+                wl[i] = x0; wr[i] = x1;
+            }
             rev.processStereo (wl, wr, m);
-            for (int i = 0; i < m; ++i) { amtS += (amt - amtS) * 0.002f; L[off + i] += wl[i] * amtS * 0.45f; R[off + i] += wr[i] * amtS * 0.45f; }
+            for (int i = 0; i < m; ++i)
+            {
+                float y0 = wl[i], y1 = wr[i];
+                if (lc) { rvLc[0] = y0 + cL * (rvLc[0] - y0); rvLc[1] = y1 + cL * (rvLc[1] - y1); y0 -= rvLc[0]; y1 -= rvLc[1]; }
+                if (hc) { rvHc[0] = y0 + cH * (rvHc[0] - y0); rvHc[1] = y1 + cH * (rvHc[1] - y1); y0 = rvHc[0]; y1 = rvHc[1]; }
+                amtS += (amt - amtS) * 0.002f; L[off + i] += y0 * amtS * 0.45f; R[off + i] += y1 * amtS * 0.45f;
+            }
         }
     }
     void delay (float* L, float* R, int N, float amt, double spb)
     {
-        const int len = dly.getNumSamples(); const double dT = juce::jlimit (16.0, (double) len - 4, spb * 0.75);   // 1/8 puntato
+        const int len = dly.getNumSamples(); const double dT = juce::jlimit (16.0, (double) len - 4, spb * delayBeats (this->a[0]));   // default 1/8 puntato
         float* a = dly.getWritePointer (0); float* b = dly.getWritePointer (1);
-        const float lpA = (float) std::exp (-juce::MathConstants<double>::twoPi * 5000.0 / sr);
+        const float lpA = (float) std::exp (-juce::MathConstants<double>::twoPi * 1000.0 * std::pow (16.0, (double) this->a[2]) / sr);
+        const float fb = juce::jmin (0.95f, this->a[1]), pp = this->a[3], sat = this->a[4], sd = 1.0f + sat * 4.0f;
         for (int i = 0; i < N; ++i)
         {
             amtS += (amt - amtS) * 0.002f;
@@ -215,8 +355,10 @@ private:
             const int i0 = (int) rp; const float fr = (float) (rp - i0); const int i1 = (i0 + 1) % len;
             const float yL = a[i0] + (a[i1] - a[i0]) * fr, yR = b[i0] + (b[i1] - b[i0]) * fr;
             dlLp[0] = yR + lpA * (dlLp[0] - yR); dlLp[1] = yL + lpA * (dlLp[1] - yL);   // ping pong
-            const float sendIn = amtS;
-            a[dw] = 0.5f * (L[i] + R[i]) * sendIn + dlLp[0] * 0.5f; b[dw] = dlLp[1] * 0.5f;
+            const float sendIn = amtS, m = 0.5f * (L[i] + R[i]);
+            float fa = fb * (pp * dlLp[0] + (1 - pp) * dlLp[1]), fbb = fb * (pp * dlLp[1] + (1 - pp) * dlLp[0]);
+            if (sat > 0.01f) { fa = std::tanh (fa * sd) / sd; fbb = std::tanh (fbb * sd) / sd; }
+            a[dw] = (pp * m + (1 - pp) * L[i]) * sendIn + fa; b[dw] = (1 - pp) * R[i] * sendIn + fbb;
             if (++dw >= len) dw = 0;
             L[i] += yL * amtS; R[i] += yR * amtS;
         }
@@ -248,7 +390,7 @@ private:
         const int len = hist.getNumSamples(); float* b0 = hist.getWritePointer (0); float* b1 = hist.getWritePointer (1);
         const float target = 1.0f - juce::jlimit (0.0f, 1.0f, amt);
         if (amt > 0.01f && ! stOn) { stOn = true; stR = hw; stSpeed = 1; }
-        const float sc = (float) (1.0 - std::exp (-1.0 / (0.06 * sr)));
+        const float sc = (float) (1.0 - std::exp (-1.0 / (0.01 * std::pow (60.0, (double) a[0]) * sr)));
         for (int i = 0; i < N; ++i)
         {
             b0[hw] = L[i]; b1[hw] = R[i];
@@ -271,19 +413,19 @@ private:
         const int len = hist.getNumSamples(); float* b0 = hist.getWritePointer (0); float* b1 = hist.getWritePointer (1);
         const int z = rateZone (amt);
         const int want = juce::jlimit (32, len - 8, (int) (rateBeats (juce::jmax (0, z)) * spb));
-        const float fade = (float) (0.002 * sr);
+        const float fade = (float) ((0.0005 + a[2] * 0.03) * sr), semi = (a[1] - 0.5f) * 4.0f, dec = 1.0f - a[0] * 0.6f;
         for (int i = 0; i < N; ++i)
         {
             b0[hw] = L[i]; b1[hw] = R[i];
             if (z >= 0 && ! stuOn && ! stuWait)
             {
-                if (! roll) { stuOn = true; stuStart = hw - want; if (stuStart < 0) stuStart += len; stuPos = 0; }
+                if (! roll) { stuOn = true; stuStart = hw - want; if (stuStart < 0) stuStart += len; stuPos = 0; stuRep = 0; }
                 else stuWait = true;
             }
             if (stuWait)
             {   // parte esattamente sul prossimo passo della griglia, e ripete quello che arriva da li'
                 const double ph = std::fmod ((beat0 + i / spb) / rateBeats (juce::jmax (0, z)), 1.0);
-                if (ph < lastPh || z < 0) { stuWait = false; if (z >= 0) { stuOn = true; stuStart = hw; stuPos = 0; stuFill = 0; } }
+                if (ph < lastPh || z < 0) { stuWait = false; if (z >= 0) { stuOn = true; stuStart = hw; stuPos = 0; stuFill = 0; stuRep = 0; } }
                 lastPh = ph;
             }
             if (stuOn) stuLen = want;
@@ -294,13 +436,14 @@ private:
                 float tl = L[i], tr = R[i];
                 if (! live)
                 {
-                    const float w = juce::jmin (1.0f, juce::jmin ((float) stuPos / fade, (float) (stuLen - stuPos) / fade));
+                    const float w = juce::jmin (1.0f, juce::jmin ((float) stuPos / fade, (float) (stuLen - stuPos) / fade)) * (stuRep > 0 && dec < 1 ? std::pow (dec, (float) stuRep) : 1.0f);
                     tl = rd (0, stuStart + stuPos) * w; tr = rd (1, stuStart + stuPos) * w;
                 }
                 stuX = juce::jlimit (0.0f, 1.0f, stuX + (stuOn ? 1.0f : -1.0f) / (float) (0.005 * sr));
                 const float m = stuX * mix;
                 L[i] += (tl - L[i]) * m; R[i] += (tr - R[i]) * m;
-                stuPos += 1; if (live) ++stuFill; if (stuPos >= stuLen) stuPos = 0;
+                const double spd = (live || std::abs (semi) < 0.05f) ? 1.0 : juce::jlimit (0.25, 4.0, std::pow (2.0, semi * stuRep / 12.0));
+                stuPos += spd; if (live) ++stuFill; if (stuPos >= stuLen) { stuPos = 0; if (! live) ++stuRep; else if (stuFill >= stuLen) stuRep = 1; }
             }
             if (++hw >= len) hw = 0;
         }
@@ -352,7 +495,7 @@ private:
                 float tl = L[i], tr = R[i];
                 if (brN > 0)
                 {
-                    const float w = juce::jmin (1.0f, juce::jmin ((float) brPos / fade, (float) (brLen - brPos) / fade)) * std::pow (0.82f, (float) (brN - 1));
+                    const float w = juce::jmin (1.0f, juce::jmin ((float) brPos / fade, (float) (brLen - brPos) / fade)) * std::pow (1.0f - a[0] * 0.5f, (float) (brN - 1));
                     tl = rd (0, brStart + brPos) * w; tr = rd (1, brStart + brPos) * w;
                 }
                 brX = juce::jlimit (0.0f, 1.0f, brX + (brOn ? 1.0f : -1.0f) / (float) (0.005 * sr));
@@ -363,26 +506,48 @@ private:
         }
     }
     void reverse (float* L, float* R, int N, float amt, double spb)
-    {
+    {   // l'ultima battuta al contrario, in loop finche' tieni; la manopola e' il mix
         const int len = hist.getNumSamples(); float* b0 = hist.getWritePointer (0); float* b1 = hist.getWritePointer (1);
-        const int L1 = juce::jlimit (64, len / 2, (int) spb);
+        const int L1 = juce::jlimit (256, len - 64, (int) ((1 << zoneOf (a[0], 4)) * spb));   // 1/4, 1/2, 1 (default), 2 battute
         if (amt > 0.01f && ! rvOn) { rvOn = true; rvStart = hw; rvPos = 0; }
         if (amt <= 0.01f) rvOn = false;
-        const float fade = (float) (0.004 * sr);
+        const float fade = (float) (0.006 * sr);
         for (int i = 0; i < N; ++i)
         {
             b0[hw] = L[i]; b1[hw] = R[i];
-            if (rvOn || rvX > 0)
+            const float tgt = rvOn ? amt : 0.0f;
+            rvX += (tgt - rvX) * (float) (1.0 - std::exp (-1.0 / (0.01 * sr)));
+            if (rvX > 1e-4f)
             {
                 const float w = juce::jmin (1.0f, juce::jmin ((float) rvPos / fade, (float) (L1 - rvPos) / fade));
                 const double p = rvStart - 1 - rvPos;
                 const float tl = rd (0, p) * w, tr = rd (1, p) * w;
-                rvX = juce::jlimit (0.0f, 1.0f, rvX + (rvOn ? 1.0f : -1.0f) / (float) (0.005 * sr));
                 L[i] += (tl - L[i]) * rvX; R[i] += (tr - R[i]) * rvX;
                 if (++rvPos >= L1) rvPos = 0;
             }
             if (++hw >= len) hw = 0;
         }
+    }
+    void player (float* L, float* R, int N, float amt, int which, double spb, bool sync)
+    {   // campione di transizione: parte appena giri, la manopola e' il volume; finito, si riarma tornando a zero
+        const auto& S = fxSample (which); const int n = S.buf.getNumSamples(); if (n < 2) return;
+        if (amt > 0.01f && ! plOn && ! plDone) { plOn = true; plPos = 0; }
+        if (amt <= 0.01f) { plDone = false; if (plOn && plG < 1e-3f) plOn = false; }
+        const double inc = sync ? n / (4.0 * (1 << zoneOf (a[0], 4)) * spb) : S.sr / sr;   // i riser a tempo: 1, 2 (default), 4, 8 battute
+        const float* a = S.buf.getReadPointer (0); const float* b = S.buf.getReadPointer (1);
+        const float sm = (float) (1.0 - std::exp (-1.0 / (0.02 * sr)));
+        static constexpr float kGain[5] = { 0.8f, 0.8f, 0.8f, 0.8f, 0.42f };
+        const float vg = kGain[juce::jlimit (0, 4, which)];
+        for (int i = 0; i < N; ++i)
+        {
+            plG += ((plOn && amt > 0.01f ? amt : 0.0f) - plG) * sm;
+            if (! plOn) continue;
+            const int k = (int) plPos; if (k >= n - 1) { plOn = false; plDone = true; break; }
+            const float f = (float) (plPos - k);
+            L[i] += (a[k] + (a[k + 1] - a[k]) * f) * plG * vg; R[i] += (b[k] + (b[k + 1] - b[k]) * f) * plG * vg;
+            plPos += inc;
+        }
+        if (amt <= 0.01f && plG < 1e-3f) plOn = false;
     }
     void halfSpeed (float* L, float* R, int N, float amt)
     {
@@ -406,7 +571,7 @@ private:
     void freeze (float* L, float* R, int N, float amt)
     {   // tre grani che si sovrappongono sugli ultimi 200 ms: nota sospesa, senza clic
         const int len = hist.getNumSamples(); float* b0 = hist.getWritePointer (0); float* b1 = hist.getWritePointer (1);
-        const int G = (int) (0.12 * sr), span = (int) (0.2 * sr);
+        const int span = (int) (0.05 * std::pow (20.0, (double) a[0]) * sr), G = (int) (span * 0.6);
         if (amt > 0.01f && ! frOn) { frOn = true; frStart = hw - span; if (frStart < 0) frStart += len; for (int g = 0; g < 3; ++g) frPh[g] = g * G / 3; }
         if (amt <= 0.01f) frOn = false;
         for (int i = 0; i < N; ++i)
@@ -449,8 +614,9 @@ private:
         if (amt <= 0.01f) return;
         for (int i = 0; i < N; ++i)
         {
-            const double ph = std::fmod (beat0 + i / spb, 1.0);
-            const float env = (float) std::exp (-ph * 6.0), att = (float) juce::jmin (1.0, ph / 0.01);
+            static const double pb[3] = { 2.0, 1.0, 0.5 };
+            const double ph = std::fmod ((beat0 + i / spb) / pb[zoneOf (a[0], 3)], 1.0);
+            const float env = (float) std::exp (-ph * 2.0 * std::pow (10.0, (double) a[1])), att = (float) juce::jmin (1.0, ph / 0.01);
             const float g = 1.0f - amt * 0.9f * env * att;
             L[i] *= g; R[i] *= g;
         }
@@ -480,8 +646,9 @@ private:
         for (int i = 0; i < N; ++i)
         {
             const double ph = std::fmod ((beat0 + i / spb) / rb, 1.0);
-            const float g = 1.0f - depth * (float) (0.5 - 0.5 * std::cos (ph * juce::MathConstants<double>::twoPi));
-            L[i] *= g; R[i] *= g;
+            auto curve = [this] (double q) { const float c = (float) (0.5 - 0.5 * std::cos (q * juce::MathConstants<double>::twoPi)); const float sq = q < 0.5 ? 0.0f : 1.0f; return c + a[0] * (sq - c); };
+            const float gl = 1.0f - depth * curve (ph), gr = 1.0f - depth * curve (std::fmod (ph + a[1] * 0.5, 1.0));
+            L[i] *= gl; R[i] *= gr;
         }
     }
     void glitch (float* L, float* R, int N, float amt, double spb, double beat0)
@@ -512,12 +679,14 @@ private:
     void gate (float* L, float* R, int N, float amt, double spb, double beat0, float depth)
     {
         const int z = rateZone (amt); if (z < 0) return;
-        const double rb = rateBeats (z); const float edge = 0.06f;
+        const double rb = rateBeats (z); const float duty = 0.1f + a[1] * 0.8f;
+        const float edge = juce::jmin (0.005f + a[0] * 0.445f, duty * 0.9f, (1.0f - duty) * 0.9f); const double sw = a[2] * 0.33;
         for (int i = 0; i < N; ++i)
         {
-            const double ph = std::fmod ((beat0 + i / spb) / rb, 1.0);
-            float g = ph < 0.5 ? 1.0f : 0.0f;
-            if (ph < edge) g = (float) (ph / edge); else if (ph >= 0.5 && ph < 0.5 + edge) g = 1.0f - (float) ((ph - 0.5) / edge);
+            const double t = (beat0 + i / spb) / rb; double ph = std::fmod (t, 1.0);
+            if (sw > 0.001 && ((long long) std::floor (t) & 1)) ph = ph < sw ? 0.9999 : (ph - sw) / (1.0 - sw);   // swing: i passi dispari arrivano dopo
+            float g = ph < duty ? 1.0f : 0.0f;
+            if (ph < edge) g = (float) (ph / edge); else if (ph >= duty && ph < duty + edge) g = 1.0f - (float) ((ph - duty) / edge);
             g = 1.0f - depth * (1.0f - g);
             L[i] *= g; R[i] *= g;
         }
@@ -525,67 +694,76 @@ private:
     void crush (float* L, float* R, int N, float amt)
     {
         if (amt <= 0.01f) return;
-        const float bits = 16.0f - amt * 13.0f, q = std::pow (2.0f, bits - 1);
-        for (int i = 0; i < N; ++i) { L[i] = std::round (L[i] * q) / q; R[i] = std::round (R[i] * q) / q; }
-        lift (L, R, N, amt);
+        const float bits = 16.0f - amt * 13.0f, q = std::pow (2.0f, bits - 1); const int hold = 1 + (int) (a[0] * 15.0f);
+        const bool tn = a[1] < 0.99f; const float c = tn ? (float) std::exp (-juce::MathConstants<double>::twoPi * 20000.0 * std::pow (0.08, 1.0 - a[1]) / sr) : 0;
+        for (int i = 0; i < N; ++i)
+        {
+            if (++lfCnt >= hold) { lfCnt = 0; lfHold[0] = std::round (L[i] * q) / q; lfHold[1] = std::round (R[i] * q) / q; }
+            L[i] = lfHold[0]; R[i] = lfHold[1];
+            if (tn) { lfLp[0] = L[i] + c * (lfLp[0] - L[i]); lfLp[1] = R[i] + c * (lfLp[1] - R[i]); L[i] = lfLp[0]; R[i] = lfLp[1]; }
+        }
+        liftK = a[2]; lift (L, R, N, amt); liftK = 1;
     }
     void lofi (float* L, float* R, int N, float amt)
     {
         if (amt <= 0.01f) return;
         const float bits = 16.0f - amt * 10.0f, q = std::pow (2.0f, bits - 1); const int hold = 1 + (int) (amt * 7.0f);
-        const float a = (float) std::exp (-juce::MathConstants<double>::twoPi * (16000.0 * std::pow (0.22, (double) amt)) / sr);
+        const float c = (float) std::exp (-juce::MathConstants<double>::twoPi * (16000.0 * std::pow (0.22, (double) amt) * std::pow (2.0, (a[1] - 0.5) * 2.0)) / sr);
+        const float nz = a[0] * 0.02f * amt;
         for (int i = 0; i < N; ++i)
         {
             if (++lfCnt >= hold) { lfCnt = 0; lfHold[0] = std::round (L[i] * q) / q; lfHold[1] = std::round (R[i] * q) / q; }
-            lfLp[0] = lfHold[0] + a * (lfLp[0] - lfHold[0]); lfLp[1] = lfHold[1] + a * (lfLp[1] - lfHold[1]);
-            L[i] = lfLp[0]; R[i] = lfLp[1];
+            lfLp[0] = lfHold[0] + c * (lfLp[0] - lfHold[0]); lfLp[1] = lfHold[1] + c * (lfLp[1] - lfHold[1]);
+            const float n = nz > 0 ? (rnd.nextFloat() * 2 - 1) * nz : 0.0f;
+            L[i] = lfLp[0] + n; R[i] = lfLp[1] + n;
         }
-        lift (L, R, N, amt);
+        liftK = a[2]; lift (L, R, N, amt); liftK = 1;
     }
     // gli effetti "sporchi" tolgono energia: si recupera volume (fino a +3 dB) e un filo di saturazione, crescendo con la manopola
     void lift (float* L, float* R, int N, float amt)
     {
         if (amt <= 0.01f) return;
-        const float g = juce::Decibels::decibelsToGain (4.5f * amt), d = 1.0f + 0.8f * amt;
+        const float g = juce::Decibels::decibelsToGain (4.5f * amt * liftK), d = 1.0f + 0.8f * amt;
         for (int i = 0; i < N; ++i) { L[i] = std::tanh (L[i] * g * d) / d; R[i] = std::tanh (R[i] * g * d) / d; }
     }
     void tape (float* L, float* R, int N, float amt)
     {
         if (amt <= 0.01f) { for (int i = 0; i < N; ++i) md.push (L[i], R[i]); return; }
-        const float drive = 1.0f + amt * 4.0f, mk = 1.0f / drive;
-        const float a = (float) std::exp (-juce::MathConstants<double>::twoPi * (18000.0 - 9000.0 * amt) / sr);
+        const float drive = 1.0f + amt * 8.0f * a[0], mk = 1.0f / drive, wk = a[1] * 2.0f;
+        const float cf = (float) std::exp (-juce::MathConstants<double>::twoPi * (18000.0 - 9000.0 * amt) / sr);
         for (int i = 0; i < N; ++i)
         {
             md.push (L[i], R[i]);
             phLfo += 1.0 / sr;
-            const float wow = (float) (std::sin (phLfo * juce::MathConstants<double>::twoPi * 0.6) * 0.0018 + std::sin (phLfo * juce::MathConstants<double>::twoPi * 7.3) * 0.00025) * amt;
+            const float wow = (float) (std::sin (phLfo * juce::MathConstants<double>::twoPi * 0.6) * 0.0018 + std::sin (phLfo * juce::MathConstants<double>::twoPi * 7.3) * 0.00025) * amt * wk;
             const float d = (float) (0.004 * sr) + wow * (float) sr;
             float o[2] = { md.read (0, d), md.read (1, d) };
-            for (int c = 0; c < 2; ++c) { const float s = std::tanh (o[c] * drive) * mk; tLp[c] = s + a * (tLp[c] - s); o[c] = tLp[c]; }
+            for (int c = 0; c < 2; ++c) { const float s = std::tanh (o[c] * drive) * mk; tLp[c] = s + cf * (tLp[c] - s); o[c] = tLp[c]; }
             L[i] += (o[0] - L[i]) * juce::jmin (1.0f, amt * 2.0f); R[i] += (o[1] - R[i]) * juce::jmin (1.0f, amt * 2.0f);
         }
-        lift (L, R, N, amt);
+        liftK = a[2]; lift (L, R, N, amt); liftK = 1;
     }
     void vinyl (float* L, float* R, int N, float amt)
     {
         if (amt <= 0.01f) return;
-        const float a = (float) std::exp (-juce::MathConstants<double>::twoPi * (16000.0 - 10000.0 * amt) / sr);
+        const float cf = (float) std::exp (-juce::MathConstants<double>::twoPi * (16000.0 - 10000.0 * amt) / sr);
+        const float hiss = 0.008f * a[0], crk = 0.0008f * a[1];
         for (int i = 0; i < N; ++i)
         {
-            float n = (rnd.nextFloat() * 2 - 1) * 0.004f * amt;
-            if (rnd.nextFloat() < 0.0004f * amt) n += (rnd.nextFloat() * 2 - 1) * 0.35f * amt;   // crepitio
-            for (int c = 0; c < 2; ++c) { float* x = c ? R : L; vLp[c] = x[i] + a * (vLp[c] - x[i]); x[i] = vLp[c] + n; }
+            float n = (rnd.nextFloat() * 2 - 1) * hiss * amt;
+            if (rnd.nextFloat() < crk * amt) n += (rnd.nextFloat() * 2 - 1) * 0.35f * amt;   // crepitio
+            for (int c = 0; c < 2; ++c) { float* x = c ? R : L; vLp[c] = x[i] + cf * (vLp[c] - x[i]); x[i] = vLp[c] + n; }
         }
-        lift (L, R, N, amt);
+        liftK = a[2]; lift (L, R, N, amt); liftK = 1;
     }
     void flanger (float* L, float* R, int N, float amt)
     {
         for (int i = 0; i < N; ++i)
         {
-            phLfo += 0.22 / sr; const float l = (float) (0.5 + 0.5 * std::sin (phLfo * juce::MathConstants<double>::twoPi));
+            phLfo += lfoHz (a[0]) / sr; const float l = (float) (0.5 + 0.5 * std::sin (phLfo * juce::MathConstants<double>::twoPi));
             const float d0 = (float) ((0.0006 + 0.004 * l) * sr), d1 = (float) ((0.0006 + 0.004 * (1 - l)) * sr);
             const float y0 = md.read (0, d0), y1 = md.read (1, d1);
-            md.push (L[i] + y0 * 0.6f * amt, R[i] + y1 * 0.6f * amt);
+            md.push (L[i] + y0 * juce::jmin (0.95f, a[1]) * amt, R[i] + y1 * juce::jmin (0.95f, a[1]) * amt);
             L[i] = L[i] * (1 - 0.5f * amt) + y0 * amt * 0.7f; R[i] = R[i] * (1 - 0.5f * amt) + y1 * amt * 0.7f;
         }
     }
@@ -594,12 +772,12 @@ private:
         if (amt <= 0.01f) return;
         for (int i = 0; i < N; ++i)
         {
-            phLfo += 0.35 / sr; const float l = (float) (0.5 + 0.5 * std::sin (phLfo * juce::MathConstants<double>::twoPi));
+            phLfo += lfoHz (a[0]) / sr; const float l = (float) (0.5 + 0.5 * std::sin (phLfo * juce::MathConstants<double>::twoPi));
             const float fc = 200.0f * std::pow (20.0f, l); const float t = (float) std::tan (juce::MathConstants<double>::pi * fc / sr), co = (t - 1) / (t + 1);
             float* io[2] = { L + i, R + i };
             for (int c = 0; c < 2; ++c)
             {
-                float y = *io[c] + phFb[c] * 0.5f * amt;
+                float y = *io[c] + phFb[c] * juce::jmin (0.95f, a[1]) * amt;
                 for (int k = 0; k < 6; ++k) { const float o = co * y + ap[c][k]; ap[c][k] = y - co * o; y = o; }
                 phFb[c] = y;
                 *io[c] = *io[c] * (1 - 0.5f * amt) + y * 0.5f * amt * 1.4f;
@@ -611,8 +789,8 @@ private:
         for (int i = 0; i < N; ++i)
         {
             md.push (L[i], R[i]);
-            phLfo += (dim ? 0.25 : 0.8) / sr; const double ph = phLfo * juce::MathConstants<double>::twoPi;
-            const float dep = (float) ((dim ? 0.0012 : 0.003) * sr), base = (float) ((dim ? 0.009 : 0.016) * sr);
+            phLfo += lfoHz (a[0]) / sr; const double ph = phLfo * juce::MathConstants<double>::twoPi;
+            const float dep = (float) ((dim ? 0.0012 : 0.003) * sr * a[1] * 2.0f), base = (float) ((dim ? 0.009 : 0.016) * sr);
             const float yl = md.read (0, base + dep * (float) std::sin (ph)), yr = md.read (1, base + dep * (float) std::sin (ph + juce::MathConstants<double>::pi));
             if (dim) { const float m = 0.5f * (yl + yr); L[i] += (0.5f * (yl - yr) + m * 0.3f) * amt * 0.8f; R[i] += (0.5f * (yr - yl) + m * 0.3f) * amt * 0.8f; }
             else { L[i] = L[i] * (1 - 0.35f * amt) + yl * amt * 0.6f; R[i] = R[i] * (1 - 0.35f * amt) + yr * amt * 0.6f; }
@@ -641,14 +819,51 @@ class Engine
 public:
     static constexpr int kSlots = 8;
     Slot slot[kSlots];
-    void prepare (double sr) { for (auto& s : slot) s.prepare (sr); }
-    void process (float* L, float* R, int N, const int* types, const float* amts, double bpm, double ppq, bool playing)
+    void prepare (double s) { sr = s; for (auto& x : slot) x.prepare (s); for (auto& m : mixS) m = -1; }
+    // advs: kSlots * kAdv valori avanzati (nullptr = default dell'effetto). mixes: mix di ogni slot (nullptr = 100%)
+    void process (float* L, float* R, int N, const int* types, const float* amts, double bpm, double ppq, bool playing,
+                  const float* advs = nullptr, const float* mixes = nullptr)
     {
         // le voci "... MIX" non suonano: danno la quantita' all'effetto della loro famiglia (se non ci sono: 100%)
         float fam[kFamilies]; for (auto& f : fam) f = 1.0f;
         for (int k = 0; k < kSlots; ++k) if (const int f = familyOfMix (types[k]); f >= 0) fam[f] = amts[k];
-        for (int k = 0; k < kSlots; ++k) { slot[k].setType (types[k]); slot[k].process (L, R, N, amts[k], bpm, ppq, playing, fam); }
+        for (int k = 0; k < kSlots; ++k)
+        {
+            slot[k].setType (types[k]);
+            const auto& sp = adv (types[k]);
+            for (int i = 0; i < sp.n; ++i) slot[k].a[i] = advs ? juce::jlimit (0.0f, 1.0f, advs[k * kAdv + i]) : sp.def[i];
+        }
+        if (mixes == nullptr)
+        {   // prima gli effetti che muovono il tempo (freeze, stutter, scratch...), poi tutto il resto: cosi' si sommano
+            for (int pass = 0; pass < 2; ++pass)
+                for (int k = 0; k < kSlots; ++k)
+                    if (isTimeFx (types[k]) == (pass == 0)) slot[k].process (L, R, N, amts[k], bpm, ppq, playing, fam);
+            return;
+        }
+        // con il mix per slot: a pezzi da 256, ogni slot si mescola al suo ingresso
+        const double ppqPerSample = juce::jmax (40.0, bpm) / 60.0 / sr;
+        for (int off = 0; off < N; off += kBlk)
+        {
+            const int m = juce::jmin (kBlk, N - off); float* l = L + off; float* r = R + off;
+            const double q = ppq + (playing ? off * ppqPerSample : 0.0);
+            for (int pass = 0; pass < 2; ++pass)
+                for (int k = 0; k < kSlots; ++k)
+                {
+                    if (isTimeFx (types[k]) != (pass == 0)) continue;
+                    const float tgt = juce::jlimit (0.0f, 1.0f, mixes[k]);
+                    if (mixS[k] < 0) mixS[k] = tgt;
+                    if (tgt >= 0.999f && mixS[k] >= 0.999f) { mixS[k] = 1; slot[k].process (l, r, m, amts[k], bpm, q, playing, fam); continue; }
+                    for (int i = 0; i < m; ++i) { dl[i] = l[i]; dr[i] = r[i]; }
+                    slot[k].process (l, r, m, amts[k], bpm, q, playing, fam);
+                    const float m0 = mixS[k], st = (tgt - m0) / (float) m;
+                    for (int i = 0; i < m; ++i) { const float g = m0 + st * (float) (i + 1); l[i] = dl[i] + (l[i] - dl[i]) * g; r[i] = dr[i] + (r[i] - dr[i]) * g; }
+                    mixS[k] = tgt;
+                }
+        }
     }
+private:
+    static constexpr int kBlk = 256;
+    double sr = 48000; float mixS[kSlots] {}; float dl[kBlk] {}, dr[kBlk] {};
 };
 
 // testo da mostrare sotto la manopola
@@ -663,6 +878,7 @@ inline juce::String valueText (int t, float v)
         case SCRATCH: { static const char* n[6] = { "BABY 1/8", "BABY 1/8T", "CHIRP 1/16", "CHIRP 1/16T", "TRANSF 1/16", "TRANSF 1/32" }; return v <= 0.01f ? juce::String ("OFF") : juce::String (n[juce::jlimit (0, 5, (int) ((v - 0.01f) / 0.99f * 6.0f))]); }
         case STUTTER: case GATE: case BEATROLL: case TREMOLO: return juce::String (rateName (rateZone (v)));
         case BEATREPEAT: return v <= 0.01f ? juce::String ("OFF") : juce::String (v < 0.34f ? "1/4" : v < 0.67f ? "1/8" : "1/16");
+        case REVERSE: return v <= 0.01f ? juce::String ("OFF") : "MIX " + juce::String (juce::roundToInt (v * 100)) + "%";
         case PITCH: { const float st = (v - 0.5f) * 24; return (st > 0 ? "+" : "") + juce::String (st, 1) + " st"; }
         case GATEMIX: case STUTMIX: case ROLLMIX: case TREMMIX: return juce::String (juce::roundToInt (v * 100)) + "%";
         case OFF: return juce::String ("-");

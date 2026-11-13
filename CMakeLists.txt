@@ -23,6 +23,10 @@ set_target_properties(JackpotFonts PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 juce_add_binary_data(JackpotNeo HEADER_NAME NeoData.h NAMESPACE NeoData SOURCES
   Common/Neo/Manrope-500.ttf Common/Neo/Manrope-700.ttf Common/Neo/Sora-300.ttf Common/Neo/Sora-600.ttf Common/Neo/neo_knob.png)
 set_target_properties(JackpotNeo PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+# campioni di transizione per gli effetti da performance (riser, snare roll, downlifter, sub drop)
+juce_add_binary_data(JackpotFxSamples HEADER_NAME FxSamplesData.h NAMESPACE FxSamplesData SOURCES
+  Common/FxSamples/riser_noise.ogg Common/FxSamples/riser_synth.ogg Common/FxSamples/riser_snareroll.ogg Common/FxSamples/down_noise.ogg Common/FxSamples/down_subdrop.ogg)
+set_target_properties(JackpotFxSamples PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 add_subdirectory(Jackpot60)
 add_subdirectory(JackpotTape)
 add_subdirectory(JackpotPad)

@@ -38,6 +38,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
         l.add (std::make_unique<AudioParameterChoice> (ParameterID { typeId (k), 1 }, "Slot " + String (k + 1) + " Effetto", tn, d.type[k]));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { amtId (k), 1 }, "Slot " + String (k + 1), NormalisableRange<float> (0, 1), info (d.type[k]).neutral));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { onId (k), 1 }, "Slot " + String (k + 1) + " On", true));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { mixId (k), 1 }, "Slot " + String (k + 1) + " Mix", NormalisableRange<float> (0, 1), 1.0f));
+        const auto& sp = adv (d.type[k]);
+        for (int i = 0; i < kAdv; ++i)
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { advId (k, i), 1 }, "Slot " + String (k + 1) + " Avanzato " + String (i + 1), NormalisableRange<float> (0, 1), i < sp.n ? sp.def[i] : 0.5f));
     }
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mix", 1 }, "Mix", NormalisableRange<float> (0, 1), 1.0f));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "out", 1 }, "Output", NormalisableRange<float> (-12, 12, 0.1f), 0.0f));
@@ -53,6 +57,7 @@ Processor::Processor()
     {
         ccMap[k] = 70 + k; ccPend[k] = -1.0f; ccSeen[k] = 0;
         typeRaw[k] = apvts.getRawParameterValue (typeId (k)); amtRaw[k] = apvts.getRawParameterValue (amtId (k)); onRaw[k] = apvts.getRawParameterValue (onId (k));
+        mixRaw[k] = apvts.getRawParameterValue (mixId (k)); for (int i = 0; i < kAdv; ++i) advRaw[k][i] = apvts.getRawParameterValue (advId (k, i));
     }
     for (int i = 0; i < kHist; ++i) { hIn[i] = -100; hOut[i] = -100; }
     for (int c = 0; c < 2; ++c) { pkIn[c] = 0; pkOut[c] = 0; }
@@ -127,7 +132,9 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             ty[k] = onRaw[k]->load() > 0.5f ? juce::roundToInt (typeRaw[k]->load()) : (int) OFF;
             const float pnd = ccPend[k].load(); am[k] = pnd >= 0 ? pnd : amtRaw[k]->load();
         }
-        eng.process (L, R, N, ty, am, bpm, ppq, play);
+        float av[kSlots * kAdv], mx[kSlots];
+        for (int k = 0; k < kSlots; ++k) { mx[k] = mixRaw[k]->load(); for (int i = 0; i < kAdv; ++i) av[k * kAdv + i] = advRaw[k][i]->load(); }
+        eng.process (L, R, N, ty, am, bpm, ppq, play, av, mx);
     }
     else eng.process (L, R, N, std::array<int, kSlots> {}.data(), std::array<float, kSlots> {}.data(), bpm, ppq, play);   // tiene viva la storia
     if (byp) for (int i = 0; i < N; ++i) { L[i] = dL[i]; R[i] = dR[i]; }
@@ -155,6 +162,13 @@ void Processor::setSlot (int k, int type, float amt)
     auto* t = P (typeId (k)); auto* a = P (amtId (k));
     t->setValueNotifyingHost (t->convertTo0to1 ((float) type));
     a->setValueNotifyingHost (amt < 0 ? info (type).neutral : amt);
+    resetAdv (k);
+}
+void Processor::setAdv (int k, int i, float v) { if (auto* p = P (advId (k, i))) p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, v)); }
+void Processor::resetAdv (int k)
+{
+    const auto& sp = adv (slotType (k));
+    for (int i = 0; i < kAdv; ++i) setAdv (k, i, i < sp.n ? sp.def[i] : 0.5f);
 }
 void Processor::swapSlots (int a, int b)
 {
@@ -163,14 +177,19 @@ void Processor::swapSlots (int a, int b)
     const float va = P (amtId (a))->getValue(), vb = P (amtId (b))->getValue();
     const bool oa = value (onId (a)) > 0.5f, ob = value (onId (b)) > 0.5f;
     const int ca = ccMap[a].load(), cb = ccMap[b].load(); juce::ignoreUnused (ca, cb);   // il CC resta legato alla manopola fisica
+    float xa[kAdv + 1], xb[kAdv + 1];
+    for (int i = 0; i < kAdv; ++i) { xa[i] = value (advId (a, i)); xb[i] = value (advId (b, i)); }
+    xa[kAdv] = value (mixId (a)); xb[kAdv] = value (mixId (b));
     setSlot (a, tb, vb); setSlot (b, ta, va);
+    for (int i = 0; i < kAdv; ++i) { setAdv (a, i, xb[i]); setAdv (b, i, xa[i]); }
+    P (mixId (a))->setValueNotifyingHost (xb[kAdv]); P (mixId (b))->setValueNotifyingHost (xa[kAdv]);
     P (onId (a))->setValueNotifyingHost (ob ? 1.0f : 0.0f); P (onId (b))->setValueNotifyingHost (oa ? 1.0f : 0.0f);
 }
 void Processor::resetAmounts() { for (int k = 0; k < kSlots; ++k) P (amtId (k))->setValueNotifyingHost (info (slotType (k)).neutral); }
 void Processor::loadFactory (int i)
 {
     const auto& p = factoryPresets()[(size_t) juce::jlimit (0, (int) factoryPresets().size() - 1, i)];
-    for (int k = 0; k < kSlots; ++k) { setSlot (k, p.type[k], p.amt[k]); P (onId (k))->setValueNotifyingHost (1.0f); }
+    for (int k = 0; k < kSlots; ++k) { setSlot (k, p.type[k], p.amt[k]); P (onId (k))->setValueNotifyingHost (1.0f); P (mixId (k))->setValueNotifyingHost (1.0f); }
     presetName = p.name;
 }
 juce::File Processor::presetFolder()
@@ -185,6 +204,8 @@ bool Processor::savePreset (const juce::File& f)
     {
         auto* s = x.createNewChildElement ("SLOT");
         s->setAttribute ("type", juce::String (info (slotType (k)).name)); s->setAttribute ("amt", (double) P (amtId (k))->getValue()); s->setAttribute ("on", value (onId (k)) > 0.5f ? 1 : 0);
+        s->setAttribute ("mix", (double) value (mixId (k)));
+        juce::StringArray av; for (int i = 0; i < kAdv; ++i) av.add (juce::String (value (advId (k, i)), 4)); s->setAttribute ("adv", av.joinIntoString (","));
     }
     x.setAttribute ("mix", (double) value ("mix")); x.setAttribute ("out", (double) value ("out"));
     const bool ok = x.writeTo (f);
@@ -199,7 +220,11 @@ bool Processor::loadPreset (const juce::File& f)
     {
         if (k >= kSlots) break;
         int t = OFF; for (int i = 0; i < kNumTypes; ++i) if (s->getStringAttribute ("type") == info (i).name) t = i;
-        setSlot (k, t, (float) s->getDoubleAttribute ("amt", -1)); P (onId (k))->setValueNotifyingHost (s->getIntAttribute ("on", 1) ? 1.0f : 0.0f); ++k;
+        setSlot (k, t, (float) s->getDoubleAttribute ("amt", -1)); P (onId (k))->setValueNotifyingHost (s->getIntAttribute ("on", 1) ? 1.0f : 0.0f);
+        P (mixId (k))->setValueNotifyingHost ((float) s->getDoubleAttribute ("mix", 1));
+        const auto av = juce::StringArray::fromTokens (s->getStringAttribute ("adv"), ",", "");
+        if (av.size() == kAdv) for (int i = 0; i < kAdv; ++i) setAdv (k, i, av[i].getFloatValue());
+        ++k;
     }
     P ("mix")->setValueNotifyingHost ((float) x->getDoubleAttribute ("mix", 1));
     P ("out")->setValueNotifyingHost (P ("out")->convertTo0to1 ((float) x->getDoubleAttribute ("out", 0)));

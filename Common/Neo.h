@@ -238,7 +238,7 @@ public:
     }
     void mouseDrag (const juce::MouseEvent& e) override { if (drag) { param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 900.0f : (big ? 260.0f : 200.0f)))); shownV = param->getValue(); repaint(); } }
     void mouseUp (const juce::MouseEvent&) override { if (drag) { param->endChangeGesture(); if (onRelease) onRelease(); } drag = false; repaint(); }
-    void mouseDoubleClick (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getDefaultValue()); }
+    void mouseDoubleClick (const juce::MouseEvent&) override { param->setValueNotifyingHost (defV >= 0 ? defV : param->getDefaultValue()); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + (w.deltaY > 0 ? 0.01f : -0.01f))); }
     // movimento morbido verso il valore vero (cambi di preset, doppio clic): ritorna true se va ridisegnata
     bool animate()
@@ -253,6 +253,7 @@ public:
     juce::RangedAudioParameter* param; juce::String label, sub; juce::Colour c1, c2; std::function<juce::String()> text;
     std::function<void()> onRelease;   // per gli effetti che tornano a zero quando molli
     bool big = false, bipolar = false; float activity = 0;
+    float defV = -1;   // valore del doppio clic (se diverso da quello del parametro)
 private:
     float start = 0, shownV = -1, shownAct = 0, bloomV = -1, bloomS = 0; bool drag = false; Bloom bloom;
 };

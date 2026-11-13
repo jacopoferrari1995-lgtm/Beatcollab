@@ -48,6 +48,14 @@ void SlotCard::refresh()
     if (I.spring) knob->onRelease = [pr, t] { pr->setValueNotifyingHost (pfx::info (t).neutral); };
     knob->setTooltip (I.tip);
     addAndMakeVisible (*knob);
+    if (mixK == nullptr)
+    {
+        auto* mp = ed.proc.P (mixId (k));
+        mixK = std::make_unique<neo::Knob> (mp, "MIX", K::cyan, K::violet);
+        mixK->text = [mp] { return juce::String (juce::roundToInt (mp->getValue() * 100)) + "%"; };
+        mixK->setTooltip ("Mix di questo slot: quanto del suo effetto si sente. 100% = tutto, 0% = come se non ci fosse. Doppio clic = 100%.");
+        addAndMakeVisible (*mixK);
+    }
     resized(); repaint();
 }
 void SlotCard::resized()
@@ -57,7 +65,9 @@ void SlotCard::resized()
     powR = { b.getRight() - 30, 8, 18, 18 };
     nameR = { 10, 36, b.getWidth() - 20, 26 };
     ccR = { 10, b.getHeight() - 34, b.getWidth() - 20, 22 };
-    if (knob) { const int S = 104, w = S + 16; knob->setBounds (juce::Rectangle<int> ((int) b.getCentreX() - w / 2, 82, w, S + 38).expanded (Knob::pad)); }
+    if (knob) { const int S = 100, w = S + 16; knob->setBounds (juce::Rectangle<int> ((int) b.getCentreX() - w / 2, 80, w, S + 38).expanded (Knob::pad)); }
+    gearR = { 14, 246, 30, 30 };
+    if (mixK) { const int S = 36, w = S + 18; mixK->setBounds (juce::Rectangle<int> ((int) b.getRight() - 14 - w - 4, 226, w, S + 38).expanded (Knob::pad)); }
 }
 void SlotCard::paint (juce::Graphics& g)
 {
@@ -76,7 +86,21 @@ void SlotCard::paint (juce::Graphics& g)
     g.setColour (c.withAlpha (on ? 0.16f : 0.06f)); g.fillPath (chamfer (nameR, 6));
     g.setColour (c.withAlpha (on ? 0.7f : 0.3f)); g.strokePath (chamfer (nameR, 6), juce::PathStrokeType (1.0f));
     g.setFont (cap (10.0f)); g.setColour (on ? K::ink : K::sub); g.drawText (juce::String (I.name) + U ("  \xe2\x96\xbe"), nameR, juce::Justification::centred);
-    if (I.spring) { g.setFont (cap (6.5f)); g.setColour (K::amber.withAlpha (0.8f)); g.drawText ("TORNA A ZERO", juce::Rectangle<float> (0, b.getBottom() - 50, b.getWidth(), 10), juce::Justification::centred); }
+    if (I.spring) { g.setFont (cap (6.5f)); g.setColour (K::amber.withAlpha (0.8f)); g.drawText ("TORNA A ZERO", juce::Rectangle<float> (0, 66, b.getWidth(), 10), juce::Justification::centred); }
+    // ingranaggio: parametri avanzati
+    {
+        const auto& sp = pfx::adv (t); const bool has = sp.n > 0, open = ed.advPanel.isVisible() && ed.advPanel.k == k;
+        bool changed = false; for (int i = 0; i < sp.n; ++i) if (std::abs (P.value (advId (k, i)) - sp.def[i]) > 0.003f) changed = true;
+        const auto gc = has ? (open ? c : K::sub) : K::faint.withAlpha (0.4f);
+        g.setColour (open ? c.withAlpha (0.22f) : juce::Colours::white.withAlpha (has ? 0.05f : 0.02f)); g.fillPath (chamfer (gearR, 5));
+        g.setColour (gc.withAlpha (open ? 1.0f : 0.6f)); g.strokePath (chamfer (gearR, 5), juce::PathStrokeType (1.0f));
+        const float cx = gearR.getCentreX(), cy = gearR.getCentreY();
+        juce::Path gp; for (int i = 0; i < 8; ++i) { const float a = i * juce::MathConstants<float>::twoPi / 8; gp.addRectangle (-1.6f, -8.5f, 3.2f, 4.0f); gp.applyTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::twoPi / 8)); juce::ignoreUnused (a); }
+        gp.applyTransform (juce::AffineTransform::translation (cx, cy)); g.setColour (gc); g.fillPath (gp);
+        g.drawEllipse (cx - 5.5f, cy - 5.5f, 11, 11, 2.0f);
+        if (changed) { g.setColour (K::amber); g.fillEllipse (gearR.getRight() - 7, gearR.getY() + 2, 5, 5); }
+        g.setFont (cap (6.5f)); g.setColour (has ? K::faint : K::faint.withAlpha (0.4f)); g.drawText ("AVANZATO", juce::Rectangle<float> (gearR.getX() - 10, gearR.getBottom() + 2, gearR.getWidth() + 20, 10), juce::Justification::centred);
+    }
     // controller
     const int cc = P.ccMap[k].load(); const bool learn = P.learnSlot.load() == k;
     const bool blink = learn && (juce::Time::getMillisecondCounter() / 300) % 2 == 0;
@@ -94,6 +118,12 @@ void SlotCard::mouseDown (const juce::MouseEvent& e)
 {
     auto& P = ed.proc;
     if (powR.expanded (4).contains (e.position)) { auto* p = P.P (onId (k)); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
+    if (gearR.expanded (3).contains (e.position))
+    {
+        if (pfx::adv (P.slotType (k)).n == 0) return;
+        if (ed.advPanel.isVisible() && ed.advPanel.k == k) ed.advPanel.setVisible (false); else ed.advPanel.open (k);
+        for (auto* c : ed.cards) c->repaint(); return;
+    }
     if (nameR.contains (e.position) || e.mods.isPopupMenu()) { showMenu(); return; }
     auto cr = ccR; auto badge = cr.removeFromLeft (cr.getWidth() * 0.5f - 2); cr.removeFromLeft (4);
     if (cr.contains (e.position)) { P.learnSlot = P.learnSlot.load() == k ? -1 : k; for (auto* c : ed.cards) c->repaint(); return; }
@@ -144,6 +174,7 @@ void SlotCard::tick()
     auto& P = ed.proc;
     if (P.slotType (k) != shownType) refresh();
     if (knob && knob->animate()) knob->repaint();
+    if (mixK && mixK->animate()) mixK->repaint();
     const int seen = P.ccSeen[k].load();
     if (seen != lastSeen) { lastSeen = seen; flash = 1.0f; }
     if (flash > 0.01f || P.learnSlot.load() == k) { flash *= 0.85f; repaint (ccR.expanded (2).toNearestInt()); }
@@ -199,10 +230,62 @@ void Scope::paint (juce::Graphics& g)
     }
 }
 
+// ======================================================================= pannello avanzato
+void AdvPanel::open (int kk)
+{
+    k = kk; shownType = ed.proc.slotType (k);
+    knobs.clear();
+    const auto& sp = pfx::adv (shownType); const auto c = groupCol (shownType);
+    for (int i = 0; i < sp.n; ++i)
+    {
+        auto* pr = ed.proc.P (advId (k, i)); const int t = shownType;
+        auto* kn = knobs.add (new neo::Knob (pr, sp.name[i], c, c.interpolatedWith (juce::Colours::white, 0.35f)));
+        kn->text = [pr, t, i] { return pfx::advText (t, i, pr->getValue()); };
+        kn->defV = sp.def[i];
+        kn->setTooltip ("Doppio clic = valore base dell'effetto. Shift mentre trascini = movimento fine.");
+        addAndMakeVisible (kn);
+    }
+    resized(); setVisible (true); repaint();
+}
+void AdvPanel::resized()
+{
+    auto b = getLocalBounds().toFloat();
+    closeR = { b.getRight() - 46, 14, 30, 24 }; resetR = { b.getRight() - 160, 14, 106, 24 };
+    const int n = knobs.size(); if (n == 0) return;
+    const int S = 76, w = S + 22, gap = 34, tot = n * w + (n - 1) * gap, x0 = (int) b.getCentreX() - tot / 2;
+    for (int i = 0; i < n; ++i) knobs[i]->setBounds (juce::Rectangle<int> (x0 + i * (w + gap), 76, w, S + 38).expanded (Knob::pad));
+}
+void AdvPanel::paint (juce::Graphics& g)
+{
+    if (k < 0) return;
+    auto b = getLocalBounds().toFloat(); const int t = ed.proc.slotType (k); const auto c = groupCol (t);
+    panel (g, b, c, 16);
+    g.setFont (cap (9.0f)); g.setColour (c); g.drawText ("AVANZATO", juce::Rectangle<float> (20, 14, 90, 24), juce::Justification::centredLeft);
+    g.setFont (f (14.0f, 1)); g.setColour (K::ink);
+    g.drawText ("SLOT " + juce::String (k + 1) + U ("  \xc2\xb7  ") + pfx::info (t).name, juce::Rectangle<float> (104, 14, 400, 24), juce::Justification::centredLeft);
+    g.setFont (f (9.0f)); g.setColour (K::faint);
+    g.drawText (U ("solo con il mouse  \xc2\xb7  la manopola del controller resta quella grande  \xc2\xb7  doppio clic = valore base"), juce::Rectangle<float> (20, b.getBottom() - 30, b.getWidth() - 40, 16), juce::Justification::centredLeft);
+    chip (g, resetR, "RIPRISTINA", false, K::amber, 8.0f);
+    chip (g, closeR, U ("\xc3\x97"), false, K::pink, 11.0f);
+}
+void AdvPanel::mouseDown (const juce::MouseEvent& e)
+{
+    if (closeR.contains (e.position)) { setVisible (false); for (auto* c : ed.cards) c->repaint(); return; }
+    if (resetR.contains (e.position)) { ed.proc.resetAdv (k); repaint(); if (k >= 0) ed.cards[k]->repaint(); }
+}
+void AdvPanel::tick()
+{
+    if (! isVisible() || k < 0) return;
+    if (ed.proc.slotType (k) != shownType) { if (pfx::adv (ed.proc.slotType (k)).n == 0) setVisible (false); else open (k); return; }
+    bool any = false; for (auto* kn : knobs) if (kn->animate()) { kn->repaint(); any = true; }
+    if (any && k >= 0) ed.cards[k]->repaint (ed.cards[k]->gearR.expanded (4).toNearestInt());
+}
+
 // ======================================================================= editor
 Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
 {
     addAndMakeVisible (scope);
+    addChildComponent (advPanel);
     for (int k = 0; k < kSlots; ++k) addAndMakeVisible (cards.add (new SlotCard (*this, k)));
     mixK = std::make_unique<neo::Knob> (proc.P ("mix"), "MIX", K::cyan, K::violet); mixK->text = [this] { return juce::String (juce::roundToInt (proc.value ("mix") * 100)) + "%"; };
     mixK->setTooltip ("Quanto degli effetti si sente: 100% tutto, 0% suono pulito.");
@@ -217,12 +300,12 @@ void Editor::resized()
     const float s = scaler.update();
     presetR = { 470, 16, 300, 34 }; prevR = { 436, 16, 30, 34 }; nextR = { 774, 16, 30, 34 };
     saveR = { 812, 18, 74, 30 }; resetR = { 892, 18, 86, 30 }; bypR = { 984, 18, 92, 30 }; ctrlR = { 1082, 18, 96, 30 }; menuR = presetR;
-    scope.setBounds (24, 80, 872, 252);
+    scope.setBounds (24, 80, 872, 252); advPanel.setBounds (24, 80, 872, 252);
     const int S = 72;
     mixK->setBounds (juce::Rectangle<int> (934, 110, S + 16, S + 38).expanded (Knob::pad));
     outK->setBounds (juce::Rectangle<int> (1050, 110, S + 16, S + 38).expanded (Knob::pad));
     const float cw = (W - 48 - 7 * 8) / (float) kSlots;
-    for (int k = 0; k < kSlots; ++k) cards[k]->setBounds (juce::Rectangle<float> (24 + k * (cw + 8), 350, cw, 300).toNearestInt());
+    for (int k = 0; k < kSlots; ++k) cards[k]->setBounds (juce::Rectangle<float> (24 + k * (cw + 8), 350, cw, 344).toNearestInt());
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     bg = {};
     jlook::scaleChildren (*this, s);
@@ -266,8 +349,8 @@ void Editor::paintStatic (juce::Graphics& g)
         juce::Path a; a.addTriangle (x - 3, y - 5, x - 3, y + 5, x + 4, y); g.setColour (K::pink.withAlpha (0.7f)); g.fillPath (a);
     }
     g.setFont (f (9.0f)); g.setColour (K::faint);
-    g.drawText (U ("il suono passa da 1 a 8  \xc2\xb7  trascina una scheda dal numero per cambiare l'ordine  \xc2\xb7  clic sul nome = scegli l'effetto  \xc2\xb7  doppio clic sulla manopola = neutro"),
-                juce::Rectangle<float> (24, 662, 1000, 16), juce::Justification::centredLeft);
+    g.drawText (U ("il suono passa da 1 a 8  \xc2\xb7  trascina una scheda dal numero per cambiare l'ordine  \xc2\xb7  clic sul nome = scegli l'effetto  \xc2\xb7  doppio clic sulla manopola = neutro  \xc2\xb7  ingranaggio = parametri avanzati"),
+                juce::Rectangle<float> (24, 706, 1100, 16), juce::Justification::centredLeft);
 }
 void Editor::paint (juce::Graphics& g)
 {
@@ -356,7 +439,8 @@ void Editor::endDrag (juce::Point<float> pos)
 }
 void Editor::timerCallback()
 {
-    scope.repaint();
+    if (! advPanel.isVisible()) scope.repaint();
+    advPanel.tick();
     for (auto* c : cards) c->tick();
     for (auto* k : { mixK.get(), outK.get() }) if (k->animate()) k->repaint();
     repaint (scaler.map ({ 912, 250, 264, 70 }));
