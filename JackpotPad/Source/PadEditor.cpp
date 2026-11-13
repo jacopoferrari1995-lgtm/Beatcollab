@@ -128,7 +128,10 @@ void PadComp::paint (juce::Graphics& g)
     {   // pad da drum machine: gomma nera con un angolo tagliato, finestrella LED in basso, staffe quando e' selezionato
         auto pth = neo::chamfer (b, 10.0f, 3.0f);
         g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillPath (pth, juce::AffineTransform::translation (0, 3));
-        juce::ColourGradient rub (juce::Colour (0xff23262f).interpolatedWith (c, 0.05f), 0, b.getY(), juce::Colour (0xff15171d), 0, b.getBottom(), false); g.setGradientFill (rub); g.fillPath (pth);
+        const bool toy = neo::K::theme == 8;   // anni 80: tasti pastello da drum machine giocattolo
+        juce::ColourGradient rub (toy ? c.interpolatedWith (juce::Colours::white, 0.45f) : juce::Colour (0xff23262f).interpolatedWith (c, 0.05f), 0, b.getY(),
+                                  toy ? c.interpolatedWith (juce::Colours::white, 0.25f) : juce::Colour (0xff15171d), 0, b.getBottom(), false); g.setGradientFill (rub); g.fillPath (pth);
+        if (toy) { g.setColour (juce::Colour (0xff22183a)); g.strokePath (pth, juce::PathStrokeType (2.0f)); }
         if (lum > 0.01f) { g.setColour (c.withAlpha (0.38f * lum)); g.fillPath (pth); g.setColour (c.withAlpha (0.3f * lum)); g.fillRect (b.reduced (b.getWidth() * 0.22f, b.getHeight() * 0.22f)); }
         g.setColour (glass (0.09f)); g.strokePath (pth, juce::PathStrokeType (1.0f));
         auto led = juce::Rectangle<float> (b.getX() + 10, b.getBottom() - 9, b.getWidth() - 20, 3.0f);
@@ -1685,28 +1688,38 @@ void Root::paintStatic (juce::Graphics& g)
     const float W = (float) Editor::W, H = (float) Editor::H;
     if (cyber())
     {   // notte al neon ma ordinata: fondo inchiostro, orizzonte che si accende appena, pavimento a griglia in prospettiva dietro ai pannelli
-        juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, H, false); g.setGradientFill (base); g.fillAll();
         const float hy = H * 0.56f;
+        if (K::theme == 8) memphisBackdrop (g, W, H);
+        else {
+        juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, H, false); g.setGradientFill (base); g.fillAll();
         { juce::ColourGradient hz (K::pink.withAlpha (0.0f), 0, hy - 120, K::pink.withAlpha (0.09f), 0, hy, false); hz.addColour (0.8, K::violet.withAlpha (0.05f)); g.setGradientFill (hz); g.fillRect (0.0f, hy - 120, W, 120.0f); }
         g.setColour (K::pink.withAlpha (0.18f)); g.fillRect (0.0f, hy, W, 1.0f);
         for (int i = 1; i < 14; ++i) { const float t = (float) i / 14, y = hy + (H - hy) * t * t; g.setColour (K::violet.withAlpha (0.03f + 0.05f * t)); g.fillRect (0.0f, y, W, 1.0f); }
         for (int i = -16; i <= 16; ++i) { g.setColour (K::violet.withAlpha (0.06f)); g.drawLine (W * 0.5f + i * 22.0f, hy, W * 0.5f + i * 180.0f, H, 1.0f); }
         { juce::Random rnd (7); for (int i = 0; i < 70; ++i) { g.setColour (K::hi.withAlpha (0.05f + rnd.nextFloat() * 0.12f)); g.fillRect (rnd.nextFloat() * W, rnd.nextFloat() * (hy - 60), 1.0f, 1.0f); } }
+        }
         // barra di testata: logo, sigla e righe di servizio
-        g.setColour (K::lo.withAlpha (0.5f)); g.fillRect (0.0f, 0.0f, W, 56.0f);
-        g.setColour (K::accent.withAlpha (0.35f)); g.fillRect (0.0f, 55.0f, W, 1.0f);
+        if (K::theme == 8)
+        {   // testata da computer di fine anni 80: fascia prugna e strisce arcobaleno in diagonale
+            g.setColour (juce::Colour (0xffefe2cc)); g.fillRect (0.0f, 0.0f, W, 56.0f);
+            const juce::Colour st[] = { juce::Colour (0xffe36f5c), juce::Colour (0xffe8b448), juce::Colour (0xff5a9a4e), juce::Colour (0xff3c8fa6), juce::Colour (0xff6d58a6) };
+            for (int i = 0; i < 5; ++i) { g.setColour (st[i]); g.fillRect (0.0f, 56.0f + i * 2.0f, W, 2.0f); }
+        }
+        else { g.setColour (K::lo.withAlpha (0.5f)); g.fillRect (0.0f, 0.0f, W, 56.0f);
+        g.setColour (K::accent.withAlpha (0.35f)); g.fillRect (0.0f, 55.0f, W, 1.0f); }
         for (int i = 0; i < 6; ++i) { g.setColour (K::accent.withAlpha (0.7f - i * 0.1f)); g.fillRect (W - 26.0f - i * 7.0f, 52.0f, 4.0f, 3.0f); }
         { auto lr = juce::Rectangle<float> (22, 16, 26, 26); g.setColour (K::accent); g.strokePath (chamfer (lr, 7.0f, 1.5f), juce::PathStrokeType (1.6f));
           g.setColour (K::pink); g.fillRect (lr.reduced (8)); }
         g.setFont (jlook::logo (15.0f)); g.setColour (K::ink); g.drawText ("JACKPOT", juce::Rectangle<float> (60, 14, 120, 20), juce::Justification::centredLeft);
-        g.setFont (jlook::logo (15.0f)); g.setColour (K::accent); g.drawText ("SMP-16", juce::Rectangle<float> (172, 14, 120, 20), juce::Justification::centredLeft);
+        g.setFont (jlook::logo (15.0f)); g.setColour (K::accent); g.drawText (K::theme == 8 ? "SMP-1987" : "SMP-16", juce::Rectangle<float> (172, 14, 140, 20), juce::Justification::centredLeft);
         g.setFont (jlook::mono (8.5f)); g.setColour (K::faint); g.drawText ("SAMPLER // SEQUENCER // PROGRESSIONI", juce::Rectangle<float> (60, 35, 320, 12), juce::Justification::centredLeft);
+        const float dy = ed.live ? 458.0f : 0.0f;
         plate (g, { 962, 78, 414, 416 }, K::pink);
-        plate (g, { 24, 536, 928, 94 }, K::accent);
-        g.setFont (cap (8.0f)); g.setColour (K::sub); g.drawText ("Q-LINK", juce::Rectangle<float> (44, 546, 80, 12), juce::Justification::centredLeft);
-        plate (g, { 24, 640, 928, 182 }, K::cyan);
+        plate (g, { 24, 536 - dy, 928, 94 }, K::accent);
+        g.setFont (cap (8.0f)); g.setColour (K::sub); g.drawText ("Q-LINK", juce::Rectangle<float> (44, 546 - dy, 80, 12), juce::Justification::centredLeft);
+        plate (g, { 24, 640 - dy, 928, ed.live ? 312.0f : 182.0f }, K::cyan);
         g.setColour (K::faint); g.setFont (f (9.0f));
-        g.drawFittedText ("per suonare dalla tastiera del Mac: in Ableton premi M", juce::Rectangle<int> (962, 800, 240, 14), juce::Justification::centredLeft, 1, 0.8f);
+        if (! ed.live) g.drawFittedText ("per suonare dalla tastiera del Mac: in Ableton premi M", juce::Rectangle<int> (962, 800, 240, 14), juce::Justification::centredLeft, 1, 0.8f);
         return;
     }
     juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, H, false); g.setGradientFill (base); g.fillAll();
@@ -1726,38 +1739,44 @@ void Root::paintStatic (juce::Graphics& g)
     g.setFont (big (15.0f)); g.setColour (K::sub); g.drawText ("SAMPLER", juce::Rectangle<float> (141, 16, 120, 20), juce::Justification::centredLeft);
     g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (juce::String::fromUTF8 ("16 PAD  \xc2\xb7  SEQUENCER  \xc2\xb7  PROGRESSIONI"), juce::Rectangle<float> (64, 36, 300, 12), juce::Justification::centredLeft);
     // pannelli
+    const float dy = ed.live ? 458.0f : 0.0f;
     slab (g, { 962, 78, 414, 416 }, 18);
-    slab (g, { 24, 536, 928, 94 }, 16);
-    g.setFont (cap (8.0f)); g.setColour (K::sub); g.drawText ("Q-LINK", juce::Rectangle<float> (40, 546, 80, 12), juce::Justification::centredLeft);
-    slab (g, { 24, 640, 928, 182 }, 16);
+    slab (g, { 24, 536 - dy, 928, 94 }, 16);
+    g.setFont (cap (8.0f)); g.setColour (K::sub); g.drawText ("Q-LINK", juce::Rectangle<float> (40, 546 - dy, 80, 12), juce::Justification::centredLeft);
+    slab (g, { 24, 640 - dy, 928, ed.live ? 312.0f : 182.0f }, 16);
     g.setColour (K::faint); g.setFont (f (9.0f));
-    g.drawFittedText ("per suonare dalla tastiera del Mac: in Ableton premi M", juce::Rectangle<int> (962, 800, 240, 14), juce::Justification::centredLeft, 1, 0.8f);
+    if (! ed.live) g.drawFittedText ("per suonare dalla tastiera del Mac: in Ableton premi M", juce::Rectangle<int> (962, 800, 240, 14), juce::Justification::centredLeft, 1, 0.8f);
 }
 void Root::mouseDown (const juce::MouseEvent& e)
 {
-    if (juce::Rectangle<float> (380, 12, 410, 40).contains (e.position)) { ed.kitBrowser.open(); return; }
-    if (juce::Rectangle<float> (800, 20, 90, 26).contains (e.position)) { const int t = ed.proc.uiTheme.load(); ed.proc.uiTheme = t == 3 ? 1 : t == 1 ? 2 : 3; bg = {}; ed.repaint(); }
+    if (juce::Rectangle<float> (340, 20, 80, 26).contains (e.position)) { ed.toggleLive(); return; }
+    if (juce::Rectangle<float> (660, 20, 128, 26).contains (e.position)) { ed.saveKit (true); return; }
+    if (juce::Rectangle<float> (428, 12, 228, 40).contains (e.position)) { ed.kitBrowser.open(); return; }
+    // temi: CYBER -> ROSSO -> RETRO -> SCURO -> CHIARO
+    if (juce::Rectangle<float> (800, 20, 90, 26).contains (e.position)) { const int t = ed.proc.uiTheme.load(); ed.proc.uiTheme = t == 3 ? 4 : t == 4 ? 8 : t == 8 ? 1 : t == 1 ? 2 : 3; bg = {}; ed.repaint(); }
 }
 void Root::paint (juce::Graphics& g)
 {
     // lo sfondo (gradienti, grana, ombre, pannelli) non cambia: si disegna una volta in un'immagine e poi si copia.
     // Prima veniva ridisegnato tutto a ogni aggiornamento e il plugin (e Ableton) andavano a scatti.
     Col::theme = ed.proc.uiTheme.load(); Col::sync();
-    const float W = (float) Editor::W, H = (float) Editor::H;
+    const float W = (float) Editor::W, H = (float) ed.curH();
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
-    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgTheme != Col::theme)
+    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgTheme != Col::theme || bgLive != (int) ed.live)
     {
-        bgScale = sc; bgTheme = Col::theme; ed.screen.bgImg = {};
+        bgScale = sc; bgTheme = Col::theme; bgLive = (int) ed.live; ed.screen.bgImg = {};
         bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false);
         juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig);
     }
     { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality); g.drawImageAt (bg, 0, 0); g.restoreState(); }   // copia pixel per pixel
     g.setFont (neo::cap (8.0f)); g.setColour (Col::dim); g.drawText ("KIT", juce::Rectangle<float> (430, 12, 40, 40), juce::Justification::centredLeft);
-    glowText (g, ed.proc.kitName.toUpperCase() + juce::String::fromUTF8 ("  \xe2\x96\xbe"), { 462, 12, 330, 40 }, Col::text, neo::cap (9.5f));
-    neo::chip (g, { 800, 20, 90, 26 }, neo::cyber() ? "CYBER" : neo::light() ? "CHIARO" : "SCURO", false, Col::dim, 8.5f);
+    glowText (g, ed.proc.kitName.toUpperCase() + juce::String::fromUTF8 ("  \xe2\x96\xbe"), { 462, 12, 190, 40 }, Col::text, neo::cap (9.5f));
+    neo::chip (g, { 660, 20, 128, 26 }, "SALVA COME", true, Col::magenta, 8.5f);
+    neo::chip (g, { 340, 20, 80, 26 }, ed.live ? juce::String::fromUTF8 ("â  NORMALE") : juce::String ("LIVE"), ed.live, Col::red, 8.5f);
+    { const int t = ed.proc.uiTheme.load(); neo::chip (g, { 800, 20, 90, 26 }, t == 3 ? "CYBER" : t == 4 ? "ROSSO" : t == 8 ? "RETRO" : t == 2 ? "CHIARO" : "SCURO", false, Col::dim, 8.5f); }
     // meter master
     const float m[2] = { ed.proc.meterL.load(), ed.proc.meterR.load() };
-    for (int c = 0; c < 2; ++c)
+    for (int c = 0; c < (ed.live ? 0 : 2); ++c)
     {
         auto mb = juce::Rectangle<float> (1210, 712.0f + c * 9, 150, 6);
         const float db = juce::Decibels::gainToDecibels (m[c], -48.0f), n = juce::jlimit (0.0f, 1.0f, (db + 48) / 51);
@@ -2401,17 +2420,21 @@ static juce::Component* named (juce::Component& parent, const char* n) { for (au
 void Editor::resized()
 {
     const float s = scaler.update();
-    sizeChip.setBounds (W - 76, H - 18, 58, 15);
-    root.setBounds (0, 0, W, H); root.setTransform (juce::AffineTransform::scale (s));
+    // vista LIVE: niente schermo, la fila delle manopole e il sequencer salgono sotto la testata, il sequencer si allunga
+    const bool L = live; const int dy = L ? 458 : 0, CH = curH();
+    sizeChip.setBounds (W - 76, CH - 18, 58, 15);
+    root.setBounds (0, 0, W, CH); root.setTransform (juce::AffineTransform::scale (s));
     if (kitBrowser.getParentComponent() == nullptr) root.addChildComponent (kitBrowser);
-    kitBrowser.setBounds (0, 0, W, H);
-    screen.setBounds (24, 78, 928, 450);
+    kitBrowser.setBounds (0, 0, W, CH);
+    screen.setBounds (24, 78, 928, 450); screen.setVisible (! L);
+    for (auto* nm : { "curve", "full", "load", "root", "nr", "nrRate" }) named (root, nm)->setVisible (! L);
+    globalKnobs[3]->setVisible (! L);
     chop.setBounds (0, 0, W, H);
     named (root, "stop")->setBounds (W - 128, 18, 100, 30);
     named (root, "undo")->setBounds (1006, 18, 108, 30);
     named (root, "redo")->setBounds (1120, 18, 108, 30);
-    for (int i = 0; i < 8; ++i) qlinks[i]->setBounds (66 + i * 104, 540, 88, 88);
-    named (root, "qfx")->setBounds (898, 550, 46, 68);
+    for (int i = 0; i < 8; ++i) qlinks[i]->setBounds (66 + i * 104, 540 - dy, 88, 88);
+    named (root, "qfx")->setBounds (898, 550 - dy, 46, 68);
     for (int i = 0; i < kPads; ++i) { const int r = 3 - i / 4, c = i % 4; pads[i]->setBounds (969 + c * 100, 86 + r * 100, 100, 100); }
     named (root, "curve")->setBounds (962, 512, 140, 40);
     named (root, "full")->setBounds (1106, 522, 86, 30);
@@ -2420,17 +2443,27 @@ void Editor::resized()
     named (root, "nr")->setBounds (962, 572, 130, 34);
     named (root, "nrRate")->setBounds (1100, 566, 96, 44);
     globalKnobs[3]->setBounds (1210, 616, 92, 84);
-    named (root, "genre")->setBounds (646, 648, 146, 40);
-    named (root, "pattern")->setBounds (798, 648, 148, 40);
+    named (root, "genre")->setBounds (646, 648 - dy, 146, 40);
+    named (root, "pattern")->setBounds (798, 648 - dy, 148, 40);
     const char* tb[] = { "loop", "random", "rnd", "vary", "play" };
-    for (int i = 0; i < 5; ++i) named (root, tb[i])->setBounds (646 + i * 60, 692, 57, 30);
-    named (root, "swGrid")->setBounds (820, 730, 60, 40);
-    named (root, "swmidi")->setBounds (884, 734, 62, 32);
-    pattern.setBounds (30, 642, 610, 178);
-    globalKnobs[0]->setBounds (664, 726, 62, 70); globalKnobs[1]->setBounds (744, 726, 62, 70); globalKnobs[2]->setVisible (false);   // BPM interno: in Ableton comanda il tempo della DAW
-    drag.setBounds (884, 772, 62, 40);
+    for (int i = 0; i < 5; ++i) named (root, tb[i])->setBounds (646 + i * 60, 692 - dy, 57, 30);
+    named (root, "swGrid")->setBounds (820, 730 - dy, 60, 40);
+    named (root, "swmidi")->setBounds (884, 734 - dy, 62, 32);
+    pattern.setBounds (30, 642 - dy, 610, L ? 308 : 178);
+    globalKnobs[0]->setBounds (664, 726 - dy, 62, 70); globalKnobs[1]->setBounds (744, 726 - dy, 62, 70); globalKnobs[2]->setVisible (false);   // BPM interno: in Ableton comanda il tempo della DAW
+    drag.setBounds (884, 772 - dy, 62, 40);
 }
 
+void Editor::toggleLive()
+{
+    live = ! live;
+    scaler.H = curH();
+    setResizeLimits (W / 4, curH() / 4, W * 3 / 2, curH() * 3 / 2);
+    if (auto* c = getConstrainer()) c->setFixedAspectRatio ((double) W / curH());
+    root.bg = {};
+    setSize (juce::roundToInt (W * scaler.s), juce::roundToInt (curH() * scaler.s));
+    resized(); repaint();
+}
 // le 8 manopole Q-link cambiano con la pagina, come sulle MPC
 void Editor::bindQlinks()
 {

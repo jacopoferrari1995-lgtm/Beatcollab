@@ -19,7 +19,7 @@ namespace Col
     inline int theme = 3;
     inline void sync()
     {
-        neo::setTheme (theme == 2 || theme == 3 ? theme : 1); using namespace neo;
+        neo::setTheme (theme >= 2 && theme <= 8 ? theme : 1); using namespace neo;
         bg = K::bg1; chassis1 = K::panel0; chassis2 = K::panel1; inset = K::panel1;
         magenta = K::pink; cyan = K::cyan; amber = K::amber; red = K::red; green = K::mint;
         text = K::ink; dim = K::sub; faint = K::faint; lcd1 = K::disp0; lcd2 = K::disp1; phos = K::accent;
@@ -215,7 +215,7 @@ public:
     int bgTheme = -1;
     void paint (juce::Graphics&) override;
     void paintStatic (juce::Graphics&);
-    Editor& ed; juce::Image bg; float bgScale = 0;
+    Editor& ed; juce::Image bg; float bgScale = 0; int bgLive = -1;
 };
 
 // editor del campione a tutto schermo: BPM, zoom, chop, assegnazione delle fette ai pad
@@ -303,7 +303,9 @@ public:
     void setPage (int pg);
     void playPad (int p, int vel) { proc.uiNoteOn (p, vel); }
     void stopPad (int p) { proc.uiNoteOff (p); }
-    static constexpr int W = 1400, H = 830;
+    static constexpr int W = 1400, H = 830, HL = 520;   // HL: altezza della vista LIVE (solo pad, manopole FX e sequencer)
+    bool live = false; int curH() const { return live ? HL : H; }
+    void toggleLive();
 
     neo::KeepFonts keepFonts; jlook::LnF lnf;
     Processor& proc;

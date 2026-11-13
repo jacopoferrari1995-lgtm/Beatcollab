@@ -16,7 +16,7 @@ namespace K
     inline juce::Colour accent { 0xffc9a0f0 };
     inline int theme = 0;
 }
-inline bool light() { return K::theme == 2; }
+inline bool light() { return K::theme == 2 || K::theme >= 5; }   // 5..8: temi chiari (schermo bianco / LCD)
 // un accento neon reso leggibile sul chiaro (sul tema scuro resta com'e')
 inline juce::Colour acc (juce::Colour c) { return light() ? c.withMultipliedSaturation (1.0f).withMultipliedBrightness (0.66f) : K::theme == 1 ? c.withMultipliedSaturation (0.68f).withMultipliedBrightness (0.95f) : c; }
 // testo sopra un bottone acceso
@@ -29,6 +29,24 @@ inline void setTheme (int t)
     if (t == 0)      { bg0 = juce::Colour (0xff04050a); bg1 = juce::Colour (0xff0a0b16); ink = juce::Colour (0xfff2f3f9); sub = juce::Colour (0xff9096ad); faint = juce::Colour (0xff545a70); line = juce::Colour (0x14ffffff); hi = juce::Colours::white; lo = juce::Colours::black; }
     else if (t == 1) { bg0 = juce::Colour (0xff1b1823); bg1 = juce::Colour (0xff272231); ink = juce::Colour (0xfff5f3f9); sub = juce::Colour (0xffaaa5ba); faint = juce::Colour (0xff716c84); line = juce::Colour (0x18ffffff); hi = juce::Colours::white; lo = juce::Colour (0xff07060b);
                        panel0 = juce::Colour (0xff2d2938); panel1 = juce::Colour (0xff23202b); disp0 = juce::Colour (0xff3b2e4b); disp1 = juce::Colour (0xff261f32); }
+    else if (t >= 4) {   // anteprime: 4 rosso/nero, 5 ocra/bianco, 6 rosso/bianco, 7 blu/bianco, 8 anni 80
+        struct Pal { juce::uint32 b0, b1, ik, sb, fa, p0, p1, d0, d1, ac; };
+        static const Pal Pl[5] = {
+            { 0xff1e0507, 0xff3b0a10, 0xfff6ece9, 0xffc9a3a3, 0xff8a5a5c, 0xff4a1117, 0xff320b10, 0xff0c0b0c, 0xff040404, 0xffffc05a },
+            { 0xffbf9150, 0xffd8b37a, 0xff2d2318, 0xff6b5640, 0xff9c8667, 0xfff1e6cf, 0xffe4d4b3, 0xfffdfcf8, 0xfff2efe6, 0xffc0571d },
+            { 0xff9b1c24, 0xffc8323a, 0xff2b1d1e, 0xff6e5556, 0xff9d8586, 0xfff5eeea, 0xffe8ddd7, 0xffffffff, 0xfff4f1ef, 0xffc8323a },
+            { 0xff1c3f80, 0xff2f62b8, 0xff1b2333, 0xff56607a, 0xff8a93a8, 0xffeef2f8, 0xffdde4ef, 0xffffffff, 0xfff1f4f9, 0xff2f62b8 },
+            { 0xff3d7a74, 0xff5f9c93, 0xff2a1f3a, 0xff6a5a7d, 0xff958aa8, 0xfff2dccb, 0xffe5c8b3, 0xffb9c59a, 0xffa4b285, 0xffe0663d } };
+        const auto& q = Pl[juce::jlimit (0, 4, t - 4)];
+        bg0 = juce::Colour (q.b0); bg1 = juce::Colour (q.b1); ink = juce::Colour (q.ik); sub = juce::Colour (q.sb); faint = juce::Colour (q.fa);
+        panel0 = juce::Colour (q.p0); panel1 = juce::Colour (q.p1); disp0 = juce::Colour (q.d0); disp1 = juce::Colour (q.d1);
+        line = t == 4 ? juce::Colour (0x18ffffff) : juce::Colour (0x16000000); hi = t == 4 ? juce::Colours::white : juce::Colour (0xff1d1a24); lo = t == 4 ? juce::Colour (0xff050102) : juce::Colour (0xff3a3448);
+        accent = juce::Colour (q.ac);
+        pink = juce::Colour (t == 8 ? 0xffd9507a : 0xffe0336a); violet = juce::Colour (t == 8 ? 0xff6d58a6 : 0xff7a54d6); cyan = juce::Colour (t == 8 ? 0xff2d8c86 : t == 4 ? 0xff5fd8e0 : 0xff1f8fa6);
+        mint = juce::Colour (t == 8 ? 0xff5a9a4e : 0xff2fae6c); amber = juce::Colour (t == 8 ? 0xffe3a93c : t == 4 ? 0xffffc05a : 0xffd08a12); red = juce::Colour (0xffe03a3a); blue = juce::Colour (0xff3d6fd6);
+        if (t == 4) { pink = juce::Colour (0xffff5a7a); amber = juce::Colour (0xffffc05a); }
+        return;
+    }
     else if (t == 3) { bg0 = juce::Colour (0xff06070c); bg1 = juce::Colour (0xff0f1119); ink = juce::Colour (0xffe9edf3); sub = juce::Colour (0xff8c95a9); faint = juce::Colour (0xff4f576b); line = juce::Colour (0x16ffffff); hi = juce::Colour (0xffdfe8ff); lo = juce::Colour (0xff020306);
                        panel0 = juce::Colour (0xff1a1d28); panel1 = juce::Colour (0xff12141d); disp0 = juce::Colour (0xff0b161a); disp1 = juce::Colour (0xff050a0d); }
     else             // chiaro ma non abbagliante: grigi caldi e morbidi, contrasto piu basso (niente bianco pieno)
@@ -56,7 +74,7 @@ inline juce::Typeface::Ptr tf (int i) { return juce::SharedResourcePointer<Fonts
 // (la causa principale degli scatti di grafici e numeri)
 struct KeepFonts { juce::SharedResourcePointer<Fonts> keep; };
 // testo: w 0 normale, 1/2 grassetto. Le maiuscole piccole hanno un po' di spaziatura.
-inline bool cyber() { return K::theme == 3; }
+inline bool cyber() { return K::theme == 3 || K::theme == 8; }   // 8 = anni 80: stesse forme spigolose, tutt'altro mondo
 // nel tema CYBER le scritte sono da strumento: Rajdhani stretto per le etichette, Share Tech Mono per i numeri, Michroma per i titoli
 inline juce::Font f (float s, int w = 0) { if (cyber()) return jlook::ui (s * 1.1f, w > 0 ? 1 : 0).withExtraKerningFactor (0.03f); return juce::Font (juce::FontOptions (tf (w > 0 ? 1 : 0)).withHeight (s * 1.18f)).withExtraKerningFactor (w > 0 ? 0.08f : 0.02f); }
 inline juce::Font cap (float s) { if (cyber()) return jlook::ui (s * 1.16f, 1).withExtraKerningFactor (0.09f); return juce::Font (juce::FontOptions (tf (1)).withHeight (s * 1.18f)).withExtraKerningFactor (0.16f); }
@@ -170,7 +188,7 @@ inline void crt (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour edge,
     g.setColour (K::lo.withAlpha (0.8f)); g.fillPath (chamfer (r.expanded (1.5f), cut + 1, 2.5f));
     juce::ColourGradient cg (K::disp0, r.getCentreX(), r.getY() + r.getHeight() * 0.35f, K::disp1, r.getX(), r.getBottom(), true); g.setGradientFill (cg); g.fillPath (p);
     g.saveState(); g.reduceClipRegion (p);
-    g.setColour (juce::Colours::black.withAlpha (0.22f)); for (float y = r.getY(); y < r.getBottom(); y += 3) g.fillRect (r.getX(), y, r.getWidth(), 1.0f);
+    g.setColour (juce::Colours::black.withAlpha (light() ? 0.06f : 0.22f)); for (float y = r.getY(); y < r.getBottom(); y += 3) g.fillRect (r.getX(), y, r.getWidth(), 1.0f);
     juce::ColourGradient sh (edge.withAlpha (0.05f), 0, r.getY(), edge.withAlpha (0.0f), 0, r.getY() + juce::jmin (40.0f, r.getHeight() * 0.3f), false); g.setGradientFill (sh); g.fillRect (r);
     g.restoreState();
     g.setColour (edge.withAlpha (0.16f)); g.strokePath (p, juce::PathStrokeType (1.0f));
@@ -216,6 +234,30 @@ inline void cyberBackdrop (juce::Graphics& g, float W, float H, float horizon = 
     for (int i = 1; i < 14; ++i) { const float t = (float) i / 14, y = hy + (H - hy) * t * t; g.setColour (K::violet.withAlpha (0.03f + 0.05f * t)); g.fillRect (0.0f, y, W, 1.0f); }
     for (int i = -16; i <= 16; ++i) { g.setColour (K::violet.withAlpha (0.06f)); g.drawLine (W * 0.5f + i * 22.0f, hy, W * 0.5f + i * 180.0f, H, 1.0f); }
     juce::Random rnd (7); for (int i = 0; i < 70; ++i) { g.setColour (K::hi.withAlpha (0.05f + rnd.nextFloat() * 0.12f)); g.fillRect (rnd.nextFloat() * W, rnd.nextFloat() * (hy - 60), 1.0f, 1.0f); }
+}
+// sfondo anni 80 stile Memphis: pastello con zig-zag, triangoli, puntini e cerchi sparsi
+inline void memphisBackdrop (juce::Graphics& g, float W, float H)
+{
+    juce::ColourGradient base (K::bg1, 0, 0, K::bg0, W, H, false); g.setGradientFill (base); g.fillRect (0.0f, 0.0f, W, H);
+    juce::Random r (1985);
+    const juce::Colour cs[] = { juce::Colour (0xffe36f5c), juce::Colour (0xffe8b448), juce::Colour (0xff6d58a6), juce::Colour (0xff2a1f3a), juce::Colour (0xfff2e6d2) };
+    for (int i = 0; i < 90; ++i)
+    {
+        const float x = r.nextFloat() * W, y = r.nextFloat() * H, s = 10 + r.nextFloat() * 26; const auto c = cs[r.nextInt (5)];
+        switch (r.nextInt (5))
+        {
+            case 0: { juce::Path z; z.startNewSubPath (x, y); for (int k = 1; k <= 5; ++k) z.lineTo (x + k * s * 0.4f, y + (k % 2 ? -s * 0.3f : 0)); g.setColour (c); g.strokePath (z, juce::PathStrokeType (3.0f)); break; }
+            case 1: { juce::Path t; t.addTriangle (x, y, x + s, y + s * 0.2f, x + s * 0.4f, y + s); g.setColour (c); g.fillPath (t); break; }
+            case 2: { g.setColour (c); for (int a = 0; a < 3; ++a) for (int b = 0; b < 3; ++b) g.fillEllipse (x + a * 7, y + b * 7, 3.5f, 3.5f); break; }
+            case 3: { g.setColour (c); g.drawEllipse (x, y, s, s, 3.0f); break; }
+            default: { juce::Path q; q.startNewSubPath (x, y); q.quadraticTo (x + s * 0.5f, y - s * 0.6f, x + s, y); q.quadraticTo (x + s * 1.5f, y + s * 0.6f, x + s * 2, y); g.setColour (c); g.strokePath (q, juce::PathStrokeType (3.0f)); break; }
+        }
+    }
+    // griglia a quadretti da quaderno dietro a tutto
+    g.setColour (juce::Colours::white.withAlpha (0.10f)); for (float x = 0; x < W; x += 24) g.fillRect (x, 0.0f, 1.0f, H); for (float y = 0; y < H; y += 24) g.fillRect (0.0f, y, W, 1.0f);
+    // grana da videocassetta: righe orizzontali sottili e qualche striscia piu chiara
+    { juce::Random v (88); for (float y = 0; y < H; y += 2) { g.setColour (juce::Colours::black.withAlpha (0.035f)); g.fillRect (0.0f, y, W, 1.0f); }
+      for (int i = 0; i < 6; ++i) { g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillRect (0.0f, v.nextFloat() * H, W, 1.0f + v.nextFloat() * 2); } }
 }
 inline void cyberHeader (juce::Graphics& g, float W, float h, const juce::String& model, const juce::String& sub)
 {

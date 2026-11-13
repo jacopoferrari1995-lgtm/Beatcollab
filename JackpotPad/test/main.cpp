@@ -386,6 +386,7 @@ int main (int argc, char** argv)
             return 0;
         }
         if (std::getenv ("JKITS")) ed.kitBrowser.open();
+        if (std::getenv ("JLIVE")) { ed.toggleLive(); for (int i = 0; i < 3; ++i) ed.screen.repaint(); }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;
