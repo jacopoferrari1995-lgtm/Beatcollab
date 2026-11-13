@@ -160,6 +160,43 @@ int main (int argc, char** argv)
         Editor ed (*p);
         if (auto* v = std::getenv ("JVIEW")) ed.easyPage.view = std::atoi (v);
         for (int i = 0; i < 30; ++i) ed.tickForTest();
+        if (auto* jsc = std::getenv ("JSCALE")) { ed.scaler.set ((float) std::atof (jsc)); ed.tickForTest(); }
+        if (std::getenv ("JADV")) { setP (*p, "mode", 1); ed.tickForTest(); }
+        if (std::getenv ("JSTAGE"))
+        {   { for (auto& x : gStageT) x = 0; }   // costo di un fotogramma dell'onda: il display si ridisegna insieme a quello che ha dietro
+            auto& st = ed.easyPage.stage; const auto r = ed.getLocalArea (&st, st.getLocalBounds());
+            juce::Image im (juce::Image::ARGB, ed.getWidth() * 2, ed.getHeight() * 2, true);
+            const double t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < (std::getenv ("JN") ? std::atoi (std::getenv ("JN")) : 40); ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (r); ed.paintEntireComponent (g, true); }
+            { const double tf = juce::Time::getMillisecondCounterHiRes(); for (int k = 0; k < 5; ++k) std::printf ("  parte %d: %.2f ms\n", k, gStageT[k] / 40); std::printf ("  totale %.2f\n", (tf - t0) / 40); }
+            { const double t1 = juce::Time::getMillisecondCounterHiRes();
+              for (int i = 0; i < 40; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); st.paintEntireComponent (g, true); }
+              std::printf ("  solo display %.2f ms\n", (juce::Time::getMillisecondCounterHiRes() - t1) / 40.0);
+              for (int v = 0; v < 5; ++v) { ed.easyPage.view = v; const double t2 = juce::Time::getMillisecondCounterHiRes();
+                for (int i = 0; i < 20; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); st.paintEntireComponent (g, true); }
+                std::printf ("  vista %d: %.2f ms\n", v, (juce::Time::getMillisecondCounterHiRes() - t2) / 20.0); } ed.easyPage.view = 0; }
+            for (auto* c : { (juce::Component*) ed.easyPage.trim, (juce::Component*) &ed.easyPage.input, (juce::Component*) ed.easyPage.loud })
+            { const double t3 = juce::Time::getMillisecondCounterHiRes();
+              for (int i = 0; i < 20; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); c->paintEntireComponent (g, true); }
+              std::printf ("  %s %.2f ms vis %d\n", typeid (*c).name(), (juce::Time::getMillisecondCounterHiRes() - t3) / 20.0, (int) c->isShowing()); }
+            { const double t4 = juce::Time::getMillisecondCounterHiRes();
+              for (int i = 0; i < 20; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (r); ed.paint (g); }
+              std::printf ("  Editor::paint %.2f ms\n", (juce::Time::getMillisecondCounterHiRes() - t4) / 20.0);
+              if (ed.easyPage.isVisible()) { const double t5 = juce::Time::getMillisecondCounterHiRes(); auto r2 = ed.easyPage.getLocalArea (&ed, r);
+                for (int i = 0; i < 20; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (r2); ed.easyPage.paint (g); }
+                std::printf ("  EasyPage::paint %.2f ms\n", (juce::Time::getMillisecondCounterHiRes() - t5) / 20.0); } }
+            std::function<void (juce::Component&, int)> walk = [&] (juce::Component& par, int depth)
+            {
+                for (auto* c : par.getChildren()) if (c->isVisible() && ed.getLocalArea (c, c->getLocalBounds()).intersects (r))
+                { const double t6 = juce::Time::getMillisecondCounterHiRes();
+                  for (int i = 0; i < 10; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); c->paintEntireComponent (g, true); }
+                  std::printf ("  %*s%s %.2f ms\n", depth * 2, "", typeid (*c).name(), (juce::Time::getMillisecondCounterHiRes() - t6) / 10.0);
+                  if (depth < 1) walk (*c, depth + 1); }
+            };
+            walk (ed, 0);
+            std::printf ("scala editor %.3f\n", ed.scaler.s); std::printf ("fotogramma onda (%s, %dx%d): %.2f ms\n", p->easy() ? "FACILE" : "AVANZATO", r.getWidth(), r.getHeight(), (juce::Time::getMillisecondCounterHiRes() - t0) / 40.0);
+            return 0;
+        }
         if (auto* gd = std::getenv ("JGUIDE")) { ed.easyPage.guide.topic = std::atoi (gd); ed.easyPage.guide.setVisible (true); ed.easyPage.guide.toFront (false); }
         if (std::getenv ("JPERF"))
         {

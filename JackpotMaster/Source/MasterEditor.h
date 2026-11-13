@@ -23,6 +23,7 @@ void glowText (juce::Graphics&, const juce::String&, juce::Rectangle<float>, juc
 void lcd (juce::Graphics&, juce::Rectangle<float>, float rad);
 
 class Editor;
+extern double gStageT[6];   // tempi delle parti del display (solo per i test)
 
 // analizzatore di spettro (FFT 8192, scala log, inclinazione 4.5 dB/ott)
 struct Analyzer
@@ -64,8 +65,8 @@ class Switch : public juce::Component
 public:
     Switch (juce::RangedAudioParameter* p, juce::Colour c, juce::String l = {}) : param (p), col (c), label (std::move (l)) {}
     void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getValue() > 0.5f ? 0.0f : 1.0f); }
-    juce::RangedAudioParameter* param; juce::Colour col; juce::String label;
+    void mouseDown (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); }
+    juce::RangedAudioParameter* param; juce::Colour col; juce::String label; float shown = -1;
 };
 
 // catena dei moduli
@@ -87,12 +88,15 @@ public:
 };
 
 // storia: ingresso, uscita e riduzione di guadagno
+class EasyStage;
 class History : public juce::Component
 {
 public:
-    History (Editor& e, bool lim) : ed (e), limiter (lim) {}
+    History (Editor& e, bool lim);
+    ~History() override;
     void paint (juce::Graphics&) override;
-    Editor& ed; bool limiter;
+    void resized() override;
+    Editor& ed; bool limiter; std::unique_ptr<EasyStage> st;   // la stessa onda tagliata del FACILE
 };
 
 class MaxPage : public juce::Component
@@ -197,7 +201,7 @@ public:
     juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (8).withTrimmedTop (6).withTrimmedBottom (16).withTrimmedLeft (26); }
     Editor& ed; EqPop pop { *this };
     int hover = -1, drag = -1, sel = -1, popBand = -1, popHold = 0;
-    float dynShown[kEqBands] {};                       // movimento delle bande dinamiche, smussato a ogni fotogramma
+    float dynShown[kEqBands] {}; std::vector<float> pxPre, pxPost; void specFrame (float dtMs);                       // movimento delle bande dinamiche, smussato a ogni fotogramma
     std::unique_ptr<juce::VBlankAttachment> vb; neo::Cache grid; double lastFrame = 0;
 private:
     juce::dsp::FFT fft { 12 }; std::vector<float> win, buf, specPre, specPost;
@@ -228,9 +232,11 @@ public:
 class Gonio : public juce::Component
 {
 public:
-    Gonio (Editor& e) : ed (e) {}
+    Gonio (Editor& e);
+    ~Gonio() override;
     void paint (juce::Graphics&) override;
-    Editor& ed; juce::Image trail; float scale = 1.0f, crS = 1.0f; double lastMs = 0;
+    void resized() override;
+    Editor& ed; juce::Image trail; float scale = 1.0f, crS = 1.0f; double lastMs = 0; std::unique_ptr<EasyStage> st;   // immagine stereo del FACILE
 };
 class ImagerPage : public ModPage
 {
@@ -451,6 +457,8 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override { hov = -1; }
     EasyPage& page; Analyzer anIn, anOut; float specIn[300] {}, specOut[300] {}, specHold[300] {}; juce::Rectangle<float> loadR, listenR;
+    float optLeft = 0;    // i tasti della vista non vanno sopra il riquadro INGRESSO
+    bool bare = false; juce::Colour tint;   // solo il grafico, senza cornice ne comandi (dentro le pagine degli effetti)
     int fixedView = -1;   // usata nell'AVANZATO: vista fissa, indipendente dalla pagina FACILE
     int curView() const;
     bool easy() const { return fixedView < 0; }
@@ -530,8 +538,23 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
-    juce::Rectangle<float> card (int i) const { const float w = ((float) getWidth() - 40 - 3 * 12) / 4; return { 20 + (i % 4) * (w + 12), 56.0f + (i / 4) * 140.0f, w, 128 }; }
+    juce::Rectangle<float> card (int i) const { const float w = ((float) getWidth() - 40 - 4 * 12) / 5; return { 20 + (i % 5) * (w + 12), 54.0f + (i / 5) * 188.0f, w, 178 }; }
     juce::Rectangle<float> closeR() const { return { (float) getWidth() - 96, 14, 80, 26 }; }
+    Editor& ed; int hov = -1;
+};
+// miniatura in stile hardware di un effetto (pannello, manopole, strumenti): usata in galleria, catena e riepilogo
+void hwIcon (juce::Graphics&, int m, juce::Rectangle<float>, bool on = true);
+juce::String keyLine (Processor&, int m);
+// vista CATENA: riepilogo di tutti gli effetti inseriti, con cosa fanno adesso
+class RackRecap : public juce::Component
+{
+public:
+    explicit RackRecap (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { hov = -1; repaint(); }
+    juce::Rectangle<float> card (int i) const { const float w = ((float) getWidth() - 32 - 3 * 14) / 4; return { 16 + (i % 4) * (w + 14), 52.0f + (i / 4) * 150.0f, w, 136 }; }
     Editor& ed; int hov = -1;
 };
 // barra in fondo: cosa sta facendo l'effetto aperto e un consiglio pratico
@@ -604,12 +627,12 @@ public:
     } advTabsComp { *this };
     void applyMode();
     // AVANZATO a inserimento
-    Rack rack { *this }; Gallery gallery { *this }; StatusBar status { *this }; PresetBrowser browser { *this };
+    Rack rack { *this }; Gallery gallery { *this }; StatusBar status { *this }; PresetBrowser browser { *this }; RackRecap recap { *this };
     void openEffect (int m);                 // apre l'effetto in grande al centro
     void insertModule (int m);               // lo mette in catena al suo posto naturale e lo accende
     void removeModule (int m);               // lo spegne e lo toglie dalla catena
     void layoutAdv();
-    static constexpr int kEff = 7;           // advView: 0..6 viste del display, 7 = effetto aperto
+    static constexpr int kEff = 7, kRecap = 8;   // advView: 0..6 viste del display, 7 = effetto aperto, 8 = riepilogo della catena
     juce::Rectangle<int> centreR { 260, 106, 854, 628 }, tgtR[kNumTargets], dthR[4];
     juce::Rectangle<int> modeR[2]; bool lastEasy = false;
     juce::Image neoBg; float neoScale = 0; int neoTheme = -1; neo::Segments modeSeg;

@@ -246,10 +246,10 @@ struct Cache
 // controllo a segmenti con cursore che scorre (anim: posizione animata del cursore, aggiornata da chi lo usa)
 struct Segments
 {
-    juce::Rectangle<float> r[8]; int n = 0; float ax = -1, aw = 0;
+    juce::Rectangle<float> r[12]; int n = 0; float ax = -1, aw = 0;
     void layout (juce::Rectangle<float> area, const juce::StringArray& labels, float fs)
     {
-        n = labels.size(); float tot = 0, w[8];
+        n = juce::jmin (12, labels.size()); float tot = 0, w[12];
         for (int i = 0; i < n; ++i) { w[i] = juce::GlyphArrangement::getStringWidth (cap (fs), labels[i]) + 28; tot += w[i]; }
         float x = area.getX();
         for (int i = 0; i < n; ++i) { r[i] = { x, area.getY(), w[i], area.getHeight() }; x += w[i]; }

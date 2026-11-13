@@ -60,7 +60,7 @@ void EasyPage::resized()
     kb (ceil, 1064, kKnobY, kS);
     monoB->setBounds (1120, (int) kKnobY + 20, 124, 26);
     kb (trim, (float) zDisp.getX() + 48, (float) zDisp.getY() + 6, 36);
-    stage.setBounds (zDisp); input.setBounds (zDisp.getX() + 92, zDisp.getY() + 10, 250, 46);
+    stage.setBounds (zDisp); input.setBounds (zDisp.getX() + 92, zDisp.getY() + 10, 250, 46); stage.optLeft = 352;
     guide.setBounds (20, 42, 1240, 362); guideR = { 16, 6, 92, 26 };
     tabs.layout ({ 124, 6, 0, 26 }, viewNames(), 8.5f); tabs.ax = -1;
     themeR = { 1182, 6, 82, 26 }; cmpR = { themeR.getX() - 84, 6, 78, 26 }; deltaR = { cmpR.getX() - 72, 6, 66, 26 }; targetR = { deltaR.getX() - 150, 6, 144, 26 };
@@ -203,11 +203,22 @@ juce::Rectangle<float> EasyStage::visual()
     if (hasCol (curView())) b.removeFromRight (94);
     return b;
 }
+double gStageT[6] {};
 void EasyStage::paint (juce::Graphics& g)
 {
     neo::setTheme (page.ed.proc.uiTheme.load() == 2 ? 2 : 1);
     hots.clear();
-    panel (g);
+    if (bare)
+    {
+        auto b = getLocalBounds().toFloat(); lcd (g, b, 14);
+        auto& P = page.ed.proc; const auto v = b.reduced (12, 10);
+        if (curView() == V_IMAGE) image (g, v, v.getWidth() < 420);
+        else wave (g, v, curView() != V_GAIN, kWins[juce::jlimit (0, 3, P.uiWin.load())]);
+        return;
+    }
+    double tA = juce::Time::getMillisecondCounterHiRes();
+    auto lap = [&tA] (int k) { const double n = juce::Time::getMillisecondCounterHiRes(); gStageT[k] += n - tA; tA = n; };
+    panel (g); lap (0);
     const auto v = visual(); const int cv = curView(); auto& P = page.ed.proc;
     switch (cv)
     {
@@ -219,13 +230,16 @@ void EasyStage::paint (juce::Graphics& g)
         case V_IDEAL: ideal (g, v.withTrimmedBottom (easy() ? 70 : 0)); break;
         default:      ref (g, v.withTrimmedBottom (easy() ? 70 : 0)); break;
     }
+    lap (1);
     if (hasCol (cv))
     {
         auto c = getLocalBounds().toFloat(); c = easy() ? c.withTrimmedTop (62).withTrimmedBottom (86) : c.withTrimmedTop (36).withTrimmedBottom (4);
         meterCol (g, c.removeFromRight (easy() ? 108 : 92).withTrimmedRight (easy() ? 18 : 4).withTrimmedLeft (4));
     }
+    lap (2);
     if (easy() && cv != V_METER) numbers (g);
-    options (g);
+    lap (3);
+    options (g); lap (4);
 }
 void EasyStage::panel (juce::Graphics& g)
 {
@@ -244,7 +258,8 @@ void EasyStage::panel (juce::Graphics& g)
           juce::ColourGradient vg (K::disp1.withAlpha (0.0f), 0, y0 - 30, K::disp1.withAlpha (light() ? 0.92f : 0.88f), 0, y0 + 26, false); vg2.setGradientFill (vg);
           vg2.fillRoundedRectangle (b.getX() + 1, y0 - 30, b.getWidth() - 2, b.getBottom() - y0 + 29, 21); }
     }
-    g.drawImageTransformed (panelImg, juce::AffineTransform::scale (1.0f / sc));
+    // copia veloce (senza ricampionamento di qualita): prima questa riga da sola pesava piu di meta del fotogramma
+    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality); g.drawImageTransformed (panelImg, juce::AffineTransform::scale (1.0f / sc));
 }
 void EasyStage::panelDraw (juce::Graphics& g)
 {
@@ -280,14 +295,20 @@ void EasyStage::options (juce::Graphics& g)
         add ("PRIMA", P.uiPrev.load() == 1, 50);
     }
     if (it.empty()) return;
-    float tot = 0; for (auto& e : it) tot += e.first == "|" ? 10.0f : juce::GlyphArrangement::getStringWidth (cap (7.5f), e.first) + 22 + 4;
-    float x = (float) getWidth() * 0.5f - tot * 0.5f;
-    if (! easy()) x = juce::jmax (8.0f, x);
+    // i tasti stanno a destra del riquadro INGRESSO; se non ci stanno si stringono (prima si sovrapponevano)
+    float fs = 7.5f, pad = 22, gapW = 10;
+    auto total = [&] { float t = 0; for (auto& e : it) t += e.first == "|" ? gapW : juce::GlyphArrangement::getStringWidth (cap (fs), e.first) + pad + 4; return t; };
+    const float left = juce::jmax (8.0f, optLeft), avail = (float) getWidth() - 10 - left;
+    float tot = total();
+    if (tot > avail) { pad = 12; gapW = 6; tot = total(); }
+    if (tot > avail) { fs = 6.6f; tot = total(); }
+    float x = juce::jmax (left, (float) getWidth() * 0.5f - tot * 0.5f);
+    if (x + tot > (float) getWidth() - 10) x = juce::jmax (left, (float) getWidth() - 10 - tot);
     for (auto& e : it)
     {
-        if (e.first == "|") { g.setColour (K::hi.withAlpha (0.12f)); g.fillRect (x + 4, y + 4, 1.0f, h - 8); x += 10; continue; }
-        const float w = juce::GlyphArrangement::getStringWidth (cap (7.5f), e.first) + 22;
-        opt (g, { x, y, w, h }, e.first, e.second.first, e.second.second); x += w + 4;
+        if (e.first == "|") { g.setColour (K::hi.withAlpha (0.12f)); g.fillRect (x + gapW * 0.5f - 1, y + 4, 1.0f, h - 8); x += gapW; continue; }
+        const float w = juce::GlyphArrangement::getStringWidth (cap (fs), e.first) + pad;
+        chip (g, { x, y, w, h }, e.first, e.second.first, K::violet, fs, hov == e.second.second); hots.push_back ({ { x, y, w, h }, e.second.second }); x += w + 4;
     }
 }
 void EasyStage::mouseMove (const juce::MouseEvent& e)
@@ -364,7 +385,9 @@ void EasyStage::envelope (PxEnv& e, int npx, double winSec)
             const double k = x * cpp; a0 = sweep0 + k;
             if (a0 > pos) { if (a0 - pos < cols * 0.012) continue; a0 -= cols; }   // poco dopo il cursore: vuoto
         }
-        else a0 = pos - (npx - x) * cpp;
+        // SCROLL: se un pixel raccoglie piu colonne, i gruppi restano agganciati a una griglia fissa nel tempo
+        // (prima si spostavano di una frazione a ogni fotogramma e l'onda tremolava, soprattutto sui display stretti)
+        else a0 = (cpp >= 1.0 ? std::floor (pos / cpp) * cpp : pos) - (npx - x) * cpp;
         const double a1 = a0 + cpp;
         float pk = -200, rm = -200, gr = 0;
         if (cpp >= 1.0)
@@ -403,7 +426,7 @@ void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p, bool bipolar,
     const int npx = juce::jmax (16, (int) p.getWidth());
     PxEnv e; envelope (e, npx, win);
     const float dx = p.getWidth() / (float) npx;
-    const auto wc = waveCol(), lineC = light() ? K::ink : juce::Colours::white;
+    const auto wc = tint.isTransparent() ? waveCol() : tint, lineC = light() ? K::ink : juce::Colours::white;
     const bool over = easy() && ! small;   // nel FACILE l'onda scende fin sotto i numeri, le etichette del tempo vanno in alto
     const float bottomPad = small ? 2.0f : over ? (bipolar ? 30.0f : 0.0f) : 16.0f;
     auto area = p.withTrimmedBottom (bottomPad);
@@ -755,6 +778,7 @@ void EasyStage::numbers (juce::Graphics& g)
     auto b = getLocalBounds().toFloat();
     const float y0 = b.getBottom() - 78;
     // velo in basso per leggere i numeri sopra l'onda
+    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
     if (veilImg.isValid()) g.drawImageTransformed (veilImg, juce::AffineTransform::scale ((float) getWidth() / (float) veilImg.getWidth()).translated (0, b.getBottom() - 110));
     const auto dash = U ("\xe2\x80\x93");
     // CRUSH / OPTIMAL / SAFE + LUFS-I

@@ -95,6 +95,157 @@ static Stat statOf (Editor& ed, int m)
     return s;
 }
 
+
+// ---------------------------------------------------------------------------------------------------- miniature hardware
+// pannelli ispirati agli strumenti classici da studio (colori, manopole, strumenti), senza marchi ne scritte di marca
+static void screws (juce::Graphics& g, juce::Rectangle<float> r)
+{
+    if (r.getWidth() < 70) return;
+    const float d = juce::jmax (2.5f, r.getHeight() * 0.07f);
+    for (float x : { r.getX() + d * 1.6f, r.getRight() - d * 1.6f }) for (float y : { r.getY() + d * 1.6f, r.getBottom() - d * 1.6f })
+    { g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillEllipse (x - d * 0.5f, y - d * 0.5f + 0.4f, d, d); g.setColour (juce::Colours::white.withAlpha (0.35f)); g.fillEllipse (x - d * 0.5f, y - d * 0.5f, d, d); }
+}
+static void plateBody (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour top, juce::Colour bot)
+{
+    const float rad = juce::jmin (6.0f, r.getHeight() * 0.14f);
+    g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (r.translated (0, 1.5f), rad);
+    juce::ColourGradient cg (top, 0, r.getY(), bot, 0, r.getBottom(), false); g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);
+    g.setColour (juce::Colours::white.withAlpha (0.18f)); g.drawLine (r.getX() + rad, r.getY() + 0.6f, r.getRight() - rad, r.getY() + 0.6f, 0.8f);
+    g.setColour (juce::Colours::black.withAlpha (0.3f)); g.drawRoundedRectangle (r.reduced (0.4f), rad, 0.8f);
+}
+static void miniKnob (juce::Graphics& g, float cx, float cy, float R, juce::Colour cap, float ang = 0.6f, bool chicken = false)
+{
+    g.setColour (juce::Colours::black.withAlpha (0.4f)); g.fillEllipse (cx - R, cy - R + R * 0.18f, R * 2, R * 2);
+    if (chicken)
+    {   // manopola a becco
+        juce::Path p; p.addEllipse (cx - R * 0.75f, cy - R * 0.75f, R * 1.5f, R * 1.5f);
+        juce::Path b; b.addTriangle (cx - R * 0.35f, cy, cx + R * 0.35f, cy, cx, cy - R * 1.25f); b.applyTransform (juce::AffineTransform::rotation (ang, cx, cy)); p.addPath (b);
+        g.setColour (cap); g.fillPath (p); g.setColour (juce::Colours::white.withAlpha (0.8f));
+        g.drawLine (cx, cy, cx + std::sin (ang) * R * 1.1f, cy - std::cos (ang) * R * 1.1f, juce::jmax (0.8f, R * 0.12f)); return;
+    }
+    juce::ColourGradient kg (cap.brighter (0.35f), cx, cy - R, cap.darker (0.5f), cx, cy + R, false); g.setGradientFill (kg); g.fillEllipse (cx - R, cy - R, R * 2, R * 2);
+    g.setColour (juce::Colours::white.withAlpha (0.85f)); g.drawLine (cx + std::sin (ang) * R * 0.25f, cy - std::cos (ang) * R * 0.25f, cx + std::sin (ang) * R * 0.85f, cy - std::cos (ang) * R * 0.85f, juce::jmax (0.8f, R * 0.16f));
+}
+static void vuWin (juce::Graphics& g, juce::Rectangle<float> v, float needle)
+{
+    const float rad = juce::jmin (3.0f, v.getHeight() * 0.12f);
+    juce::ColourGradient f (juce::Colour (0xff4a3518), v.getCentreX(), v.getBottom(), juce::Colour (0xff1a120a), v.getCentreX(), v.getY(), false); g.setGradientFill (f); g.fillRoundedRectangle (v, rad);
+    g.setColour (juce::Colour (0x66ffb547)); g.fillRoundedRectangle (v.withTrimmedTop (v.getHeight() * 0.5f), rad);
+    const float cx = v.getCentreX(), cy = v.getBottom() + v.getHeight() * 0.25f, R = v.getHeight() * 1.0f;
+    juce::Path sc; sc.addCentredArc (cx, cy, R * 0.82f, R * 0.82f, 0, -0.75f, 0.75f, true); g.setColour (juce::Colour (0xffe9dcbd).withAlpha (0.7f)); g.strokePath (sc, juce::PathStrokeType (juce::jmax (0.6f, v.getHeight() * 0.04f)));
+    { juce::Path rd; rd.addCentredArc (cx, cy, R * 0.82f, R * 0.82f, 0, 0.35f, 0.75f, true); g.setColour (juce::Colour (0xffff6a4d)); g.strokePath (rd, juce::PathStrokeType (juce::jmax (0.8f, v.getHeight() * 0.06f))); }
+    const float a = -0.75f + 1.5f * needle;
+    g.saveState(); g.reduceClipRegion (v.toNearestInt()); g.setColour (juce::Colour (0xfff3e7cc)); g.drawLine (cx, cy, cx + std::sin (a) * R * 0.95f, cy - std::cos (a) * R * 0.95f, juce::jmax (0.7f, v.getHeight() * 0.04f)); g.restoreState();
+    g.setColour (juce::Colours::black.withAlpha (0.5f)); g.drawRoundedRectangle (v, rad, 0.8f);
+}
+static void reel (juce::Graphics& g, float cx, float cy, float R, float rot)
+{
+    g.setColour (juce::Colour (0xffd9dbe0)); g.fillEllipse (cx - R, cy - R, R * 2, R * 2);
+    g.setColour (juce::Colour (0xff3a2a1e)); g.fillEllipse (cx - R * 0.78f, cy - R * 0.78f, R * 1.56f, R * 1.56f);   // nastro avvolto
+    g.setColour (juce::Colour (0xffd9dbe0)); g.fillEllipse (cx - R * 0.3f, cy - R * 0.3f, R * 0.6f, R * 0.6f);
+    for (int k = 0; k < 3; ++k) { const float a = rot + k * 2.094f; juce::Path h; h.addEllipse (cx + std::sin (a) * R * 0.5f - R * 0.16f, cy - std::cos (a) * R * 0.5f - R * 0.16f, R * 0.32f, R * 0.32f); g.setColour (juce::Colour (0xff15110d)); g.fillPath (h); }
+    g.setColour (juce::Colour (0xff15110d)); g.fillEllipse (cx - R * 0.08f, cy - R * 0.08f, R * 0.16f, R * 0.16f);
+}
+void hwIcon (juce::Graphics& g, int m, juce::Rectangle<float> r, bool on)
+{
+    g.saveState();
+    const float H = r.getHeight(), W = r.getWidth(); auto in = r.reduced (W * 0.07f, H * 0.12f);
+    switch (m)
+    {
+        case BASS:
+        {   plateBody (g, r, juce::Colour (0xff2d2a29), juce::Colour (0xff181615));
+            const float R = H * 0.38f, cx = r.getRight() - R - W * 0.08f, cy = r.getCentreY();
+            g.setColour (juce::Colour (0xff0d0c0c)); g.fillEllipse (cx - R, cy - R, R * 2, R * 2);
+            g.setColour (juce::Colour (0xff4a4644)); g.drawEllipse (cx - R * 0.92f, cy - R * 0.92f, R * 1.84f, R * 1.84f, R * 0.12f);
+            juce::ColourGradient cg (juce::Colour (0xff3b3735), cx - R * 0.3f, cy - R * 0.3f, juce::Colour (0xff0f0e0e), cx + R * 0.5f, cy + R * 0.6f, true); g.setGradientFill (cg); g.fillEllipse (cx - R * 0.72f, cy - R * 0.72f, R * 1.44f, R * 1.44f);
+            g.setColour (juce::Colour (0xff57514d)); g.fillEllipse (cx - R * 0.24f, cy - R * 0.24f, R * 0.48f, R * 0.48f);
+            miniKnob (g, r.getX() + W * 0.17f, cy, H * 0.15f, juce::Colour (0xffffb000), -0.6f); miniKnob (g, r.getX() + W * 0.37f, cy, H * 0.15f, juce::Colour (0xffffb000), 0.8f);
+            break; }
+        case DYNEQ:
+        {   plateBody (g, r, juce::Colour (0xff1a1e26), juce::Colour (0xff0c0e12));
+            auto sc = in; g.setColour (juce::Colour (0xff06080b)); g.fillRoundedRectangle (sc, 3);
+            juce::Path sp; for (int i = 0; i <= 40; ++i) { const float x = i / 40.0f; const float y = 0.75f - 0.25f * x + 0.08f * std::sin (x * 23.0f) * (1 - x); if (i == 0) sp.startNewSubPath (sc.getX(), sc.getBottom()); sp.lineTo (sc.getX() + x * sc.getWidth(), sc.getY() + y * sc.getHeight()); }
+            sp.lineTo (sc.getRight(), sc.getBottom()); sp.closeSubPath(); g.setColour (juce::Colour (0x333ee8ff)); g.fillPath (sp);
+            juce::Path cv; for (int i = 0; i <= 50; ++i) { const float x = i / 50.0f, y = 0.5f - 0.28f * std::exp (-std::pow ((x - 0.3f) * 8, 2.0f)) + 0.22f * std::exp (-std::pow ((x - 0.72f) * 11, 2.0f)); const float px = sc.getX() + x * sc.getWidth(), py = sc.getY() + y * sc.getHeight(); if (i == 0) cv.startNewSubPath (px, py); else cv.lineTo (px, py); }
+            g.setColour (juce::Colours::white.withAlpha (0.9f)); g.strokePath (cv, juce::PathStrokeType (juce::jmax (1.0f, H * 0.03f)));
+            const juce::Colour nc[3] = { juce::Colour (0xffffb547), juce::Colour (0xffff3d9a), juce::Colour (0xff3ee8ff) }; const float nx[3] = { 0.3f, 0.72f, 0.88f }, ny[3] = { 0.22f, 0.72f, 0.5f };
+            for (int k = 0; k < 3; ++k) { const float d = juce::jmax (3.0f, H * 0.11f); g.setColour (nc[k]); g.drawEllipse (sc.getX() + nx[k] * sc.getWidth() - d * 0.5f, sc.getY() + ny[k] * sc.getHeight() - d * 0.5f, d, d, juce::jmax (0.8f, H * 0.025f)); }
+            break; }
+        case EQ432:
+        {   plateBody (g, r, juce::Colour (0xffc9ccd2), juce::Colour (0xff8e9299)); screws (g, r);
+            const juce::Colour caps[5] = { juce::Colour (0xffd23b3b), juce::Colour (0xffe8b23a), juce::Colour (0xff3fae5c), juce::Colour (0xff3b7bd2), juce::Colour (0xff8b5cd2) };
+            for (int k = 0; k < 5; ++k) miniKnob (g, in.getX() + in.getWidth() * (k + 0.5f) / 5.0f, r.getCentreY(), juce::jmin (H * 0.17f, W * 0.07f), caps[k], -0.8f + k * 0.4f);
+            break; }
+        case PULTEC:
+        {   plateBody (g, r, juce::Colour (0xff7a8fa3), juce::Colour (0xff4c5f71)); screws (g, r);
+            for (int k = 0; k < 4; ++k) miniKnob (g, in.getX() + in.getWidth() * (k + 0.5f) / 4.0f, r.getCentreY() + H * 0.04f, juce::jmin (H * 0.22f, W * 0.09f), juce::Colour (0xff141414), -0.9f + k * 0.55f, true);
+            g.setColour (juce::Colours::white.withAlpha (0.55f)); g.fillRect (in.getX(), r.getY() + H * 0.16f, in.getWidth(), juce::jmax (0.6f, H * 0.02f));
+            break; }
+        case DEESS:
+        {   plateBody (g, r, juce::Colour (0xff3a3d44), juce::Colour (0xff22242a));
+            auto ml = juce::Rectangle<float> (in.getX(), r.getCentreY() - H * 0.07f, in.getWidth() * 0.6f, H * 0.14f);
+            for (int k = 0; k < 10; ++k) { const float t = k / 10.0f; g.setColour ((t > 0.75f ? juce::Colour (0xffff4d6a) : t > 0.55f ? juce::Colour (0xffffb547) : juce::Colour (0xff4dffb4)).withAlpha (k < 7 ? 1.0f : 0.3f)); g.fillRect (ml.getX() + k * ml.getWidth() / 10, ml.getY(), ml.getWidth() / 10 - 1, ml.getHeight()); }
+            miniKnob (g, in.getRight() - in.getWidth() * 0.15f, r.getCentreY(), H * 0.2f, juce::Colour (0xff7dff5a), 0.4f);
+            break; }
+        case VARIMU:
+        {   plateBody (g, r, juce::Colour (0xff8fb0cc), juce::Colour (0xff5d7e9c)); screws (g, r);
+            const float vw = in.getWidth() * 0.4f, vh = in.getHeight() * 0.8f;
+            vuWin (g, { in.getX(), r.getCentreY() - vh * 0.5f, vw, vh }, 0.35f); vuWin (g, { in.getRight() - vw, r.getCentreY() - vh * 0.5f, vw, vh }, 0.42f);
+            break; }
+        case BUSCOMP:
+        {   plateBody (g, r, juce::Colour (0xff9a9da3), juce::Colour (0xff6e7177)); screws (g, r);
+            const float vh = in.getHeight() * 0.85f; vuWin (g, { in.getX(), r.getCentreY() - vh * 0.5f, in.getWidth() * 0.42f, vh }, 0.62f);
+            const juce::Colour caps[4] = { juce::Colour (0xffd23b3b), juce::Colour (0xff2e5fb0), juce::Colour (0xff2e5fb0), juce::Colour (0xfff0f0f0) };
+            for (int k = 0; k < 4; ++k) miniKnob (g, in.getX() + in.getWidth() * (0.55f + (k % 2) * 0.25f) + in.getWidth() * 0.08f, r.getCentreY() + (k < 2 ? -1.0f : 1.0f) * H * 0.2f, juce::jmin (H * 0.13f, W * 0.05f), caps[k], -0.5f + k * 0.4f);
+            break; }
+        case MULTI:
+        {   plateBody (g, r, juce::Colour (0xff1c1c1f), juce::Colour (0xff0e0e10));
+            for (int k = 0; k < 3; ++k) { auto br = juce::Rectangle<float> (in.getX() + in.getWidth() * (0.08f + k * 0.3f), in.getY(), in.getWidth() * 0.2f, in.getHeight());
+              g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRect (br); const float lv = 0.4f + 0.2f * k;
+              juce::ColourGradient bg (juce::Colour (0xffff7a3d), 0, br.getBottom(), juce::Colour (0xffffd23d), 0, br.getY(), false); g.setGradientFill (bg); g.fillRect (br.withTrimmedTop (br.getHeight() * (1 - lv)));
+              g.setColour (juce::Colour (0xff4dc3ff)); g.fillRect (br.getX(), br.getY() + br.getHeight() * 0.25f, br.getWidth(), juce::jmax (1.0f, H * 0.03f)); }
+            break; }
+        case EXCITER:
+        {   plateBody (g, r, juce::Colour (0xff27497f), juce::Colour (0xff142a4d)); screws (g, r);
+            for (int k = 0; k < 3; ++k) miniKnob (g, in.getX() + in.getWidth() * (k + 0.5f) / 5.0f, r.getCentreY(), juce::jmin (H * 0.16f, W * 0.06f), juce::Colour (0xffd8dbe2), -0.4f + k * 0.5f);
+            auto wv = juce::Rectangle<float> (in.getX() + in.getWidth() * 0.62f, in.getY(), in.getWidth() * 0.38f, in.getHeight());
+            juce::Path p; for (int i = 0; i <= 30; ++i) { const float x = i / 30.0f, y = 0.5f - 0.38f * std::tanh (std::sin (x * 12.6f) * 2.5f) / std::tanh (2.5f); if (i == 0) p.startNewSubPath (wv.getX(), wv.getY() + y * wv.getHeight()); else p.lineTo (wv.getX() + x * wv.getWidth(), wv.getY() + y * wv.getHeight()); }
+            g.setColour (juce::Colour (0xffffa23d)); g.strokePath (p, juce::PathStrokeType (juce::jmax (1.0f, H * 0.035f)));
+            break; }
+        case TAPE:
+        {   plateBody (g, r, juce::Colour (0xff3b2f26), juce::Colour (0xff1e1712));
+            const float R = juce::jmin (H * 0.36f, W * 0.18f);
+            const float x1 = r.getX() + W * 0.27f, x2 = r.getRight() - W * 0.27f, cy = r.getCentreY() - H * 0.04f;
+            g.setColour (juce::Colour (0xff6b4a30)); g.drawLine (x1, cy + R * 0.78f, x2, cy + R * 0.78f, juce::jmax (1.0f, H * 0.04f));
+            reel (g, x1, cy, R, 0.3f); reel (g, x2, cy, R, 1.1f);
+            break; }
+        case IMAGER:
+        {   plateBody (g, r, juce::Colour (0xff1a2226), juce::Colour (0xff0c1113));
+            const float S = juce::jmin (in.getHeight(), in.getWidth() * 0.5f); auto sq = juce::Rectangle<float> (r.getCentreX() - S * 0.5f, r.getCentreY() - S * 0.5f, S, S);
+            g.setColour (juce::Colour (0xff3dffd2).withAlpha (0.25f)); g.drawEllipse (sq, 0.8f); g.drawLine (sq.getX(), sq.getY(), sq.getRight(), sq.getBottom(), 0.6f); g.drawLine (sq.getRight(), sq.getY(), sq.getX(), sq.getBottom(), 0.6f);
+            juce::Random rr (11); g.setColour (juce::Colour (0xff3dffd2).withAlpha (0.8f));
+            for (int i = 0; i < 70; ++i) { const float a = rr.nextFloat() * 6.283f, d = std::pow (rr.nextFloat(), 1.5f) * S * 0.42f; g.fillRect (sq.getCentreX() + std::sin (a) * d * 0.45f, sq.getCentreY() - std::cos (a) * d, 1.0f, 1.0f); }
+            break; }
+        case MAXIM:
+        {   plateBody (g, r, juce::Colour (0xff1b1a18), juce::Colour (0xff0b0a09));
+            g.setColour (juce::Colour (0xffc9a24a)); g.fillRect (r.getX() + W * 0.05f, r.getY() + H * 0.1f, W * 0.9f, juce::jmax (0.7f, H * 0.025f));
+            for (int k = 0; k < 2; ++k) { const float x = in.getX() + in.getWidth() * (0.18f + k * 0.22f); g.setColour (juce::Colours::black); g.fillRect (x - 1.0f, in.getY() + H * 0.05f, 2.0f, in.getHeight() * 0.9f);
+              auto cap = juce::Rectangle<float> (x - W * 0.045f, in.getY() + in.getHeight() * (k ? 0.25f : 0.55f), W * 0.09f, H * 0.14f); g.setColour (juce::Colour (0xffd9d4c7)); g.fillRoundedRectangle (cap, 1.5f); g.setColour (juce::Colours::black); g.fillRect (cap.getX(), cap.getCentreY() - 0.4f, cap.getWidth(), 0.8f); }
+            auto mt = juce::Rectangle<float> (in.getX() + in.getWidth() * 0.62f, in.getY(), in.getWidth() * 0.34f, in.getHeight());
+            for (int k = 0; k < 2; ++k) { auto c = mt.withWidth (mt.getWidth() * 0.4f).translated (k * mt.getWidth() * 0.55f, 0); g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRect (c); g.setColour (juce::Colour (0xffff3b5c)); g.fillRect (c.withHeight (c.getHeight() * (0.3f + 0.15f * k))); }
+            break; }
+        case LIMIT:
+        {   plateBody (g, r, juce::Colour (0xff23181b), juce::Colour (0xff120c0e));
+            auto ml = juce::Rectangle<float> (in.getX(), r.getCentreY() - H * 0.12f, in.getWidth(), H * 0.24f);
+            for (int k = 0; k < 18; ++k) { const float t = k / 18.0f; g.setColour ((t > 0.83f ? juce::Colour (0xffff3b5c) : t > 0.65f ? juce::Colour (0xffffb547) : juce::Colour (0xff4dffb4)).withAlpha (t < 0.9f ? 0.95f : 0.25f)); g.fillRect (ml.getX() + k * ml.getWidth() / 18, ml.getY(), ml.getWidth() / 18 - 1, ml.getHeight()); }
+            g.setColour (juce::Colours::white); g.fillRect (ml.getX() + ml.getWidth() * 0.9f, ml.getY() - H * 0.12f, juce::jmax (1.0f, W * 0.012f), ml.getHeight() + H * 0.24f);
+            break; }
+        default: break;
+    }
+    if (! on) { g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillRoundedRectangle (r, juce::jmin (6.0f, H * 0.14f)); }
+    g.restoreState();
+}
+
 // ---------------------------------------------------------------------------------------------------- catena
 std::vector<int> Rack::visible() const
 {
@@ -126,9 +277,10 @@ void Rack::paint (juce::Graphics& g)
         auto pw = juce::Rectangle<float> (r.getX() + 8, r.getCentreY() - 7, 14, 14);
         g.setColour (on ? c : K::hi.withAlpha (0.12f)); g.fillRoundedRectangle (pw, 4);
         if (on) { g.setColour (c.withAlpha (0.25f)); g.fillRoundedRectangle (pw.expanded (3), 6); }
-        g.setFont (cap (8.0f)); g.setColour (on ? K::ink : K::faint); g.drawFittedText (modInfo (m).name, r.withTrimmedLeft (30).withTrimmedRight (24).withHeight (r.getHeight() * 0.55f).toNearestInt(), juce::Justification::bottomLeft, 1, 0.8f);
+        hwIcon (g, m, { r.getX() + 28, r.getY() + 6, 48, r.getHeight() - 12 }, on);
+        g.setFont (cap (7.6f)); g.setColour (on ? K::ink : K::faint); g.drawFittedText (modInfo (m).name, r.withTrimmedLeft (84).withTrimmedRight (22).withHeight (r.getHeight() * 0.55f).toNearestInt(), juce::Justification::bottomLeft, 1, 0.75f);
         const auto st = statOf (ed, m);
-        g.setFont (num (8.0f)); g.setColour (on ? c : K::faint); g.drawFittedText (st.brief, r.withTrimmedLeft (30).withTrimmedRight (24).withTrimmedTop (r.getHeight() * 0.55f).toNearestInt(), juce::Justification::topLeft, 1, 0.8f);
+        g.setFont (num (8.0f)); g.setColour (on ? c : K::faint); g.drawFittedText (st.brief, r.withTrimmedLeft (84).withTrimmedRight (22).withTrimmedTop (r.getHeight() * 0.55f).toNearestInt(), juce::Justification::topLeft, 1, 0.8f);
         // togli
         if (h) { auto x = juce::Rectangle<float> (r.getRight() - 22, r.getCentreY() - 8, 16, 16); g.setColour (hovX ? K::red : K::sub); g.setFont (f (12.0f, 1)); g.drawText (juce::String::fromUTF8 ("\xc3\x97"), x, juce::Justification::centred); }
     }
@@ -137,7 +289,8 @@ void Rack::paint (juce::Graphics& g)
         auto r = row (0).withY (dragY - grab); const auto c = acc (juce::Colour (modInfo (dragMod).colour));
         g.setColour (K::lo.withAlpha (0.35f)); g.fillRoundedRectangle (r.translated (0, 4), 9);
         g.setColour (K::panel0); g.fillRoundedRectangle (r, 9); g.setColour (c); g.drawRoundedRectangle (r.reduced (0.5f), 9, 1.2f);
-        g.setFont (cap (8.0f)); g.setColour (K::ink); g.drawText (modInfo (dragMod).name, r.withTrimmedLeft (30), juce::Justification::centredLeft);
+        hwIcon (g, dragMod, { r.getX() + 28, r.getY() + 6, 48, r.getHeight() - 12 });
+        g.setFont (cap (7.6f)); g.setColour (K::ink); g.drawText (modInfo (dragMod).name, r.withTrimmedLeft (84), juce::Justification::centredLeft);
     }
     // aggiungi + strumenti
     neo::chip (g, addR(), "+  AGGIUNGI EFFETTO", ed.gallery.isVisible(), K::violet, 8.5f, hov == 100);
@@ -228,14 +381,13 @@ void Gallery::paint (juce::Graphics& g)
         const int m = list[i]; auto r = card (i); const auto c = acc (juce::Colour (modInfo (m).colour)); const bool in = ed.proc.inRack[m].load();
         g.setColour (K::hi.withAlpha (hov == i && ! in ? 0.08f : 0.04f)); g.fillRoundedRectangle (r, 12);
         g.setColour (hov == i && ! in ? c.withAlpha (0.8f) : K::hi.withAlpha (0.07f)); g.drawRoundedRectangle (r.reduced (0.5f), 12, 1.0f);
-        auto gr = juce::Rectangle<float> (r.getRight() - 70, r.getY() + 12, 56, 30);
-        g.setColour (K::lo.withAlpha (0.25f)); g.fillRoundedRectangle (gr.expanded (4), 6); glyph (g, m, gr, in ? K::faint : c);
-        g.setFont (cap (8.5f)); g.setColour (in ? K::faint : K::ink); g.drawText (modInfo (m).name, juce::Rectangle<float> (r.getX() + 12, r.getY() + 10, r.getWidth() - 90, 16), juce::Justification::centredLeft);
-        g.setFont (f (8.5f)); g.setColour (in ? K::faint : c); g.drawText (modInfo (m).sub, juce::Rectangle<float> (r.getX() + 12, r.getY() + 27, r.getWidth() - 90, 14), juce::Justification::centredLeft);
-        g.setFont (f (8.8f)); g.setColour (in ? K::faint : K::sub);
-        g.drawFittedText (modText (m).what, juce::Rectangle<int> ((int) r.getX() + 12, (int) r.getY() + 50, (int) r.getWidth() - 22, 34), juce::Justification::topLeft, 2, 0.9f);
+        hwIcon (g, m, { r.getX() + 10, r.getY() + 10, r.getWidth() - 20, 58 }, ! in);
+        g.setFont (cap (8.5f)); g.setColour (in ? K::faint : K::ink); g.drawFittedText (modInfo (m).name, juce::Rectangle<int> ((int) r.getX() + 12, (int) r.getY() + 76, (int) r.getWidth() - 24, 16), juce::Justification::centredLeft, 1, 0.8f);
+        g.setFont (f (8.5f)); g.setColour (in ? K::faint : c); g.drawFittedText (modInfo (m).sub, juce::Rectangle<int> ((int) r.getX() + 12, (int) r.getY() + 92, (int) r.getWidth() - 24, 14), juce::Justification::centredLeft, 1, 0.8f);
+        g.setFont (f (8.6f)); g.setColour (in ? K::faint : K::sub);
+        g.drawFittedText (modText (m).what, juce::Rectangle<int> ((int) r.getX() + 12, (int) r.getY() + 110, (int) r.getWidth() - 22, 34), juce::Justification::topLeft, 3, 0.9f);
         g.setColour (in ? K::faint : K::ink.withAlpha (0.75f));
-        g.drawFittedText (in ? juce::String ("gia in catena") : juce::String ("quando: ") + modText (m).when, juce::Rectangle<int> ((int) r.getX() + 12, (int) r.getY() + 88, (int) r.getWidth() - 22, 34), juce::Justification::topLeft, 2, 0.9f);
+        g.drawFittedText (in ? juce::String ("gia in catena: clic per aprirlo") : juce::String ("quando: ") + modText (m).when, juce::Rectangle<int> ((int) r.getX() + 12, (int) r.getY() + 144, (int) r.getWidth() - 22, 30), juce::Justification::topLeft, 2, 0.9f);
     }
 }
 void Gallery::mouseMove (const juce::MouseEvent& e)
@@ -360,5 +512,98 @@ void PresetBrowser::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWh
 {
     auto bx = box(); const float lh = bx.getHeight() - 76, total = items (group).size() * kRowH;
     scroll = juce::jlimit (0.0f, juce::jmax (0.0f, total - lh), scroll - w.deltaY * 220.0f); repaint();
+}
+// ---------------------------------------------------------------------------------------------------- riepilogo della catena
+juce::String keyLine (Processor& P, int m)
+{
+    auto v = [&P] (const char* id) { return P.value (id); };
+    auto txt = [&P] (const char* id) { auto* p = P.apvts.getParameter (id); return p ? p->getCurrentValueAsText() : juce::String(); };
+    auto pc = [] (float x) { return juce::String (juce::roundToInt (x * 100)) + "%"; };
+    switch (m)
+    {
+        case BASS:    return "mono < " + juce::String ((int) v ("bc_mono")) + " Hz  ·  banda " + juce::String ((int) v ("bc_freq")) + " Hz";
+        case DYNEQ:   { int on = 0, dy = 0; for (int b = 0; b < kEqBands; ++b) if (v (eqId (b, "on")) > 0.5f) { ++on; if (v (eqId (b, "dyn")) > 0.5f) ++dy; } return juce::String (on) + " bande  ·  " + juce::String (dy) + " dinamiche"; }
+        case DEESS:   return juce::String (v ("ds_lo") / 1000.0f, 1) + " kHz  ·  soglia " + juce::String (v ("ds_thr"), 0);
+        case BUSCOMP: return "soglia " + juce::String (v ("bus_thr"), 0) + "  ·  ratio " + txt ("bus_ratio") + "  ·  mix " + pc (v ("bus_mix"));
+        case MULTI:   return "tagli " + juce::String ((int) v ("mb_x1")) + " / " + juce::String ((int) v ("mb_x2")) + " Hz  ·  mix " + pc (v ("mb_mix"));
+        case EXCITER: return "mix " + pc (v ("ex_mix")) + "  ·  " + juce::String ((int) v ("ex_x1")) + " / " + juce::String ((int) v ("ex_x2")) + " Hz";
+        case TAPE:    return txt ("tp_model") + "  ·  drive " + pc (v ("tp_drive"));
+        case IMAGER:  return "larghezze " + pc (v ("im_w1")) + " " + pc (v ("im_w2")) + " " + pc (v ("im_w3")) + " " + pc (v ("im_w4"));
+        case MAXIM:   return "gain +" + juce::String (v ("mx_gain"), 1) + " dB  ·  " + txt ("mx_style");
+        case LIMIT:   return "ceiling " + juce::String (v ("lm_ceil"), 1) + " dBTP" + (v ("lm_tp") > 0.5f ? "  ·  true peak" : "");
+        case EQ432:   return "colore " + pc (v ("e4_col")) + "  ·  range " + txt ("e4_range");
+        case PULTEC:  return "bassi +" + juce::String (v ("pq_lb"), 1) + " / -" + juce::String (v ("pq_la"), 1) + "  ·  alti +" + juce::String (v ("pq_hb"), 1);
+        case VARIMU:  return "soglia " + juce::String (v ("vm_thr"), 0) + "  ·  mix " + pc (v ("vm_mix"));
+        default: return {};
+    }
+}
+static float activityOf (Processor& P, int m)
+{
+    float a = 0;
+    switch (m)
+    {
+        case MAXIM: a = P.grMax.load() / 6; break; case LIMIT: a = P.grLim.load() / 3; break; case BUSCOMP: a = P.busGr.load() / 4; break; case VARIMU: a = P.vmGr.load() / 4; break;
+        case DEESS: a = P.dsGr.load() / 6; break; case BASS: a = P.bassPeak.load() / 4; break; case EXCITER: a = P.exMeter.load() * 8; break;
+        case DYNEQ: for (int b = 0; b < kEqBands; ++b) a = juce::jmax (a, std::abs (P.eqDyn[b].load()) / 4); break;
+        case MULTI: for (int b = 0; b < kMbBands; ++b) a = juce::jmax (a, P.mbDown[b].load() / 6); break;
+        case IMAGER: a = 1.0f - juce::jlimit (0.0f, 1.0f, P.corrAll.load()); break;
+        case TAPE: a = P.value ("tp_drive"); break; default: a = 0.3f; break;
+    }
+    return juce::jlimit (0.0f, 1.0f, a);
+}
+void RackRecap::paint (juce::Graphics& g)
+{
+    setTheme (ed.proc.uiTheme.load() == 2 ? 2 : 1);
+    auto b = getLocalBounds().toFloat();
+    { juce::ColourGradient dg (K::disp0, 0, 0, K::disp1, 0, b.getBottom(), false); g.setGradientFill (dg); g.fillRoundedRectangle (b, 22); g.setColour (K::hi.withAlpha (0.07f)); g.drawRoundedRectangle (b.reduced (0.5f), 22, 1.0f); }
+    const auto v = ed.rack.visible();
+    g.setFont (cap (9.5f)); g.setColour (K::ink); g.drawText ("CATENA", juce::Rectangle<float> (20, 14, 120, 24), juce::Justification::centredLeft);
+    g.setFont (f (9.5f)); g.setColour (K::sub);
+    int nOn = 0; for (int m : v) if (ed.proc.value (onParam (m)) > 0.5f) ++nOn;
+    g.drawText (juce::String (v.size()) + " effetti, " + juce::String (nOn) + " accesi  ·  il suono scorre da sinistra a destra, riga per riga  ·  clic su un effetto per aprirlo", juce::Rectangle<float> (110, 14, b.getWidth() - 130, 24), juce::Justification::centredLeft);
+    for (int i = 0; i <= (int) v.size(); ++i)
+    {
+        auto r = card (i);
+        if (i == (int) v.size())
+        {   // aggiungi
+            g.setColour (K::hi.withAlpha (hov == 100 ? 0.08f : 0.03f)); g.fillRoundedRectangle (r, 14);
+            juce::Path d; d.addRoundedRectangle (r.reduced (1), 14); juce::Path dd; const float dl[] = { 6, 5 }; juce::PathStrokeType (1.0f).createDashedStroke (dd, d, dl, 2); g.setColour (K::hi.withAlpha (0.18f)); g.fillPath (dd);
+            g.setFont (big (24.0f)); g.setColour (K::sub); g.drawText ("+", r.withTrimmedBottom (30), juce::Justification::centred);
+            g.setFont (cap (8.0f)); g.drawText ("AGGIUNGI EFFETTO", r.withTrimmedTop (r.getHeight() * 0.55f), juce::Justification::centred);
+            break;
+        }
+        const int m = v[(size_t) i]; const bool on = ed.proc.value (onParam (m)) > 0.5f; const auto c = acc (juce::Colour (modInfo (m).colour));
+        g.setColour (K::hi.withAlpha (hov == i ? 0.08f : 0.04f)); g.fillRoundedRectangle (r, 14);
+        g.setColour (hov == i ? c.withAlpha (0.7f) : K::hi.withAlpha (0.06f)); g.drawRoundedRectangle (r.reduced (0.5f), 14, 1.0f);
+        // freccia verso il prossimo
+        if (i % 4 != 3 && i + 1 < (int) v.size()) { const float ax = r.getRight() + 3, ay = r.getY() + 38; juce::Path ar; ar.addTriangle (ax, ay - 4, ax, ay + 4, ax + 7, ay); g.setColour (K::hi.withAlpha (0.25f)); g.fillPath (ar); }
+        g.setFont (num (8.0f)); g.setColour (K::faint); g.drawText (juce::String (i + 1), juce::Rectangle<float> (r.getRight() - 30, r.getY() + 8, 22, 12), juce::Justification::centredRight);
+        hwIcon (g, m, { r.getX() + 10, r.getY() + 10, r.getWidth() - 44, 56 }, on);
+        g.setFont (cap (8.0f)); g.setColour (on ? K::ink : K::faint); g.drawFittedText (modInfo (m).name, juce::Rectangle<int> ((int) r.getX() + 12, (int) r.getY() + 72, (int) r.getWidth() - 24, 14), juce::Justification::centredLeft, 1, 0.8f);
+        const auto st = statOf (ed, m);
+        g.setFont (num (13.0f)); g.setColour (on ? c : K::faint); g.drawFittedText (st.brief, juce::Rectangle<int> ((int) r.getX() + 12, (int) r.getY() + 88, (int) r.getWidth() - 24, 18), juce::Justification::centredLeft, 1, 0.75f);
+        g.setFont (f (8.5f)); g.setColour (on ? K::sub : K::faint); g.drawFittedText (keyLine (ed.proc, m), juce::Rectangle<int> ((int) r.getX() + 12, (int) r.getY() + 108, (int) r.getWidth() - 24, 14), juce::Justification::centredLeft, 1, 0.7f);
+        // attivita
+        auto ab = juce::Rectangle<float> (r.getX() + 12, r.getBottom() - 12, r.getWidth() - 24, 3);
+        g.setColour (K::hi.withAlpha (0.07f)); g.fillRoundedRectangle (ab, 1.5f);
+        if (on) { g.setColour (c); g.fillRoundedRectangle (ab.withWidth (ab.getWidth() * activityOf (ed.proc, m)), 1.5f); }
+    }
+}
+void RackRecap::mouseMove (const juce::MouseEvent& e)
+{
+    const auto v = ed.rack.visible(); int h = -1;
+    for (int i = 0; i <= (int) v.size(); ++i) if (card (i).contains (e.position)) h = i == (int) v.size() ? 100 : i;
+    if (h != hov) { hov = h; repaint(); }
+    setMouseCursor (h >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+void RackRecap::mouseDown (const juce::MouseEvent& e)
+{
+    const auto v = ed.rack.visible();
+    for (int i = 0; i <= (int) v.size(); ++i) if (card (i).contains (e.position))
+    {
+        if (i == (int) v.size()) { ed.gallery.setVisible (true); ed.gallery.toFront (false); ed.rack.repaint(); }
+        else ed.openEffect (v[(size_t) i]);
+        return;
+    }
 }
 }

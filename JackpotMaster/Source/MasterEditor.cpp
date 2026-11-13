@@ -14,8 +14,10 @@ void glowText (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> 
     g.setColour (c); g.drawText (t, r, j);
 }
 void lcd (juce::Graphics& g, juce::Rectangle<float> r, float rad)
-{   // vetro scuro: un velo, un filo di luce in alto, nessuna griglia
-    juce::ColourGradient cg (veil (0.42f), r.getX(), r.getY(), veil (0.28f), r.getX(), r.getBottom(), false);
+{   // stesso vetro del display del FACILE: tinta del display, ombra morbida sotto, filo di luce in alto
+    rad = juce::jmax (rad, 14.0f);
+    g.setColour (neo::K::lo.withAlpha (neo::light() ? 0.08f : 0.3f)); g.fillRoundedRectangle (r.translated (0, 3), rad);
+    juce::ColourGradient cg (neo::K::disp0, r.getX(), r.getY(), neo::K::disp1, r.getX(), r.getBottom(), false);
     g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);
     g.setColour (glass (0.045f)); g.drawRoundedRectangle (r.reduced (0.5f), rad, 1.0f);
     juce::ColourGradient hl (glass (0.0f), r.getX(), r.getY(), glass (0.0f), r.getRight(), r.getY(), false);
@@ -95,7 +97,7 @@ void Segs::mouseDown (const juce::MouseEvent& e)
 }
 void Switch::paint (juce::Graphics& g)
 {
-    const bool on = param->getValue() > 0.5f; const float h = (float) juce::jmin (getHeight(), 20), w = h * 1.8f; const auto col = neo::acc (this->col);
+    shown = param->getValue(); const bool on = shown > 0.5f; const float h = (float) juce::jmin (getHeight(), 20), w = h * 1.8f; const auto col = neo::acc (this->col);
     auto t = juce::Rectangle<float> (0, (getHeight() - h) / 2, w, h);
     g.setColour (on ? col.withAlpha (0.28f) : veil (0.45f)); g.fillRoundedRectangle (t, h / 2);
     g.setColour (on ? col.withAlpha (0.7f) : glass (0.08f)); g.drawRoundedRectangle (t.reduced (0.5f), h / 2, 1.0f);
@@ -240,8 +242,16 @@ void Chain::mouseMove (const juce::MouseEvent& e)
 }
 
 // ======================================================================= storia
+History::History (Editor& e, bool lim) : ed (e), limiter (lim)
+{
+    st = std::make_unique<EasyStage> (e.easyPage); st->bare = true; st->fixedView = V_WAVE;
+    st->tint = lim ? juce::Colour (0xffff5c6c) : juce::Colour (0xffff5ab0); addAndMakeVisible (*st);
+}
+History::~History() = default;
+void History::resized() { st->setBounds (getLocalBounds()); }
 void History::paint (juce::Graphics& g)
 {
+    juce::ignoreUnused (g); return;   // il grafico e' l'onda del FACILE (st); sotto il vecchio disegno, non piu usato
     auto b = getLocalBounds().toFloat(); lcd (g, b, 8);
     auto& P = ed.proc; const int n = Processor::kHist, w0 = P.hW.load();
     auto plot = b.reduced (40, 12).withTrimmedRight (-28);
@@ -426,7 +436,26 @@ Knob* ModPage::knob (const char* pid, juce::Colour c, const juce::String& label,
 void ModPage::paintHeader (juce::Graphics& g, const juce::String& help)
 {
     const auto c = neo::acc (juce::Colour (modInfo (mod).colour));
-    glowText (g, modInfo (mod).name, { 16, 10, 200, 26 }, c, uf (17.0f));
+    // banco dei comandi come nel FACILE: una lastra sola sotto le manopole della parte bassa
+    {
+        juce::Rectangle<int> u; const int lim = getHeight() * 45 / 100;
+        for (auto* ch : getChildren())
+            if (ch->isVisible() && ch != on.get() && ch != delta.get() && ch->getY() > lim && (dynamic_cast<Knob*> (ch) || dynamic_cast<Segs*> (ch) || dynamic_cast<Switch*> (ch) || dynamic_cast<ActBtn*> (ch)))
+                u = u.isEmpty() ? ch->getBounds() : u.getUnion (ch->getBounds());
+        if (! u.isEmpty() && u.getHeight() < getHeight() * 0.36f)   // solo se e' davvero una fila di comandi in basso
+        {
+            auto pnl = u.toFloat().expanded (14, 12).withX (12).withRight ((float) getWidth() - 12);
+            using namespace neo;
+            g.setColour (K::lo.withAlpha (light() ? 0.10f : 0.35f)); g.fillRoundedRectangle (pnl.translated (0, 4), 18);
+            juce::ColourGradient pg (K::panel0, 0, pnl.getY(), K::panel1, 0, pnl.getBottom(), false); g.setGradientFill (pg); g.fillRoundedRectangle (pnl, 18);
+            g.setColour (K::hi.withAlpha (light() ? 0.10f : 0.06f)); g.drawRoundedRectangle (pnl.reduced (0.5f), 18, 1.0f);
+            juce::ColourGradient hl (K::hi.withAlpha (0.0f), pnl.getX() + 40, 0, K::hi.withAlpha (0.0f), pnl.getRight() - 40, 0, false); hl.addColour (0.5, K::hi.withAlpha (light() ? 0.5f : 0.12f));
+            g.setGradientFill (hl); g.fillRect (pnl.getX() + 40, pnl.getY() + 1, pnl.getWidth() - 80, 1.0f);
+        }
+    }
+    // titolo come le sezioni del FACILE: punto colorato e maiuscolo spaziato
+    g.setColour (c.withAlpha (0.25f)); g.fillEllipse (14, 16, 14, 14); g.setColour (c); g.fillEllipse (18, 20, 6, 6);
+    g.setFont (neo::cap (10.5f)); g.setColour (C::text); g.drawText (modInfo (mod).name, juce::Rectangle<float> (36, 10, 160, 26), juce::Justification::centredLeft);
     if (ed.proc.value (onId) < 0.5f) { g.setFont (neo::f (9.0f)); g.setColour (C::amber.withAlpha (0.8f)); g.drawText ("SPENTO: tocca un comando per accenderlo", juce::Rectangle<float> (480, 34, 356, 12), juce::Justification::centredRight); }
     g.setColour (C::dim); g.setFont (uf (10.0f, false));
     g.drawFittedText (help, juce::Rectangle<int> (16, getHeight() - 52, getWidth() - 32, 40), juce::Justification::topLeft, 3);
@@ -518,6 +547,7 @@ EqView::EqView (Editor& e) : ed (e)
         const double now = juce::Time::getMillisecondCounterHiRes(); const float dt = (float) juce::jlimit (1.0, 50.0, now - lastFrame); lastFrame = now;
         const float k = 1.0f - std::exp (-dt / 45.0f);
         for (int b = 0; b < kEqBands; ++b) dynShown[b] += (ed.proc.eqDyn[b].load() - dynShown[b]) * k;
+        specFrame (dt);
         repaint (plot().toNearestInt().expanded (14));
     });
 }
@@ -551,8 +581,32 @@ void EqView::tick()
         std::fill (buf.begin() + 4096, buf.end(), 0.0f); fft.performFrequencyOnlyForwardTransform (buf.data());
         for (int i = 0; i < 2048; ++i) { const float db = juce::Decibels::gainToDecibels (buf[(size_t) i] / 1024.0f, -100.0f); out[(size_t) i] = db > out[(size_t) i] ? db : out[(size_t) i] * 0.85f + db * 0.15f; }
     };
-    spec (ed.proc.ringIn, specPre); spec (ed.proc.ringOut, specPost);
+    juce::ignoreUnused (spec);   // lo spettro ora si aggiorna a ogni fotogramma (specFrame)
     if (popHold > 0 && --popHold == 0 && ! pop.isMouseOver (true) && ! isMouseOver (false)) { popBand = sel; updatePop(); }
+}
+// spettro a ogni fotogramma: per ogni pixel il massimo delle frequenze che ci cadono (niente denti in alto),
+// sale subito e scende morbido nel tempo vero (non a scatti del timer)
+void EqView::specFrame (float dtMs)
+{
+    auto p = plot(); const int W = juce::jmax (2, (int) (p.getWidth() / 2)); const double sr = juce::jmax (8000.0, ed.proc.sampleRate());
+    if ((int) pxPre.size() != W) { pxPre.assign ((size_t) W, -120.0f); pxPost.assign ((size_t) W, -120.0f); }
+    const float fall = 1.0f - std::exp (-dtMs / 260.0f);
+    auto run = [&] (const StereoRing& r, std::vector<float>& px)
+    {
+        std::vector<float> l (4096), rr (4096); r.read (l.data(), rr.data(), 4096);
+        for (int i = 0; i < 4096; ++i) buf[(size_t) i] = 0.5f * (l[(size_t) i] + rr[(size_t) i]) * win[(size_t) i];
+        std::fill (buf.begin() + 4096, buf.end(), 0.0f); fft.performFrequencyOnlyForwardTransform (buf.data());
+        for (int x = 0; x < W; ++x)
+        {
+            const float f0 = fOf (p.getX() + x * 2.0f), f1 = fOf (p.getX() + x * 2.0f + 2.0f);
+            const int b0 = juce::jlimit (1, 2047, (int) (f0 / sr * 4096)), b1 = juce::jlimit (b0, 2047, (int) (f1 / sr * 4096));
+            float m = 0; for (int b = b0; b <= b1; ++b) m = juce::jmax (m, buf[(size_t) b]);
+            const float fc = 0.5f * (f0 + f1);
+            const float db = juce::Decibels::gainToDecibels (m / 1024.0f, -120.0f) + 4.5f * std::log2 (juce::jmax (0.05f, fc / 1000.0f));
+            auto& v = px[(size_t) x]; v = db > v ? db : v + (db - v) * fall;
+        }
+    };
+    run (ed.proc.ringIn, pxPre); run (ed.proc.ringOut, pxPost);
 }
 void EqView::updatePop()
 {
@@ -584,21 +638,18 @@ void EqView::paint (juce::Graphics& g)
         for (int db = -12; db <= 12; db += 6)
         { gg.setColour (glass (db == 0 ? 0.13f : 0.04f)); gg.drawHorizontalLine ((int) yOf ((float) db), p.getX(), p.getRight()); gg.setColour (C::dim); gg.drawText ((db > 0 ? "+" : "") + juce::String (db), juce::Rectangle<float> (b.getX() + 4, yOf ((float) db) - 6, 26, 12), juce::Justification::centredRight); }
     });
-    auto specPath = [&] (const std::vector<float>& sp, bool fill) -> juce::Path
+    auto specPath = [&] (const std::vector<float>& px, bool fill) -> juce::Path
     {
-        juce::Path path; bool st = false;
-        for (float x = p.getX(); x < p.getRight(); x += 2)
-        {
-            const float f = fOf (x); const int bin = juce::jlimit (1, 2047, (int) (f / sr * 4096));
-            const float db = sp[(size_t) bin] + 4.5f * std::log2 (juce::jmax (0.05f, f / 1000.0f));
-            const float y = juce::jlimit (p.getY(), p.getBottom(), p.getBottom() - (db + 90.0f) / 90.0f * p.getHeight());
-            if (! st) { path.startNewSubPath (x, fill ? p.getBottom() : y); st = true; if (fill) path.lineTo (x, y); } else path.lineTo (x, y);
-        }
+        juce::Path path; const int W = (int) px.size(); if (W < 2) return path;
+        auto yOfDb = [&] (float db) { return juce::jlimit (p.getY(), p.getBottom(), p.getBottom() - (db + 90.0f) / 90.0f * p.getHeight()); };
+        path.startNewSubPath (p.getX(), fill ? p.getBottom() : yOfDb (px[0])); if (fill) path.lineTo (p.getX(), yOfDb (px[0]));
+        for (int x = 1; x < W; ++x) path.lineTo (p.getX() + x * 2.0f + 1.0f, yOfDb (px[(size_t) x]));
         if (fill) { path.lineTo (p.getRight(), p.getBottom()); path.closeSubPath(); }
-        return path;
+        return path.createPathWithRoundedCorners (3.0f);
     };
-    g.setColour (glass (0.16f)); g.strokePath (specPath (specPre, false), juce::PathStrokeType (1.0f));
-    { juce::ColourGradient sg (C::phos.withAlpha (0.22f), 0, p.getY(), C::phos.withAlpha (0.03f), 0, p.getBottom(), false); g.setGradientFill (sg); g.fillPath (specPath (specPost, true)); }
+    g.setColour (glass (0.18f)); g.strokePath (specPath (pxPre, false), juce::PathStrokeType (1.0f));
+    { juce::ColourGradient sg (C::phos.withAlpha (0.24f), 0, p.getY(), C::phos.withAlpha (0.03f), 0, p.getBottom(), false); g.setGradientFill (sg); g.fillPath (specPath (pxPost, true));
+      g.setColour (C::phos.withAlpha (0.55f)); g.strokePath (specPath (pxPost, false), juce::PathStrokeType (1.0f)); }
     const bool eqOn = ed.proc.value ("eq_on") > 0.5f;
     juce::Path tot; const int NX = (int) (p.getWidth() / 2) + 2; std::vector<double> sum ((size_t) NX, 0.0);
     for (int k = 0; k < kEqBands; ++k)
@@ -943,8 +994,15 @@ void ImView::mouseDrag (const juce::MouseEvent& e)
     repaint();
 }
 void ImView::mouseUp (const juce::MouseEvent&) { drag = -1; }
+Gonio::Gonio (Editor& e) : ed (e)
+{
+    st = std::make_unique<EasyStage> (e.easyPage); st->bare = true; st->fixedView = V_IMAGE; addAndMakeVisible (*st);
+}
+Gonio::~Gonio() = default;
+void Gonio::resized() { st->setBounds (getLocalBounds()); }
 void Gonio::paint (juce::Graphics& g)
 {
+    juce::ignoreUnused (g); return;   // l'immagine stereo e' quella del FACILE (st)
     auto b = getLocalBounds().toFloat(); lcd (g, b, 8);
     auto& P = ed.proc; auto sq = juce::Rectangle<float> (b.getX() + 10, b.getY() + 10, b.getWidth() - 20, b.getWidth() - 20);
     const float cx = sq.getCentreX(), cy = sq.getCentreY(), R = sq.getWidth() * 0.5f;
@@ -1092,8 +1150,10 @@ void BusView::paint (juce::Graphics& g)
     needle += (gr - needle) * (gr > needle ? 0.5f : 0.15f);
     // strumento ad ago
     auto vu = juce::Rectangle<float> (b.getX() + 20, b.getY() + 16, b.getWidth() - 40, b.getHeight() * 0.62f);
-    juce::ColourGradient face (juce::Colour (0xfff3e2b8), vu.getCentreX(), vu.getY(), juce::Colour (0xffc9b483), vu.getCentreX(), vu.getBottom(), false);
-    g.setGradientFill (face); g.fillRoundedRectangle (vu, 8);
+    juce::ColourGradient face (juce::Colour (0xff3b2c1a), vu.getCentreX(), vu.getY(), juce::Colour (0xff17110b), vu.getCentreX(), vu.getBottom(), false);
+    g.setGradientFill (face); g.fillRoundedRectangle (vu, 12);
+    { juce::ColourGradient glowF (juce::Colour (0x55ffb547), vu.getCentreX(), vu.getBottom(), juce::Colour (0x00ffb547), vu.getCentreX(), vu.getY(), false); g.setGradientFill (glowF); g.fillRoundedRectangle (vu, 12); }   // retroilluminazione calda
+    g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawRoundedRectangle (vu.reduced (0.5f), 12, 1.0f);
     const float cx = vu.getCentreX(), cy = vu.getBottom() + vu.getHeight() * 0.35f, R = vu.getHeight() * 1.0f;
     auto ang = [] (float db) { return -0.85f + juce::jlimit (0.0f, 1.0f, db / 20.0f) * 1.7f; };   // 0..20 dB di riduzione, da destra a sinistra
     g.setFont (mf (10.0f));
@@ -1101,15 +1161,15 @@ void BusView::paint (juce::Graphics& g)
     {
         const float a = -ang (db);
         const juce::Point<float> p0 (cx + std::sin (a) * R * 0.86f, cy - std::cos (a) * R * 0.86f), p1 (cx + std::sin (a) * R * 0.96f, cy - std::cos (a) * R * 0.96f);
-        g.setColour (db >= 10 ? juce::Colour (0xffb3261e) : juce::Colour (0xff2a2a2a)); g.drawLine ({ p0, p1 }, 1.6f);
+        g.setColour (db >= 10 ? juce::Colour (0xffff6a4d) : juce::Colour (0xffe9dcbd)); g.drawLine ({ p0, p1 }, 1.6f);
         g.drawText (juce::String ((int) db), juce::Rectangle<float> (p1.x - 14, p1.y - 16, 28, 12), juce::Justification::centred);
     }
-    g.setColour (juce::Colour (0xff2a2a2a)); g.setFont (uf (11.0f)); g.drawText ("GAIN REDUCTION  dB", vu.withTrimmedTop (vu.getHeight() * 0.55f).withHeight (16), juce::Justification::centred);
+    g.setColour (juce::Colour (0xffe9dcbd)); g.setFont (uf (11.0f)); g.drawText ("GAIN REDUCTION  dB", vu.withTrimmedTop (vu.getHeight() * 0.55f).withHeight (16), juce::Justification::centred);
     {
         juce::Graphics::ScopedSaveState ss (g); g.reduceClipRegion (vu.toNearestInt());
         const float a = -ang (needle);
         g.setColour (veil (0.25f)); g.drawLine (cx + 3, cy, cx + 3 + std::sin (a) * R * 0.95f, cy - std::cos (a) * R * 0.95f, 2.0f);
-        g.setColour (juce::Colour (0xff111111)); g.drawLine (cx, cy, cx + std::sin (a) * R * 0.95f, cy - std::cos (a) * R * 0.95f, 1.8f);
+        g.setColour (juce::Colour (0xfff3e7cc)); g.drawLine (cx, cy, cx + std::sin (a) * R * 0.95f, cy - std::cos (a) * R * 0.95f, 1.8f);
     }
     
     // storia
@@ -1622,8 +1682,10 @@ void VmView::paint (juce::Graphics& g)
     auto& P = ed.proc; const float gr = P.value ("vm_on") > 0.5f ? P.vmGr.load() : 0.0f;
     needle += (gr - needle) * (gr > needle ? 0.35f : 0.1f);
     auto vu = juce::Rectangle<float> (b.getX() + 20, b.getY() + 16, b.getWidth() - 40, b.getHeight() * 0.5f);
-    juce::ColourGradient face (juce::Colour (0xfff0e6cc), vu.getCentreX(), vu.getY(), juce::Colour (0xffcdb98f), vu.getCentreX(), vu.getBottom(), false);
-    g.setGradientFill (face); g.fillRoundedRectangle (vu, 8);
+    juce::ColourGradient face (juce::Colour (0xff3b2c1a), vu.getCentreX(), vu.getY(), juce::Colour (0xff17110b), vu.getCentreX(), vu.getBottom(), false);
+    g.setGradientFill (face); g.fillRoundedRectangle (vu, 12);
+    { juce::ColourGradient glowF (juce::Colour (0x55ffb547), vu.getCentreX(), vu.getBottom(), juce::Colour (0x00ffb547), vu.getCentreX(), vu.getY(), false); g.setGradientFill (glowF); g.fillRoundedRectangle (vu, 12); }   // retroilluminazione calda
+    g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawRoundedRectangle (vu.reduced (0.5f), 12, 1.0f);
     const float cx = vu.getCentreX(), cy = vu.getBottom() + vu.getHeight() * 0.35f, R = vu.getHeight() * 1.0f;
     auto ang = [] (float db) { return -0.85f + juce::jlimit (0.0f, 1.0f, db / 12.0f) * 1.7f; };
     g.setFont (mf (10.0f));
@@ -1631,15 +1693,15 @@ void VmView::paint (juce::Graphics& g)
     {
         const float a = -ang (db);
         const juce::Point<float> p0 (cx + std::sin (a) * R * 0.86f, cy - std::cos (a) * R * 0.86f), p1 (cx + std::sin (a) * R * 0.96f, cy - std::cos (a) * R * 0.96f);
-        g.setColour (db >= 6 ? juce::Colour (0xffb3261e) : juce::Colour (0xff2a2a2a)); g.drawLine ({ p0, p1 }, 1.6f);
+        g.setColour (db >= 6 ? juce::Colour (0xffff6a4d) : juce::Colour (0xffe9dcbd)); g.drawLine ({ p0, p1 }, 1.6f);
         g.drawText (juce::String ((int) db), juce::Rectangle<float> (p1.x - 14, p1.y - 16, 28, 12), juce::Justification::centred);
     }
-    g.setColour (juce::Colour (0xff2a2a2a)); g.setFont (uf (11.0f)); g.drawText ("RIDUZIONE  dB", vu.withTrimmedTop (vu.getHeight() * 0.55f).withHeight (16), juce::Justification::centred);
+    g.setColour (juce::Colour (0xffe9dcbd)); g.setFont (uf (11.0f)); g.drawText ("RIDUZIONE  dB", vu.withTrimmedTop (vu.getHeight() * 0.55f).withHeight (16), juce::Justification::centred);
     {
         juce::Graphics::ScopedSaveState ss (g); g.reduceClipRegion (vu.toNearestInt());
         const float a = -ang (needle);
         g.setColour (veil (0.25f)); g.drawLine (cx + 3, cy, cx + 3 + std::sin (a) * R * 0.95f, cy - std::cos (a) * R * 0.95f, 2.0f);
-        g.setColour (juce::Colour (0xff111111)); g.drawLine (cx, cy, cx + std::sin (a) * R * 0.95f, cy - std::cos (a) * R * 0.95f, 1.8f);
+        g.setColour (juce::Colour (0xfff3e7cc)); g.drawLine (cx, cy, cx + std::sin (a) * R * 0.95f, cy - std::cos (a) * R * 0.95f, 1.8f);
     }
     glowText (g, "-" + juce::String (needle, 1) + " dB", { vu.getX(), vu.getBottom() + 8, vu.getWidth(), 24 }, neo::acc (juce::Colour (modInfo (VARIMU).colour)), mf (16.0f), juce::Justification::centred);
     hist[hw] = gr; hw = (hw + 1) % 240;
@@ -1882,7 +1944,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     addAndMakeVisible (sizeChip);
     addChildComponent (easyPage); addChildComponent (advStage); addAndMakeVisible (advTabsComp);
     for (juce::Component* c : std::initializer_list<juce::Component*> { &rack, &status }) addChildComponent (c);
-    addChildComponent (gallery); addChildComponent (browser);
+    addChildComponent (recap); addChildComponent (gallery); addChildComponent (browser);
     chain.setVisible (false); loud.setVisible (false); trim->setVisible (false);
     for (int m = 0; m < kNumMods; ++m) if (proc.value (onParam (m)) > 0.5f) proc.inRack[m] = true;
     { const auto v = rack.visible(); sel = v.empty() ? MAXIM : v.back(); }
@@ -1894,7 +1956,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 void Editor::applyMode()
 {
     const bool e = proc.easy(); lastEasy = e;
-    easyPage.setVisible (e); advTabsComp.setVisible (! e); advStage.setVisible (false); gallery.setVisible (false);
+    easyPage.setVisible (e); advTabsComp.setVisible (! e); advStage.setVisible (false); gallery.setVisible (false); if (e) recap.setVisible (false);
     for (juce::Component* c : std::initializer_list<juce::Component*> { compare.get(), norm.get(), &rack, &status }) c->setVisible (! e);
     dither->setVisible (false);
     // il display e lo stesso componente della modalita FACILE: in AVANZATO lo si sposta qui, cosi onde, spettro e misure sono identiche
@@ -1917,7 +1979,7 @@ void Editor::applyMode()
 void Editor::layoutAdv()
 {
     const float s = scaler.s; const auto c = centreR;
-    easyPage.stage.setBounds (c);
+    easyPage.stage.setBounds (c); recap.setBounds (c); recap.setTransform (juce::AffineTransform::scale (s));
     easyPage.trim->setBounds (c.getX() - 12, c.getY() - 12, 120, 110);
     easyPage.input.setBounds (c.getX() + 92, c.getY() + 10, 250, 46);
     for (juce::Component* k : { (juce::Component*) &easyPage.stage, (juce::Component*) &easyPage.input, (juce::Component*) easyPage.trim }) k->setTransform (juce::AffineTransform::scale (s));
@@ -1960,24 +2022,27 @@ void Editor::select (int m)
 }
 // AVANZATO: al posto della pagina del modulo, le viste della modalita FACILE (onda, spettro, gain)
 // stesse viste della modalita FACILE, piu la linguetta dell'effetto aperto
+static int tabOf (int v) { return v == Editor::kRecap ? 0 : v == Editor::kEff ? 8 : v + 1; }
+static int viewOf (int t) { return t == 0 ? Editor::kRecap : t == 8 ? Editor::kEff : t - 1; }
 static juce::StringArray advViewNames (const Editor& e)
 {
-    juce::StringArray a { "ONDA", "GAIN", "SPETTRO", "IMMAGINE", "METERING", "IDEALE", "REFERENCE" };
+    juce::StringArray a { "CATENA", "ONDA", "GAIN", "SPETTRO", "IMMAGINE", "METERING", "IDEALE", "REFERENCE" };
     a.add (e.sel < kNumMods ? juce::String (modInfo (e.sel).name) : e.sel == TOOL_BAL ? juce::String ("BILANCIO") : juce::String ("RIFERIMENTO"));
     return a;
 }
 static juce::Point<float> kTabsOrigin { 260, 72 };
-void Editor::AdvTabsComp::paint (juce::Graphics& g) { g.addTransform (juce::AffineTransform::translation (-kTabsOrigin.x, -kTabsOrigin.y)); ed.advTabs.paint (g, advViewNames (ed), ed.advView, C::violet, 7.5f); }
+void Editor::AdvTabsComp::paint (juce::Graphics& g) { g.addTransform (juce::AffineTransform::translation (-kTabsOrigin.x, -kTabsOrigin.y)); ed.advTabs.paint (g, advViewNames (ed), tabOf (ed.advView), C::violet, 7.5f); }
 void Editor::AdvTabsComp::mouseDown (const juce::MouseEvent& e)
 {
     const int t = ed.advTabs.hit (e.position + kTabsOrigin);
     if (t < 0) return;
-    ed.advView = t; ed.applyAdvView();
+    ed.advView = viewOf (t); ed.applyAdvView();
     repaint();
 }
 void Editor::applyAdvView()
 {
     const bool show = ! proc.easy() && advView < kEff;
+    recap.setVisible (! proc.easy() && advView == kRecap);
     if (show) easyPage.view = advView;   // la vista scelta vale anche nel FACILE
     for (juce::Component* c : { (juce::Component*) &easyPage.stage, (juce::Component*) &easyPage.input, (juce::Component*) easyPage.trim }) c->setVisible (show);
     if (show) { easyPage.trim->toFront (false); easyPage.input.toFront (false); }
@@ -2158,6 +2223,9 @@ void Editor::timerCallback()
     if (maxPage.isVisible()) maxPage.repaint();
     if (limPage.isVisible()) limPage.repaint();
     if (eqPage.isVisible()) eqPage.view.tick();
+    // interruttori (ATTIVO, DELTA, ...) cambiati da preset, automazione o da un altro comando: si riaccendono da soli
+    for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage })
+        if (pg->isVisible()) for (auto* c : pg->getChildren()) if (auto* sw = dynamic_cast<Switch*> (c)) if (sw->param->getValue() != sw->shown) sw->repaint();
     for (auto* pg : std::initializer_list<juce::Component*> { &bassPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &balPage, &refPage }) if (pg->isVisible()) pg->repaint();
     if (tick % 3 == 0)
     {   // spettro medio dell'uscita per bilanciamento e riferimento
@@ -2166,7 +2234,8 @@ void Editor::timerCallback()
         if (e > 4096 * 1e-7f) { live.addFrame (l, proc.sampleRate(), live.frames < 10 ? 0.3 : 0.03); live.result (liveThirds); }
     }
     if (tick % 6 == 0) { compare->repaint(); norm->repaint(); dither->repaint(); }
-    if (advTabs.step (advView)) advTabsComp.repaint();
+    if (advTabs.step (tabOf (advView))) advTabsComp.repaint();
+    if (recap.isVisible() && tick % 2 == 0) recap.repaint();
     if (++tick % 10 == 0) { repaint (scaler.map ({ 950, 8, 320, 50 })); repaint (scaler.map ({ 1126, 72, 138, 662 })); }
 }
 }
