@@ -41,6 +41,7 @@ EasyPage::EasyPage (Editor& e) : ed (e)
     trim = mk ("trim", "GAIN", K::cyan, K::blue, true, [this] { return fmt (ed.proc.value ("trim")) + " dB"; }); trim->setTooltip ("Livello d'ingresso. AUTO lo porta nella zona ottimale.");
     monoB = std::make_unique<neo::Toggle> (ed.P ("e_monob"), "BASSI MONO", K::cyan); addAndMakeVisible (*monoB);
     for (juce::Component* c : std::initializer_list<juce::Component*> { &stage, &input, &result, &meters }) addAndMakeVisible (c);
+    addChildComponent (guide);
     pres->toFront (false); speed->toFront (false);
 }
 
@@ -56,6 +57,7 @@ void EasyPage::resized()
     monoB->setBounds (1150, (int) kKnobY + 22, 116, 26);
     kb (trim, (float) zIn.getCentreX(), 306, 48);
     stage.setBounds (zStage); input.setBounds (zIn); result.setBounds (zRes); meters.setBounds (zMet);
+    guide.setBounds (20, 42, 1240, 362); guideR = { 24, 8, 104, 28 };
     tabs.layout ({ (float) zStage.getX() + 4, 8, 0, 28 }, viewNames(), 9.0f); tabs.ax = -1;
     cmpR = { (float) zStage.getRight() - 84, 8, 80, 28 }; deltaR = { cmpR.getX() - 76, 8, 70, 28 }; targetR = { deltaR.getX() - 154, 8, 146, 28 };
     { const float w = 330; styles.layout ({ 640 - w * 0.5f, 700, 0, 24 }, styleNames(), 8.0f); const float ww = styles.width(), dx = 640 - ww * 0.5f - styles.r[0].getX(); for (int i = 0; i < styles.n; ++i) styles.r[i].translate (dx, 0); styles.ax = -1; }
@@ -110,6 +112,7 @@ void EasyPage::paint (juce::Graphics& g)
     const bool cmp = ed.proc.value ("compare") > 0.5f;
     chip (g, cmpR, cmp ? "ORIGINALE" : "BYPASS", cmp, K::cyan, 9.0f, hover == 11);
     chip (g, deltaR, "DELTA", ed.proc.value ("e_delta") > 0.5f, K::amber, 9.0f, hover == 12);
+    chip (g, guideR, guide.isVisible() ? U ("CHIUDI GUIDA") : U ("? GUIDA"), guide.isVisible(), K::violet, 9.0f, hover == 13);
     // ascolto delle bande dell'EQ: S = solo la zona, D = solo cosa fa la banda
     const int le = ed.proc.eqListen.load();
     for (int b = 0; b < 3; ++b)
@@ -121,7 +124,7 @@ void EasyPage::paint (juce::Graphics& g)
 }
 void EasyPage::mouseMove (const juce::MouseEvent& e)
 {
-    int h = tabs.hit (e.position); if (targetR.contains (e.position)) h = 10; if (cmpR.contains (e.position)) h = 11; if (deltaR.contains (e.position)) h = 12;
+    int h = tabs.hit (e.position); if (targetR.contains (e.position)) h = 10; if (guideR.contains (e.position)) h = 13; if (cmpR.contains (e.position)) h = 11; if (deltaR.contains (e.position)) h = 12;
     for (int b = 0; b < 3; ++b) if (bandR[b].contains (e.position)) h = 20 + b;
     if (const int sh = styles.hit (e.position); sh >= 0) h = 30 + sh;
     if (h != hover) { hover = h; repaint(); }
@@ -130,6 +133,7 @@ void EasyPage::mouseMove (const juce::MouseEvent& e)
 void EasyPage::mouseDown (const juce::MouseEvent& e)
 {
     auto& P = ed.proc;
+    if (guideR.contains (e.position)) { guide.setVisible (! guide.isVisible()); if (guide.isVisible()) guide.toFront (false); repaint (0, 0, getWidth(), 44); return; }
     if (const int t = tabs.hit (e.position); t >= 0) { view = t; repaint (0, 0, getWidth(), 44); stage.repaint(); return; }
     if (cmpR.contains (e.position)) { auto* p = ed.P ("compare"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint (0, 0, getWidth(), 44); return; }
     if (deltaR.contains (e.position)) { auto* p = ed.P ("e_delta"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint (0, 0, getWidth(), 44); return; }
@@ -150,7 +154,7 @@ void EasyPage::mouseDown (const juce::MouseEvent& e)
 }
 void EasyPage::tick()
 {
-    stage.repaint(); result.repaint(); meters.repaint(); input.repaint();
+    if (! guide.isVisible()) { stage.repaint(); result.repaint(); meters.repaint(); input.repaint(); }
     loud->activity = juce::jlimit (0.0f, 1.0f, ed.proc.grAvg.load() / 6.0f);
     for (auto* k : knobs) if (k->animate()) k->repaint();
     if (tabs.step (view)) repaint (0, 0, getWidth(), 44);
@@ -253,6 +257,7 @@ void EasyMeters::paint (juce::Graphics& g)
     }
     const float cr = P.crush.load(); juce::String adv; juce::Colour ac = K::faint;
     if (S < -60) adv = "premi play";
+    else if (d > 3 && cr > 0.7f) { adv = "+" + juce::String (d, 1) + " dB sopra il target: guida ?"; ac = K::red; }
     else if (cr > 0.7f) { adv = "troppo schiacciato: abbassa LOUD"; ac = K::red; }
     else if (cr < 0.3f) { adv = "c'e margine: puoi alzare LOUD"; ac = K::cyan; }
     else { adv = "nel punto giusto"; ac = K::mint; }
@@ -276,59 +281,51 @@ static void timeAxis (juce::Graphics& g, juce::Rectangle<float> p, float y)
         g.setColour (K::faint); g.drawText (s == 0 ? juce::String ("ora") : "-" + juce::String (s) + "s", juce::Rectangle<float> (x - 18, y + 2, 36, 12), juce::Justification::centred);
     }
 }
-void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p)
+// una colonna di storia = 25 ms, disegnata sempre allo stesso passo: l'onda scorre senza ricampionare, quindi non vibra
+struct Cols
 {
-    auto& P = page.ed.proc; const int N = Processor::kHist, w0 = P.hW.load();
-    p = p.withTrimmedLeft (8).withTrimmedRight (8).withTrimmedBottom (18);
-    // striscia del limiter in alto: quanto schiaccia i picchi
-    auto gs = p.removeFromTop (54); p.removeFromTop (8);
-    const float cy = p.getCentreY(), h = p.getHeight() * 0.5f - 4;
-    auto lin = [] (float db) { return juce::jlimit (0.0f, 1.0f, juce::Decibels::decibelsToGain (db)); };
-    const int NX = juce::jmax (2, (int) p.getWidth() / 2);
-    std::vector<float> in ((size_t) NX), out ((size_t) NX), gr ((size_t) NX);
-    float grMax = 0;
-    for (int x = 0; x < NX; ++x)
+    int N, w0; float x0, dx;
+    Cols (int n, int w, juce::Rectangle<float> p) : N (n), w0 (w), x0 (p.getX()), dx (p.getWidth() / (float) n) {}
+    int idx (int x) const { return (w0 + x) % N; }          // x = 0 la colonna piu vecchia, N-1 la piu nuova
+    float X (int x) const { return x0 + dx * (float) x; }
+};
+// onda simmetrica in stile DAW: picco (chiaro) e RMS (pieno) dalla stessa linea di centro
+static void drawWav (juce::Graphics& g, const Cols& C, juce::Rectangle<float> lane, std::atomic<float>* pk, std::atomic<float>* rm, juce::Colour c, float scale)
+{
+    const float cy = lane.getCentreY(), h = lane.getHeight() * 0.5f - 2;
+    auto lin = [scale] (float db) { return db < -80 ? 0.0f : juce::jlimit (0.0f, 1.0f, juce::Decibels::decibelsToGain (db) * scale); };
+    juce::RectangleList<float> rp, rr;
+    for (int x = 0; x < C.N; ++x)
     {
-        const int a = x * N / NX, b = juce::jmax (a + 1, (x + 1) * N / NX);
-        float vi = -100, vo = -100, vg = 0;
-        for (int k = a; k < b; ++k) { const int i = (w0 + k) % N; vi = juce::jmax (vi, P.hIn[i].load()); vo = juce::jmax (vo, P.hOut[i].load()); vg = juce::jmax (vg, P.hGrM[i].load() + P.hGrL[i].load()); }
-        in[(size_t) x] = vi > -60 ? lin (vi) : 0; out[(size_t) x] = vo > -60 ? lin (vo) : 0; gr[(size_t) x] = vg; grMax = juce::jmax (grMax, vg);
+        const int i = C.idx (x); const float a = lin (pk[i].load()) * h, r = juce::jmin (a, lin (rm[i].load()) * h);
+        if (a > 0.3f) rp.addWithoutMerging ({ C.X (x), cy - a, C.dx + 0.35f, a * 2 });
+        if (r > 0.3f) rr.addWithoutMerging ({ C.X (x), cy - r, C.dx + 0.35f, r * 2 });
     }
-    auto X = [&] (int x) { return p.getX() + p.getWidth() * x / (float) (NX - 1); };
-    auto body = [&] (const std::vector<float>& v)
+    g.setColour (c.withAlpha (0.45f)); g.fillRectList (rp);
+    g.setColour (c); g.fillRectList (rr);
+}
+void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p)
+{   // due corsie, stessa scala: sopra il wav cosi' com'e', sotto dopo il master
+    auto& P = page.ed.proc;
+    p = p.withTrimmedLeft (8).withTrimmedRight (8).withTrimmedBottom (18).withTrimmedTop (6);
+    const Cols C (Processor::kHist, P.hW.load(), p);
+    timeAxis (g, p, p.getBottom());
+    auto top = p.removeFromTop (p.getHeight() * 0.5f - 3); p.removeFromTop (6); auto bot = p;
+    for (auto* l : { &top, &bot })
     {
-        juce::Path pt; pt.startNewSubPath (X (0), cy - v[0] * h);
-        for (int x = 1; x < NX; ++x) pt.lineTo (X (x), cy - v[(size_t) x] * h);
-        for (int x = NX - 1; x >= 0; --x) pt.lineTo (X (x), cy + v[(size_t) x] * h);
-        pt.closeSubPath(); return pt;
-    };
-    timeAxis (g, p.withTop (gs.getY()), p.getBottom());
-    g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRect (p.getX(), cy - 0.5f, p.getWidth(), 1.0f);
-    // ceiling
-    const float cl = lin (P.value ("lm_ceil"));
-    g.setColour (K::red.withAlpha (0.35f)); g.fillRect (p.getX(), cy - cl * h - 0.5f, p.getWidth(), 1.0f); g.fillRect (p.getX(), cy + cl * h - 0.5f, p.getWidth(), 1.0f);
-    // prima: grigio chiaro trasparente (si vede sotto), dopo: azzurro pieno
-    const auto bi = body (in), bo = body (out);
-    // l'uscita sotto (azzurro), l'ingresso sopra in grigio chiaro semitrasparente: dove l'azzurro sborda e' volume aggiunto,
-    // dove il grigio supera l'azzurro e' stato tolto
-    g.setColour (juce::Colour (0xff2f8fd8).withAlpha (0.8f)); g.fillPath (bo);
-    g.setColour (juce::Colour (0xff8fd3ff)); g.strokePath (bo, juce::PathStrokeType (0.8f));
-    g.setColour (juce::Colour (0xffe6e9f2).withAlpha (0.33f)); g.fillPath (bi);
-    g.setColour (juce::Colour (0xffe6e9f2).withAlpha (0.7f)); g.strokePath (bi, juce::PathStrokeType (0.8f));
-    // limiter: barre rosse dall'alto, scala in dB
-    {
-        g.setColour (juce::Colours::black.withAlpha (0.25f)); g.fillRoundedRectangle (gs, 6);
-        auto yG = [&gs] (float d) { return gs.getY() + 4 + juce::jlimit (0.0f, 1.0f, d / 12.0f) * (gs.getHeight() - 8); };
-        for (float d : { 3.0f, 6.0f, 12.0f }) { g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRect (p.getX(), yG (d), p.getWidth(), 1.0f); g.setFont (num (8.0f)); g.setColour (K::faint); g.drawText ("-" + juce::String ((int) d), juce::Rectangle<float> (gs.getX() + 2, yG (d) - 6, 22, 12), juce::Justification::centredLeft); }
-        juce::Path gp; gp.startNewSubPath (X (0), yG (0));
-        for (int x = 0; x < NX; ++x) gp.lineTo (X (x), yG (gr[(size_t) x]));
-        gp.lineTo (X (NX - 1), yG (0)); gp.closeSubPath();
-        g.setColour (K::red.withAlpha (0.75f)); g.fillPath (gp);
-        g.setFont (f (9.0f, 1)); g.setColour (K::sub);
-        g.drawText (U ("LIMITER  \xc2\xb7  picchi schiacciati fino a ") + juce::String (-grMax, 1) + " dB", gs.reduced (30, 4), juce::Justification::topLeft);
+        g.setColour (juce::Colours::black.withAlpha (0.28f)); g.fillRoundedRectangle (*l, 6);
+        g.setColour (juce::Colours::white.withAlpha (0.07f)); g.fillRect (l->getX(), l->getCentreY() - 0.5f, l->getWidth(), 1.0f);
     }
+    drawWav (g, C, top, P.hRaw, P.hRawR, juce::Colour (0xffc9cede), 1.0f);
+    drawWav (g, C, bot, P.hOut, P.hOutR, juce::Colour (0xff3d9df0), 1.0f);
+    // ceiling sulla corsia del master
+    const float cl = juce::Decibels::decibelsToGain (P.value ("lm_ceil")), hh = bot.getHeight() * 0.5f - 2;
+    g.setColour (K::red.withAlpha (0.55f)); g.fillRect (bot.getX(), bot.getCentreY() - cl * hh - 0.5f, bot.getWidth(), 1.0f); g.fillRect (bot.getX(), bot.getCentreY() + cl * hh - 0.5f, bot.getWidth(), 1.0f);
+    g.setFont (cap (8.5f));
+    g.setColour (K::sub); g.drawText ("SENZA MASTER", top.reduced (10, 6), juce::Justification::topLeft);
+    g.setColour (juce::Colour (0xff8fd3ff)); g.drawText ("CON IL MASTER", bot.reduced (10, 6), juce::Justification::topLeft);
     g.setFont (f (9.0f)); g.setColour (K::faint);
-    g.drawText (U ("grigio = prima  \xc2\xb7  azzurro = dopo il master  \xc2\xb7  rosso = ceiling"), p.reduced (4, 2), juce::Justification::bottomLeft);
+    g.drawText (U ("chiaro = picchi  \xc2\xb7  pieno = volume medio (RMS)  \xc2\xb7  linea rossa = ceiling"), bot.reduced (10, 6), juce::Justification::bottomRight);
 }
 void EasyStage::spectrum (juce::Graphics& g, juce::Rectangle<float> p)
 {
@@ -354,37 +351,60 @@ void EasyStage::spectrum (juce::Graphics& g, juce::Rectangle<float> p)
     g.setFont (f (9.0f)); g.setColour (K::faint); g.drawText (U ("grigio = prima   \xc2\xb7   azzurro = dopo il master"), p.reduced (10, 6), juce::Justification::topRight);
 }
 void EasyStage::gain (juce::Graphics& g, juce::Rectangle<float> p)
-{   // mezza onda verso l'alto: azzurro = il picco che esce, rosso sopra = quanto e' stato schiacciato (la massa compressa)
-    auto& P = page.ed.proc; const int N = Processor::kHist, w0 = P.hW.load();
-    p = p.withTrimmedLeft (40).withTrimmedRight (8).withTrimmedBottom (18);
-    auto yD = [&p] (float db) { return p.getBottom() - juce::jlimit (0.0f, 1.0f, (db + 24.0f) / 24.0f) * p.getHeight(); };
+{   // come nei limiter da master: mezza onda in dB dal basso, il taglio del limiter in rosso sopra i picchi,
+    // e in alto la riduzione appesa alla linea dello zero. Sotto i picchi piu forti, quanti dB sta togliendo.
+    auto& P = page.ed.proc;
+    p = p.withTrimmedLeft (40).withTrimmedRight (8).withTrimmedBottom (18).withTrimmedTop (4);
+    const Cols C (Processor::kHist, P.hW.load(), p);
     timeAxis (g, p, p.getBottom());
+    auto grLane = p.removeFromTop (64); p.removeFromTop (8);
+    // sopra lo zero c'e' spazio: il rosso mostra dove arrivava il picco prima del limiter
+    auto yD = [&p] (float db) { return p.getBottom() - juce::jlimit (0.0f, 1.0f, (db + 30.0f) / 39.0f) * p.getHeight(); };
     g.setFont (num (8.5f));
-    for (int d = -24; d <= 0; d += 3) { g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillRect (p.getX(), yD ((float) d), p.getWidth(), 1.0f); g.setColour (K::faint); g.drawText (juce::String (d), juce::Rectangle<float> (p.getX() - 38, yD ((float) d) - 6, 32, 12), juce::Justification::centredRight); }
-    const int NX = juce::jmax (2, (int) p.getWidth() / 2);
-    juce::Path po, pc; float grMax = 0, grSum = 0; int grN = 0;
-    std::vector<float> o ((size_t) NX), c ((size_t) NX);
-    for (int x = 0; x < NX; ++x)
+    g.setColour (juce::Colours::white.withAlpha (0.12f)); g.fillRect (p.getX(), yD (0), p.getWidth(), 1.0f);
+    for (int d = -30; d <= 6; d += 6) { g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillRect (p.getX(), yD ((float) d), p.getWidth(), 1.0f); g.setColour (K::faint); g.drawText (juce::String (d), juce::Rectangle<float> (p.getX() - 38, yD ((float) d) - 6, 32, 12), juce::Justification::centredRight); }
+    juce::RectangleList<float> ro, rr, rc; juce::RectangleList<float> rg;
+    auto yG = [&grLane] (float d) { return grLane.getY() + juce::jlimit (0.0f, 1.0f, d / 12.0f) * grLane.getHeight(); };
+    float grMax = 0;
+    for (int x = 0; x < C.N; ++x)
     {
-        const int a = x * N / NX, b = juce::jmax (a + 1, (x + 1) * N / NX);
-        float vo = -100, vg = 0;
-        for (int k = a; k < b; ++k) { const int i = (w0 + k) % N; vo = juce::jmax (vo, P.hOut[i].load()); vg = juce::jmax (vg, P.hGrM[i].load() + P.hGrL[i].load()); }
-        o[(size_t) x] = vo; c[(size_t) x] = vo > -60 ? vo + vg : vo; grMax = juce::jmax (grMax, vg); if (vo > -60) { grSum += vg; ++grN; }
+        const int i = C.idx (x); const float o = P.hOut[i].load(), r = P.hOutR[i].load(), gr = P.hGrM[i].load() + P.hGrL[i].load();
+        const float xx = C.X (x), w = C.dx + 0.35f;
+        if (o > -30) ro.addWithoutMerging (juce::Rectangle<float>::leftTopRightBottom (xx, yD (o), xx + w, p.getBottom()));
+        if (r > -30) rr.addWithoutMerging (juce::Rectangle<float>::leftTopRightBottom (xx, yD (r), xx + w, p.getBottom()));
+        if (o > -30 && gr > 0.05f) rc.addWithoutMerging (juce::Rectangle<float>::leftTopRightBottom (xx, yD (o + gr), xx + w, yD (o)));
+        if (gr > 0.05f) { rg.addWithoutMerging (juce::Rectangle<float>::leftTopRightBottom (xx, grLane.getY(), xx + w, yG (gr))); grMax = juce::jmax (grMax, gr); }
     }
-    auto X = [&] (int x) { return p.getX() + p.getWidth() * x / (float) (NX - 1); };
-    po.startNewSubPath (X (0), p.getBottom()); pc.startNewSubPath (X (0), yD (o[0]));
-    for (int x = 0; x < NX; ++x) { po.lineTo (X (x), yD (o[(size_t) x])); pc.lineTo (X (x), yD (c[(size_t) x])); }
-    po.lineTo (X (NX - 1), p.getBottom()); po.closeSubPath();
-    for (int x = NX - 1; x >= 0; --x) pc.lineTo (X (x), yD (o[(size_t) x]));
-    pc.closeSubPath();
-    g.setColour (juce::Colour (0xff2f8fd8).withAlpha (0.8f)); g.fillPath (po);
-    g.setColour (K::red.withAlpha (0.8f)); g.fillPath (pc);
+    g.setColour (juce::Colour (0xff3d9df0).withAlpha (0.45f)); g.fillRectList (ro);
+    g.setColour (juce::Colour (0xff3d9df0)); g.fillRectList (rr);
+    g.setColour (K::red.withAlpha (0.85f)); g.fillRectList (rc);
+    // corsia della riduzione
+    g.setColour (juce::Colours::black.withAlpha (0.28f)); g.fillRoundedRectangle (grLane, 6);
+    for (float d : { 3.0f, 6.0f, 9.0f }) { g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRect (grLane.getX(), yG (d), grLane.getWidth(), 1.0f); g.setColour (K::faint); g.drawText ("-" + juce::String ((int) d), juce::Rectangle<float> (grLane.getX() - 38, yG (d) - 6, 32, 12), juce::Justification::centredRight); }
+    g.setColour (K::red.withAlpha (0.8f)); g.fillRectList (rg);
+    g.setFont (cap (8.0f)); g.setColour (K::sub); g.drawText ("RIDUZIONE DEL LIMITER", grLane.reduced (8, 4), juce::Justification::bottomRight);
+    // numeri sotto i picchi: a blocchi fissi di 1 s (40 colonne), ancorati al tempo, cosi' scorrono con l'onda
+    const int tot = P.hTot.load(), B = 40;
+    g.setFont (num (9.0f));
+    for (int x = 0; x < C.N; )
+    {
+        const int abs0 = tot - C.N + x; int len = B - (((abs0 % B) + B) % B); len = juce::jmin (len, C.N - x);
+        float bg = 0, bo = -100; int bx = x;
+        for (int k = x; k < x + len; ++k) { const int i = C.idx (k); const float gr = P.hGrM[i].load() + P.hGrL[i].load(); if (gr > bg) { bg = gr; bx = k; bo = P.hOut[i].load(); } }
+        if (bg >= 0.5f && len >= B / 2 && bo > -30)
+        {
+            const auto t = "-" + juce::String (bg, 1);
+            const float tx = C.X (bx), ty = yD (bo) + 6;
+            g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillRoundedRectangle (tx - 16, ty, 32, 14, 3);
+            g.setColour (bg > 6 ? K::red : K::ink); g.drawText (t, juce::Rectangle<float> (tx - 16, ty, 32, 14), juce::Justification::centred);
+        }
+        x += len;
+    }
     const float cl = P.value ("lm_ceil");
     g.setColour (K::red.withAlpha (0.5f)); g.fillRect (p.getX(), yD (cl), p.getWidth(), 1.0f);
-    g.setFont (f (10.0f, 1)); g.setColour (K::ink.withAlpha (0.85f));
-    g.drawText (U ("massa compressa: in media ") + juce::String (grN ? grSum / grN : 0.0f, 1) + U (" dB  \xc2\xb7  picchi fino a ") + juce::String (grMax, 1) + " dB", p.reduced (8, 6), juce::Justification::topLeft);
     g.setFont (f (9.0f)); g.setColour (K::faint);
-    g.drawText (U ("azzurro = livello che esce  \xc2\xb7  rosso = quanto il limiter ha tolto ai picchi"), p.reduced (8, 22), juce::Justification::topLeft);
+    g.drawText (U ("azzurro = livello che esce (pieno = medio)  \xc2\xb7  rosso = quanto il limiter toglie a quel picco  \xc2\xb7  max ") + juce::String (grMax, 1) + " dB",
+                p.reduced (8, 4), juce::Justification::bottomLeft);
 }
 void EasyStage::ref (juce::Graphics& g, juce::Rectangle<float> p)
 {
@@ -417,5 +437,88 @@ void EasyStage::mouseDown (const juce::MouseEvent& e)
         page.chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [sp] (const juce::FileChooser& c) { if (sp && c.getResult().existsAsFile()) sp->page.ed.proc.loadReference (c.getResult()); });
     }
     else if (listenR.contains (e.position)) P.refListen = ! P.refListen.load();
+}
+
+// ---------------------------------------------------------------------------------------------------- GUIDA
+namespace
+{
+struct Topic { const char* title; const char* body; };
+const Topic kTopics[] = {
+    { "LUFS E dB",
+      "I dB (dBFS) misurano l'ampiezza del segnale in un istante: \xc3\xa8 il picco. 0 dBFS \xc3\xa8 il massimo che il file digitale pu\xc3\xb2 contenere.\n\n"
+      "I LUFS misurano quanto forte il pezzo SEMBRA all'orecchio, in media nel tempo. Pesano di pi\xc3\xb9 le frequenze a cui l'orecchio \xc3\xa8 sensibile (medie e medio-alte) e meno i bassissimi: un 808 enorme ha picchi alti ma pochi LUFS, una voce brillante tanti LUFS.\n\n"
+      "1 LU di differenza = 1 dB di volume.\n\n"
+      "MOMENTARY: ultimi 0.4 s (segue i colpi).   SHORT-TERM: ultimi 3 s (il numero grande, per lavorare).   INTEGRATO: tutto il pezzo dall'inizio (\xc3\xa8 quello che usano Spotify, Apple, YouTube). Per leggere l'integrato giusto fai suonare il brano intero." },
+    { "SPOTIFY E LA NORMALIZZAZIONE",
+      "Spotify misura il loudness INTEGRATO di tutto il brano e lo porta a -14 LUFS.\n\n"
+      "Se il tuo master \xc3\xa8 a -8.4 LUFS, Spotify lo abbassa di 5.6 dB. Solo volume gi\xc3\xb9: niente limiter, niente distorsione. Quindi su Spotify suona forte quanto gli altri, ma con la dinamica che hai tolto per arrivare a -8.4. Se \xc3\xa8 sotto -14 lo alza solo se c'\xc3\xa8 margine sui picchi (true peak).\n\n"
+      "Apple Music normalizza a -16, YouTube a -14 (solo abbassa), Tidal a -14. SoundCloud non normalizza.\n\n"
+      "In pratica: nell'hip hop e nella trap \xc3\xa8 normale stare tra -9 e -7 LUFS integrati, lo fanno quasi tutti, perch\xc3\xa9 il carattere schiacciato fa parte del genere e nei club e DJ set non c'\xc3\xa8 normalizzazione. Basta sapere che sopra -14 quel volume in pi\xc3\xb9 su Spotify non lo senti: conta solo come suona il pezzo a pari volume. Usa il tasto confronto (BYPASS) a pari volume per giudicare." },
+    { "TRUE PEAK E CEILING",
+      "Il picco dei campioni non \xc3\xa8 il picco vero: fra un campione e l'altro l'onda ricostruita dal convertitore pu\xc3\xb2 salire sopra lo 0 (inter-sample peak).\n\n"
+      "Quando Spotify o YouTube convertono il wav in OGG / AAC / MP3 i picchi crescono ancora. Per questo per lo streaming si tiene il CEILING a -1 dBTP (true peak). Per club e CD si pu\xc3\xb2 stare a -0.3.\n\n"
+      "Il TRUE PEAK nelle misure deve restare sotto il tuo ceiling: se diventa rosso, abbassa il ceiling o il LOUD." },
+    { "DINAMICA: PLR E LRA",
+      "PLR (Peak to Loudness Ratio) = true peak meno LUFS integrati. Dice quanto spazio hanno i colpi sopra il corpo del pezzo.\n\n"
+      "  sopra 10: aperto e dinamico   \xc2\xb7   8-10: moderno, pieno   \xc2\xb7   6-8: molto schiacciato (trap forte, EDM)   \xc2\xb7   sotto 6: i colpi non respirano, la cassa si appiattisce.\n\n"
+      "LRA (Loudness Range) = quanto cambia il volume fra le parti del pezzo (strofa, ritornello). Nel rap 4-7 LU \xc3\xa8 normale.\n\n"
+      "La barra RISULTATO (SAFE - CRUSH) mette insieme: quanto sei sopra il target scelto, quanto lavora il limiter e il PLR. In mezzo (menta) \xc3\xa8 il punto giusto per quel target. Se punti alla trap forte scegli il target TRAP FORTE, non SPOTIFY: altrimenti ti dira' sempre CRUSH, giustamente." },
+    { "CORRELAZIONE E FASE",
+      "La correlazione confronta canale sinistro e destro.\n\n"
+      "  +1 = identici (mono)   \xc2\xb7   fra +1 e 0 = stereo sano   \xc2\xb7   0 = molto largo   \xc2\xb7   sotto 0 = i due lati si cancellano quando il pezzo va in mono (telefono, casse bluetooth, club in mono).\n\n"
+      "Che gli ALTI stiano vicino a 0 \xc3\xa8 normale: hi-hat, riverberi, pad e cori sono larghi. Il problema \xc3\xa8 se restano SOTTO 0. Cause tipiche: widener o chorus spinti, effetto Haas (un lato ritardato), sample stereo con un canale invertito di fase, doppie registrazioni troppo simili.\n\n"
+      "Come si corregge: ascolta in mono e trova la traccia che sparisce o diventa sottile (mettila in solo). Su quella riduci il widener o togli l'Haas; se \xc3\xa8 un sample, mettilo mono o inverti un canale. Sul master puoi stringere solo gli alti con l'imager (WIDE sotto il 100%). I bassi sotto 120 Hz devono stare mono: BASSI MONO acceso." },
+    { "COME SI FA UN MASTER",
+      "1. Parti da un mix con margine: picchi intorno a -6 / -3 dBFS, niente limiter sul bus del mix.\n"
+      "2. Scegli un riferimento (REFERENCE) di un pezzo del tuo genere e ascoltalo allo stesso volume.\n"
+      "3. Porta l'ingresso nella zona ottimale (INPUT, tasto AUTO).\n"
+      "4. EQ con mano leggera: 1-2 dB bastano. Prima togli quello che da' fastidio (CALM), poi aggiungi.\n"
+      "5. Colore (THICK / WARM / SILK) e GLUE: pochi punti, devi sentirlo appena.\n"
+      "6. LOUD fino al target scelto. Guarda il GAIN: se il limiter toglie spesso pi\xc3\xb9 di 4-6 dB ai colpi, torna indietro o lavora sul mix (cassa e 808).\n"
+      "7. Ceiling -1 dBTP per lo streaming.\n"
+      "8. Confronta sempre a pari volume (BYPASS): pi\xc3\xb9 forte sembra sempre meglio, \xc3\xa8 un inganno.\n"
+      "9. Controlla in mono, su cuffie, telefono e auto. Fai suonare tutto il brano per leggere l'integrato.\n"
+      "10. Esporta in wav 24 bit (o 16 bit con dither attivo) alla stessa frequenza del progetto." },
+    { "LEGGERE QUESTO PLUGIN",
+      "ONDA: sopra il wav cos\xc3\xac com'\xc3\xa8 entra, sotto dopo il master, stessa scala. Chiaro = picchi, pieno = volume medio. Se sotto il pieno diventa un blocco piatto contro la linea rossa, stai schiacciando.\n\n"
+      "GAIN: come nei limiter da master. Azzurro = livello in uscita in dB, rosso sopra = quanto il limiter ha tolto a quel picco, in alto la riduzione nel tempo. I numeri sotto i picchi dicono quanti dB toglie sul colpo pi\xc3\xb9 forte di ogni secondo.\n\n"
+      "SPETTRO: grigio prima, azzurro dopo. REFERENCE: il tuo pezzo contro quello caricato.\n\n"
+      "INPUT a sinistra: quanto entra. RISULTATO: SAFE - CRUSH. A destra le misure: il numero grande \xc3\xa8 lo short-term, sotto la distanza dal target." } };
+constexpr int kNumTopics = (int) (sizeof (kTopics) / sizeof (kTopics[0]));
+}
+void GuidePanel::paint (juce::Graphics& g)
+{
+    auto b = getLocalBounds().toFloat();
+    g.setColour (juce::Colour (0xf20a0b14)); g.fillRoundedRectangle (b, 12);
+    g.setColour (K::violet.withAlpha (0.5f)); g.drawRoundedRectangle (b.reduced (0.5f), 12, 1.0f);
+    auto left = b.reduced (16).removeFromLeft (250);
+    g.setFont (cap (9.0f)); g.setColour (K::violet); g.drawText ("GUIDA RAPIDA", left.removeFromTop (20), juce::Justification::centredLeft);
+    left.removeFromTop (6);
+    for (int i = 0; i < kNumTopics && i < 8; ++i)
+    {
+        topicR[i] = left.removeFromTop (36).reduced (0, 3);
+        const bool on = i == topic;
+        g.setColour (on ? K::violet.withAlpha (0.2f) : juce::Colours::white.withAlpha (hover == i ? 0.06f : 0.02f)); g.fillRoundedRectangle (topicR[i], 6);
+        if (on) { g.setColour (K::violet); g.fillRoundedRectangle (topicR[i].withWidth (3), 1.5f); }
+        g.setFont (cap (9.5f)); g.setColour (on ? K::ink : K::sub); g.drawText (kTopics[i].title, topicR[i].reduced (14, 0), juce::Justification::centredLeft);
+    }
+    closeR = { b.getRight() - 44, 12, 30, 26 };
+    chip (g, closeR, U ("\xc3\x97"), false, K::violet, 11.0f);
+    auto r = b.reduced (16).withTrimmedLeft (280).withTrimmedRight (40);
+    g.setFont (f (17.0f, 1)); g.setColour (K::ink); g.drawText (kTopics[topic].title, r.removeFromTop (28), juce::Justification::centredLeft);
+    r.removeFromTop (8);
+    juce::AttributedString as; as.setJustification (juce::Justification::topLeft); as.setLineSpacing (3.0f);
+    as.append (juce::String::fromUTF8 (kTopics[topic].body), f (12.5f), K::ink.withAlpha (0.86f));
+    juce::TextLayout tl; tl.createLayout (as, r.getWidth()); tl.draw (g, r);
+}
+void GuidePanel::mouseMove (const juce::MouseEvent& e)
+{
+    int h = -1; for (int i = 0; i < kNumTopics && i < 8; ++i) if (topicR[i].contains (e.position)) h = i;
+    if (h != hover) { hover = h; repaint(); }
+}
+void GuidePanel::mouseDown (const juce::MouseEvent& e)
+{
+    if (closeR.contains (e.position)) { setVisible (false); if (auto* p = getParentComponent()) p->repaint (0, 0, p->getWidth(), 44); return; }
+    for (int i = 0; i < kNumTopics && i < 8; ++i) if (topicR[i].contains (e.position)) { topic = i; repaint(); }
 }
 }

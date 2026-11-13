@@ -148,6 +148,7 @@ int main (int argc, char** argv)
         Editor ed (*p);
         if (auto* v = std::getenv ("JVIEW")) ed.easyPage.view = std::atoi (v);
         for (int i = 0; i < 30; ++i) ed.tickForTest();
+        if (auto* gd = std::getenv ("JGUIDE")) { ed.easyPage.guide.topic = std::atoi (gd); ed.easyPage.guide.setVisible (true); ed.easyPage.guide.toFront (false); }
         if (std::getenv ("JPERF"))
         {
             const double t0 = juce::Time::getMillisecondCounterHiRes();

@@ -1,1 +1,1 @@
-JackpotAlter JackpotClip
+JackpotMaster JackpotMeter JackpotAlter JackpotClip

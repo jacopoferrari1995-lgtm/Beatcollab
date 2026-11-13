@@ -105,6 +105,7 @@ public:
     std::atomic<float> inAvg { -100 }, crush { 0 }, grAvg { 0 }, calmNow { 0 }, glueGr { 0 };
     static constexpr int kHist = 800;   // 20 s a 25 ms
     std::atomic<float> hIn[kHist], hOut[kHist], hGrM[kHist], hGrL[kHist], hS[kHist]; std::atomic<int> hW { 0 };
+    std::atomic<float> hRaw[kHist], hRawR[kHist], hOutR[kHist]; std::atomic<int> hTot { 0 };   // il wav senza master (picco e RMS) e l'RMS in uscita
 
 private:
     void timerCallback() override;
@@ -115,7 +116,7 @@ private:
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2];
     juce::AudioBuffer<float> tmp, keep;
-    float matchSm = 1, normSm = 1, colIn = 0, colOut = 0, colM = 0, colL = 0; int colN = 0;
+    float matchSm = 1, normSm = 1, colIn = 0, colOut = 0, colM = 0, colL = 0, colRaw = 0; int colN = 0; double sqIn = 0, sqOut = 0;
     std::shared_ptr<RefTrack> ref; mutable juce::SpinLock refLock;
     float tpHold = -100; double cLR = 0, cLL = 1e-9, cRR = 1e-9;
 };

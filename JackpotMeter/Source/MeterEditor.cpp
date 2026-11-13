@@ -445,7 +445,7 @@ void SpecEq::paintImager (juce::Graphics& g, juce::Rectangle<float> p)
     const float bal = P.balance.load();
     row ("BILANCIO L/R", std::abs (bal) < 0.25f ? juce::String ("centro") : juce::String (std::abs (bal), 1) + " dB " + (bal > 0 ? "R" : "L"), C::phos);
     const char* bn[3] = { "BASSI", "MEDI", "ALTI" };
-    for (int k = 0; k < 3; ++k) row (juce::String (bn[k]) + "  corr / largh.", juce::String (P.corrB[k].load(), 2) + "  " + juce::String (juce::roundToInt (P.widthB[k].load() * 100)) + "%", P.corrB[k].load() < 0.3f ? C::amber : C::text);
+    for (int k = 0; k < 3; ++k) row (juce::String (bn[k]) + "  corr / largh.", juce::String (P.corrB[k].load(), 2) + "  " + juce::String (juce::roundToInt (P.widthB[k].load() * 100)) + "%", P.corrB[k].load() < (k == 0 ? 0.6f : k == 1 ? 0.2f : -0.15f) ? C::amber : C::text);
     static const char* tip[3] = { "Lissajous: verticale = mono, la forma larga = suono largo, orizzontale = fuori fase.",
                                   "Polar sample: ogni punto e un campione. Dentro il ventaglio centrale e compatibile mono; i punti rossi oltre L/R sono fuori fase.",
                                   "Polar level: un raggio per direzione con il livello massimo. Raggi rossi = energia fuori fase." };
@@ -835,13 +835,13 @@ void Stereo::paint (juce::Graphics& g)
     scan (g, gr);
     // correlazione e larghezza
     auto rx = gr.getRight() + 12, rw = b.getRight() - 180 - rx;
-    auto meterH = [&] (float y, const char* name, float v, float lo, float hi, bool corrScale, juce::String val)
+    auto meterH = [&] (float y, const char* name, float v, float lo, float hi, bool corrScale, juce::String val, float warnAt = 0.3f, float redAt = 0.0f)
     {
         g.setColour (C::dim); g.setFont (uf (9.5f)); g.drawText (name, juce::Rectangle<float> (rx, y, rw, 13), juce::Justification::centredLeft);
         g.setFont (mf (10.0f)); g.drawText (val, juce::Rectangle<float> (rx, y, rw, 13), juce::Justification::centredRight);
         auto r = juce::Rectangle<float> (rx, y + 15, rw, 12); lcd (g, r, 4);
         const float t = juce::jlimit (0.0f, 1.0f, (v - lo) / (hi - lo)), c0 = corrScale ? r.getCentreX() : r.getX();
-        const auto col = corrScale ? (v < 0 ? C::red : v < 0.3f ? C::amber : C::green) : (v > 1.2f ? C::amber : C::violet);
+        const auto col = corrScale ? (v < redAt ? C::red : v < warnAt ? C::amber : C::green) : (v > 1.2f ? C::amber : C::violet);
         const float x = r.getX() + t * r.getWidth();
         g.setColour (col.withAlpha (0.85f)); g.fillRoundedRectangle (juce::jmin (c0, x), r.getY() + 3, std::abs (x - c0) + 2, r.getHeight() - 6, 2);
         if (corrScale) { g.setColour (C::dim.withAlpha (0.5f)); g.drawVerticalLine ((int) r.getCentreX(), r.getY(), r.getBottom()); }
@@ -850,12 +850,15 @@ void Stereo::paint (juce::Graphics& g)
     meterH (76, "LARGHEZZA S/M", P.width.load(), 0, 1.5f, false, juce::String (juce::roundToInt (P.width.load() * 100)) + "%");
     const float bal = P.balance.load();
     meterH (112, "BILANCIO L/R", juce::jlimit (-6.0f, 6.0f, bal), -6, 6, true, (std::abs (bal) < 0.25f ? juce::String ("centro") : juce::String (std::abs (bal), 1) + " dB " + (bal > 0 ? "R" : "L")));
-    const char* bn[3] = { "BASSI < 150 Hz", "MEDI", "ALTI > 2 kHz" };
-    for (int k = 0; k < 3; ++k) meterH (152 + k * 34.0f, bn[k], P.corrB[k].load(), -1, 1, true, juce::String (P.corrB[k].load(), 2) + "  " + juce::String (juce::roundToInt (P.widthB[k].load() * 100)) + "%");
+    // soglie diverse per banda: i bassi devono stare quasi mono, gli alti larghi (vicino a 0) sono normali
+    const char* bn[3] = { "BASSI < 150 Hz", "MEDI", "ALTI > 2 kHz  (vicino a 0 e' normale)" };
+    const float wa[3] = { 0.6f, 0.2f, -0.15f }, ra[3] = { 0.0f, -0.05f, -0.35f };
+    for (int k = 0; k < 3; ++k) meterH (152 + k * 34.0f, bn[k], P.corrB[k].load(), -1, 1, true, juce::String (P.corrB[k].load(), 2) + "  " + juce::String (juce::roundToInt (P.widthB[k].load() * 100)) + "%", wa[k], ra[k]);
     juce::String warnT; juce::Colour wc = C::green;
     if (P.lufsS.load() < -60) { warnT = "in attesa di audio"; wc = C::dim; }
     else if (P.corr.load() < 0) { warnT = "Fase invertita: in mono il mix si svuota!"; wc = C::red; }
     else if (P.corrB[0].load() < 0.6f) { warnT = "Bassi troppo larghi: mettili in mono sotto 120-150 Hz"; wc = C::amber; }
+    else if (P.corrB[2].load() < -0.15f) { warnT = "Alti in controfase: widener o Haas troppo spinti (hats, cori), prova in mono"; wc = C::amber; }
     else if (P.width.load() > 1.0f) { warnT = "Molto largo: controlla la compatibilita mono"; wc = C::amber; }
     else warnT = "Compatibile mono";
     glowText (g, warnT, { rx, b.getBottom() - 30, rw, 16 }, wc, uf (10.5f));

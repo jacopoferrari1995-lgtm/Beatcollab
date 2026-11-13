@@ -174,7 +174,7 @@ Processor::Processor()
       apvts (*this, nullptr, "JMS", layout())
 {
     for (int k = 0; k < kNumMods; ++k) order[k] = k;
-    for (int i = 0; i < kHist; ++i) { hIn[i] = -60; hOut[i] = -60; hGrM[i] = 0; hGrL[i] = 0; hS[i] = -60; }
+    for (int i = 0; i < kHist; ++i) { hIn[i] = -60; hOut[i] = -60; hGrM[i] = 0; hGrL[i] = 0; hS[i] = -60; hRaw[i] = -100; hRawR[i] = -100; hOutR[i] = -100; }
     startTimerHz (5);
 }
 
@@ -214,6 +214,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     float pi[2] = { 0, 0 };
     for (int i = 0; i < n; ++i)
     {
+        { const float a = juce::jmax (std::abs (L[i]), std::abs (R[i])); colRaw = juce::jmax (colRaw, a); sqIn += 0.5 * (L[i] * L[i] + R[i] * R[i]); }   // il wav cosi' com'e' (senza master)
         L[i] *= trim; R[i] *= trim;
         pi[0] = juce::jmax (pi[0], std::abs (L[i])); pi[1] = juce::jmax (pi[1], std::abs (R[i]));
         loudIn.push (L[i], R[i]);
@@ -432,6 +433,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     {
         loudOut.push (L[i], R[i]);
         po[0] = juce::jmax (po[0], std::abs (L[i])); po[1] = juce::jmax (po[1], std::abs (R[i]));
+        sqOut += 0.5 * (L[i] * L[i] + R[i] * R[i]);
         tpb = juce::jmax (tpb, juce::jmax (tpOut[0].push (L[i]), tpOut[1].push (R[i])));
     }
     tpHold = juce::jmax (tpHold, gToDb (tpb));
@@ -495,7 +497,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         const auto& T = target ((int) value ("target"));
         const float ideal = juce::jlimit (1.5f, 5.0f, 2.0f + (-14.0f - T.lufs) * 0.5f);   // riduzione "giusta" per quel target
         const float plr = (tpHold > -60 && loudOut.S > -60) ? tpHold - loudOut.S : 14.0f;
-        const float sc = 0.5f * grSm / ideal + juce::jmax (0.0f, 8.0f - plr) * 0.07f;
+        // tre cose insieme: quanto sei sopra il target, quanto lavora il limiter, quanta dinamica resta (PLR)
+        const float sLoud = (loudOut.S - T.lufs) / 10.0f;
+        const float sGr = juce::jlimit (-0.25f, 0.3f, (grSm - ideal) / (2.0f * ideal));
+        const float sPlr = juce::jlimit (-0.2f, 0.3f, (9.0f - plr) * 0.05f);
+        const float sc = 0.5f + sLoud + sGr + sPlr;
         crush = loudOut.S > -50 ? juce::jlimit (0.0f, 1.0f, sc) : 0.0f;
     }
     for (int c = 0; c < 2; ++c) { inPk[c] = juce::jmax (pi[c], inPk[c].load() * 0.9f); outPk[c] = juce::jmax (po[c], outPk[c].load() * 0.9f); }
@@ -505,7 +511,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     {
         const int w = hW.load();
         hIn[w] = gToDb (colIn); hOut[w] = gToDb (colOut); hGrM[w] = colM; hGrL[w] = colL; hS[w] = loudOut.S;
-        hW = (w + 1) % kHist; colIn = colOut = colM = colL = 0; colN = 0;
+        hRaw[w] = gToDb (colRaw); hRawR[w] = gToDb ((float) std::sqrt (sqIn / colN)); hOutR[w] = gToDb ((float) std::sqrt (sqOut / colN));
+        hW = (w + 1) % kHist; hTot = hTot.load() + 1; colIn = colOut = colM = colL = colRaw = 0; sqIn = sqOut = 0; colN = 0;
     }
 }
 

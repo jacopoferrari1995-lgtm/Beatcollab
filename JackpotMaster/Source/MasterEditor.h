@@ -7,8 +7,9 @@ namespace jms
 {
 namespace C
 {
-    const juce::Colour bg { 0xff0b0c10 }, text { 0xffdfe3ea }, dim { 0xff7d8494 }, faint { 0xff4f5562 };
-    const juce::Colour magenta { 0xffff2e88 }, phos { 0xff5ef2ff }, amber { 0xffffb000 }, green { 0xff7dff5a }, red { 0xffff3b5c }, violet { 0xffa66bff };
+    // stessa tavolozza della modalita FACILE (neo)
+    const juce::Colour bg { 0xff0a0b16 }, text { 0xfff2f3f9 }, dim { 0xff9096ad }, faint { 0xff545a70 };
+    const juce::Colour magenta { 0xffff3d9a }, phos { 0xff3ee8ff }, amber { 0xffffb547 }, green { 0xff4dffb4 }, red { 0xffff4d6a }, violet { 0xff8b5cff };
     const juce::Colour lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
 }
 juce::Font uf (float size, bool bold = true);
@@ -370,6 +371,16 @@ class EasyInput : public juce::Component { public: explicit EasyInput (EasyPage&
 class EasyResult : public juce::Component { public: explicit EasyResult (EasyPage& p) : page (p) {} void paint (juce::Graphics&) override; EasyPage& page; float sm = 0; neo::Bloom bloom; };
 class EasyMeters : public juce::Component { public: explicit EasyMeters (EasyPage& p) : page (p) {} void paint (juce::Graphics&) override; EasyPage& page; float pk[2] {}; float big = -100; };
 
+// guide rapide: cosa sono LUFS e dB, cosa fa Spotify, true peak, dinamica, correlazione, come si fa un master
+class GuidePanel : public juce::Component
+{
+public:
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    int topic = 0, hover = -1; juce::Rectangle<float> closeR, topicR[8];
+};
+
 class EasyPage : public juce::Component
 {
 public:
@@ -385,6 +396,7 @@ public:
     juce::OwnedArray<neo::Knob> knobs; neo::Knob *low, *mid, *high, *thick, *warm, *silk, *pres, *loud, *speed, *glue, *calm, *wide, *ceil, *trim;
     std::unique_ptr<neo::Toggle> monoB; std::unique_ptr<juce::FileChooser> chooser;
     EasyStage stage { *this }; EasyInput input { *this }; EasyResult result { *this }; EasyMeters meters { *this };
+    GuidePanel guide; juce::Rectangle<float> guideR;
     neo::Segments tabs, styles; juce::Rectangle<float> targetR, cmpR, deltaR, bandR[3];
     juce::Image bg; float bgScale = 0;
 };
