@@ -103,4 +103,18 @@ inline std::shared_ptr<RefTrack> loadRefTrack (const juce::File& f, double sr)
     for (int i = 0; i < m; ++i) { const int k = (int) ((juce::int64) i * 600 / m); t->overview[(size_t) k] = juce::jmax (t->overview[(size_t) k], std::abs (t->buf.getSample (0, i))); }
     return t;
 }
+// curva del genere alla frequenza f (interpolazione in log-frequenza tra i centri delle regioni)
+inline float targetAt (const float* off, float f)
+{
+    // interpolazione in log-frequenza tra i centri delle regioni
+    float m = 0; for (int r = 0; r < kRegions; ++r) m += off[r]; m /= kRegions;
+    const float lf = std::log2 (f);
+    if (lf <= std::log2 (regionCentre (0))) return off[0] - m;
+    for (int r = 0; r < kRegions - 1; ++r)
+    {
+        const float a = std::log2 (regionCentre (r)), b = std::log2 (regionCentre (r + 1));
+        if (lf <= b) { const float t = (lf - a) / (b - a); return off[r] + (off[r + 1] - off[r]) * t - m; }
+    }
+    return off[kRegions - 1] - m;
+}
 }

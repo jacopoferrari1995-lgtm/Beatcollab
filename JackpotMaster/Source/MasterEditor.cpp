@@ -187,7 +187,7 @@ void Chain::mouseDown (const juce::MouseEvent& e)
         const int m = ord[(size_t) k];
         auto pr = juce::Rectangle<float> (tile (k).getX() + 8, tile (k).getY() + 9, 14, 14);
         if (modInfo (m).ready && pr.expanded (6).contains (e.position)) { auto* p = ed.P (onParam (m)); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); }
-        dragMod = m; ed.select (m); repaint(); return;
+        dragMod = m; ed.advView = 0; ed.select (m); ed.advTabsComp.repaint(); repaint(); return;
     }
 }
 void Chain::mouseDrag (const juce::MouseEvent& e)
@@ -759,7 +759,8 @@ ImagerPage::ImagerPage (Editor& e) : ModPage (e, IMAGER, "im_on", "im_delta"), v
     }
     smode = std::make_unique<Segs> (ed.P ("im_smode"), C::violet, juce::StringArray { "MODO I (ritardo)", "MODO II (diffuso)" }); smode->font = 10.0f;
     mono = std::make_unique<Switch> (ed.P ("im_mono"), C::amber, "ASCOLTA IN MONO");
-    addAndMakeVisible (*smode); addAndMakeVisible (*mono); addAndMakeVisible (view); addAndMakeVisible (gonio);
+    safe = std::make_unique<Switch> (ed.P ("im_safe"), C::green, "SICUREZZA MONO");
+    addAndMakeVisible (*smode); addAndMakeVisible (*mono); addAndMakeVisible (*safe); addAndMakeVisible (view); addAndMakeVisible (gonio);
 }
 void ImagerPage::resized()
 {
@@ -771,7 +772,7 @@ void ImagerPage::resized()
         solo[b]->setBounds (x0 + 64, 360, 76, 20);
         knobs[b * 2]->setBounds (x0, 386, 68, 68 + 27); knobs[b * 2 + 1]->setBounds (x0 + 70, 386, 68, 68 + 27);
     }
-    smode->setBounds (16, 500, 300, 26); mono->setBounds (330, 502, 200, 22);
+    smode->setBounds (16, 500, 300, 26); mono->setBounds (330, 502, 170, 22); safe->setBounds (510, 502, 170, 22);
 }
 void ImagerPage::paint (juce::Graphics& g)
 {
@@ -823,6 +824,7 @@ void ImView::paint (juce::Graphics& g)
         g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRoundedRectangle (cb, 3);
         const float cx = cb.getX() + (cr + 1) * 0.5f * cb.getWidth();
         g.setColour (cr < 0 ? C::red : cr < 0.3f ? C::amber : C::green); g.fillEllipse (cx - 4, cb.getY(), 8, 8);
+        if (P.imLim[k].load() > 0.05f) { g.setFont (neo::cap (6.5f)); g.setColour (C::green); g.drawText ("SICUREZZA -" + juce::String (juce::roundToInt (P.imLim[k].load() * 100)) + "%", juce::Rectangle<float> (xs[k], bot + 26, xs[k + 1] - xs[k], 12), juce::Justification::centred); }
     }
     for (int k = 0; k < 3; ++k)
     {
@@ -868,22 +870,35 @@ void Gonio::paint (juce::Graphics& g)
     g.drawLine (cx - R * 0.707f, cy - R * 0.707f, cx + R * 0.707f, cy + R * 0.707f); g.drawLine (cx + R * 0.707f, cy - R * 0.707f, cx - R * 0.707f, cy + R * 0.707f);
     g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText ("M", juce::Rectangle<float> (cx - 6, sq.getY(), 12, 10), juce::Justification::centred);
     g.drawText ("L", juce::Rectangle<float> (sq.getX() + 8, sq.getY() + 8, 12, 10), juce::Justification::centred); g.drawText ("R", juce::Rectangle<float> (sq.getRight() - 20, sq.getY() + 8, 12, 10), juce::Justification::centred);
-    float l[2048], r[2048]; P.ringOut.read (l, r, 2048);
-    float mx = 0.05f; for (int i = 0; i < 2048; ++i) mx = juce::jmax (mx, std::abs (l[i]), std::abs (r[i]));
-    const float sc = R * 0.9f / mx;
-    for (int i = 0; i < 2048; i += 2)
+    // nuvola con persistenza (si dissolve piano) e scala che cambia lentamente: niente sfarfallio
+    const int TW = juce::roundToInt (sq.getWidth()), TH = juce::roundToInt (sq.getHeight());
+    if (trail.isNull() || trail.getWidth() != TW) trail = juce::Image (juce::Image::ARGB, TW, TH, true);
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (now - lastMs > 25)
     {
-        const float sx = (l[i] - r[i]) * 0.7071f, sy = (l[i] + r[i]) * 0.7071f;
-        const float px = cx + sx * sc, py = cy - sy * sc;
-        g.setColour (C::green.withAlpha (0.35f)); g.fillRect (px, py, 1.6f, 1.6f);
+        lastMs = now;
+        float l[2048], r[2048]; P.ringOut.read (l, r, 2048);
+        float mx = 0.05f; for (int i = 0; i < 2048; ++i) mx = juce::jmax (mx, std::abs (l[i]), std::abs (r[i]));
+        scale = mx > scale ? scale + (mx - scale) * 0.3f : scale + (mx - scale) * 0.02f;
+        juce::Image::BitmapData bd (trail, juce::Image::BitmapData::readWrite);
+        for (int y = 0; y < TH; ++y) for (int x = 0; x < TW; ++x) { auto c = bd.getPixelColour (x, y); if (c.getAlpha() > 0) bd.setPixelColour (x, y, c.withMultipliedAlpha (0.82f)); }
+        const float sc = TW * 0.45f / juce::jmax (0.05f, scale);
+        const auto gc = C::green.withAlpha (0.55f);
+        for (int i = 0; i < 2048; i += 2)
+        {
+            const int px = juce::roundToInt (TW * 0.5f + (l[i] - r[i]) * 0.7071f * sc), py = juce::roundToInt (TH * 0.5f - (l[i] + r[i]) * 0.7071f * sc);
+            if (px >= 0 && py >= 0 && px < TW && py < TH) bd.setPixelColour (px, py, gc);
+        }
     }
+    g.drawImageAt (trail, juce::roundToInt (sq.getX()), juce::roundToInt (sq.getY()));
     // correlazione
     auto cb = juce::Rectangle<float> (b.getX() + 14, sq.getBottom() + 22, b.getWidth() - 28, 10);
     g.setColour (C::dim); g.drawText ("-1", juce::Rectangle<float> (cb.getX(), cb.getY() - 14, 20, 12), juce::Justification::centredLeft);
     g.drawText ("+1", juce::Rectangle<float> (cb.getRight() - 20, cb.getY() - 14, 20, 12), juce::Justification::centredRight);
     g.drawText ("CORRELAZIONE", juce::Rectangle<float> (cb.getX(), cb.getY() - 14, cb.getWidth(), 12), juce::Justification::centred);
     g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRoundedRectangle (cb, 3);
-    const float cr = juce::jlimit (-1.0f, 1.0f, P.corrAll.load()), x = cb.getX() + (cr + 1) * 0.5f * cb.getWidth();
+    crS += (juce::jlimit (-1.0f, 1.0f, P.corrAll.load()) - crS) * 0.08f;
+    const float cr = crS, x = cb.getX() + (cr + 1) * 0.5f * cb.getWidth();
     g.setColour (cr < 0 ? C::red : cr < 0.3f ? C::amber : C::green); g.fillRoundedRectangle (juce::Rectangle<float> (cb.getCentreX(), cb.getY(), x - cb.getCentreX(), cb.getHeight()).withLeft (juce::jmin (x, cb.getCentreX())).withRight (juce::jmax (x, cb.getCentreX())), 3);
     glowText (g, juce::String (cr, 2), { cb.getX(), cb.getBottom() + 2, cb.getWidth(), 14 }, cr < 0 ? C::red : C::text, mf (10.5f), juce::Justification::centred);
     scanlines (g, b);
@@ -1410,19 +1425,6 @@ static void drawThirds (juce::Graphics& g, const float* v, juce::Rectangle<float
     if (fill) { juce::Path f = p; f.lineTo (r.getRight(), r.getBottom()); f.lineTo (r.getX(), r.getBottom()); f.closeSubPath(); juce::ColourGradient cg (c.withAlpha (0.2f), 0, r.getY(), c.withAlpha (0.02f), 0, r.getBottom(), false); g.setGradientFill (cg); g.fillPath (f); }
     g.setColour (c.withAlpha (0.25f)); g.strokePath (p, juce::PathStrokeType (4.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (1.6f));
 }
-static float targetAt (const float* off, float f)
-{
-    // interpolazione in log-frequenza tra i centri delle regioni
-    float m = 0; for (int r = 0; r < kRegions; ++r) m += off[r]; m /= kRegions;
-    const float lf = std::log2 (f);
-    if (lf <= std::log2 (regionCentre (0))) return off[0] - m;
-    for (int r = 0; r < kRegions - 1; ++r)
-    {
-        const float a = std::log2 (regionCentre (r)), b = std::log2 (regionCentre (r + 1));
-        if (lf <= b) { const float t = (lf - a) / (b - a); return off[r] + (off[r + 1] - off[r]) * t - m; }
-    }
-    return off[kRegions - 1] - m;
-}
 BalancePage::BalancePage (Editor& e) : ed (e)
 {
     fix = std::make_unique<ActBtn> ("CORREGGI CON L'EQ DINAMICO", C::green, [this]
@@ -1635,7 +1637,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     dither = std::make_unique<Segs> (P ("dither"), C::violet, juce::StringArray { "OFF", "24 BIT", "16 BIT", "16 SHAPED" }); dither->font = 10.0f;
     for (juce::Component* c : std::initializer_list<juce::Component*> { &chain, &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &balPage, &refPage, &soon, &loud, trim.get(), compare.get(), norm.get(), dither.get() }) addAndMakeVisible (c);
     addAndMakeVisible (sizeChip);
-    addChildComponent (easyPage); addChildComponent (advStage);
+    addChildComponent (easyPage); addChildComponent (advStage); addAndMakeVisible (advTabsComp);
     select (MAXIM);
     lastEasy = ! proc.easy(); applyMode();
     scaler.setup();
@@ -1644,7 +1646,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 void Editor::applyMode()
 {
     const bool e = proc.easy(); lastEasy = e;
-    easyPage.setVisible (e); if (e) advStage.setVisible (false);
+    easyPage.setVisible (e); advTabsComp.setVisible (! e); if (e) advStage.setVisible (false);
     for (juce::Component* c : std::initializer_list<juce::Component*> { &chain, &loud, trim.get(), compare.get(), norm.get(), dither.get() }) c->setVisible (! e);
     if (e) for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &balPage, &refPage, &soon }) pg->setVisible (false);
     else select (sel);
@@ -1657,12 +1659,22 @@ void Editor::select (int m)
     maxPage.setVisible (m == MAXIM); limPage.setVisible (m == LIMIT); bassPage.setVisible (m == BASS); eqPage.setVisible (m == DYNEQ); imPage.setVisible (m == IMAGER);
     dsPage.setVisible (m == DEESS); busPage.setVisible (m == BUSCOMP); mbPage.setVisible (m == MULTI); tpPage.setVisible (m == TAPE); exPage.setVisible (m == EXCITER); e4Page.setVisible (m == EQ432); balPage.setVisible (m == TOOL_BAL); refPage.setVisible (m == TOOL_REF);
     soon.setVisible (m < kNumMods && ! modInfo (m).ready); soon.mod = m < kNumMods ? m : 0;
-    if (proc.easy()) for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &balPage, &refPage, &soon }) pg->setVisible (false);
-    if (! proc.easy() && advView > 0) applyAdvView();
+    if (proc.easy() || advView > 0) for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &balPage, &refPage, &soon }) pg->setVisible (false);
+    advStage.setVisible (! proc.easy() && advView > 0); advTabsComp.toFront (false);
     chain.repaint(); repaint();
 }
 // AVANZATO: al posto della pagina del modulo, le viste della modalita FACILE (onda, spettro, gain)
-static const juce::StringArray& advViewNames() { static juce::StringArray a { "MODULO", "ONDA", "SPETTRO", "GAIN" }; return a; }
+static const juce::StringArray& advViewNames() { static juce::StringArray a { "MODULO", "ONDA", "SPETTRO", "GAIN", "IDEALE" }; return a; }
+static const juce::Point<float> kTabsOrigin { 548, 156 };
+void Editor::AdvTabsComp::paint (juce::Graphics& g) { g.addTransform (juce::AffineTransform::translation (-kTabsOrigin.x, -kTabsOrigin.y)); ed.advTabs.paint (g, advViewNames(), ed.advView, C::violet, 8.0f); }
+void Editor::AdvTabsComp::mouseDown (const juce::MouseEvent& e)
+{
+    const int t = ed.advTabs.hit (e.position + kTabsOrigin);
+    if (t < 0) return;
+    ed.advView = t;
+    if (t == 0) { ed.advStage.setVisible (false); ed.select (ed.sel); } else ed.applyAdvView();
+    repaint();
+}
 void Editor::applyAdvView()
 {
     const bool show = ! proc.easy() && advView > 0;
@@ -1682,6 +1694,7 @@ void Editor::resized()
     easyPage.setBounds (0, 64, 1280, 736); neoBg = {};
     advStage.setBounds (30, 196, 830, 574);
     advTabs.layout ({ 560, 160, 0, 24 }, advViewNames(), 8.0f); advTabs.ax = -1;
+    advTabsComp.setBounds (juce::Rectangle<float> (kTabsOrigin.x, kTabsOrigin.y, advTabs.width() + 24, 32).toNearestInt()); advTabsComp.toFront (false);
     modeSeg.layout ({ 282, 18, 0, 28 }, juce::StringArray { "FACILE", "AVANZATO" }, 9.0f); modeR[0] = modeSeg.r[0].toNearestInt(); modeR[1] = modeSeg.r[1].toNearestInt();
     trim->setBounds (898, 606, 84, 84 + 27);
     compare->setBounds (996, 604, 260, 22); norm->setBounds (996, 632, 260, 22);
@@ -1713,7 +1726,6 @@ void Editor::paint (juce::Graphics& g)
         g.setGradientFill (hl); g.fillRect (r.getX() + 30, r.getBottom() - 1.0f, r.getWidth() - 60, 1.0f);
     };
     card ({ 18, 154, 854, 628 }, mc);
-    advTabs.paint (g, advViewNames(), advView, C::violet, 8.0f);
     card ({ 884, 154, 378, 406 }, C::green);
     card ({ 884, 572, 378, 210 }, C::phos);
     glowText (g, "USCITA", { 900, 578, 200, 24 }, C::text, uf (13.0f));
@@ -1787,16 +1799,10 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int n = (int) presets().size();
     if (modeR[0].contains (e.getPosition()) || modeR[1].contains (e.getPosition())) { auto* p = P ("mode"); p->setValueNotifyingHost (p->convertTo0to1 (modeR[0].contains (e.getPosition()) ? 0.0f : 1.0f)); applyMode(); return; }
-    if (! proc.easy()) if (const int t = advTabs.hit (e.position); t >= 0)
-    {
-        advView = t;
-        if (t == 0) { advStage.setVisible (false); select (sel); } else applyAdvView();
-        return;
-    }
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); repaint(); }
     else if (proc.easy() && (balRect.contains (e.getPosition()) || refRect.contains (e.getPosition()))) return;
-    else if (balRect.contains (e.getPosition())) select (TOOL_BAL);
-    else if (refRect.contains (e.getPosition())) select (TOOL_REF);
+    else if (balRect.contains (e.getPosition())) { advView = 0; select (TOOL_BAL); }
+    else if (refRect.contains (e.getPosition())) { advView = 0; select (TOOL_REF); }
     else if (prevRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + n - 1) % n); repaint(); }
     else if (nextRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + 1) % n); repaint(); }
     else if (presetRect.contains (e.getPosition()))
@@ -1847,7 +1853,7 @@ void Editor::timerCallback()
     }
     trim->repaint(); compare->repaint(); norm->repaint(); dither->repaint();
     if (advStage.isVisible()) advStage.repaint();
-    if (advTabs.step (advView)) repaint (scaler.map ({ 550, 154, 320, 40 }));
+    if (advTabs.step (advView)) advTabsComp.repaint();
     if (++tick % 10 == 0) { repaint (scaler.map ({ 950, 8, 320, 50 })); repaint (scaler.map ({ 884, 572, 378, 210 })); }
 }
 }

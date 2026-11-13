@@ -7,7 +7,7 @@ namespace jms
 using namespace neo;
 static juce::String U (const char* s) { return juce::String::fromUTF8 (s); }
 static const juce::StringArray& styleNames() { static juce::StringArray a { "MODERN", "AGGRESSIVE", "SMOOTH", "SAFE", "CLASSIC" }; return a; }
-static const juce::StringArray& viewNames() { static juce::StringArray a { "ONDA", "SPETTRO", "GAIN", "REFERENCE" }; return a; }
+static const juce::StringArray& viewNames() { static juce::StringArray a { "ONDA", "SPETTRO", "GAIN", "IDEALE", "REFERENCE" }; return a; }
 
 // zone (coordinate della pagina, 1280 x 736)
 static const juce::Rectangle<int> zStage { 150, 46, 850, 350 }, zIn { 24, 46, 104, 262 }, zRes { 1018, 46, 44, 350 }, zMet { 1084, 46, 176, 350 };
@@ -269,7 +269,84 @@ int EasyStage::curView() const { return fixedView >= 0 ? fixedView : page.view; 
 void EasyStage::paint (juce::Graphics& g)
 {
     auto p = getLocalBounds().toFloat();
-    switch (curView()) { case 1: spectrum (g, p.reduced (0, 8)); break; case 2: gain (g, p.reduced (0, 8)); break; case 3: ref (g, p.reduced (0, 8)); break; default: wave (g, p); break; }
+    // colonna del livello sempre visibile a destra, in tutte le viste
+    meterCol (g, p.removeFromRight (52).reduced (4, 10)); p.removeFromRight (4);
+    switch (curView()) { case 1: spectrum (g, p.reduced (0, 8)); break; case 2: gain (g, p.reduced (0, 8)); break; case 3: ideal (g, p.reduced (0, 8)); break; case 4: ref (g, p.reduced (0, 8)); break; default: wave (g, p); break; }
+}
+// scorrimento morbido: fra una colonna e la successiva l'onda si sposta di frazioni di pixel, invece di saltare
+float EasyStage::scrollFrac()
+{
+    const int tot = page.ed.proc.hTot.load(); const double now = juce::Time::getMillisecondCounterHiRes();
+    if (tot != lastTot)
+    {
+        if (lastTot >= 0 && tot > lastTot) colMs = juce::jlimit (8.0, 80.0, colMs * 0.8 + 0.2 * (now - lastMs) / (tot - lastTot));
+        lastTot = tot; lastMs = now;
+    }
+    if (now - lastMs > colMs * 3) return 0.0f;   // nessuna colonna nuova: fermo
+    return (float) juce::jlimit (0.0, 1.0, (now - lastMs) / colMs);
+}
+void EasyStage::meterCol (juce::Graphics& g, juce::Rectangle<float> r)
+{   // ampiezza del segnale in uscita: picco (barra chiara + tacca che resta) e medio (barra piena), sinistro e destro
+    auto& P = page.ed.proc;
+    g.setColour (juce::Colours::black.withAlpha (0.3f)); g.fillRoundedRectangle (r, 6);
+    auto bars = r.reduced (4).withTrimmedTop (14).withTrimmedBottom (16);
+    auto yOf = [&bars] (float db) { return bars.getBottom() - juce::jlimit (0.0f, 1.0f, (db + 48.0f) / 48.0f) * bars.getHeight(); };
+    g.setFont (num (7.5f));
+    for (int d : { 0, -6, -12, -24, -36 }) { g.setColour (juce::Colours::white.withAlpha (0.08f)); g.fillRect (bars.getX(), yOf ((float) d), bars.getWidth(), 1.0f); }
+    const float bw = (bars.getWidth() - 4) / 2;
+    for (int c = 0; c < 2; ++c)
+    {
+        const float pk = juce::Decibels::gainToDecibels (P.outPk[c].load(), -100.0f), rm = juce::Decibels::gainToDecibels (std::sqrt (P.outRms[c].load()), -100.0f);
+        if (pk >= pkHold[c]) { pkHold[c] = pk; holdT[c] = 45; } else if (--holdT[c] <= 0) pkHold[c] -= 0.6f;
+        auto col = juce::Rectangle<float> (bars.getX() + c * (bw + 4), bars.getY(), bw, bars.getHeight());
+        g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillRect (col);
+        const auto cc = pk > -1.0f ? K::red : pk > -6.0f ? K::amber : K::cyan;
+        g.setColour (cc.withAlpha (0.35f)); g.fillRect (col.withTop (yOf (pk)));
+        g.setColour (cc); g.fillRect (col.withTop (yOf (rm)));
+        g.setColour (pkHold[c] > -1.0f ? K::red : K::ink); g.fillRect (col.getX(), yOf (pkHold[c]) - 1, col.getWidth(), 2.0f);
+    }
+    g.setColour (K::sub); g.drawText ("L  R", r.withHeight (12).translated (0, 2), juce::Justification::centred);
+    const float mx = juce::jmax (pkHold[0], pkHold[1]);
+    g.setColour (mx > -1.0f ? K::red : K::ink); g.drawText (mx < -90 ? juce::String ("-inf") : juce::String (mx, 1), juce::Rectangle<float> (r.getX(), r.getBottom() - 14, r.getWidth(), 12), juce::Justification::centred);
+}
+void EasyStage::ideal (juce::Graphics& g, juce::Rectangle<float> p)
+{   // IDEALE contro MIO: la fascia del genere (verde) e lo spettro medio del tuo master (ambra), come nel Metering Hub
+    auto& E = page.ed;
+    if (genreSel < 0) { const int t = (int) E.proc.value ("target"); genreSel = t == 5 || t == 6 ? 0 : 0; }
+    const auto& G = genre (genreSel);
+    p = p.withTrimmedLeft (34).withTrimmedRight (8).withTrimmedBottom (18).withTrimmedTop (28);
+    g.setColour (juce::Colours::black.withAlpha (0.28f)); g.fillRoundedRectangle (p.expanded (4), 8);
+    auto xOf = [&p] (float f) { return p.getX() + p.getWidth() * (float) (std::log (f / 20.0) / std::log (1000.0)); };
+    auto yOf = [&p] (float d) { return p.getCentreY() - juce::jlimit (-1.0f, 1.0f, d / 15.0f) * p.getHeight() * 0.5f; };
+    g.setFont (num (8.0f));
+    for (float f : { 50.f, 100.f, 200.f, 500.f, 1000.f, 2000.f, 5000.f, 10000.f })
+    { g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillRect (xOf (f), p.getY(), 1.0f, p.getHeight()); g.setColour (K::faint); g.drawText (f >= 1000 ? juce::String ((int) (f / 1000)) + "k" : juce::String ((int) f), juce::Rectangle<float> (xOf (f) - 14, p.getBottom() + 3, 28, 11), juce::Justification::centred); }
+    for (int d : { -10, -5, 0, 5, 10 }) { g.setColour (juce::Colours::white.withAlpha (d == 0 ? 0.1f : 0.04f)); g.fillRect (p.getX(), yOf ((float) d), p.getWidth(), 1.0f); g.setColour (K::faint); g.drawText ((d > 0 ? "+" : "") + juce::String (d), juce::Rectangle<float> (p.getX() - 32, yOf ((float) d) - 6, 26, 12), juce::Justification::centredRight); }
+    juce::Path band; const int n = 90;
+    for (int i = 0; i <= n; ++i) { const float f = 20.0f * std::pow (1000.0f, i / (float) n); const float y = yOf (targetAt (G.off, f) + 2.5f); if (i == 0) band.startNewSubPath (xOf (f), y); else band.lineTo (xOf (f), y); }
+    for (int i = n; i >= 0; --i) { const float f = 20.0f * std::pow (1000.0f, i / (float) n); band.lineTo (xOf (f), yOf (targetAt (G.off, f) - 2.5f)); }
+    band.closeSubPath(); g.setColour (K::mint.withAlpha (0.14f)); g.fillPath (band); g.setColour (K::mint.withAlpha (0.5f)); g.strokePath (band, juce::PathStrokeType (1.0f));
+    if (E.live.hasData())
+    {
+        juce::Path my;
+        for (int k = 0; k < kThirds; ++k) { const float x = xOf (thirdHz (k)), y = yOf (E.liveThirds[k]); if (k == 0) my.startNewSubPath (x, y); else my.lineTo (x, y); }
+        g.setColour (K::amber.withAlpha (0.3f)); g.strokePath (my, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (K::amber); g.strokePath (my, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        // scarti per regione sotto il grafico
+        float reg[kRegions]; ThirdAnalyzer::regions (E.liveThirds, reg); float m = 0; for (float o : G.off) m += o; m /= kRegions;
+        g.setFont (cap (7.5f));
+        for (int k = 0; k < kRegions; ++k)
+        {
+            const float d = reg[k] - (G.off[k] - m), x0 = xOf ((float) regionEdge (k)), x1 = xOf ((float) regionEdge (k + 1));
+            const auto c = std::abs (d) < 2.5f ? K::mint : d > 0 ? K::amber : K::cyan;
+            g.setColour (c); g.drawText (juce::String (regionName (k)) + " " + (d > 0 ? "+" : "") + juce::String (d, 1), juce::Rectangle<float> (x0, p.getY() + 4, x1 - x0, 12), juce::Justification::centred);
+        }
+    }
+    else { g.setFont (f (12.0f)); g.setColour (K::sub); g.drawText ("premi play: misuro lo spettro medio del tuo master", p, juce::Justification::centred); }
+    genreR = { p.getX(), p.getY() - 26, 220, 20 };
+    chip (g, genreR, juce::String ("GENERE: ") + G.name + juce::String::fromUTF8 (" \xe2\x96\xbe"), true, K::mint, 8.0f);
+    g.setFont (f (9.0f)); g.setColour (K::faint);
+    g.drawText (juce::String::fromUTF8 ("verde = ideale per il genere (\xc2\xb1 2.5 dB)  \xc2\xb7  ambra = il tuo master"), juce::Rectangle<float> (p.getX() + 230, p.getY() - 26, p.getWidth() - 230, 20), juce::Justification::centredRight);
 }
 // tempo sull'asse orizzontale: gli ultimi 20 s, "ora" a destra
 static void timeAxis (juce::Graphics& g, juce::Rectangle<float> p, float y)
@@ -285,10 +362,10 @@ static void timeAxis (juce::Graphics& g, juce::Rectangle<float> p, float y)
 // una colonna di storia = 25 ms, disegnata sempre allo stesso passo: l'onda scorre senza ricampionare, quindi non vibra
 struct Cols
 {
-    int N, w0; float x0, dx;
-    Cols (int n, int w, juce::Rectangle<float> p) : N (n), w0 (w), x0 (p.getX()), dx (p.getWidth() / (float) n) {}
+    int N, w0; float x0, dx, fr;
+    Cols (int n, int w, juce::Rectangle<float> p, float frac = 0) : N (n), w0 (w), x0 (p.getX()), dx (p.getWidth() / (float) n), fr (frac) {}
     int idx (int x) const { return (w0 + x) % N; }          // x = 0 la colonna piu vecchia, N-1 la piu nuova
-    float X (int x) const { return x0 + dx * (float) x; }
+    float X (int x) const { return x0 + dx * ((float) x - fr); }
 };
 // onda simmetrica in stile DAW: picco (chiaro) e RMS (pieno) dalla stessa linea di centro
 static void drawWav (juce::Graphics& g, const Cols& C, juce::Rectangle<float> lane, std::atomic<float>* pk, std::atomic<float>* rm, juce::Colour c, float scale)
@@ -309,8 +386,9 @@ void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p)
 {   // due corsie, stessa scala: sopra il wav cosi' com'e', sotto dopo il master
     auto& P = page.ed.proc;
     p = p.withTrimmedLeft (8).withTrimmedRight (8).withTrimmedBottom (18).withTrimmedTop (6);
-    const Cols C (Processor::kHist, P.hW.load(), p);
+    const Cols C (Processor::kHist, P.hW.load(), p, scrollFrac());
     timeAxis (g, p, p.getBottom());
+    g.saveState(); g.reduceClipRegion (p.toNearestInt());
     auto top = p.removeFromTop (p.getHeight() * 0.5f - 3); p.removeFromTop (6); auto bot = p;
     for (auto* l : { &top, &bot })
     {
@@ -322,6 +400,7 @@ void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p)
     // ceiling sulla corsia del master
     const float cl = juce::Decibels::decibelsToGain (P.value ("lm_ceil")), hh = bot.getHeight() * 0.5f - 2;
     g.setColour (K::red.withAlpha (0.55f)); g.fillRect (bot.getX(), bot.getCentreY() - cl * hh - 0.5f, bot.getWidth(), 1.0f); g.fillRect (bot.getX(), bot.getCentreY() + cl * hh - 0.5f, bot.getWidth(), 1.0f);
+    g.restoreState();
     g.setFont (cap (8.5f));
     g.setColour (K::sub); g.drawText ("SENZA MASTER", top.reduced (10, 6), juce::Justification::topLeft);
     g.setColour (juce::Colour (0xff8fd3ff)); g.drawText ("CON IL MASTER", bot.reduced (10, 6), juce::Justification::topLeft);
@@ -356,8 +435,9 @@ void EasyStage::gain (juce::Graphics& g, juce::Rectangle<float> p)
     // e in alto la riduzione appesa alla linea dello zero. Sotto i picchi piu forti, quanti dB sta togliendo.
     auto& P = page.ed.proc;
     p = p.withTrimmedLeft (40).withTrimmedRight (8).withTrimmedBottom (18).withTrimmedTop (4);
-    const Cols C (Processor::kHist, P.hW.load(), p);
+    const Cols C (Processor::kHist, P.hW.load(), p, scrollFrac());
     timeAxis (g, p, p.getBottom());
+    g.saveState(); g.reduceClipRegion (p.toNearestInt());
     auto grLane = p.removeFromTop (64); p.removeFromTop (8);
     // sopra lo zero c'e' spazio: il rosso mostra dove arrivava il picco prima del limiter
     auto yD = [&p] (float db) { return p.getBottom() - juce::jlimit (0.0f, 1.0f, (db + 30.0f) / 39.0f) * p.getHeight(); };
@@ -392,7 +472,7 @@ void EasyStage::gain (juce::Graphics& g, juce::Rectangle<float> p)
         const int abs0 = tot - C.N + x; int len = B - (((abs0 % B) + B) % B); len = juce::jmin (len, C.N - x);
         float bg = 0, bo = -100; int bx = x;
         for (int k = x; k < x + len; ++k) { const int i = C.idx (k); const float gr = P.hGrM[i].load() + P.hGrL[i].load(); if (gr > bg) { bg = gr; bx = k; bo = P.hOut[i].load(); } }
-        if (bg >= 0.5f && len >= B / 2 && bo > -30)
+        if (bg >= 0.5f && len == B && x > 0 && x + len < C.N && bo > -30)
         {
             const auto t = "-" + juce::String (bg, 1);
             const float tx = C.X (bx), ty = yD (bo) + 6;
@@ -401,6 +481,7 @@ void EasyStage::gain (juce::Graphics& g, juce::Rectangle<float> p)
         }
         x += len;
     }
+    g.restoreState();
     const float cl = P.value ("lm_ceil");
     g.setColour (K::red.withAlpha (0.5f)); g.fillRect (p.getX(), yD (cl), p.getWidth(), 1.0f);
     g.setFont (f (9.0f)); g.setColour (K::faint);
@@ -429,7 +510,14 @@ void EasyStage::ref (juce::Graphics& g, juce::Rectangle<float> p)
 }
 void EasyStage::mouseDown (const juce::MouseEvent& e)
 {
-    if (curView() != 3) return;
+    if (curView() == 3 && genreR.contains (e.position))
+    {
+        juce::PopupMenu m; for (int k = 0; k < kGenres; ++k) m.addItem (k + 1, genre (k).name, true, k == genreSel);
+        juce::Component::SafePointer<EasyStage> sp (this);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [sp] (int r) { if (r > 0 && sp) { sp->genreSel = r - 1; sp->repaint(); } });
+        return;
+    }
+    if (curView() != 4) return;
     auto& P = page.ed.proc;
     if (loadR.contains (e.position))
     {

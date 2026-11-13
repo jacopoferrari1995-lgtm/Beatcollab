@@ -216,7 +216,7 @@ private:
 // Larghezza per banda, STEREOIZE per banda (MODO I: ritardo corto tipo Haas sul lato; MODO II: decorrelatore
 // ad allpass), solo per banda e delta. Lo stereoize vive solo nel lato: in mono sparisce.
 constexpr int kImBands = 4;
-struct ImagerSettings { float x[3] { 120, 900, 5000 }; float w[kImBands] { 1, 1, 1, 1 }; float stz[kImBands] {}; int mode = 0; bool solo[kImBands] {}; bool delta = false; };
+struct ImagerSettings { float x[3] { 120, 900, 5000 }; float w[kImBands] { 1, 1, 1, 1 }; float stz[kImBands] {}; int mode = 0; bool solo[kImBands] {}; bool delta = false; bool safe = true; };
 class Imager
 {
 public:
@@ -231,7 +231,7 @@ public:
             for (int k = 0; k < 4; ++k) { dl[b][k].assign ((size_t) juce::jmax (2, (int) (d[k] * (1.0f + 0.13f * b) * 0.001 * sr)), 0.0f); dp[b][k] = 0; }
             hz[b].assign ((size_t) juce::jmax (2, (int) ((7.0 + 3.0 * b) * 0.001 * sr)), 0.0f); hp[b] = 0;
         }
-        for (auto& v : eM) v = 0; for (auto& v : eS) v = 0;
+        for (auto& v : eM) v = 0; for (auto& v : eS) v = 0; for (auto& v : iM) v = 0; for (auto& v : iS) v = 0; for (auto& v : kS) v = 1;
         for (auto& v : last) v = -1;
     }
     void process (float* L, float* R, int n, const ImagerSettings& S)
@@ -243,7 +243,20 @@ public:
                 ap[0].setCutoffFrequency (S.x[1]); ap[1].setCutoffFrequency (S.x[2]); ap[2].setCutoffFrequency (S.x[2]);
             }
         bool anySolo = false; for (bool b : S.solo) anySolo |= b;
-        double em[kImBands] {}, es[kImBands] {};
+        double em[kImBands] {}, es[kImBands] {}, im[kImBands] {}, is[kImBands] {};
+        // SICUREZZA MONO: quanto si puo' allargare ogni banda senza che la correlazione scenda sotto ~0.1 (sotto zero in mono la banda sparisce).
+        // Limita solo la parte AGGIUNTA (larghezza oltre il 100% e stereoize), mai il materiale originale.
+        float kT[kImBands];
+        for (int b = 0; b < kImBands; ++b)
+        {
+            kT[b] = 1.0f;
+            const float add = (S.w[b] > 1.0f ? S.w[b] * S.w[b] - 1.0f : 0.0f) * iS[b] + S.stz[b] * S.stz[b] * 0.49f * iM[b];
+            if (S.safe && add > 1e-12f && iM[b] > 1e-10f)
+            {
+                const float budget = 0.68f * iM[b];                         // margine: in pratica la correlazione resta sopra ~0.1
+                kT[b] = juce::jlimit (0.0f, 1.0f, (budget - iS[b]) / add);
+            }
+        }
         for (int i = 0; i < n; ++i)
         {
             const float M = 0.5f * (L[i] + R[i]), Sd = 0.5f * (L[i] - R[i]);
@@ -252,18 +265,27 @@ public:
             float so = 0, mo = 0, sDry = 0, mDry = 0;
             for (int b = 0; b < kImBands; ++b)
             {
-                float s2 = sb[b] * S.w[b];
-                if (S.stz[b] > 1e-3f && b > 0) s2 += stereoize (b, mb[b], S.mode) * S.stz[b] * 0.7f;
-                em[b] += mb[b] * mb[b]; es[b] += s2 * s2;
+                kS[b] += (kT[b] - kS[b]) * 0.0005f;
+                const float wE = S.w[b] > 1.0f ? 1.0f + (S.w[b] - 1.0f) * std::sqrt (kS[b]) : S.w[b];
+                float s2 = sb[b] * wE;
+                if (S.stz[b] > 1e-3f && b > 0) s2 += stereoize (b, mb[b], S.mode) * S.stz[b] * 0.7f * std::sqrt (kS[b]);
+                em[b] += mb[b] * mb[b]; es[b] += s2 * s2; im[b] += mb[b] * mb[b]; is[b] += sb[b] * sb[b];
                 if (anySolo && ! S.solo[b]) continue;
                 so += s2; mo += mb[b]; sDry += sb[b]; mDry += mb[b];
             }
             if (S.delta) { L[i] = (mo - mDry) + (so - sDry); R[i] = (mo - mDry) - (so - sDry); }   // solo cio che cambia
             else { L[i] = mo + so; R[i] = mo - so; }
         }
-        for (int b = 0; b < kImBands; ++b) { const float k = 0.85f; eM[b] = k * eM[b] + (1 - k) * (float) em[b]; eS[b] = k * eS[b] + (1 - k) * (float) es[b]; }
+        // misure lente (~0.5 s): correlazioni ferme sullo schermo, sicurezza che non pompa
+        const float k = (float) std::exp (-(double) n / (0.5 * sr));
+        for (int b = 0; b < kImBands; ++b)
+        {
+            eM[b] = k * eM[b] + (1 - k) * (float) (em[b] / n); eS[b] = k * eS[b] + (1 - k) * (float) (es[b] / n);
+            iM[b] = k * iM[b] + (1 - k) * (float) (im[b] / n); iS[b] = k * iS[b] + (1 - k) * (float) (is[b] / n);
+        }
     }
     float corr (int b) const { const float t = eM[b] + eS[b]; return t < 1e-12f ? 1.0f : (eM[b] - eS[b]) / t; }
+    float limited (int b) const { return 1.0f - kS[b]; }   // quanto la sicurezza mono sta trattenendo la banda
 private:
     void split (float M, float Sd, float* sb, float* mb)
     {
@@ -288,6 +310,6 @@ private:
     }
     double sr = 48000; float last[3] { -1, -1, -1 };
     juce::dsp::LinkwitzRileyFilter<float> xs[3], ap[3];
-    std::vector<float> dl[kImBands][4], hz[kImBands]; int dp[kImBands][4] {}, hp[kImBands] {}; float eM[kImBands] {}, eS[kImBands] {};
+    std::vector<float> dl[kImBands][4], hz[kImBands]; int dp[kImBands][4] {}, hp[kImBands] {}; float eM[kImBands] {}, eS[kImBands] {}, iM[kImBands] {}, iS[kImBands] {}, kS[kImBands] { 1, 1, 1, 1 };
 };
 }

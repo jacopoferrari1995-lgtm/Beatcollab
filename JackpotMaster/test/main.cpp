@@ -266,6 +266,13 @@ int main (int argc, char** argv)
         double es = 0, em = 0; for (size_t i = 10000; i < a.size(); ++i) { es += (a[i] - b[i]) * (a[i] - b[i]); em += (a[i] + b[i]) * (a[i] + b[i]); }
         std::printf ("imager larghezza 0: lato/medio %.1f dB (deve essere molto basso)\n", 10 * std::log10 (es / em + 1e-20));
     }
+    for (int safe = 0; safe < 2; ++safe)
+    {   // alti gia' larghi (correlazione ~0.3) allargati al 200%: con la sicurezza non devono andare in controfase
+        auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "im_on", 1); setP (*p, "im_w4", 2.0f); setP (*p, "im_s4", 1.0f); setP (*p, "im_safe", (float) safe);
+        juce::Random r2 (9); std::vector<float> a, b;
+        run (*p, [&] (int, float& l, float& r) { const float c = r2.nextFloat() - 0.5f, d = r2.nextFloat() - 0.5f; l = c + 0.6f * d; r = c - 0.6f * d; }, 96000, a, b);
+        std::printf ("imager alti 200%% + stereoize, sicurezza %s: correlazione alti %.2f (limitato %.0f%%)\n", safe ? "ON " : "OFF", p->imCorr[3].load(), p->imLim[3].load() * 100);
+    }
     {   // multibanda neutro = piatto
         auto p = fresh(); setP (*p, "mx_on", 0); setP (*p, "lm_on", 0); setP (*p, "mb_on", 1); for (int b = 1; b <= 3; ++b) { setP (*p, ("mb" + juce::String (b) + "_thr").toRawUTF8(), 0); setP (*p, ("mb" + juce::String (b) + "_ratio").toRawUTF8(), 1); }
         std::vector<float> a, b; run (*p, [] (int i, float& l, float& r) { l = r = i == 100 ? 0.5f : 0.0f; }, 65536, a, b);

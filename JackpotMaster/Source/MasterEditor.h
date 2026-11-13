@@ -222,7 +222,7 @@ class Gonio : public juce::Component
 public:
     Gonio (Editor& e) : ed (e) {}
     void paint (juce::Graphics&) override;
-    Editor& ed;
+    Editor& ed; juce::Image trail; float scale = 1.0f, crS = 1.0f; double lastMs = 0;
 };
 class ImagerPage : public ModPage
 {
@@ -230,7 +230,7 @@ public:
     ImagerPage (Editor&);
     void paint (juce::Graphics& g) override;
     void resized() override;
-    ImView view; Gonio gonio; std::unique_ptr<Switch> mono, solo[kImBands]; std::unique_ptr<Segs> smode;
+    ImView view; Gonio gonio; std::unique_ptr<Switch> mono, safe, solo[kImBands]; std::unique_ptr<Segs> smode;
 };
 
 // pulsante d'azione
@@ -401,10 +401,13 @@ public:
     EasyPage& page; Analyzer anIn, anOut; float specIn[300] {}, specOut[300] {}; juce::Rectangle<float> loadR, listenR;
     int fixedView = -1;   // usata nell'AVANZATO: vista fissa, indipendente dalla pagina FACILE
     int curView() const;
+    int genreSel = -1; juce::Rectangle<float> genreR; float pkHold[2] { -100, -100 }; int holdT[2] {}; int lastTot = -1; double lastMs = 0, colMs = 25;
+    float scrollFrac();
     neo::Bloom bloom;
 private:
     void wave (juce::Graphics&, juce::Rectangle<float>); void spectrum (juce::Graphics&, juce::Rectangle<float>);
     void gain (juce::Graphics&, juce::Rectangle<float>); void ref (juce::Graphics&, juce::Rectangle<float>);
+    void ideal (juce::Graphics&, juce::Rectangle<float>); void meterCol (juce::Graphics&, juce::Rectangle<float>);
 };
 class EasyInput : public juce::Component { public: explicit EasyInput (EasyPage& p) : page (p) { setRepaintsOnMouseActivity (true); } void paint (juce::Graphics&) override; void mouseDown (const juce::MouseEvent&) override; EasyPage& page; juce::Rectangle<float> autoR; float sm = -100; };
 class EasyResult : public juce::Component { public: explicit EasyResult (EasyPage& p) : page (p) {} void paint (juce::Graphics&) override; EasyPage& page; float sm = 0; neo::Bloom bloom; };
@@ -477,6 +480,13 @@ public:
     LoudPanel loud { *this };
     EasyPage easyPage { *this };
     EasyStage advStage { easyPage }; int advView = 0; neo::Segments advTabs; void applyAdvView();
+    // le linguette MODULO / ONDA / SPETTRO / GAIN / IDEALE stanno in un componente sopra le pagine (prima le copriva la pagina del modulo)
+    struct AdvTabsComp : juce::Component
+    {
+        explicit AdvTabsComp (Editor& e) : ed (e) { setInterceptsMouseClicks (true, false); }
+        void paint (juce::Graphics&) override; void mouseDown (const juce::MouseEvent&) override;
+        Editor& ed;
+    } advTabsComp { *this };
     void applyMode();
     juce::Rectangle<int> modeR[2]; bool lastEasy = false;
     juce::Image neoBg; float neoScale = 0; neo::Segments modeSeg;

@@ -17,7 +17,7 @@ public:
         for (auto& c : eq) for (auto& f : c) f.reset();
         for (auto& b : calm) { b.env = b.slow = 0; b.g = 0; for (auto& f : b.det) f.reset(); for (auto& f : b.cut) f.reset(); b.det[0].set (Biquad::BPASS, b.f, 0, 1.4, sr); b.det[1].set (Biquad::BPASS, b.f, 0, 1.4, sr); }
         for (int c = 0; c < 2; ++c) { tLp[c].set (Biquad::HCUT, 1400, 0, 0.707, sr); tLp2[c].set (Biquad::HCUT, 1400, 0, 0.707, sr); tLp[c].reset(); tLp2[c].reset(); sHp[c].set (Biquad::LCUT, 4500, 0, 0.707, sr); sHp[c].reset(); }
-        wLp.set (Biquad::HCUT, 120, 0, 0.707, sr); wLp2.set (Biquad::HCUT, 120, 0, 0.707, sr); wLp.reset(); wLp2.reset();
+        wLp.set (Biquad::HCUT, 120, 0, 0.707, sr); wLp2.set (Biquad::HCUT, 120, 0, 0.707, sr); wLp.reset(); wLp2.reset(); mLp = wLp; mLp2 = wLp2; wM = wS = 0; wSm = 1;
         tape.prepare (s); bus.prepare (s);
         last = {}; last.low = 99;
     }
@@ -106,14 +106,25 @@ public:
         // ---- WIDE: allarga (o stringe) il side sopra 120 Hz; sotto 120 Hz i bassi restano mono se MONO BASSI e acceso
         if (std::abs (S.wide) > 0.001f || S.monoBass)
         {
-            const float w = S.wide >= 0 ? 1.0f + 1.3f * S.wide : 1.0f + S.wide;
+            float w = S.wide >= 0 ? 1.0f + 1.3f * S.wide : 1.0f + S.wide;
+            // sicurezza mono: l'allargamento si ferma prima che i lati superino il centro (correlazione sotto ~0.1 = fuori fase)
+            if (w > 1.0f && wM > 1e-10f)
+            {
+                const float wMax = std::sqrt (juce::jmax (1.0f, 0.82f * wM / juce::jmax (1e-12f, wS)));
+                w = juce::jmin (w, wMax);
+            }
+            wSm += (w - wSm) * juce::jmin (1.0f, (float) n / (float) (0.3 * sr));
+            double am = 0, as = 0;
             for (int i = 0; i < n; ++i)
             {
                 const float m = 0.5f * (L[i] + R[i]), s = 0.5f * (L[i] - R[i]);
                 const float sLo = wLp2 (wLp (s)), sHi = s - sLo;
-                const float s2 = (S.monoBass ? 0.0f : sLo) + sHi * w;
+                { const float mHi = m - mLp2 (mLp (m)); am += mHi * mHi; as += sHi * sHi; }
+                const float s2 = (S.monoBass ? 0.0f : sLo) + sHi * wSm;
                 L[i] = m + s2; R[i] = m - s2;
             }
+            const float k = (float) std::exp (-(double) n / (0.5 * sr));
+            wM = k * wM + (1 - k) * (float) (am / n); wS = k * wS + (1 - k) * (float) (as / n);
         }
         last = S;
     }
@@ -121,8 +132,8 @@ public:
 private:
     struct CalmBand { float f, q, knee, maxCut; Biquad det[2], cut[2]; float env = 0, slow = 0, g = 0; };
     double sr = 48000;
-    Biquad eq[2][3], dq[2][3], tLp[2], tLp2[2], sHp[2], wLp, wLp2;
+    Biquad eq[2][3], dq[2][3], tLp[2], tLp2[2], sHp[2], wLp, wLp2, mLp, mLp2;
     CalmBand calm[3] { { 280, 1.2f, 3.0f, 4.0f }, { 3200, 1.6f, 2.5f, 6.0f }, { 7000, 2.0f, 2.0f, 6.0f } };
-    TapeMachine tape; BusComp bus; EasySettings last; float dcAvg[2] {}, eLo[2] {}, eSat[2] {};
+    TapeMachine tape; BusComp bus; EasySettings last; float dcAvg[2] {}, eLo[2] {}, eSat[2] {}, wM = 0, wS = 0, wSm = 1;
 };
 }
