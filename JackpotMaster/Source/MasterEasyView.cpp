@@ -205,7 +205,7 @@ juce::Rectangle<float> EasyStage::visual()
 }
 void EasyStage::paint (juce::Graphics& g)
 {
-    neo::setTheme (easy() ? (page.ed.proc.uiTheme.load() == 2 ? 2 : 1) : 1);
+    neo::setTheme (page.ed.proc.uiTheme.load() == 2 ? 2 : 1);
     hots.clear();
     panel (g);
     const auto v = visual(); const int cv = curView(); auto& P = page.ed.proc;

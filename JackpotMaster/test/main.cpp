@@ -233,6 +233,7 @@ int main (int argc, char** argv)
         setP (*p, "eq_on", 1); setP (*p, eqId (2, "g"), -3); setP (*p, eqId (4, "dyn"), 1); setP (*p, eqId (4, "f"), 7000); setP (*p, eqId (4, "thr"), -40); setP (*p, eqId (5, "g"), 2.5f);
         setP (*p, "ds_on", 1); setP (*p, "ds_thr", -10); setP (*p, "bus_on", 1); setP (*p, "bus_thr", -18); setP (*p, "mb_on", 1); setP (*p, "mb3_up", 0.5f); setP (*p, "mb1_thr", -20);
         setP (*p, "im_on", 1); setP (*p, "im_w1", 0.3f); setP (*p, "im_w3", 1.4f); setP (*p, "im_w4", 1.6f); setP (*p, "im_s3", 0.3f); setP (*p, "im_s4", 0.4f);
+        if (auto* v = std::getenv ("JTHEME")) p->uiTheme = std::atoi (v);
         if (std::getenv ("JMODS")) { setP (*p, "pq_on", 1); setP (*p, "pq_lb", 6); setP (*p, "pq_la", 4); setP (*p, "pq_hb", 3); setP (*p, "pq_ha", 1.5f); setP (*p, "pq_tube", 0.3f);
                                      setP (*p, "vm_on", 1); setP (*p, "vm_thr", -26); }
         std::vector<float> a, b; run (*p, beat, (int) sr * 12, a, b);

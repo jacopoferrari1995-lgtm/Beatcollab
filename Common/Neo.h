@@ -13,11 +13,12 @@ namespace K
     inline juce::Colour bg0 { 0xff04050a }, bg1 { 0xff0a0b16 }, ink { 0xfff2f3f9 }, sub { 0xff9096ad }, faint { 0xff545a70 }, line { 0x14ffffff };
     inline juce::Colour pink { 0xffff3d9a }, violet { 0xff8b5cff }, cyan { 0xff3ee8ff }, mint { 0xff4dffb4 }, amber { 0xffffb547 }, red { 0xffff4d6a }, blue { 0xff4d7dff };
     inline juce::Colour hi { 0xffffffff }, lo { 0xff000000 }, panel0 { 0xff221d2c }, panel1 { 0xff1a1622 }, disp0 { 0xff2b2238 }, disp1 { 0xff1b1724 };
+    inline juce::Colour accent { 0xffc9a0f0 };
     inline int theme = 0;
 }
 inline bool light() { return K::theme == 2; }
 // un accento neon reso leggibile sul chiaro (sul tema scuro resta com'e')
-inline juce::Colour acc (juce::Colour c) { return light() ? c.withMultipliedSaturation (1.05f).withMultipliedBrightness (0.68f) : c; }
+inline juce::Colour acc (juce::Colour c) { return light() ? c.withMultipliedSaturation (1.0f).withMultipliedBrightness (0.66f) : K::theme == 1 ? c.withMultipliedSaturation (0.68f).withMultipliedBrightness (0.95f) : c; }
 // testo sopra un bottone acceso
 inline juce::Colour onText (juce::Colour c) { return light() ? c.darker (0.5f) : juce::Colours::white; }
 inline void setTheme (int t)
@@ -30,6 +31,7 @@ inline void setTheme (int t)
                        panel0 = juce::Colour (0xff2d2938); panel1 = juce::Colour (0xff23202b); disp0 = juce::Colour (0xff3b2e4b); disp1 = juce::Colour (0xff261f32); }
     else             { bg0 = juce::Colour (0xffd9d7de); bg1 = juce::Colour (0xffeceaef); ink = juce::Colour (0xff1c1a23); sub = juce::Colour (0xff5d596a); faint = juce::Colour (0xff97929f); line = juce::Colour (0x18000000); hi = juce::Colour (0xff15131c); lo = juce::Colour (0xff3a3448);
                        panel0 = juce::Colour (0xfff1f0f3); panel1 = juce::Colour (0xffe2e0e7); disp0 = juce::Colour (0xfff7f2ea); disp1 = juce::Colour (0xffe9e1d5); }
+    accent = t == 2 ? juce::Colour (0xff6b45c9) : juce::Colour (0xffc7a3ee);
     pink = acc (P0); violet = acc (V0); cyan = acc (C0); mint = acc (M0); amber = acc (A0); red = acc (R0); blue = acc (B0);
 }
 
@@ -182,6 +184,7 @@ public:
     bool hitTest (int x, int y) override { return getLocalBounds().reduced (pad).contains (x, y); }
     void paint (juce::Graphics& g) override
     {
+        if (K::theme != 0) { paintFlat (g); return; }
         g.addTransform (juce::AffineTransform::translation ((float) pad, (float) pad));
         const float W = (float) getWidth() - 2 * pad, s = S(), cx = W * 0.5f, cy = s * 0.5f;
         const float R = s * 0.5f - (big ? 20.0f : 5.0f), tw = big ? 4.0f : 2.6f, kr = R - (big ? 26.0f : 11.0f);
@@ -255,6 +258,55 @@ public:
         {
             g.setFont (cap (9.0f)); g.setColour (hov ? K::ink : K::sub); g.drawText (label, juce::Rectangle<float> (-20, s + 3, W + 40, 14), juce::Justification::centred);
             g.setFont (num (11.0f)); g.setColour (hov ? c1.interpolatedWith (c2, v).brighter (0.5f) : K::ink.withAlpha (0.9f)); g.drawText (t, juce::Rectangle<float> (-20, s + 18, W + 40, 16), juce::Justification::centred);
+        }
+    }
+    // manopola sobria (temi del Master): disco opaco, anello sottile, arco di un colore solo, tacca bianca. Niente bagliori.
+    void paintFlat (juce::Graphics& g)
+    {
+        g.addTransform (juce::AffineTransform::translation ((float) pad, (float) pad));
+        const float W = (float) getWidth() - 2 * pad, s = S(), cx = W * 0.5f, cy = s * 0.5f;
+        const float R = s * 0.5f - (big ? 16.0f : 4.0f), tw = big ? 3.0f : 2.2f, kr = R * (big ? 0.8f : 0.74f);
+        const float a0 = -2.356f, a1 = 2.356f, v = shownV < 0 ? param->getValue() : shownV, av = a0 + (a1 - a0) * v, from = bipolar ? 0.0f : a0;
+        const bool hov = isMouseOverOrDragging();
+        if (big)
+            for (int i = 0; i <= 40; ++i)
+            {
+                const float a = a0 + (a1 - a0) * i / 40.0f, r0 = R + 6, r1 = R + (i % 5 == 0 ? 11.0f : 9.0f);
+                g.setColour (K::hi.withAlpha (i % 5 == 0 ? 0.16f : 0.07f));
+                g.drawLine (cx + std::sin (a) * r0, cy - std::cos (a) * r0, cx + std::sin (a) * r1, cy - std::cos (a) * r1, 1.0f);
+            }
+        { juce::Path t; t.addCentredArc (cx, cy, R, R, 0, a0, a1, true); g.setColour (K::hi.withAlpha (light() ? 0.12f : 0.10f)); g.strokePath (t, juce::PathStrokeType (tw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
+        if (std::abs (av - from) > 0.01f)
+        {
+            juce::Path arc; arc.addCentredArc (cx, cy, R, R, 0, juce::jmin (from, av), juce::jmax (from, av), true);
+            g.setColour (hov ? K::accent.brighter (0.15f) : K::accent); g.strokePath (arc, juce::PathStrokeType (tw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        if (activity > 0.01f)
+        {
+            const float ro = R + 14; juce::Path sg; sg.addCentredArc (cx, cy, ro, ro, 0, a0, a0 + (a1 - a0) * juce::jlimit (0.0f, 1.0f, activity), true);
+            g.setColour ((activity > 0.75f ? K::red : K::accent).withAlpha (0.8f)); g.strokePath (sg, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        // disco: ombra corta e morbida, superficie opaca appena sfumata
+        g.setColour (juce::Colours::black.withAlpha (light() ? 0.16f : 0.30f)); g.fillEllipse (cx - kr, cy - kr + (big ? 4.0f : 2.0f), kr * 2, kr * 2);
+        const juce::Colour top = light() ? juce::Colour (0xff2c2a33) : juce::Colour (0xff35323d), bot = light() ? juce::Colour (0xff17161b) : juce::Colour (0xff1c1a21);
+        juce::ColourGradient bg (top, cx, cy - kr, bot, cx, cy + kr, false); g.setGradientFill (bg); g.fillEllipse (cx - kr, cy - kr, kr * 2, kr * 2);
+        g.setColour (juce::Colours::white.withAlpha (hov ? 0.12f : 0.07f)); g.drawEllipse (cx - kr + 0.5f, cy - kr + 0.5f, kr * 2 - 1, kr * 2 - 1, 1.0f);
+        {
+            const float r0 = kr * (big ? 0.55f : 0.35f), r1 = kr * 0.86f, sn = std::sin (av), cs = std::cos (av);
+            juce::Path pl; pl.startNewSubPath (cx + sn * r0, cy - cs * r0); pl.lineTo (cx + sn * r1, cy - cs * r1);
+            g.setColour (juce::Colours::white.withAlpha (0.92f)); g.strokePath (pl, juce::PathStrokeType (big ? 2.4f : 1.7f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        const juce::String t = text ? text() : param->getCurrentValueAsText();
+        if (big)
+        {
+            g.setFont (big_ (38.0f)); g.setColour (juce::Colours::white); g.drawText (t, juce::Rectangle<float> (cx - kr, cy - 28, kr * 2, 44), juce::Justification::centred);
+            g.setFont (cap (9.5f)); g.setColour (juce::Colours::white.withAlpha (0.55f)); g.drawText (label, juce::Rectangle<float> (cx - kr, cy + 16, kr * 2, 16), juce::Justification::centred);
+            if (sub.isNotEmpty()) { g.setFont (f (9.0f)); g.setColour (K::faint); g.drawText (sub, juce::Rectangle<float> (0, (float) getHeight() - 2 * pad - 16, W, 14), juce::Justification::centred); }
+        }
+        else
+        {
+            g.setFont (cap (8.5f)); g.setColour (hov ? K::ink : K::sub); g.drawText (label, juce::Rectangle<float> (-20, s + 3, W + 40, 14), juce::Justification::centred);
+            g.setFont (num (10.5f)); g.setColour (K::ink.withAlpha (0.9f)); g.drawText (t, juce::Rectangle<float> (-20, s + 18, W + 40, 16), juce::Justification::centred);
         }
     }
     static juce::Font big_ (float s) { return neo::big (s); }

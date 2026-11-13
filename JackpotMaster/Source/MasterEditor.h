@@ -8,10 +8,15 @@ namespace jms
 namespace C
 {
     // stessa tavolozza della modalita FACILE (neo)
-    const juce::Colour bg { 0xff0a0b16 }, text { 0xfff2f3f9 }, dim { 0xff9096ad }, faint { 0xff545a70 };
-    const juce::Colour magenta { 0xffff3d9a }, phos { 0xff3ee8ff }, amber { 0xffffb547 }, green { 0xff4dffb4 }, red { 0xffff4d6a }, violet { 0xff8b5cff };
+    inline juce::Colour bg { 0xff0a0b16 }, text { 0xfff2f3f9 }, dim { 0xff9096ad }, faint { 0xff545a70 };
+    inline juce::Colour magenta { 0xffff3d9a }, phos { 0xff3ee8ff }, amber { 0xffffb547 }, green { 0xff4dffb4 }, red { 0xffff4d6a }, violet { 0xff8b5cff };
     const juce::Colour lcd1 { 0xff05161a }, lcd2 { 0xff020b0d };
+    // l'AVANZATO segue il tema scelto (scuro / chiaro): stessi colori della modalita FACILE
+    inline void sync() { using namespace neo; bg = K::bg1; text = K::ink; dim = K::sub; faint = K::faint; magenta = K::pink; phos = K::cyan; amber = K::amber; green = K::mint; red = K::red; violet = K::violet; }
 }
+// veli e luci che funzionano su tutti e due i temi
+inline juce::Colour veil (float a) { return neo::K::lo.withAlpha (neo::light() ? a * 0.22f : a); }
+inline juce::Colour glass (float a) { return neo::K::hi.withAlpha (neo::light() ? juce::jmin (1.0f, a * 1.3f) : a); }
 juce::Font uf (float size, bool bold = true);
 juce::Font mf (float size);
 void glowText (juce::Graphics&, const juce::String&, juce::Rectangle<float>, juce::Colour, juce::Font, juce::Justification = juce::Justification::centredLeft);
