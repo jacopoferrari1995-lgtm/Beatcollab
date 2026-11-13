@@ -125,6 +125,7 @@ int main (int argc, char** argv)
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
         Processor p; p.prepareToPlay (sr, 512);
+        if (auto* th = std::getenv ("JTHEME")) p.uiTheme = std::atoi (th);
         if (auto* pr = std::getenv ("JPR")) p.loadFactory (std::atoi (pr));
         p.P (amtId (2))->setValueNotifyingHost (0.55f); p.P (amtId (0))->setValueNotifyingHost (0.3f);
         std::vector<float> o; run (p, 400, o);

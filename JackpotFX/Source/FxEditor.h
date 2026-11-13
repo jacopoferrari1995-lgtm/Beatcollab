@@ -66,12 +66,13 @@ public:
     AdvPanel advPanel { *this };
     juce::OwnedArray<SlotCard> cards;
     std::unique_ptr<neo::Knob> mixK, outK;
-    juce::Rectangle<int> presetR, prevR, nextR, saveR, resetR, bypR, menuR, ctrlR;
+    juce::Rectangle<int> presetR, prevR, nextR, saveR, resetR, bypR, menuR, ctrlR, themeR;
     int dragFrom = -1; juce::Point<float> dragPos;
     void endDrag (juce::Point<float> editorPos);
     void presetMenu();
     std::unique_ptr<juce::FileChooser> chooser;
-    juce::Image bg; float bgScale = 0;
+    juce::Image bg; float bgScale = 0; int bgTheme = -1;
+    void paintOverChildren (juce::Graphics&) override { neo::setTheme (0); }
     void paintStatic (juce::Graphics&);
 private:
     void timerCallback() override;

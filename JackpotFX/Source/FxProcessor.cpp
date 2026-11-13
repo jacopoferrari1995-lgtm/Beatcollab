@@ -235,7 +235,7 @@ bool Processor::loadPreset (const juce::File& f)
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
     auto s = apvts.copyState(); s.setProperty ("preset", presetName, nullptr);
-    juce::StringArray m; for (int k = 0; k < kSlots; ++k) m.add (juce::String (ccMap[k].load())); s.setProperty ("cc", m.joinIntoString (","), nullptr); s.setProperty ("ctrl", ctrlOn.load(), nullptr);
+    juce::StringArray m; for (int k = 0; k < kSlots; ++k) m.add (juce::String (ccMap[k].load())); s.setProperty ("cc", m.joinIntoString (","), nullptr); s.setProperty ("ctrl", ctrlOn.load(), nullptr); s.setProperty ("theme", uiTheme.load(), nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
@@ -246,7 +246,7 @@ void Processor::setStateInformation (const void* data, int size)
         presetName = t.getProperty ("preset", presetName).toString();
         const auto m = juce::StringArray::fromTokens (t.getProperty ("cc", "").toString(), ",", "");
         if (m.size() == kSlots) for (int k = 0; k < kSlots; ++k) ccMap[k] = m[k].getIntValue();
-        ctrlOn = (bool) t.getProperty ("ctrl", true);
+        ctrlOn = (bool) t.getProperty ("ctrl", true); uiTheme = (int) t.getProperty ("theme", 1);
         apvts.replaceState (t);
     }
 }

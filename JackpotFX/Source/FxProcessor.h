@@ -61,6 +61,7 @@ public:
     // controller
     std::atomic<int> ccMap[kSlots];
     std::atomic<int> learnSlot { -1 };
+    std::atomic<int> uiTheme { 1 };      // 1 scuro elegante, 2 chiaro (come il Master)
     std::atomic<bool> ctrlOn { true };    // spento: i CC in arrivo (anche da clip vecchie) si ignorano
     std::atomic<float> ccPend[kSlots];
     std::atomic<int> ccSeen[kSlots];      // per far lampeggiare la manopola quando arriva il CC
