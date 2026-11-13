@@ -3,6 +3,13 @@
 #include "../Source/MasterEditor.h"
 using namespace jms;
 
+struct FakeHead : juce::AudioPlayHead
+{
+    double sr = 48000, bpm = 92; juce::int64 pos = 0;
+    juce::Optional<PositionInfo> getPosition() const override
+    { PositionInfo i; i.setBpm (bpm); i.setIsPlaying (true); i.setPpqPosition (pos / sr * bpm / 60.0); i.setTimeSignature (TimeSignature { 4, 4 }); return i; }
+};
+static FakeHead* gHead = nullptr;
 static void setP (Processor& p, const char* id, float v) { auto* rp = p.apvts.getParameter (id); rp->setValueNotifyingHost (rp->convertTo0to1 (v)); }
 static void run (Processor& p, std::function<void (int, float&, float&)> gen, int len, std::vector<float>& oL, std::vector<float>& oR, int block = 512)
 {
@@ -11,7 +18,7 @@ static void run (Processor& p, std::function<void (int, float&, float&)> gen, in
     {
         const int n = juce::jmin (block, len - off); b.setSize (2, n, false, false, true);
         for (int i = 0; i < n; ++i) { float l, r; gen (off + i, l, r); b.setSample (0, i, l); b.setSample (1, i, r); }
-        p.processBlock (b, mb);
+        p.processBlock (b, mb); if (gHead) gHead->pos += n;
         for (int i = 0; i < n; ++i) { oL.push_back (b.getSample (0, i)); oR.push_back (b.getSample (1, i)); }
     }
 }
@@ -154,6 +161,12 @@ int main (int argc, char** argv)
             const double t0 = juce::Time::getMillisecondCounterHiRes();
             for (int i = 0; i < 20; ++i) { ed.tickForTest(); auto im = ed.createComponentSnapshot (ed.getLocalBounds(), true, 2.0f); }
             std::printf ("frame completo @2x: %.1f ms\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 20.0);
+            for (auto* c : ed.getChildren()) if (c->isVisible())
+            {
+                const double t2 = juce::Time::getMillisecondCounterHiRes();
+                for (int i = 0; i < 10; ++i) { ed.tickForTest(); auto im = c->createComponentSnapshot (c->getLocalBounds(), true, 2.0f); }
+                std::printf ("  %-28s %5.1f ms  (%dx%d)\n", typeid (*c).name(), (juce::Time::getMillisecondCounterHiRes() - t2) / 10.0, c->getWidth(), c->getHeight());
+            }
             const double t1 = juce::Time::getMillisecondCounterHiRes();
             for (int i = 0; i < 20; ++i) { ed.tickForTest(); auto im = ed.easyPage.stage.createComponentSnapshot (ed.easyPage.stage.getLocalBounds(), true, 2.0f); }
             std::printf ("solo onda @2x: %.1f ms\n", (juce::Time::getMillisecondCounterHiRes() - t1) / 20.0);
@@ -195,6 +208,7 @@ int main (int argc, char** argv)
         { auto p = base(); setP (*p, "vm_on", 1); setP (*p, "vm_thr", -24); setP (*p, "vm_delta", 1); std::vector<float> a, b; run (*p, beat, (int) sr * 4, a, b); std::printf ("varimu delta: %.1f dB\n", lvl (a, (int) sr * 2)); }
         { auto p = base(); setP (*p, "vm_on", 1); setP (*p, "vm_thr", -30); setP (*p, "vm_ms", 1); setP (*p, "vm_att", 0); std::vector<float> a, b; run (*p, beat, (int) sr * 4, a, b);
           bool ok = true; for (auto v : a) if (! std::isfinite (v) || std::abs (v) > 4) ok = false; std::printf ("varimu ms/att1: %s\n", ok ? "ok" : "PROBLEMA"); }
+        for (int blk : { 37, 512, 4096 }) { auto p = base(); std::vector<float> a, b; run (*p, beat, (int) sr * 3, a, b, blk); std::printf ("blocco %d: colonne %d (attese %d)\n", blk, p->hTot.load(), (int) (3 / 0.025)); }
         // ordine: progetto vecchio senza i nuovi moduli
         { auto p = base(); auto st = p->apvts.copyState(); std::printf ("ordine default:"); for (int k = 0; k < kNumMods; ++k) std::printf (" %s", modInfo (p->order[k]).name); std::printf ("\n"); }
         { auto p = base(); juce::MemoryBlock mb; p->getStateInformation (mb); auto x = juce::AudioProcessor::getXmlFromBinary (mb.getData(), (int) mb.getSize());
@@ -205,7 +219,8 @@ int main (int argc, char** argv)
     if (argc > 1 && juce::String (argv[1]) == "snap")
     {
 
-        auto p = fresh(); setP (*p, "mode", 1); setP (*p, "mx_gain", 8); setP (*p, "mx_style", PUNCH); setP (*p, "mx_clip", 0.4f);
+        static FakeHead fh; if (std::getenv ("JBPM")) { gHead = &fh; }
+        auto p = fresh(); setP (*p, "mode", 1); setP (*p, "mx_gain", 8); if (gHead) p->setPlayHead (gHead); setP (*p, "mx_style", PUNCH); setP (*p, "mx_clip", 0.4f);
         setP (*p, "bc_on", 1); setP (*p, "bc_punch", 0.4f); setP (*p, "bc_mono", 110); setP (*p, "bc_harm", 0.3f); setP (*p, "bc_thr", -12);
         setP (*p, "eq_on", 1); setP (*p, eqId (2, "g"), -3); setP (*p, eqId (4, "dyn"), 1); setP (*p, eqId (4, "f"), 7000); setP (*p, eqId (4, "thr"), -40); setP (*p, eqId (5, "g"), 2.5f);
         setP (*p, "ds_on", 1); setP (*p, "ds_thr", -10); setP (*p, "bus_on", 1); setP (*p, "bus_thr", -18); setP (*p, "mb_on", 1); setP (*p, "mb3_up", 0.5f); setP (*p, "mb1_thr", -20);
@@ -228,12 +243,29 @@ int main (int argc, char** argv)
             p->refPos = sr * 3;
             auto rt = p->reference(); std::printf ("riferimento: %s  %.1f LUFS  %.1f dBTP\n", rt ? rt->name.toRawUTF8() : "nessuno", rt ? rt->lufs : 0.0f, rt ? rt->tp : 0.0f);
         }
+        if (std::getenv ("JCLICK"))
+        {
+            for (int k = 0; k < 5; ++k)
+            {
+                auto c = ed.advTabs.r[k].getCentre() - juce::Point<float> (548, 156);
+                juce::MouseEvent me (juce::Desktop::getInstance().getMainMouseSource(), c, juce::ModifierKeys(), 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &ed.advTabsComp, &ed.advTabsComp, juce::Time::getCurrentTime(), c, juce::Time::getCurrentTime(), 1, false);
+                ed.advTabsComp.mouseDown (me); for (int i = 0; i < 5; ++i) ed.tickForTest();
+                std::printf ("tab %d -> advView %d stage %d pagina max %d\n", k, ed.advView, ed.advStage.isVisible(), ed.maxPage.isVisible());
+            }
+            ed.setVisible (true); std::printf ("scala %.2f\n", ed.scaler.s); for (int k = 0; k < 5; ++k) { auto pc = (ed.advTabs.r[k].getCentre() * ed.scaler.s).toInt(); auto* h = ed.getComponentAt (pc); std::printf ("  scheda %d: sotto il mouse %s\n", k, h ? typeid (*h).name() : "niente"); } auto* hit = ed.getComponentAt (juce::Point<int> (1, 1)); std::printf ("al punto delle schede c'e': %s\n", hit ? typeid (*hit).name() : "niente");
+        }
         for (int i = 0; i < 30; ++i) ed.tickForTest();
         if (std::getenv ("JPERF"))
         {
             const double t0 = juce::Time::getMillisecondCounterHiRes();
             for (int i = 0; i < 20; ++i) { ed.tickForTest(); auto im = ed.createComponentSnapshot (ed.getLocalBounds(), true, 2.0f); }
             std::printf ("frame completo @2x: %.1f ms\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 20.0);
+            for (auto* c : ed.getChildren()) if (c->isVisible())
+            {
+                const double t2 = juce::Time::getMillisecondCounterHiRes();
+                for (int i = 0; i < 10; ++i) { ed.tickForTest(); auto im = c->createComponentSnapshot (c->getLocalBounds(), true, 2.0f); }
+                std::printf ("  %-28s %5.1f ms  (%dx%d)\n", typeid (*c).name(), (juce::Time::getMillisecondCounterHiRes() - t2) / 10.0, c->getWidth(), c->getHeight());
+            }
             const double t1 = juce::Time::getMillisecondCounterHiRes();
             for (int i = 0; i < 20; ++i) { ed.tickForTest(); auto im = ed.easyPage.stage.createComponentSnapshot (ed.easyPage.stage.getLocalBounds(), true, 2.0f); }
             std::printf ("solo onda @2x: %.1f ms\n", (juce::Time::getMillisecondCounterHiRes() - t1) / 20.0);

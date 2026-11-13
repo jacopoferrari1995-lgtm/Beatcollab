@@ -270,44 +270,64 @@ void EasyStage::paint (juce::Graphics& g)
 {
     auto p = getLocalBounds().toFloat();
     // colonna del livello sempre visibile a destra, in tutte le viste
-    meterCol (g, p.removeFromRight (52).reduced (4, 10)); p.removeFromRight (4);
+    meterCol (g, p.removeFromRight (84).reduced (4, 10)); p.removeFromRight (4);
     switch (curView()) { case 1: spectrum (g, p.reduced (0, 8)); break; case 2: gain (g, p.reduced (0, 8)); break; case 3: ideal (g, p.reduced (0, 8)); break; case 4: ref (g, p.reduced (0, 8)); break; default: wave (g, p); break; }
 }
-// scorrimento morbido: fra una colonna e la successiva l'onda si sposta di frazioni di pixel, invece di saltare
-float EasyStage::scrollFrac()
+// scorrimento a tempo: la posizione avanza col tempo reale (25 ms = una colonna) e insegue piano i dati che arrivano a blocchi
+// dalla DAW. Cosi' l'onda scorre sempre alla stessa velocita', anche con buffer grandi, senza scatti ne' tremolii.
+double EasyStage::clock()
 {
-    const int tot = page.ed.proc.hTot.load(); const double now = juce::Time::getMillisecondCounterHiRes();
-    if (tot != lastTot)
-    {
-        if (lastTot >= 0 && tot > lastTot) colMs = juce::jlimit (8.0, 80.0, colMs * 0.8 + 0.2 * (now - lastMs) / (tot - lastTot));
-        lastTot = tot; lastMs = now;
-    }
-    if (now - lastMs > colMs * 3) return 0.0f;   // nessuna colonna nuova: fermo
-    return (float) juce::jlimit (0.0, 1.0, (now - lastMs) / colMs);
+    auto& P = page.ed.proc;
+    const int tot = P.hTot.load(); const double now = juce::Time::getMillisecondCounterHiRes();
+    const double colLen = 0.025 * juce::jmax (8000.0, P.sampleRate());
+    const double lag = std::ceil (P.lastBlock.load() / colLen) + 1.0;          // i dati arrivano a pacchetti: resto un pacchetto indietro
+    const double target = tot - 1 - lag;
+    if (disp < 0 || lastT <= 0 || std::abs (target - disp) > 40) { disp = target; lastT = now; return disp; }
+    const double dt = juce::jlimit (0.0, 200.0, now - lastT); lastT = now;
+    disp += dt / 25.0;
+    disp += (target - disp) * 0.06;
+    disp = juce::jmin (disp, (double) tot - 1);
+    return disp;
 }
 void EasyStage::meterCol (juce::Graphics& g, juce::Rectangle<float> r)
-{   // ampiezza del segnale in uscita: picco (barra chiara + tacca che resta) e medio (barra piena), sinistro e destro
+{   // tre colonne: L e R (picco chiaro, volume medio pieno, tacca del picco che resta) e LU = loudness short-term contro il target.
+    // Sotto: il numero della loudness, verde se sei sul target, ambra se sotto, rosso se sopra. Tutto a tempo reale, non a frame.
     auto& P = page.ed.proc;
+    const double now = juce::Time::getMillisecondCounterHiRes(); const float dt = (float) juce::jlimit (0.0, 0.2, (now - mLast) / 1000.0); mLast = now;
     g.setColour (juce::Colours::black.withAlpha (0.3f)); g.fillRoundedRectangle (r, 6);
-    auto bars = r.reduced (4).withTrimmedTop (14).withTrimmedBottom (16);
+    auto bars = r.reduced (5).withTrimmedTop (16).withTrimmedBottom (34);
     auto yOf = [&bars] (float db) { return bars.getBottom() - juce::jlimit (0.0f, 1.0f, (db + 48.0f) / 48.0f) * bars.getHeight(); };
-    g.setFont (num (7.5f));
     for (int d : { 0, -6, -12, -24, -36 }) { g.setColour (juce::Colours::white.withAlpha (0.08f)); g.fillRect (bars.getX(), yOf ((float) d), bars.getWidth(), 1.0f); }
-    const float bw = (bars.getWidth() - 4) / 2;
+    const float bw = (bars.getWidth() - 8) / 3;
     for (int c = 0; c < 2; ++c)
     {
-        const float pk = juce::Decibels::gainToDecibels (P.outPk[c].load(), -100.0f), rm = juce::Decibels::gainToDecibels (std::sqrt (P.outRms[c].load()), -100.0f);
-        if (pk >= pkHold[c]) { pkHold[c] = pk; holdT[c] = 45; } else if (--holdT[c] <= 0) pkHold[c] -= 0.6f;
+        const float pkNow = juce::Decibels::gainToDecibels (P.outPk[c].load(), -100.0f), rm = juce::Decibels::gainToDecibels (std::sqrt (P.outRms[c].load()), -100.0f);
+        mPk[c] = pkNow >= mPk[c] ? pkNow : juce::jmax (pkNow, mPk[c] - 26.0f * dt);          // ricaduta 26 dB/s come i meter veri
+        if (pkNow >= pkHold[c]) { pkHold[c] = pkNow; holdS[c] = 1.5f; } else if ((holdS[c] -= dt) <= 0) pkHold[c] -= 12.0f * dt;
         auto col = juce::Rectangle<float> (bars.getX() + c * (bw + 4), bars.getY(), bw, bars.getHeight());
         g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillRect (col);
-        const auto cc = pk > -1.0f ? K::red : pk > -6.0f ? K::amber : K::cyan;
-        g.setColour (cc.withAlpha (0.35f)); g.fillRect (col.withTop (yOf (pk)));
+        const auto cc = mPk[c] > -1.0f ? K::red : mPk[c] > -6.0f ? K::amber : K::cyan;
+        g.setColour (cc.withAlpha (0.35f)); g.fillRect (col.withTop (yOf (mPk[c])));
         g.setColour (cc); g.fillRect (col.withTop (yOf (rm)));
         g.setColour (pkHold[c] > -1.0f ? K::red : K::ink); g.fillRect (col.getX(), yOf (pkHold[c]) - 1, col.getWidth(), 2.0f);
     }
-    g.setColour (K::sub); g.drawText ("L  R", r.withHeight (12).translated (0, 2), juce::Justification::centred);
-    const float mx = juce::jmax (pkHold[0], pkHold[1]);
-    g.setColour (mx > -1.0f ? K::red : K::ink); g.drawText (mx < -90 ? juce::String ("-inf") : juce::String (mx, 1), juce::Rectangle<float> (r.getX(), r.getBottom() - 14, r.getWidth(), 12), juce::Justification::centred);
+    {   // loudness short-term contro il target della piattaforma
+        const float tg = target ((int) P.value ("target")).lufs, lu = P.lufsS.load();
+        mLu = lu < -70 ? -100.0f : (mLu < -70 ? lu : mLu + (lu - mLu) * juce::jmin (1.0f, dt * 6.0f));
+        auto yL = [&bars] (float l) { return bars.getBottom() - juce::jlimit (0.0f, 1.0f, (l + 36.0f) / 36.0f) * bars.getHeight(); };
+        auto col = juce::Rectangle<float> (bars.getX() + 2 * (bw + 4), bars.getY(), bw, bars.getHeight());
+        g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillRect (col);
+        const float dd = mLu - tg; const auto lc = mLu < -70 ? K::faint : std::abs (dd) <= 1.5f ? K::mint : dd > 0 ? K::red : K::amber;
+        if (mLu > -70) { juce::ColourGradient lg (lc, 0, yL (mLu), lc.withAlpha (0.35f), 0, col.getBottom(), false); g.setGradientFill (lg); g.fillRect (col.withTop (yL (mLu))); }
+        g.setColour (K::mint.withAlpha (0.25f)); g.fillRect (col.getX() - 2, yL (tg + 1.5f), col.getWidth() + 4, yL (tg - 1.5f) - yL (tg + 1.5f));
+        g.setColour (K::mint); g.fillRect (col.getX() - 3, yL (tg) - 1, col.getWidth() + 6, 2.0f);
+        g.setFont (num (8.5f)); g.setColour (lc);
+        g.drawText (mLu < -70 ? juce::String ("--") : juce::String (mLu, 1), juce::Rectangle<float> (r.getX(), r.getBottom() - 30, r.getWidth(), 13), juce::Justification::centred);
+        g.setFont (cap (6.5f)); g.setColour (K::faint);
+        g.drawText (mLu < -70 ? juce::String ("LUFS") : (std::abs (dd) <= 1.5f ? juce::String ("SUL TARGET") : (dd > 0 ? "+" : "") + juce::String (dd, 1) + " LU"), juce::Rectangle<float> (r.getX(), r.getBottom() - 16, r.getWidth(), 11), juce::Justification::centred);
+    }
+    g.setFont (cap (7.0f)); g.setColour (K::sub);
+    for (int c = 0; c < 3; ++c) g.drawText (c == 0 ? "L" : c == 1 ? "R" : "LU", juce::Rectangle<float> (bars.getX() + c * (bw + 4) - 4, r.getY() + 3, bw + 8, 11), juce::Justification::centred);
 }
 void EasyStage::ideal (juce::Graphics& g, juce::Rectangle<float> p)
 {   // IDEALE contro MIO: la fascia del genere (verde) e lo spettro medio del tuo master (ambra), come nel Metering Hub
@@ -362,11 +382,34 @@ static void timeAxis (juce::Graphics& g, juce::Rectangle<float> p, float y)
 // una colonna di storia = 25 ms, disegnata sempre allo stesso passo: l'onda scorre senza ricampionare, quindi non vibra
 struct Cols
 {
-    int N, w0; float x0, dx, fr;
-    Cols (int n, int w, juce::Rectangle<float> p, float frac = 0) : N (n), w0 (w), x0 (p.getX()), dx (p.getWidth() / (float) n), fr (frac) {}
-    int idx (int x) const { return (w0 + x) % N; }          // x = 0 la colonna piu vecchia, N-1 la piu nuova
+    int N, w0, tot, a0; float x0, dx, fr;
+    // pos = colonna assoluta mostrata a destra (con la sua frazione): la colonna x corrisponde a a0 + x
+    Cols (int n, int w, int t, juce::Rectangle<float> p, double pos) : N (n), w0 (w), tot (t), x0 (p.getX()), dx (p.getWidth() / (float) (n - 1))
+    { const double f = std::floor (pos); a0 = (int) f - (n - 1); fr = (float) (pos - f); }
+    bool ok (int x) const { const int a = a0 + x; return a <= tot - 1 && a > tot - N + 1; }
+    int abs (int x) const { return a0 + x; }
+    int idx (int x) const { const int back = tot - (a0 + x); return ((w0 - back) % N + N) % N; }   // x = 0 la colonna piu vecchia, N-1 la piu nuova
     float X (int x) const { return x0 + dx * ((float) x - fr); }
 };
+// griglia a tempo del pezzo: battiti e battute dalla posizione della DAW salvata in ogni colonna (se la DAW suona)
+static bool beatGrid (juce::Graphics& g, const Cols& C, std::atomic<float>* ppq, int tsNum, juce::Rectangle<float> p, float labelY)
+{
+    bool any = false; g.setFont (num (8.5f));
+    for (int x = 1; x < C.N; ++x)
+    {
+        if (! C.ok (x) || ! C.ok (x - 1)) continue;
+        const float q1 = ppq[C.idx (x)].load(), q0 = ppq[C.idx (x - 1)].load();
+        if (q1 < 0 || q0 < 0 || q1 < q0) continue;
+        if (std::floor (q1) == std::floor (q0)) continue;
+        any = true;
+        const int beat = (int) std::floor (q1); const bool bar = beat % tsNum == 0;
+        const float xx = C.X (x) - C.dx * (float) ((q1 - std::floor (q1)) / juce::jmax (1e-4f, q1 - q0));
+        if (xx < p.getX() || xx > p.getRight()) continue;
+        g.setColour (juce::Colours::white.withAlpha (bar ? 0.13f : 0.045f)); g.fillRect (xx, p.getY(), bar ? 1.2f : 1.0f, labelY - p.getY());
+        if (bar) { g.setColour (K::sub); g.drawText (juce::String (beat / tsNum + 1), juce::Rectangle<float> (xx - 18, labelY + 2, 36, 12), juce::Justification::centred); }
+    }
+    return any;
+}
 // onda simmetrica in stile DAW: picco (chiaro) e RMS (pieno) dalla stessa linea di centro
 static void drawWav (juce::Graphics& g, const Cols& C, juce::Rectangle<float> lane, std::atomic<float>* pk, std::atomic<float>* rm, juce::Colour c, float scale)
 {
@@ -375,6 +418,7 @@ static void drawWav (juce::Graphics& g, const Cols& C, juce::Rectangle<float> la
     juce::RectangleList<float> rp, rr;
     for (int x = 0; x < C.N; ++x)
     {
+        if (! C.ok (x)) continue;
         const int i = C.idx (x); const float a = lin (pk[i].load()) * h, r = juce::jmin (a, lin (rm[i].load()) * h);
         if (a > 0.3f) rp.addWithoutMerging ({ C.X (x), cy - a, C.dx + 0.35f, a * 2 });
         if (r > 0.3f) rr.addWithoutMerging ({ C.X (x), cy - r, C.dx + 0.35f, r * 2 });
@@ -383,29 +427,45 @@ static void drawWav (juce::Graphics& g, const Cols& C, juce::Rectangle<float> la
     g.setColour (c); g.fillRectList (rr);
 }
 void EasyStage::wave (juce::Graphics& g, juce::Rectangle<float> p)
-{   // due corsie, stessa scala: sopra il wav cosi' com'e', sotto dopo il master
+{   // una corsia sola, le due onde una dentro l'altra: azzurro pieno = con il master, contorno bianco = il wav senza master
     auto& P = page.ed.proc;
     p = p.withTrimmedLeft (8).withTrimmedRight (8).withTrimmedBottom (18).withTrimmedTop (6);
-    const Cols C (Processor::kHist, P.hW.load(), p, scrollFrac());
-    timeAxis (g, p, p.getBottom());
+    const Cols C (Processor::kHist, P.hW.load(), P.hTot.load(), p, clock());
+    g.setColour (juce::Colours::black.withAlpha (0.28f)); g.fillRoundedRectangle (p, 6);
+    if (! beatGrid (g, C, P.hPpq, P.hostNum.load(), p, p.getBottom())) timeAxis (g, p, p.getBottom());
     g.saveState(); g.reduceClipRegion (p.toNearestInt());
-    auto top = p.removeFromTop (p.getHeight() * 0.5f - 3); p.removeFromTop (6); auto bot = p;
-    for (auto* l : { &top, &bot })
+    const float cy = p.getCentreY(), h = p.getHeight() * 0.5f - 4;
+    g.setColour (juce::Colours::white.withAlpha (0.07f)); g.fillRect (p.getX(), cy - 0.5f, p.getWidth(), 1.0f);
+    auto lin = [] (float db) { return db < -80 ? 0.0f : juce::jlimit (0.0f, 1.0f, juce::Decibels::decibelsToGain (db)); };
+    const auto blue = juce::Colour (0xff3d9df0), white = juce::Colour (0xfff1f3f8);
+    juce::RectangleList<float> op, orr, ir;
+    juce::Path top, bot; bool started = false;
+    for (int x = 0; x < C.N; ++x)
     {
-        g.setColour (juce::Colours::black.withAlpha (0.28f)); g.fillRoundedRectangle (*l, 6);
-        g.setColour (juce::Colours::white.withAlpha (0.07f)); g.fillRect (l->getX(), l->getCentreY() - 0.5f, l->getWidth(), 1.0f);
+        if (! C.ok (x)) { started = false; continue; }
+        const int i = C.idx (x); const float xx = C.X (x), w = C.dx + 0.35f;
+        const float a = lin (P.hOut[i].load()) * h, ar = juce::jmin (a, lin (P.hOutR[i].load()) * h);
+        const float b = lin (P.hRaw[i].load()) * h, br = juce::jmin (b, lin (P.hRawR[i].load()) * h);
+        if (a > 0.3f) op.addWithoutMerging ({ xx, cy - a, w, a * 2 });
+        if (ar > 0.3f) orr.addWithoutMerging ({ xx, cy - ar, w, ar * 2 });
+        if (br > 0.3f) ir.addWithoutMerging ({ xx, cy - br, w, br * 2 });
+        const float xc = xx + C.dx * 0.5f;
+        if (P.hRaw[i].load() < -90) { started = false; continue; }
+        if (! started) { top.startNewSubPath (xc, cy - b); bot.startNewSubPath (xc, cy + b); started = true; } else { top.lineTo (xc, cy - b); bot.lineTo (xc, cy + b); }
     }
-    drawWav (g, C, top, P.hRaw, P.hRawR, juce::Colour (0xffc9cede), 1.0f);
-    drawWav (g, C, bot, P.hOut, P.hOutR, juce::Colour (0xff3d9df0), 1.0f);
-    // ceiling sulla corsia del master
-    const float cl = juce::Decibels::decibelsToGain (P.value ("lm_ceil")), hh = bot.getHeight() * 0.5f - 2;
-    g.setColour (K::red.withAlpha (0.55f)); g.fillRect (bot.getX(), bot.getCentreY() - cl * hh - 0.5f, bot.getWidth(), 1.0f); g.fillRect (bot.getX(), bot.getCentreY() + cl * hh - 0.5f, bot.getWidth(), 1.0f);
+    g.setColour (blue.withAlpha (0.38f)); g.fillRectList (op);       // picchi con il master
+    g.setColour (blue.withAlpha (0.78f)); g.fillRectList (orr);      // volume medio con il master
+    g.setColour (white.withAlpha (0.16f)); g.fillRectList (ir);      // volume medio senza master: velo chiaro dentro
+    g.setColour (juce::Colours::black.withAlpha (0.35f)); g.strokePath (top, juce::PathStrokeType (2.6f)); g.strokePath (bot, juce::PathStrokeType (2.6f));
+    g.setColour (white.withAlpha (0.92f)); g.strokePath (top, juce::PathStrokeType (1.1f)); g.strokePath (bot, juce::PathStrokeType (1.1f));
+    const float cl = juce::Decibels::decibelsToGain (P.value ("lm_ceil"));
+    g.setColour (K::red.withAlpha (0.55f)); g.fillRect (p.getX(), cy - cl * h - 0.5f, p.getWidth(), 1.0f); g.fillRect (p.getX(), cy + cl * h - 0.5f, p.getWidth(), 1.0f);
     g.restoreState();
     g.setFont (cap (8.5f));
-    g.setColour (K::sub); g.drawText ("SENZA MASTER", top.reduced (10, 6), juce::Justification::topLeft);
-    g.setColour (juce::Colour (0xff8fd3ff)); g.drawText ("CON IL MASTER", bot.reduced (10, 6), juce::Justification::topLeft);
+    g.setColour (white); g.drawText ("SENZA MASTER", p.reduced (10, 6), juce::Justification::topLeft);
+    g.setColour (juce::Colour (0xff8fd3ff)); g.drawText ("CON IL MASTER", p.reduced (10, 6).withTrimmedLeft (110), juce::Justification::topLeft);
     g.setFont (f (9.0f)); g.setColour (K::faint);
-    g.drawText (U ("chiaro = picchi  \xc2\xb7  pieno = volume medio (RMS)  \xc2\xb7  linea rossa = ceiling"), bot.reduced (10, 6), juce::Justification::bottomRight);
+    g.drawText (U ("contorno bianco = il wav com'era  \xc2\xb7  azzurro = dopo il master (chiaro picchi, pieno medio)  \xc2\xb7  rosso = ceiling"), p.reduced (10, 6), juce::Justification::bottomRight);
 }
 void EasyStage::spectrum (juce::Graphics& g, juce::Rectangle<float> p)
 {
@@ -435,8 +495,8 @@ void EasyStage::gain (juce::Graphics& g, juce::Rectangle<float> p)
     // e in alto la riduzione appesa alla linea dello zero. Sotto i picchi piu forti, quanti dB sta togliendo.
     auto& P = page.ed.proc;
     p = p.withTrimmedLeft (40).withTrimmedRight (8).withTrimmedBottom (18).withTrimmedTop (4);
-    const Cols C (Processor::kHist, P.hW.load(), p, scrollFrac());
-    timeAxis (g, p, p.getBottom());
+    const Cols C (Processor::kHist, P.hW.load(), P.hTot.load(), p, clock());
+    if (! beatGrid (g, C, P.hPpq, P.hostNum.load(), p, p.getBottom())) timeAxis (g, p, p.getBottom());
     g.saveState(); g.reduceClipRegion (p.toNearestInt());
     auto grLane = p.removeFromTop (64); p.removeFromTop (8);
     // sopra lo zero c'e' spazio: il rosso mostra dove arrivava il picco prima del limiter
@@ -449,6 +509,7 @@ void EasyStage::gain (juce::Graphics& g, juce::Rectangle<float> p)
     float grMax = 0;
     for (int x = 0; x < C.N; ++x)
     {
+        if (! C.ok (x)) continue;
         const int i = C.idx (x); const float o = P.hOut[i].load(), r = P.hOutR[i].load(), gr = P.hGrM[i].load() + P.hGrL[i].load();
         const float xx = C.X (x), w = C.dx + 0.35f;
         if (o > -30) ro.addWithoutMerging (juce::Rectangle<float>::leftTopRightBottom (xx, yD (o), xx + w, p.getBottom()));
@@ -465,13 +526,13 @@ void EasyStage::gain (juce::Graphics& g, juce::Rectangle<float> p)
     g.setColour (K::red.withAlpha (0.8f)); g.fillRectList (rg);
     g.setFont (cap (8.0f)); g.setColour (K::sub); g.drawText ("RIDUZIONE DEL LIMITER", grLane.reduced (8, 4), juce::Justification::bottomRight);
     // numeri sotto i picchi: a blocchi fissi di 1 s (40 colonne), ancorati al tempo, cosi' scorrono con l'onda
-    const int tot = P.hTot.load(), B = 40;
+    const int B = 40;
     g.setFont (num (9.0f));
     for (int x = 0; x < C.N; )
     {
-        const int abs0 = tot - C.N + x; int len = B - (((abs0 % B) + B) % B); len = juce::jmin (len, C.N - x);
+        const int abs0 = C.abs (x); int len = B - (((abs0 % B) + B) % B); len = juce::jmin (len, C.N - x);
         float bg = 0, bo = -100; int bx = x;
-        for (int k = x; k < x + len; ++k) { const int i = C.idx (k); const float gr = P.hGrM[i].load() + P.hGrL[i].load(); if (gr > bg) { bg = gr; bx = k; bo = P.hOut[i].load(); } }
+        for (int k = x; k < x + len; ++k) { if (! C.ok (k)) continue; const int i = C.idx (k); const float gr = P.hGrM[i].load() + P.hGrL[i].load(); if (gr > bg) { bg = gr; bx = k; bo = P.hOut[i].load(); } }
         if (bg >= 0.5f && len == B && x > 0 && x + len < C.N && bo > -30)
         {
             const auto t = "-" + juce::String (bg, 1);

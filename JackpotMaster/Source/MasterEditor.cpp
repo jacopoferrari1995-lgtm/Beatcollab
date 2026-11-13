@@ -147,7 +147,7 @@ void Chain::paintTile (juce::Graphics& g, int m, juce::Rectangle<float> t, bool 
     // maniglia per trascinare
     g.setColour (juce::Colours::white.withAlpha (0.18f));
     for (int k = 0; k < 3; ++k) g.fillRect (t.getRight() - 14, t.getY() + 10 + k * 4.0f, 7.0f, 1.5f);
-    if (ready)
+    if (ready && ! noBars)
     {
         auto bar = juce::Rectangle<float> (t.getX() + 10, t.getBottom() - 14, t.getWidth() - 20, 5);
         g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRoundedRectangle (bar, 2);
@@ -158,6 +158,33 @@ void Chain::paintTile (juce::Graphics& g, int m, juce::Rectangle<float> t, bool 
 void Chain::paint (juce::Graphics& g)
 {
     const auto ord = ed.proc.getOrder();
+    if (! dragging)
+    {   // le tessere cambiano solo se cambia qualcosa (scelta, acceso/spento, ordine, mouse): le metto in cache e ridisegno solo le barrette
+        const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        juce::String key = juce::String (ed.sel) + "/" + juce::String (hov) + "/" + juce::String (sc, 2) + "/" + juce::String (getWidth());
+        for (int k = 0; k < kNumMods; ++k) { const int m = ord[(size_t) k]; key << "," << m << (ed.proc.value (onParam (m)) > 0.5f ? "+" : "-"); }
+        if (key != cacheKey || cache.isNull())
+        {
+            cacheKey = key; cache = juce::Image (juce::Image::ARGB, juce::jmax (1, juce::roundToInt (getWidth() * sc)), juce::jmax (1, juce::roundToInt (getHeight() * sc)), true);
+            juce::Graphics cg (cache); cg.addTransform (juce::AffineTransform::scale (sc)); noBars = true;
+            for (int k = 0; k < kNumMods; ++k)
+            {
+                const int m = ord[(size_t) k]; auto t = tile (k); paintTile (cg, m, t, false);
+                if (k < kNumMods - 1) { cg.setColour (C::dim.withAlpha (0.5f)); cg.drawLine (t.getRight() + 1, t.getCentreY(), t.getRight() + 7, t.getCentreY(), 1.0f); }
+                if (modInfo (m).ready) { auto bar = juce::Rectangle<float> (t.getX() + 10, t.getBottom() - 14, t.getWidth() - 20, 5); cg.setColour (juce::Colours::white.withAlpha (0.06f)); cg.fillRoundedRectangle (bar, 2); }
+            }
+            noBars = false;
+        }
+        g.drawImageTransformed (cache, juce::AffineTransform::scale ((float) getWidth() / (float) cache.getWidth(), (float) getHeight() / (float) cache.getHeight()));
+        for (int k = 0; k < kNumMods; ++k)
+        {
+            const int m = ord[(size_t) k]; if (! modInfo (m).ready) continue; auto t = tile (k);
+            const float gr = juce::jlimit (0.0f, 1.0f, modGr (ed.proc, m) / 8.0f); if (gr <= 0.0f) continue;
+            auto bar = juce::Rectangle<float> (t.getX() + 10, t.getBottom() - 14, t.getWidth() - 20, 5);
+            g.setColour (juce::Colour (modInfo (m).colour)); g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * gr), 2);
+        }
+        return;
+    }
     for (int k = 0; k < kNumMods; ++k)
     {
         const int m = ord[(size_t) k]; auto t = tile (k);
@@ -364,7 +391,8 @@ void Analyzer::run (const StereoRing& rg, float* out, int nPts, float f0, float 
         if (xb - xa < 1.0f) { const float x = 0.5f * (xa + xb); const int i0 = (int) x; const float t = x - i0; mx = a[(size_t) i0] * (1 - t) + a[(size_t) (i0 + 1)] * t; }
         else for (int j = (int) xa; j <= (int) xb && j < N / 2; ++j) mx = juce::jmax (mx, a[(size_t) j]);
         const float db = gToDb (mx * 4.0f / N) + 4.5f * std::log2 (juce::jmax (20.0f, 0.5f * (fa + fb)) / 1000.0f);
-        out[k] = out[k] * smooth + juce::jmax (-110.0f, db) * (1 - smooth);
+        const float v = juce::jmax (-110.0f, db);   // sale subito (a tempo coi colpi), scende morbido
+        out[k] = v > out[k] ? out[k] * smooth * 0.25f + v * (1 - smooth * 0.25f) : out[k] * smooth + v * (1 - smooth);
     }
 }
 static void drawSpec (juce::Graphics& g, const float* sp, int n, juce::Rectangle<float> r, juce::Colour c, bool fill, float lo = -84, float hi = 0)
@@ -468,8 +496,8 @@ void EqPage::resized() { on->setBounds (190, 12, 110, 22); delta->setBounds (300
 void EqPage::paint (juce::Graphics& g)
 {
     paintHeader (g, juce::String::fromUTF8 ("Doppio clic sul grafico = nuova banda (fino a 12)  \xc2\xb7  trascina un punto = frequenza e guadagno  \xc2\xb7  rotella = Q  \xc2\xb7  "
-                    "passa sopra un punto: tipo, canale (stereo / mid / side / sinistro / destro), SOLO e DINAMICA  \xc2\xb7  doppio clic su un punto = spegni la banda  \xc2\xb7  clic destro = menu. "
-                    "DINAMICA: la banda si muove verso RANGE solo quando la sua zona supera la SOGLIA."));
+                    "passa sopra un punto: la sua scheda (tipo, canale, SOLO, manopoline)  \xc2\xb7  doppio clic su un punto = spegni la banda  \xc2\xb7  clic destro = menu. "
+                    "Ogni banda e' gia' dinamica: gira SOGLIA e RANGE e lavora solo quando la sua zona supera la soglia. RANGE a zero = banda statica."));
 }
 
 EqView::EqView (Editor& e) : ed (e)
@@ -667,43 +695,66 @@ void EqView::bandMenu (int b)
 
 // finestrella della banda: tipo, canale, SOLO, DINAMICA e i valori trascinabili
 enum PopId { PI_TYPE = 1, PI_CH, PI_SLOPE, PI_SOLO, PI_DYN, PI_DEL, PI_F = 20, PI_G, PI_Q, PI_THR, PI_RANGE };
-void EqPop::show (int b) { band = b; setSize (view.val (b, "dyn") > 0.5f ? 520 : 372, 66); }
+void EqPop::show (int b) { band = b; setSize (296, jmx::hasGain ((int) view.val (b, "type")) ? 172 : 112); }
 void EqPop::paint (juce::Graphics& g)
-{
+{   // scheda compatta: in alto tipo / canale / solo, sotto tre manopoline (frequenza, guadagno, Q), poi la dinamica sempre pronta
     if (band < 0) return;
     const int b = band; auto v = [this, b] (const char* id) { return view.val (b, id); };
     const auto c = bandCol (b); auto r = getLocalBounds().toFloat();
-    g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillRoundedRectangle (r.translated (0, 3), 9);
-    g.setColour (juce::Colour (0xf2101220)); g.fillRoundedRectangle (r, 9); g.setColour (c.withAlpha (0.8f)); g.drawRoundedRectangle (r.reduced (0.5f), 9, 1.2f);
+    g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillRoundedRectangle (r.translated (0, 4), 12);
+    g.setColour (juce::Colour (0xf40e1019)); g.fillRoundedRectangle (r, 12); g.setColour (c.withAlpha (0.7f)); g.drawRoundedRectangle (r.reduced (0.5f), 12, 1.2f);
     hots.clear();
-    const int t = (int) v ("type");
+    const int t = (int) v ("type"); const bool hg = jmx::hasGain (t);
     auto btn = [&] (juce::Rectangle<float> rr, const juce::String& s, bool on, juce::Colour col, int id) { neo::chip (g, rr, s, on, col, 7.5f); hots.push_back ({ rr, id }); };
-    float x = 8;
-    g.setFont (neo::num (12.0f)); g.setColour (c); g.drawText (juce::String (b + 1), juce::Rectangle<float> (x, 6, 18, 22), juce::Justification::centred); x += 22;
-    btn ({ x, 6, 104, 22 }, eqTypeNames()[t] + juce::String::fromUTF8 (" \xe2\x96\xbe"), true, c, PI_TYPE); x += 108;
-    btn ({ x, 6, 86, 22 }, eqChNames()[(int) v ("ch")] + juce::String::fromUTF8 (" \xe2\x96\xbe"), v ("ch") > 0.5f, c, PI_CH); x += 90;
-    btn ({ x, 6, 50, 22 }, "SOLO", view.ed.proc.eqSolo.load() == b, C::amber, PI_SOLO); x += 54;
-    if (jmx::hasGain (t)) btn ({ x, 6, 70, 22 }, "DINAMICA", v ("dyn") > 0.5f, C::green, PI_DYN);
-    btn ({ r.getRight() - 30, 6, 22, 22 }, juce::String::fromUTF8 ("\xc3\x97"), false, C::red, PI_DEL);
-    x = 8; const float y = 34;
-    auto field = [&] (float w, const juce::String& lab, const juce::String& s, bool en, int id)
+    g.setFont (neo::num (13.0f)); g.setColour (c); g.drawText (juce::String (b + 1), juce::Rectangle<float> (8, 8, 18, 22), juce::Justification::centred);
+    btn ({ 30, 8, 92, 22 }, eqTypeNames()[t] + juce::String::fromUTF8 (" \xe2\x96\xbe"), true, c, PI_TYPE);
+    btn ({ 126, 8, 74, 22 }, eqChNames()[(int) v ("ch")] + juce::String::fromUTF8 (" \xe2\x96\xbe"), v ("ch") > 0.5f, c, PI_CH);
+    btn ({ 204, 8, 54, 22 }, "SOLO", view.ed.proc.eqSolo.load() == b, C::amber, PI_SOLO);
+    btn ({ r.getRight() - 30, 8, 22, 22 }, juce::String::fromUTF8 ("\xc3\x97"), false, C::red, PI_DEL);
+    // manopolina: arco del valore, nome sopra, numero sotto
+    auto dial = [&] (float cx, float cy, const juce::String& lab, const juce::String& txt, float norm, bool bip, bool en, juce::Colour col, int id)
     {
-        auto rr = juce::Rectangle<float> (x, y, w, 26); x += w + 4;
-        g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillRoundedRectangle (rr, 5); g.setColour (en ? c.withAlpha (0.4f) : juce::Colours::white.withAlpha (0.06f)); g.drawRoundedRectangle (rr, 5, 1);
-        g.setFont (neo::cap (6.5f)); g.setColour (C::dim); g.drawText (lab, rr.withTrimmedLeft (6).withHeight (11).translated (0, 1), juce::Justification::centredLeft);
-        g.setFont (neo::num (10.0f)); g.setColour (en ? C::text : C::dim); g.drawText (s, rr.withTrimmedTop (10).withTrimmedRight (6), juce::Justification::centredRight);
-        if (en) hots.push_back ({ rr, id });
+        const float R = 15, a0 = -2.36f, a1 = 2.36f; auto rr = juce::Rectangle<float> (cx - 34, cy - 30, 68, 62);
+        g.setFont (neo::cap (6.5f)); g.setColour (C::dim); g.drawText (lab, juce::Rectangle<float> (cx - 34, cy - 30, 68, 10), juce::Justification::centred);
+        juce::Path tr; tr.addCentredArc (cx, cy, R, R, 0, a0, a1, true);
+        g.setColour (juce::Colours::white.withAlpha (0.08f)); g.strokePath (tr, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        if (en)
+        {
+            const float av = a0 + (a1 - a0) * juce::jlimit (0.0f, 1.0f, norm), as = bip ? 0.0f : a0;
+            juce::Path va; va.addCentredArc (cx, cy, R, R, 0, juce::jmin (as, av), juce::jmax (as, av), true);
+            g.setColour (col.withAlpha (0.3f)); g.strokePath (va, juce::PathStrokeType (6.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour (col); g.strokePath (va, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour (juce::Colour (0xff1a1d28)); g.fillEllipse (cx - R + 5, cy - R + 5, (R - 5) * 2, (R - 5) * 2);
+            g.setColour (C::text); g.drawLine (cx + std::sin (av) * (R - 9), cy - std::cos (av) * (R - 9), cx + std::sin (av) * (R - 4), cy - std::cos (av) * (R - 4), 1.6f);
+            hots.push_back ({ rr, id });
+        }
+        g.setFont (neo::num (9.5f)); g.setColour (en ? C::text : C::faint); g.drawText (txt, juce::Rectangle<float> (cx - 34, cy + R + 2, 68, 12), juce::Justification::centred);
     };
-    field (100, "FREQ", hzT (v ("f")), true, PI_F);
-    field (88, "GAIN", jmx::hasGain (t) ? dbS (v ("g")) + " dB" : juce::String ("--"), jmx::hasGain (t), PI_G);
-    field (70, "Q", juce::String (v ("q"), 2), true, PI_Q);
-    if (t == jmx::BT_LCUT || t == jmx::BT_HCUT) { static const char* sn[4] = { "12 dB/OTT", "24 dB/OTT", "48 dB/OTT", "96 dB/OTT" }; btn ({ x, y, 90, 26 }, sn[juce::jlimit (0, 3, (int) v ("slope"))], false, c, PI_SLOPE); }
-    if (v ("dyn") > 0.5f && jmx::hasGain (t))
+    auto nv = [&] (const char* p) { return view.ed.P (eqId (b, p))->getValue(); };
+    const float y1 = 66;
+    dial (52, y1, "FREQUENZA", hzT (v ("f")), nv ("f"), false, true, c, PI_F);
+    dial (148, y1, "GUADAGNO", hg ? dbS (v ("g")) + " dB" : juce::String ("--"), nv ("g"), true, hg, c, PI_G);
+    dial (244, y1, "Q", juce::String (v ("q"), 2), nv ("q"), false, true, c, PI_Q);
+    if (! hg)
     {
-        x = 284;
-        field (112, "SOGLIA", juce::String (v ("thr"), 1) + " dB", true, PI_THR);
-        field (112, "RANGE", dbS (v ("rng")) + " dB", true, PI_RANGE);
+        if (t == jmx::BT_LCUT || t == jmx::BT_HCUT) { static const char* sn[4] = { "12 dB/OTT", "24 dB/OTT", "48 dB/OTT", "96 dB/OTT" }; btn ({ 98, 98, 100, 22 }, sn[juce::jlimit (0, 3, (int) v ("slope"))], false, c, PI_SLOPE); }
+        return;
     }
+    // dinamica: sempre li'. Basta girare SOGLIA o RANGE e la banda diventa dinamica (RANGE a zero = statica)
+    const bool dy = v ("dyn") > 0.5f; const auto dc = C::green;
+    g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRect (12.0f, 100.0f, r.getWidth() - 24, 1.0f);
+    dial (52, 136, "SOGLIA", juce::String (v ("thr"), 1) + " dB", nv ("thr"), false, true, dy ? dc : C::dim, PI_THR);
+    dial (148, 136, "RANGE", dbS (v ("rng")) + " dB", nv ("rng"), true, true, dy ? dc : C::dim, PI_RANGE);
+    // quanto si sta muovendo adesso
+    auto mr = juce::Rectangle<float> (204, 108, 82, 46);
+    g.setColour (juce::Colours::black.withAlpha (0.4f)); g.fillRoundedRectangle (mr, 6);
+    g.setFont (neo::cap (6.5f)); g.setColour (dy ? dc : C::faint); g.drawText ("DINAMICA", mr.withHeight (12).translated (0, 3), juce::Justification::centred);
+    const float mv = dy ? view.ed.proc.eqDyn[b].load() : 0.0f, rg = std::abs (v ("rng")) + 0.01f;
+    auto bar = mr.reduced (8, 0).withHeight (5).withY (mr.getY() + 34);
+    g.setColour (juce::Colours::white.withAlpha (0.08f)); g.fillRoundedRectangle (bar, 3);
+    const float fr = juce::jlimit (0.0f, 1.0f, std::abs (mv) / rg);
+    g.setColour (dc); g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * fr), 3);
+    g.setFont (neo::num (9.0f)); g.setColour (dy ? C::text : C::faint); g.drawText (dy ? dbS (mv) + " dB" : juce::String ("statica"), mr.withHeight (14).translated (0, 16), juce::Justification::centred);
 }
 int EqPop::hit (juce::Point<float> p) const { for (auto& h : hots) if (h.r.contains (p)) return h.id; return 0; }
 static const char* popParam (int id) { switch (id) { case PI_F: return "f"; case PI_G: return "g"; case PI_Q: return "q"; case PI_THR: return "thr"; case PI_RANGE: return "rng"; default: return nullptr; } }
@@ -733,7 +784,12 @@ void EqPop::mouseDown (const juce::MouseEvent& e)
 void EqPop::mouseDrag (const juce::MouseEvent& e)
 {
     if (dragK < 0 || band < 0) return;
-    if (auto* p = popParam (dragK)) { auto* pr = view.ed.P (eqId (band, p)); pr->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, dragStart - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 200.0f))); repaint(); view.repaint(); }
+    if (auto* p = popParam (dragK))
+    {
+        auto* pr = view.ed.P (eqId (band, p)); pr->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, dragStart - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 200.0f)));
+        if (dragK == PI_THR || dragK == PI_RANGE) view.setV (band, "dyn", std::abs (view.val (band, "rng")) > 0.05f ? 1.0f : 0.0f);   // girare la dinamica la accende, RANGE a zero la spegne
+        repaint(); view.repaint();
+    }
 }
 void EqPop::mouseDoubleClick (const juce::MouseEvent& e)
 {
@@ -743,7 +799,13 @@ void EqPop::mouseDoubleClick (const juce::MouseEvent& e)
 void EqPop::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
     if (band < 0) return;
-    if (auto* p = popParam (hit (e.position))) { auto* pr = view.ed.P (eqId (band, p)); pr->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, pr->getValue() + (w.deltaY > 0 ? 0.01f : -0.01f))); repaint(); view.repaint(); }
+    const int id = hit (e.position);
+    if (auto* p = popParam (id))
+    {
+        auto* pr = view.ed.P (eqId (band, p)); pr->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, pr->getValue() + (w.deltaY > 0 ? 0.01f : -0.01f)));
+        if (id == PI_THR || id == PI_RANGE) view.setV (band, "dyn", std::abs (view.val (band, "rng")) > 0.05f ? 1.0f : 0.0f);
+        repaint(); view.repaint();
+    }
 }
 
 // ======================================================================= IMAGER
@@ -1903,7 +1965,7 @@ void Editor::paintNeo (juce::Graphics& g)
 {
     using namespace neo;
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
-    if (neoBg.isNull() || std::abs (neoScale - sc) > 0.01f)
+    if (neoBg.isNull() || sc > neoScale * 1.05f)   // si ricostruisce solo se serve piu definizione: niente rifacimenti a ogni ridisegno
     {
         neoScale = sc; neoBg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false);
         juce::Graphics ig (neoBg); ig.addTransform (juce::AffineTransform::scale (sc));
@@ -1931,7 +1993,7 @@ void Editor::paintNeo (juce::Graphics& g)
         ig.setFont (neo::big (15.0f)); ig.setColour (K::sub); ig.drawText ("Master", juce::Rectangle<float> (139, 15, 100, 20), juce::Justification::centredLeft);
         ig.setFont (neo::cap (7.5f)); ig.setColour (K::faint); ig.drawText ("ONE KNOB MASTERING", juce::Rectangle<float> (62, 35, 200, 12), juce::Justification::centredLeft);
     }
-    { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.drawImageAt (neoBg, 0, 0); g.restoreState(); }
+    { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / neoScale)); g.drawImageAt (neoBg, 0, 0); g.restoreState(); }
     static const juce::StringArray modes { "FACILE", "AVANZATO" };
     modeSeg.paint (g, modes, proc.easy() ? 0 : 1, K::pink, 9.0f);
     // preset: solo testo, frecce discrete
@@ -2002,7 +2064,8 @@ void Editor::timerCallback()
     if (modeSeg.step (1)) repaint (scaler.map ({ 270, 8, 200, 50 }));
     maxPage.gain->activity = juce::jlimit (0.0f, 1.0f, proc.grMax.load() / 6.0f);
     limPage.ceil->activity = juce::jlimit (0.0f, 1.0f, proc.grLim.load() / 3.0f);
-    chain.repaint(); loud.repaint();
+    if (tick % 2 == 0) chain.repaint();   // 15 al secondo bastano per le barrette
+    if (tick % 3 == 0) loud.repaint();    // i numeri della loudness: 10 al secondo
     if (maxPage.isVisible()) maxPage.repaint();
     if (limPage.isVisible()) limPage.repaint();
     if (eqPage.isVisible()) eqPage.view.tick();

@@ -78,6 +78,7 @@ public:
     void paintTile (juce::Graphics&, int m, juce::Rectangle<float>, bool ghost);
     int insertAt (float x) const;
     Editor& ed; int hov = -1, dragMod = -1; bool dragging = false; float dragX = 0;
+    juce::Image cache; juce::String cacheKey; bool noBars = false;   // tessere ferme in cache, ogni frame solo le barrette
 };
 
 // storia: ingresso, uscita e riduzione di guadagno
@@ -435,8 +436,9 @@ public:
     EasyPage& page; Analyzer anIn, anOut; float specIn[300] {}, specOut[300] {}; juce::Rectangle<float> loadR, listenR;
     int fixedView = -1;   // usata nell'AVANZATO: vista fissa, indipendente dalla pagina FACILE
     int curView() const;
-    int genreSel = -1; juce::Rectangle<float> genreR; float pkHold[2] { -100, -100 }; int holdT[2] {}; int lastTot = -1; double lastMs = 0, colMs = 25;
-    float scrollFrac();
+    int genreSel = -1; juce::Rectangle<float> genreR; float pkHold[2] { -100, -100 }, holdS[2] {}, mPk[2] { -100, -100 }, mLu = -100; double mLast = 0; int holdT[2] {}; int lastTot = -1; double lastMs = 0, colMs = 25;
+    double clock();   // posizione mostrata (in colonne), scorre col tempo vero e insegue i dati senza scatti
+    double disp = -1, lastT = 0;
     neo::Bloom bloom;
 private:
     void wave (juce::Graphics&, juce::Rectangle<float>); void spectrum (juce::Graphics&, juce::Rectangle<float>);

@@ -220,7 +220,7 @@ Processor::Processor()
       apvts (*this, nullptr, "JMS", layout())
 {
     { for (int k = 0; k < kNumMods; ++k) order[k] = defaultOrder()[(size_t) k]; }
-    for (int i = 0; i < kHist; ++i) { hIn[i] = -60; hOut[i] = -60; hGrM[i] = 0; hGrL[i] = 0; hS[i] = -60; hRaw[i] = -100; hRawR[i] = -100; hOutR[i] = -100; }
+    for (int i = 0; i < kHist; ++i) { hIn[i] = -60; hOut[i] = -60; hGrM[i] = 0; hGrL[i] = 0; hS[i] = -60; hRaw[i] = -100; hRawR[i] = -100; hOutR[i] = -100; hPpq[i] = -1; }
     startTimerHz (5);
 }
 
@@ -233,6 +233,7 @@ void Processor::prepareToPlay (double s, int maxBlock)
 {
     sr = s;
     const int mb = juce::jmax (64, maxBlock);
+    mRawA.assign ((size_t) mb * 2, 0.0f); mRawQ.assign ((size_t) mb * 2, 0.0f); mInA.assign ((size_t) mb * 2, 0.0f);
     mx.prepare (s, mb); lim.prepare (s); easyEng.prepare (s);
     bass.prepare (s); deq.prepare (s); peq.prepare (s, mb); e432.prepare (s); pult.prepare (s); vmu.prepare (s); img.prepare (s); dess.prepare (s); bus.prepare (s); mband.prepare (s); tape.prepare (s); exc.prepare (s);
     for (auto& d : deltaVar) { d.b.assign ((size_t) (mx.latency() + lim.latency() + 1), 0.0f); d.w = 0; }
@@ -258,11 +259,22 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 
     const float trim = dbToG (value ("trim"));
     float pi[2] = { 0, 0 };
+    if ((int) mRawA.size() < n) { mRawA.resize ((size_t) n); mRawQ.resize ((size_t) n); mInA.resize ((size_t) n); }
+    {   // tempo del pezzo all'inizio del blocco: le colonne dell'onda portano la loro posizione in battiti (griglia a tempo)
+        hostPlay = false;
+        if (auto* ph = getPlayHead())
+            if (auto pos = ph->getPosition())
+            {
+                if (auto b = pos->getBpm()) hostBpm = (float) *b;
+                if (auto q = pos->getPpqPosition()) { blockPpq = *q; hostPlay = pos->getIsPlaying(); }
+                if (auto ts = pos->getTimeSignature()) hostNum = juce::jmax (1, ts->numerator);
+            }
+    }
     for (int i = 0; i < n; ++i)
     {
-        { const float a = juce::jmax (std::abs (L[i]), std::abs (R[i])); colRaw = juce::jmax (colRaw, a); sqIn += 0.5 * (L[i] * L[i] + R[i] * R[i]); }   // il wav cosi' com'e' (senza master)
+        mRawA[(size_t) i] = juce::jmax (std::abs (L[i]), std::abs (R[i])); mRawQ[(size_t) i] = 0.5f * (L[i] * L[i] + R[i] * R[i]);   // il wav cosi' com'e' (senza master)
         L[i] *= trim; R[i] *= trim;
-        pi[0] = juce::jmax (pi[0], std::abs (L[i])); pi[1] = juce::jmax (pi[1], std::abs (R[i]));
+        pi[0] = juce::jmax (pi[0], std::abs (L[i])); pi[1] = juce::jmax (pi[1], std::abs (R[i])); mInA[(size_t) i] = juce::jmax (std::abs (L[i]), std::abs (R[i]));
         loudIn.push (L[i], R[i]);
     }
     // copia pulita (per il confronto a volume uguale)
@@ -494,7 +506,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     {
         loudOut.push (L[i], R[i]);
         po[0] = juce::jmax (po[0], std::abs (L[i])); po[1] = juce::jmax (po[1], std::abs (R[i]));
-        sqOut += 0.5 * (L[i] * L[i] + R[i] * R[i]); sqL += L[i] * L[i]; sqR += R[i] * R[i];
+        sqL += L[i] * L[i]; sqR += R[i] * R[i];
         tpb = juce::jmax (tpb, juce::jmax (tpOut[0].push (L[i]), tpOut[1].push (R[i])));
     }
     tpHold = juce::jmax (tpHold, gToDb (tpb));
@@ -570,14 +582,23 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         const float a = (float) std::exp (-(double) n / (0.3 * sr));
         outRms[0] = a * outRms[0].load() + (1 - a) * (float) (sqL / juce::jmax (1, n)); outRms[1] = a * outRms[1].load() + (1 - a) * (float) (sqR / juce::jmax (1, n)); sqL = sqR = 0;
     }
-    colIn = juce::jmax (colIn, juce::jmax (pi[0], pi[1])); colOut = juce::jmax (colOut, juce::jmax (po[0], po[1]));
-    colM = juce::jmax (colM, mx.gr); colL = juce::jmax (colL, lim.gr); colN += n;
-    if (colN >= (int) (sr * 0.025))
+    // colonne dell'onda da 25 ms esatti, chiuse anche a meta' blocco: il tempo sullo schermo e' quello vero, qualunque sia il buffer della DAW
+    colM = juce::jmax (colM, mx.gr); colL = juce::jmax (colL, lim.gr);
+    const int colLen = juce::jmax (1, (int) std::lround (sr * 0.025));
+    lastBlock = n;
+    const double bps = hostBpm.load() / 60.0;
+    for (int i = 0; i < n; ++i)
     {
-        const int w = hW.load();
-        hIn[w] = gToDb (colIn); hOut[w] = gToDb (colOut); hGrM[w] = colM; hGrL[w] = colL; hS[w] = loudOut.S;
-        hRaw[w] = gToDb (colRaw); hRawR[w] = gToDb ((float) std::sqrt (sqIn / colN)); hOutR[w] = gToDb ((float) std::sqrt (sqOut / colN));
-        hW = (w + 1) % kHist; hTot = hTot.load() + 1; colIn = colOut = colM = colL = colRaw = 0; sqIn = sqOut = 0; colN = 0;
+        colRaw = juce::jmax (colRaw, mRawA[(size_t) i]); sqIn += mRawQ[(size_t) i]; colIn = juce::jmax (colIn, mInA[(size_t) i]);
+        const float a = juce::jmax (std::abs (L[i]), std::abs (R[i])); colOut = juce::jmax (colOut, a); sqOut += 0.5 * (L[i] * L[i] + R[i] * R[i]);
+        if (++colN >= colLen)
+        {
+            const int w = hW.load();
+            hIn[w] = gToDb (colIn); hOut[w] = gToDb (colOut); hGrM[w] = colM; hGrL[w] = colL; hS[w] = loudOut.S;
+            hRaw[w] = gToDb (colRaw); hRawR[w] = gToDb ((float) std::sqrt (sqIn / colN)); hOutR[w] = gToDb ((float) std::sqrt (sqOut / colN));
+            hPpq[w] = hostPlay.load() ? (float) (blockPpq + (i + 1) / sr * bps) : -1.0f;
+            hW = (w + 1) % kHist; hTot = hTot.load() + 1; colIn = colOut = colRaw = 0; sqIn = sqOut = 0; colN = 0; colM = mx.gr; colL = lim.gr;
+        }
     }
 }
 
