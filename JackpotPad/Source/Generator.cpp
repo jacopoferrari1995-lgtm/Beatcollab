@@ -214,7 +214,46 @@ const std::vector<DStyle>& dstyles()
           0, 0.0f, 0.3f, 0, {}, 0, 0.05f, -1, 4, 0.1f, false, 0 },
         { "Footwork", "Chicago: cassa a terzine e clap fitti", "Old School",
           { "X..X..X..X..X...", "X..X..X...X..X.." }, { "....X.......X...", "..X...X...X...X." }, { "x.x.x.x.x.x.x.x." }, { "" }, { "" },
-          1, 0.0f, 0.0f, 2, { "X..X..X..X..X..." }, 0, 0.0f, -1, 2, 0.1f, false, 0 } };
+          1, 0.0f, 0.0f, 2, { "X..X..X..X..X..." }, 0, 0.0f, -1, 2, 0.1f, false, 0 },
+        { "Trap Half Time", "Meta tempo: cassa rada, rullante sul 3, hat in quarti e ottavi, tanto spazio", "Trap",
+          { "X...............", "X.........X.....", "X.............X." }, { "........X......." }, { "x...x...x...x...", "x...x...x.x.x...", "x.......x...x.x." }, { "......x.........", "" }, { "" },
+          1, 0.2f, 0.0f, 2, { "X...............", "X.........X.....", "X.....X........." }, 0, 0.3f, -1, 4, 0.2f, false, 0 },
+        { "Trap Terzine Lente", "Hat e rullante a terzine su un groove lento", "Trap",
+          { "X.........X.....", "X..........X...." }, { "........X......." }, {}, { "" }, { "" },
+          1, 0.0f, 0.0f, 2, { "X.........X.....", "X.....X...X....." }, 2, 0.75f, -1, 4, 0.15f, false, 0 },
+        { "Rap Vuoto", "Minimale: cassa, rullante e quasi niente altro, spazio per la voce", "Boom Bap",
+          { "X.........X.....", "X.......X.......", "X..........X...." }, { "....X.......X..." }, { "x.......x.......", "........x......." }, { "" }, { "" },
+          0, 0.0f, 0.15f, 0, {}, 0, 0.0f, 55, 4, 0.15f, false, 0 },
+        { "Sperimentale", "Colpi spostati e silenzi: niente e' dove te lo aspetti", "Lo-fi",
+          { "X....X.....X..x.", "X......X.X......", "X..x.....X....x." }, { "......X.....X...", "....X.....X....X", ".....X......X..." }, { "x..x....x.x.....", "....x..x....x..x" }, { "...........x....", "" }, { "..x.......x..x..", ".x....x......x.." },
+          2, 0.0f, 0.2f, 0, {}, 0, 0.0f, 58, 4, 0.35f, true, 4 },
+        { "Jazz Complesso", "Ride swing, cassa che accompagna, rullante che comp a ghost", "Lo-fi",
+          { "X..x...x.x....x.", "X.....x...x.x...", "X..x.x.....x..x." }, { "....X.......X...", "..o.X..o.o..X.o." }, { "x..x.xx..x.xx..x", "x.xxx.xxx.xxx.xx", "x..xx..xx..xx..x" }, { "" }, { "..o..o.o..o..o.o", "" },
+          0, 0.0f, 0.85f, 0, {}, 0, 0.0f, 66, 4, 0.6f, true, 4 },
+        { "Amapiano Deep", "Log drum che parla, cassa leggera, shaker e percussioni in levare", "R&B",
+          { "X.......X.......", "X...X...X...X..." }, { "....X.......X...", "........X......." }, { "xoxoxoxoxoxoxoxo", "x.xxx.xxx.xxx.xx" }, { "..x...x...x...x." }, { "...x..x...x..x..", "x..x..x...x..x.." },
+          1, 0.0f, 0.1f, 2, { "..X..X..X.X...X.", "X..X..X.X...X.X.", "..X.X.X...X..X.." }, 0, 0.0f, 56, 4, 0.35f, false, 0 },
+        { "Riddim", "140 a meta tempo: cassa sull'1, rullante sul 3, basso che martella in terzine", "Trap",
+          { "X...............", "X.........X....." }, { "........X......." }, { "x.x.x.x.x.x.x.x.", "x...x...x...x..." }, { "" }, { "" },
+          0, 0.3f, 0.0f, 2, { "X..X..X..X..X...", "X.X.X.X.X...X..." }, 0, 0.1f, -1, 4, 0.0f, false, 0 },
+        { "Jersey Club Bounce", "Cassa a cinque colpi che rimbalza, clap fitti, tutto a tempo", "Old School",
+          { "X..X..X.X..X..X.", "X..X..X...X..X.X", "X.X..X..X..X..X." }, { "....X..X....X..X", "....X.......X..X" }, { "x.x.x.x.x.x.x.x." }, { "" }, { "..x...x...x...x." },
+          1, 0.2f, 0.0f, 0, {}, 0, 0.2f, -1, 2, 0.15f, false, 0 },
+        { "Indie", "Batteria suonata: cassa e rullante dritti, hat in ottavi, aperto a fine giro", "Old School",
+          { "X.......X.X.....", "X.....X.X.......", "X.......X...X..." }, { "....X.......X...", "....X.......X..x" }, { "x.x.x.x.x.x.x.x.", "X.x.X.x.X.x.X.x." }, { "..............x.", "......x.......x." }, { "" },
+          0, 0.0f, 0.25f, 0, {}, 0, 0.0f, -1, 4, 0.2f, false, 0 },
+        { "Indie Dream", "Lento e sognante: cassa morbida, rim, ride lunghi", "Lo-fi",
+          { "X.........X.....", "X.......X......." }, { "....X.......X..." }, { "x...x...x...x...", "x.x.x.x.x.x.x.x." }, { "........x.......", "" }, { "" },
+          2, 0.0f, 0.2f, 0, {}, 0, 0.0f, 54, 4, 0.5f, true, 2 },
+        { "Trap Latina", "Dembow e trap insieme: rullante 3-3-2, hat con rulli", "Trap",
+          { "X...X...X...X...", "X......X..X....." }, { "...X..X....X..X." }, {}, { "" }, { "", "..x...x...x...x." },
+          1, 0.2f, 0.0f, 1, {}, 1, 0.5f, -1, 4, 0.15f, false, 0 },
+        { "Bossa Hop", "Bossa nova sotto il rap: rim in clave, cassa morbida, shaker", "Lo-fi",
+          { "X..X....X..X....", "X......XX......." }, { "X..X..X...X..X..", "..X..X...X..X..." }, { "xoxoxoxoxoxoxoxo" }, { "" }, { "" },
+          2, 0.0f, 0.0f, 0, {}, 0, 0.0f, 58, 4, 0.5f, false, 0 },
+        { "Drill Terzine", "Drill con rullanti e hat a terzine, 808 che scivola", "Drill",
+          { "X.........X.....", "X.......X.....X." }, { "........X.......", "........X..x...." }, {}, { "" }, { "" },
+          0, 0.2f, 0.3f, 2, { "X.........X.....", "X.......X.X....." }, 2, 0.8f, -1, 4, 0.1f, false, 0 } };
     return S;
 }
 struct MStyle { const char* name; const char* desc; int drum; };
@@ -318,8 +357,11 @@ void drums (Ctx& c, const DStyle& S, bool allowMel = true)
     const char* pc = S.perc.empty() ? nullptr : c.pick (S.perc);
     const char* pc2 = S.perc.size() > 1 && perc2 >= 0 && r.nextBool() ? c.pick (S.perc) : nullptr;
     const char* o8 = S.b808.empty() ? nullptr : c.pick (S.b808);
-    const bool fill = r.nextFloat() < 0.65f;
-    const int fillKind = r.nextInt (4);
+    const bool fill = r.nextFloat() < 0.75f;
+    int fillKind = r.nextInt (12);
+    if (S.hatMode == 1 && r.nextFloat() < 0.5f) { static const int tf[] = { 2, 4, 5, 11, 8 }; fillKind = tf[r.nextInt (5)]; }        // trap: rulli, terzine, stacchi
+    if (S.hatMode == 2 && r.nextFloat() < 0.5f) { static const int df[] = { 4, 5, 6 }; fillKind = df[r.nextInt (3)]; }               // drill
+    if (S.swing > 0 && r.nextFloat() < 0.5f) { static const int bf[] = { 0, 1, 3, 9, 10 }; fillKind = bf[r.nextInt (5)]; }          // boom bap, jazz, lo-fi
     for (int b = 0; b < c.bars; ++b)
     {
         const bool last = b == c.bars - 1 && fill;
@@ -360,14 +402,44 @@ void drums (Ctx& c, const DStyle& S, bool allowMel = true)
         if (open >= 0 && op != nullptr) c.lane (open, op, b, 0.85f);
         if (perc >= 0 && pc != nullptr) c.lane (perc, pc, b, 0.8f);
         if (pc2 != nullptr) c.lane (perc2, pc2, b, 0.75f);
-        // riempimento nell'ultima battuta
+        // riempimento nell'ultima battuta: tanti tipi diversi, scelti in base allo stile
         if (last)
         {
-            const double t0 = b * kBar + 12 * 24.0;
-            if (fillKind == 0 && sn >= 0) for (int q = 0; q < 4; ++q) c.hit (sn, t0 + q * 24.0, 70 + q * 14);
-            else if (fillKind == 1 && c.pad (R_TOM) >= 0) { for (int q = 0; q < 4; ++q) c.hit (c.pad (R_TOM, q % juce::jmax (1, (int) c.pads[R_TOM].size())), t0 + q * 24.0, 100); }
-            else if (fillKind == 2 && hat >= 0) for (int q = 0; q < 8; ++q) c.hit (hat, t0 + q * 12.0, 56 + q * 8);
-            else if (kick >= 0) { c.hit (kick, t0 + 2 * 24.0, 100); c.hit (kick, t0 + 3 * 24.0, 90); }
+            const double bar0 = b * kBar, t0 = bar0 + 12 * 24.0, t8 = bar0 + 8 * 24.0, bar1 = bar0 + kBar;
+            const int tom = c.pad (R_TOM), cl = c.pad (R_CLAP);
+            auto clear = [&] (double from, std::initializer_list<int> keep)
+            {
+                c.ev.erase (std::remove_if (c.ev.begin(), c.ev.end(), [&] (const PatEv& e)
+                {
+                    if (e.tick < from || e.tick >= bar1) return false;
+                    for (int k : keep) if (e.pad == k) return false;
+                    return true;
+                }), c.ev.end());
+            };
+            switch (fillKind)
+            {
+                case 0: if (sn >= 0) for (int q = 0; q < 4; ++q) c.hit (sn, t0 + q * 24.0, 70 + q * 14); break;                                // rullante in sedicesimi, crescendo
+                case 1: if (tom >= 0) { for (int q = 0; q < 4; ++q) c.hit (c.pad (R_TOM, q % juce::jmax (1, (int) c.pads[R_TOM].size())), t0 + q * 24.0, 100); break; } [[fallthrough]];
+                case 2: if (hat >= 0) for (int q = 0; q < 8; ++q) c.hit (hat, t0 + q * 12.0, 56 + q * 8); break;                                // rullata di hat in trentaduesimi
+                case 3: if (kick >= 0) { c.hit (kick, t0 + 2 * 24.0, 100); c.hit (kick, t0 + 3 * 24.0, 90); } break;                          // cassa che rientra
+                case 4: if (sn >= 0) for (int q = 0; q < 6; ++q) c.hit (sn, t8 + q * 32.0, 64 + q * 10); break;                                 // terzine di rullante sugli ultimi due battiti
+                case 5: clear (t0, { back }); break;                                                                                              // stacco: silenzio sull'ultimo battito
+                case 6: if (sn >= 0)                                                                                                              // rullata che accelera
+                        { for (int q = 0; q < 2; ++q) c.hit (sn, t8 + q * 48.0, 72); for (int q = 0; q < 4; ++q) c.hit (sn, t0 - 48 + q * 24.0, 80 + q * 6); for (int q = 0; q < 4; ++q) c.hit (sn, t0 + 48 + q * 12.0, 96 + q * 6); }
+                        break;
+                case 7: if (open >= 0) c.hit (open, t0 + 2 * 24.0, 110); if (c.pad (R_CYM) >= 0) c.hit (c.pad (R_CYM), t0 + 2 * 24.0, 100); break;     // accento aperto sul levare del 4
+                case 8: { const int f = cl >= 0 ? cl : sn; if (f >= 0) for (int q : { 1, 2, 3 }) { c.hit (f, t0 + q * 24.0, 90); c.hit (f, t0 + q * 24.0 + 6, 70); } } break;   // flam di clap
+                case 9: clear (t8, { -1 }); if (kick >= 0 && sn >= 0) for (int q : { 0, 3, 6, 10, 12 }) { c.hit (kick, t8 + q * 24.0, 110); c.hit (sn, t8 + q * 24.0, 100); } break;   // stab insieme, stile break
+                case 10: if (sn >= 0) { for (int q = 0; q < 8; ++q) { const bool tq = tom >= 0 && q % 2; c.hit (tq ? tom : sn, t8 + q * 24.0, 70 + q * 6); } } break;   // giro misto rullante e tom
+                default: if (hat >= 0) { for (int q = 0; q < 16; ++q) c.hit (hat, t0 + q * 6.0, 40 + q * 4); } break;                             // buzz di hat in sessantaquattresimi
+            }
+        }
+        // piccolo fill a meta giro (battuta 2 di 4), piu leggero
+        if (c.bars >= 4 && b == 1 && r.nextFloat() < 0.35f)
+        {
+            const double t = b * kBar + 14 * 24.0;
+            if (sn >= 0 && r.nextBool()) { c.hit (sn, t, 60); c.hit (sn, t + 24, 72); }
+            else if (hat >= 0) for (int q = 0; q < 4; ++q) c.hit (hat, t + 24 + q * 6.0, 50 + q * 8);
         }
     }
     // piatto all'inizio, una volta

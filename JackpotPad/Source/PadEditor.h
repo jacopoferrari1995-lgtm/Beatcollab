@@ -142,6 +142,7 @@ public:
     int eqBand = 2; bool searchAll = false;
     juce::String hint;                 // spiegazione del controllo sotto il mouse
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { if (hint.isNotEmpty()) { hint.clear(); repaint(); } }
     void padSlider (juce::Graphics&, juce::Rectangle<float>&, const juce::String& label, int param, juce::Colour);
     juce::String pendKey;              // suono scelto nella banca: si sente subito, si carica al secondo clic
     // pagina SAMPLE: trascinamento (1 inizio, 2 fine, 3 volume sull'onda) e cache dei picchi

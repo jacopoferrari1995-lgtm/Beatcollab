@@ -136,7 +136,6 @@ void PadComp::mouseDown (const juce::MouseEvent& e)
 {
     ed.selectPad (pad);
     if (e.mods.isPopupMenu()) { ed.padMenu (pad); return; }
-    if (ed.page != PG_SAMPLE) ed.setPage (PG_SAMPLE);
     auto b = body();
     // velocity: in alto forte, in basso piano; curva quadratica per avere più controllo sui colpi deboli
     const float y = juce::jlimit (0.0f, 1.0f, (e.position.y - b.getY()) / b.getHeight());
@@ -242,10 +241,12 @@ void Screen::paint (juce::Graphics& g)
     }
     g.drawImage (bgImg, b);
     // schede
-    const float tw = (s.getWidth() - 12) / kNumPages;
-    for (int i = 0; i < kNumPages; ++i)
+    // la scheda SAMPLE non c'e' piu: e' tutta dentro la pagina KIT (il CHOP grande resta dal tasto CHOP)
+    const float tw = (s.getWidth() - 12) / (kNumPages - 1);
+    for (int i = 0, slot = 0; i < kNumPages; ++i)
     {
-        auto r = juce::Rectangle<float> (s.getX() + 6 + i * tw, s.getY() + 6, tw - 3, 22);
+        if (i == PG_SAMPLE) continue;
+        auto r = juce::Rectangle<float> (s.getX() + 6 + slot++ * tw, s.getY() + 6, tw - 3, 22);
         const bool on = ed.page == i;
         g.setColour (on ? Col::phos : Col::phos.withAlpha (0.06f)); g.fillRoundedRectangle (r, 3);
         if (on) { g.setColour (Col::phos.withAlpha (0.25f)); g.fillRoundedRectangle (r.expanded (2), 4); g.setColour (Col::phos); g.fillRoundedRectangle (r, 3); }
@@ -2387,7 +2388,7 @@ void Editor::bindQlinks()
     }
 }
 
-void Editor::setPage (int pg) { page = juce::jlimit (0, kNumPages - 1, pg); kitMon.setVisible (page == PG_KIT); if (page != PG_KIT && page != PG_SAMPLE) playhead.setVisible (false); if (page != PG_EQ) { proc.eqSoloPad = -1; proc.eqSoloBand = -1; } screen.hint.clear(); bindQlinks(); screen.repaint(); }
+void Editor::setPage (int pg) { page = juce::jlimit (0, kNumPages - 1, pg); if (page == PG_SAMPLE) page = PG_KIT; kitMon.setVisible (page == PG_KIT); if (page != PG_KIT && page != PG_SAMPLE) playhead.setVisible (false); if (page != PG_EQ) { proc.eqSoloPad = -1; proc.eqSoloBand = -1; } screen.hint.clear(); bindQlinks(); screen.repaint(); }
 void Editor::selectPad (int p) { if (p != sel) { screen.pendKey.clear(); proc.eqSoloPad = -1; proc.eqSoloBand = -1; } sel = juce::jlimit (0, kPads - 1, p); root.repaint(); }
 void Editor::doUndo (bool redo)
 {
