@@ -220,6 +220,7 @@ Processor::Processor()
       apvts (*this, nullptr, "JMS", layout())
 {
     { for (int k = 0; k < kNumMods; ++k) order[k] = defaultOrder()[(size_t) k]; }
+    rackFromOn();
     for (int i = 0; i < kHist; ++i) { hIn[i] = -60; hOut[i] = -60; hGrM[i] = 0; hGrL[i] = 0; hS[i] = -60; hRaw[i] = -100; hRawR[i] = -100; hOutR[i] = -100; hPpq[i] = -1; }
     startTimerHz (5);
 }
@@ -732,12 +733,14 @@ void Processor::loadPreset (int i)
     for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) if (rp->paramID != "trim" && rp->paramID != "dither" && rp->paramID != "mode" && rp->paramID != "target" && rp->paramID != "lm_ceil") rp->setValueNotifyingHost (rp->getDefaultValue());
     if (i > 0) { auto* m = apvts.getParameter ("mode"); m->setValueNotifyingHost (m->convertTo0to1 (juce::String (presets()[(size_t) i].name).startsWith ("Facile") ? 0.0f : 1.0f)); }
     for (auto& [id, v] : presets()[(size_t) i].v) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+    rackFromOn();   // la catena mostra gli effetti che il preset usa
 }
 
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
     auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr);
     juce::StringArray o; for (int k = 0; k < kNumMods; ++k) o.add (juce::String (order[k].load())); s.setProperty ("order", o.joinIntoString (","), nullptr);
+    { int mask = 0; for (int m = 0; m < kNumMods; ++m) if (inRack[m].load()) mask |= 1 << m; s.setProperty ("rack", mask, nullptr); }
     s.setProperty ("ui", juce::String (uiTheme.load()) + "," + juce::String (uiScan.load()) + "," + juce::String (uiWin.load()) + "," + juce::String (uiSpec.load()) + "," + juce::String (uiNorm.load()) + "," + juce::String (uiRel.load()) + "," + juce::String (uiPrev.load()), nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
@@ -766,7 +769,9 @@ void Processor::setStateInformation (const void* data, int size)
                 std::array<int, kNumMods> a {}; for (int k = 0; k < kNumMods; ++k) a[(size_t) k] = v[(size_t) k]; setOrder (a);
             }
         }
-        apvts.replaceState (t); } }
+        apvts.replaceState (t);
+        if (t.hasProperty ("rack")) { const int mask = t.getProperty ("rack"); for (int m = 0; m < kNumMods; ++m) inRack[m] = ((mask >> m) & 1) != 0; }
+        else rackFromOn(); } }
 }
 
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }

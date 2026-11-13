@@ -259,6 +259,8 @@ int main (int argc, char** argv)
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         if (auto* pg = std::getenv ("JPAGE")) ed.select (std::atoi (pg));
         if (auto* av = std::getenv ("JAVIEW")) { ed.advView = std::atoi (av); ed.applyAdvView(); }
+        if (std::getenv ("JGAL")) { ed.gallery.setVisible (true); ed.gallery.toFront (false); }
+        if (std::getenv ("JBROWSE")) ed.browser.open();
         if (std::getenv ("JEQPOP")) { ed.eqPage.view.tick(); ed.eqPage.view.sel = 2; ed.eqPage.view.popBand = 2; auto* d = p->apvts.getParameter (eqId (2, "dyn")); d->setValueNotifyingHost (1); auto* gg = p->apvts.getParameter (eqId (2, "g")); gg->setValueNotifyingHost (gg->convertTo0to1 (-3)); ed.eqPage.view.updatePop(); }
         if (std::getenv ("JREF"))
         {

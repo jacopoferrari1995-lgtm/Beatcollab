@@ -197,6 +197,8 @@ public:
     juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (8).withTrimmedTop (6).withTrimmedBottom (16).withTrimmedLeft (26); }
     Editor& ed; EqPop pop { *this };
     int hover = -1, drag = -1, sel = -1, popBand = -1, popHold = 0;
+    float dynShown[kEqBands] {};                       // movimento delle bande dinamiche, smussato a ogni fotogramma
+    std::unique_ptr<juce::VBlankAttachment> vb; neo::Cache grid; double lastFrame = 0;
 private:
     juce::dsp::FFT fft { 12 }; std::vector<float> win, buf, specPre, specPost;
 };
@@ -502,6 +504,60 @@ public:
     juce::Image bg; float bgScale = 0; int bgTheme = -1;
 };
 
+// ---------------------------------------------------------------------------------------------------- AVANZATO: catena a inserimento
+// colonna a sinistra: gli effetti inseriti, nell'ordine in cui suonano. Clic = apri in grande, trascina = sposta, x = togli
+class Rack : public juce::Component
+{
+public:
+    explicit Rack (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { hov = -1; hovX = hovP = false; repaint(); }
+    std::vector<int> visible() const;
+    juce::Rectangle<float> row (int i) const { return { 10, 44.0f + i * 46.0f, (float) getWidth() - 20, 42 }; }
+    juce::Rectangle<float> addR() const { return { 10, (float) getHeight() - 112, (float) getWidth() - 20, 32 }; }
+    juce::Rectangle<float> toolR (int t) const { const float w = ((float) getWidth() - 26) * 0.5f; return { 10 + t * (w + 6), (float) getHeight() - 70, w, 28 }; }
+    Editor& ed; int hov = -1, dragMod = -1; bool dragging = false, hovX = false, hovP = false; float dragY = 0, grab = 0;
+};
+// galleria per inserire un effetto: anteprima, cosa fa, quando usarlo
+class Gallery : public juce::Component
+{
+public:
+    explicit Gallery (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    juce::Rectangle<float> card (int i) const { const float w = ((float) getWidth() - 40 - 3 * 12) / 4; return { 20 + (i % 4) * (w + 12), 56.0f + (i / 4) * 140.0f, w, 128 }; }
+    juce::Rectangle<float> closeR() const { return { (float) getWidth() - 96, 14, 80, 26 }; }
+    Editor& ed; int hov = -1;
+};
+// barra in fondo: cosa sta facendo l'effetto aperto e un consiglio pratico
+class StatusBar : public juce::Component
+{
+public:
+    explicit StatusBar (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    Editor& ed; juce::String last;
+};
+// scheda dei preset: gruppi a sinistra, elenco grande a destra con la descrizione
+class PresetBrowser : public juce::Component
+{
+public:
+    explicit PresetBrowser (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    void open();
+    juce::Rectangle<float> box() const { return { 150, 70, (float) getWidth() - 300, (float) getHeight() - 110 }; }
+    juce::StringArray groups() const;
+    std::vector<int> items (int g) const;
+    Editor& ed; int group = 0, hov = -1, hovG = -1; float scroll = 0;
+};
+
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -547,6 +603,14 @@ public:
         Editor& ed;
     } advTabsComp { *this };
     void applyMode();
+    // AVANZATO a inserimento
+    Rack rack { *this }; Gallery gallery { *this }; StatusBar status { *this }; PresetBrowser browser { *this };
+    void openEffect (int m);                 // apre l'effetto in grande al centro
+    void insertModule (int m);               // lo mette in catena al suo posto naturale e lo accende
+    void removeModule (int m);               // lo spegne e lo toglie dalla catena
+    void layoutAdv();
+    static constexpr int kEff = 7;           // advView: 0..6 viste del display, 7 = effetto aperto
+    juce::Rectangle<int> centreR { 260, 106, 854, 628 }, tgtR[kNumTargets], dthR[4];
     juce::Rectangle<int> modeR[2]; bool lastEasy = false;
     juce::Image neoBg; float neoScale = 0; int neoTheme = -1; neo::Segments modeSeg;
     void paintOverChildren (juce::Graphics&) override { neo::setTheme (0); }   // gli altri plugin Jackpot nella stessa DAW tornano al loro tema

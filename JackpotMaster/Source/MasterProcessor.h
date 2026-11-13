@@ -90,6 +90,9 @@ public:
     Biquad bandF[2][2]; int soloKey = -1;   // banda dell'EQ in ascolto da sola (solo interfaccia)
     Biquad solF[2][2]; float solKey[4] { -1, -1, -1, -1 };
     std::atomic<int> order[kNumMods];
+    // AVANZATO: effetti inseriti nella catena (un effetto in catena puo essere spento senza toglierlo)
+    std::atomic<bool> inRack[kNumMods];
+    void rackFromOn() { for (int m = 0; m < kNumMods; ++m) inRack[m] = value (onParam (m)) > 0.5f; }
     void setOrder (const std::array<int, kNumMods>&);
     static std::array<int, kNumMods> defaultOrder() { return { BASS, DYNEQ, EQ432, PULTEC, DEESS, VARIMU, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT }; }
     std::array<int, kNumMods> getOrder() const;
