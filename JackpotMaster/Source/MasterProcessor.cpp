@@ -5,12 +5,12 @@ namespace jms
 {
 const char* onParam (int m)
 {
-    static const char* p[kNumMods] = { "bc_on", "eq_on", "ds_on", "bus_on", "mb_on", "ex_on", "tp_on", "im_on", "mx_on", "lm_on", "e4_on" };
+    static const char* p[kNumMods] = { "bc_on", "eq_on", "ds_on", "bus_on", "mb_on", "ex_on", "tp_on", "im_on", "mx_on", "lm_on", "e4_on", "pq_on", "vm_on" };
     return p[juce::jlimit (0, kNumMods - 1, m)];
 }
 const char* deltaParam (int m)
 {
-    static const char* p[kNumMods] = { "bc_delta", "eq_delta", "ds_delta", "bus_delta", "mb_delta", "ex_delta", "tp_delta", "im_delta", "mx_delta", "lm_delta", "e4_delta" };
+    static const char* p[kNumMods] = { "bc_delta", "eq_delta", "ds_delta", "bus_delta", "mb_delta", "ex_delta", "tp_delta", "im_delta", "mx_delta", "lm_delta", "e4_delta", "pq_delta", "vm_delta" };
     return p[juce::jlimit (0, kNumMods - 1, m)];
 }
 void Processor::setOrder (const std::array<int, kNumMods>& o) { for (int k = 0; k < kNumMods; ++k) order[k] = o[(size_t) k]; }
@@ -56,6 +56,31 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
             l.add (std::make_unique<AudioParameterFloat> (ParameterID { eqId (b, "rng"), 1 }, P + "Range", NormalisableRange<float> (-18, 18, 0.1f), -6, AudioParameterFloatAttributes().withLabel ("dB")));
         }
     }
+    // PULTEC
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "pq_on", 1 }, "Pultec On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "pq_delta", 1 }, "Pultec Delta", false));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "pq_lf", 1 }, "Pultec Low Freq", StringArray { "20 Hz", "30 Hz", "60 Hz", "100 Hz" }, 2));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "pq_lb", 1 }, "Pultec Low Boost", NormalisableRange<float> (0, 10, 0.05f), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "pq_la", 1 }, "Pultec Low Atten", NormalisableRange<float> (0, 10, 0.05f), 0));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "pq_hf", 1 }, "Pultec High Freq", StringArray { "3 kHz", "4 kHz", "5 kHz", "8 kHz", "10 kHz", "12 kHz", "16 kHz" }, 4));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "pq_hb", 1 }, "Pultec High Boost", NormalisableRange<float> (0, 10, 0.05f), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "pq_bw", 1 }, "Pultec Bandwidth", NormalisableRange<float> (0, 10, 0.05f), 5));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "pq_as", 1 }, "Pultec Atten Sel", StringArray { "5 kHz", "10 kHz", "20 kHz" }, 1));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "pq_ha", 1 }, "Pultec High Atten", NormalisableRange<float> (0, 10, 0.05f), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "pq_tube", 1 }, "Pultec Tube", NormalisableRange<float> (0, 1), 0));
+    // VARI-MU
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "vm_on", 1 }, "VariMu On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "vm_delta", 1 }, "VariMu Delta", false));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "vm_thr", 1 }, "VariMu Threshold", NormalisableRange<float> (-40, 0, 0.1f), -18, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "vm_mode", 1 }, "VariMu Mode", StringArray { "COMPRESS", "LIMIT" }, 0));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "vm_att", 1 }, "VariMu Attack", StringArray { "1 ms", "5 ms", "15 ms", "30 ms", "70 ms" }, 2));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "vm_rel", 1 }, "VariMu Recovery", StringArray { "0.2 s", "0.4 s", "0.6 s", "0.8 s", "1.2 s", "2 s", "AUTO" }, 6));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "vm_hpf", 1 }, "VariMu SC HPF", StringArray { "OFF", "60 Hz", "100 Hz", "150 Hz" }, 2));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "vm_makeup", 1 }, "VariMu Makeup", NormalisableRange<float> (-6, 12, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "vm_auto", 1 }, "VariMu Auto Makeup", true));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "vm_mix", 1 }, "VariMu Mix", NormalisableRange<float> (0, 1), 1));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "vm_tube", 1 }, "VariMu Tube", NormalisableRange<float> (0, 1), 0.3f));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "vm_ms", 1 }, "VariMu Mid Side", false));
     // EQ 432
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "e4_on", 1 }, "EQ432 On", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "e4_delta", 1 }, "EQ432 Delta", false));
@@ -194,7 +219,7 @@ Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "JMS", layout())
 {
-    { static const int def[kNumMods] = { BASS, DYNEQ, EQ432, DEESS, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT }; for (int k = 0; k < kNumMods; ++k) order[k] = def[k]; }
+    { for (int k = 0; k < kNumMods; ++k) order[k] = defaultOrder()[(size_t) k]; }
     for (int i = 0; i < kHist; ++i) { hIn[i] = -60; hOut[i] = -60; hGrM[i] = 0; hGrL[i] = 0; hS[i] = -60; hRaw[i] = -100; hRawR[i] = -100; hOutR[i] = -100; }
     startTimerHz (5);
 }
@@ -209,7 +234,7 @@ void Processor::prepareToPlay (double s, int maxBlock)
     sr = s;
     const int mb = juce::jmax (64, maxBlock);
     mx.prepare (s, mb); lim.prepare (s); easyEng.prepare (s);
-    bass.prepare (s); deq.prepare (s); peq.prepare (s, mb); e432.prepare (s); img.prepare (s); dess.prepare (s); bus.prepare (s); mband.prepare (s); tape.prepare (s); exc.prepare (s);
+    bass.prepare (s); deq.prepare (s); peq.prepare (s, mb); e432.prepare (s); pult.prepare (s); vmu.prepare (s); img.prepare (s); dess.prepare (s); bus.prepare (s); mband.prepare (s); tape.prepare (s); exc.prepare (s);
     for (auto& d : deltaVar) { d.b.assign ((size_t) (mx.latency() + lim.latency() + 1), 0.0f); d.w = 0; }
     for (auto& d : mxBy) d.prepare (mx.latency());
     for (auto& d : limBy) d.prepare (lim.latency());
@@ -362,6 +387,25 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 if (! on) break;
                 { TapeSettings t; t.model = (int) value ("tp_model"); t.drive = value ("tp_drive"); t.bias = value ("tp_bias"); t.noise = value ("tp_noise"); t.mix = value ("tp_mix"); t.delta = d;
                   tape.process (L, R, n, t); }
+                break;
+            case PULTEC:
+                if (! on) break;
+                {
+                    PultecSettings q; q.lf = (int) value ("pq_lf"); q.hf = (int) value ("pq_hf"); q.as = (int) value ("pq_as");
+                    q.lb = value ("pq_lb"); q.la = value ("pq_la"); q.hb = value ("pq_hb"); q.bw = value ("pq_bw"); q.ha = value ("pq_ha"); q.tube = value ("pq_tube");
+                    if (d) copyIn();
+                    pult.process (L, R, n, q);
+                    if (d) subIn();
+                }
+                break;
+            case VARIMU:
+                if (! on) break;
+                {
+                    VariMuSettings v; v.thr = value ("vm_thr"); v.makeup = value ("vm_makeup"); v.mix = value ("vm_mix"); v.tube = value ("vm_tube");
+                    v.mode = (int) value ("vm_mode"); v.att = (int) value ("vm_att"); v.rel = (int) value ("vm_rel"); v.hpf = (int) value ("vm_hpf");
+                    v.autoMakeup = value ("vm_auto") > 0.5f; v.ms = value ("vm_ms") > 0.5f; v.delta = d;
+                    vmu.process (L, R, n, v); vmGr = vmu.gr;
+                }
                 break;
             case EQ432:
                 if (! on) break;
@@ -680,13 +724,23 @@ void Processor::setStateInformation (const void* data, int size)
     if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0);
         if (! t.getChildWithProperty ("id", "mode").isValid()) { juce::ValueTree pm ("PARAM"); pm.setProperty ("id", "mode", nullptr); pm.setProperty ("value", 1.0f, nullptr); t.appendChild (pm, nullptr); }
         const auto o = juce::StringArray::fromTokens (t.getProperty ("order", "").toString(), ",", "");
-        if (o.size() == kNumMods - 1)
-        {   // progetto di prima dell'EQ 432: stesso ordine, l'EQ 432 subito dopo l'EQ dinamico
-            std::array<int, kNumMods> a {}; int j = 0; bool ok = true;
-            for (int k = 0; k < o.size(); ++k) { const int m = o[k].getIntValue(); ok &= m >= 0 && m < kNumMods - 1; a[(size_t) j++] = m; if (m == DYNEQ) a[(size_t) j++] = EQ432; }
-            if (ok && j == kNumMods) setOrder (a);
+        if (o.size() > 0 && o.size() <= kNumMods)
+        {   // ordine salvato: i moduli che quel progetto non conosceva vanno al loro posto di default, subito dopo il modulo che li precede
+            std::vector<int> v; bool ok = true; bool seen[kNumMods] {};
+            for (auto& t2 : o) { const int m = t2.getIntValue(); if (m < 0 || m >= kNumMods || seen[m]) { ok = false; break; } seen[m] = true; v.push_back (m); }
+            if (ok)
+            {
+                const auto def = defaultOrder();
+                for (int k = 0; k < kNumMods; ++k)
+                {
+                    const int m = def[(size_t) k]; if (seen[m]) continue;
+                    auto pos = v.begin();
+                    if (k > 0) { const int prev = def[(size_t) k - 1]; auto it = std::find (v.begin(), v.end(), prev); pos = it == v.end() ? v.end() : it + 1; }
+                    v.insert (pos, m); seen[m] = true;
+                }
+                std::array<int, kNumMods> a {}; for (int k = 0; k < kNumMods; ++k) a[(size_t) k] = v[(size_t) k]; setOrder (a);
+            }
         }
-        if (o.size() == kNumMods) { std::array<int, kNumMods> a {}; bool ok = true; for (int k = 0; k < kNumMods; ++k) { a[(size_t) k] = o[k].getIntValue(); ok &= a[(size_t) k] >= 0 && a[(size_t) k] < kNumMods; } if (ok) setOrder (a); }
         apvts.replaceState (t); } }
 }
 

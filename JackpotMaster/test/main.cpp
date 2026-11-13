@@ -162,13 +162,56 @@ int main (int argc, char** argv)
         juce::File f (argc > 2 ? argv[2] : "/tmp/master.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "pv")
+    {
+        auto sine = [&] (float hz, float amp) { return [=] (int i, float& l, float& r) { l = r = amp * (float) std::sin (2 * 3.14159265 * hz * i / sr); }; };
+        auto lvl = [] (const std::vector<float>& x, int from) { double s = 0; for (size_t i = (size_t) from; i < x.size(); ++i) s += x[i] * x[i]; return gToDb ((float) std::sqrt (s / (x.size() - from))); };
+        auto base = [&] { rnd.setSeed (7); auto p = blank(); setP (*p, "mode", 1); return p; };
+        // neutralita': pultec acceso a zero, vari-mu acceso con soglia alta
+        { auto p = base(); setP (*p, "pq_on", 1); std::vector<float> a, b, c, d; run (*p, beat, (int) sr * 2, a, b);
+          rnd.setSeed (7); auto q = base(); run (*q, beat, (int) sr * 2, c, d); float mx = 0; for (size_t i = 0; i < a.size(); ++i) mx = juce::jmax (mx, std::abs (a[i] - c[i]));
+          std::printf ("pultec a zero: diff max %.2e\n", mx); }
+        for (auto [id, v, hz] : std::vector<std::tuple<const char*, float, float>> { { "pq_lb", 10, 60 }, { "pq_lb", 10, 250 }, { "pq_la", 10, 60 }, { "pq_la", 10, 200 }, { "pq_hb", 10, 10000 }, { "pq_ha", 10, 15000 } })
+        {
+            auto p = base(); setP (*p, "pq_on", 1); setP (*p, id, v); std::vector<float> a, b; run (*p, sine (hz, 0.1f), (int) sr, a, b);
+            std::printf ("%s=%g @%gHz: %+.1f dB\n", id, v, hz, lvl (a, (int) sr / 2) - gToDb (0.1f / std::sqrt (2.0f)));
+        }
+        { auto p = base(); setP (*p, "pq_on", 1); setP (*p, "pq_lb", 10); setP (*p, "pq_la", 10);
+          for (float hz : { 30.f, 60.f, 120.f, 300.f, 1000.f }) { auto q = base(); setP (*q, "pq_on", 1); setP (*q, "pq_lb", 6); setP (*q, "pq_la", 4); std::vector<float> a, b; run (*q, sine (hz, 0.1f), (int) sr, a, b); std::printf ("trucco lb6 la4 @%gHz: %+.1f dB\n", hz, lvl (a, (int) sr / 2) - gToDb (0.1f / std::sqrt (2.0f))); } }
+        { auto p = base(); setP (*p, "pq_on", 1); setP (*p, "pq_tube", 1); std::vector<float> a, b; run (*p, sine (1000, 0.5f), (int) sr * 2, a, b); std::printf ("pultec valvola 100%% THD %.2f%%  livello %+.2f dB\n", thd (a, (int) sr, sr, 1000), lvl (a, (int) sr) - gToDb (0.5f / std::sqrt (2.0f))); }
+        { auto p = base(); setP (*p, "vm_on", 1); setP (*p, "vm_thr", 0); setP (*p, "vm_tube", 0); setP (*p, "vm_auto", 0); std::vector<float> a, b, c, d; run (*p, sine (1000, 0.05f), (int) sr * 2, a, b);
+          std::printf ("varimu sotto soglia: %+.3f dB  gr %.2f\n", lvl (a, (int) sr) - gToDb (0.05f / std::sqrt (2.0f)), p->vmGr.load()); }
+        for (float tb : { 0.3f, 1.0f }) { auto p = base(); setP (*p, "vm_on", 1); setP (*p, "vm_thr", 0); setP (*p, "vm_tube", tb); setP (*p, "vm_auto", 0); std::vector<float> a, b; run (*p, sine (1000, 0.5f), (int) sr * 2, a, b); std::printf ("varimu valvola %.0f%% THD %.2f%%\n", tb * 100, thd (a, (int) sr, sr, 1000)); }
+        for (float thr : { -12.f, -18.f, -24.f, -30.f }) for (int mode : { 0, 1 })
+        {
+            auto p = base(); setP (*p, "vm_on", 1); setP (*p, "vm_thr", thr); setP (*p, "vm_mode", (float) mode); setP (*p, "vm_auto", 0);
+            std::vector<float> a, b; run (*p, beat, (int) sr * 6, a, b); float mx = 0, mn = 99; double s = 0; int k = 0;
+            std::vector<float> c, d; rnd.setSeed (7); auto q = base(); run (*q, beat, (int) sr * 6, c, d);
+            std::printf ("varimu thr %g mode %d: in %.1f out %.1f dB  gr ora %.2f  TP %.1f\n", thr, mode, lvl (c, (int) sr * 3), lvl (a, (int) sr * 3), p->vmGr.load(), measTP (a, (int) sr * 3));
+            (void) mx; (void) mn; (void) s; (void) k;
+        }
+        { auto p = base(); setP (*p, "vm_on", 1); setP (*p, "vm_thr", -24); setP (*p, "vm_auto", 1); std::vector<float> a, b, c, d; run (*p, beat, (int) sr * 8, a, b); rnd.setSeed (7); auto q = base(); run (*q, beat, (int) sr * 8, c, d);
+          std::printf ("varimu auto makeup: in %.1f out %.1f\n", lvl (c, (int) sr * 4), lvl (a, (int) sr * 4)); }
+        { auto p = base(); setP (*p, "vm_on", 1); setP (*p, "vm_thr", -24); setP (*p, "vm_delta", 1); std::vector<float> a, b; run (*p, beat, (int) sr * 4, a, b); std::printf ("varimu delta: %.1f dB\n", lvl (a, (int) sr * 2)); }
+        { auto p = base(); setP (*p, "vm_on", 1); setP (*p, "vm_thr", -30); setP (*p, "vm_ms", 1); setP (*p, "vm_att", 0); std::vector<float> a, b; run (*p, beat, (int) sr * 4, a, b);
+          bool ok = true; for (auto v : a) if (! std::isfinite (v) || std::abs (v) > 4) ok = false; std::printf ("varimu ms/att1: %s\n", ok ? "ok" : "PROBLEMA"); }
+        // ordine: progetto vecchio senza i nuovi moduli
+        { auto p = base(); auto st = p->apvts.copyState(); std::printf ("ordine default:"); for (int k = 0; k < kNumMods; ++k) std::printf (" %s", modInfo (p->order[k]).name); std::printf ("\n"); }
+        { auto p = base(); juce::MemoryBlock mb; p->getStateInformation (mb); auto x = juce::AudioProcessor::getXmlFromBinary (mb.getData(), (int) mb.getSize());
+          x->setAttribute ("order", "1,0,10,2,3,4,5,6,7,8,9"); juce::MemoryBlock m2; juce::AudioProcessor::copyXmlToBinary (*x, m2);
+          auto q = base(); q->setStateInformation (m2.getData(), (int) m2.getSize()); std::printf ("ordine migrato:"); for (int k = 0; k < kNumMods; ++k) std::printf (" %s", modInfo (q->order[k]).name); std::printf ("\n"); }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "snap")
     {
+
         auto p = fresh(); setP (*p, "mode", 1); setP (*p, "mx_gain", 8); setP (*p, "mx_style", PUNCH); setP (*p, "mx_clip", 0.4f);
         setP (*p, "bc_on", 1); setP (*p, "bc_punch", 0.4f); setP (*p, "bc_mono", 110); setP (*p, "bc_harm", 0.3f); setP (*p, "bc_thr", -12);
         setP (*p, "eq_on", 1); setP (*p, eqId (2, "g"), -3); setP (*p, eqId (4, "dyn"), 1); setP (*p, eqId (4, "f"), 7000); setP (*p, eqId (4, "thr"), -40); setP (*p, eqId (5, "g"), 2.5f);
         setP (*p, "ds_on", 1); setP (*p, "ds_thr", -10); setP (*p, "bus_on", 1); setP (*p, "bus_thr", -18); setP (*p, "mb_on", 1); setP (*p, "mb3_up", 0.5f); setP (*p, "mb1_thr", -20);
         setP (*p, "im_on", 1); setP (*p, "im_w1", 0.3f); setP (*p, "im_w3", 1.4f); setP (*p, "im_w4", 1.6f); setP (*p, "im_s3", 0.3f); setP (*p, "im_s4", 0.4f);
+        if (std::getenv ("JMODS")) { setP (*p, "pq_on", 1); setP (*p, "pq_lb", 6); setP (*p, "pq_la", 4); setP (*p, "pq_hb", 3); setP (*p, "pq_ha", 1.5f); setP (*p, "pq_tube", 0.3f);
+                                     setP (*p, "vm_on", 1); setP (*p, "vm_thr", -26); }
         std::vector<float> a, b; run (*p, beat, (int) sr * 12, a, b);
         Editor ed (*p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));

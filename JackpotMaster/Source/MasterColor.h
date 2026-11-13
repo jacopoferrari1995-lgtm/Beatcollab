@@ -215,4 +215,138 @@ public:
 private:
     double sr = 48000; Biquad f[2][k432Bands]; float key[k432Bands] { -1, -1, -1, -1, -1 }; AdaaTanh sat[2]; float dcX[2] {}, dcY[2] {};
 };
+
+// --------------------------------------------------------------------------- PULTEC (EQ passivo a valvole, stile EQP-1A)
+// Bassi: BOOST e ATTEN sulla stessa frequenza agiscono su curve diverse (l'attenuazione ha l'angolo piu' in alto),
+// quindi usati insieme gonfiano il sub e scavano sopra: il famoso trucco. Alti: campana con larghezza (BANDWIDTH) e
+// attenuazione a shelf separata. Le manopole 0..10 come sull'hardware.
+struct PultecSettings { int lf = 2, hf = 2, as = 1; float lb = 0, la = 0, hb = 0, bw = 5, ha = 0, tube = 0; };
+inline float pultecLf (int i) { static const float f[4] = { 20, 30, 60, 100 }; return f[juce::jlimit (0, 3, i)]; }
+inline float pultecHf (int i) { static const float f[7] = { 3000, 4000, 5000, 8000, 10000, 12000, 16000 }; return f[juce::jlimit (0, 6, i)]; }
+inline float pultecAs (int i) { static const float f[3] = { 5000, 10000, 20000 }; return f[juce::jlimit (0, 2, i)]; }
+// le curve: in un posto solo, cosi' disegno e suono coincidono
+inline void pultecDesign (const PultecSettings& S, double sr, Biquad* f /* 4 filtri */, bool* act)
+{
+    const float lf = pultecLf (S.lf);
+    act[0] = S.lb > 0.01f; act[1] = S.la > 0.01f; act[2] = S.hb > 0.01f; act[3] = S.ha > 0.01f;
+    // boost bassi: shelf con un filo di risonanza, fino a +14 dB
+    f[0].set (Biquad::LSHELF, lf, S.lb * 1.4, 0.8, sr);
+    // atten bassi: shelf molto dolce con l'angolo ~2 volte piu' in alto, fino a -11 dB
+    f[1].set (Biquad::LSHELF, lf * 2.2, -S.la * 1.1, 0.4, sr);
+    // boost alti: campana, BANDWIDTH 0 = stretta (Q 2.2), 10 = larga (Q 0.35), fino a +16 dB
+    const double q = 2.2 * std::pow (0.35 / 2.2, S.bw / 10.0);
+    f[2].set (Biquad::BELL, pultecHf (S.hf), S.hb * 1.6, q, sr);
+    // atten alti: shelf verso il basso, fino a -16 dB
+    f[3].set (Biquad::HSHELF, pultecAs (S.as) * 0.7, -S.ha * 1.6, 0.6, sr);
+}
+class Pultec
+{
+public:
+    void prepare (double s) { sr = s; for (auto& c : f) for (auto& x : c) x.reset(); key = -1; for (auto& a : sat) a = {}; for (auto& v : dc) v = 0; }
+    void process (float* L, float* R, int n, const PultecSettings& S)
+    {
+        const float k = S.lf * 1.0f + S.hf * 10 + S.as * 100 + S.lb * 1e3f + S.la * 1.3e4f + S.hb * 1.7e5f + S.bw * 2.3e6f + S.ha * 3.1e7f;
+        if (k != key)
+        {
+            key = k; Biquad nf[4];
+            pultecDesign (S, sr, nf, act);
+            for (int c = 0; c < 2; ++c) for (int b = 0; b < 4; ++b) { const double z1 = f[c][b].z1, z2 = f[c][b].z2; f[c][b] = nf[b]; f[c][b].z1 = z1; f[c][b].z2 = z2; }
+        }
+        const bool any = act[0] || act[1] || act[2] || act[3];
+        const float tube = S.tube, drv = 0.45f + 0.45f * tube, bias = 0.08f * tube, nrm = 1.0f / (1.0f - std::tanh (bias) * std::tanh (bias));
+        const float dA = 1.0f - (float) (juce::MathConstants<double>::twoPi * 8.0 / sr);
+        float* io[2] = { L, R };
+        for (int c = 0; c < 2; ++c)
+            for (int i = 0; i < n; ++i)
+            {
+                float y = io[c][i];
+                if (any) for (int b = 0; b < 4; ++b) if (act[b]) y = f[c][b] (y);
+                if (tube > 0.001f)
+                {   // stadio d'uscita a valvola (12AX7 + 12AU7): armoniche pari morbide, livello invariato
+                    const float v = sat[c] (y * drv, bias) * nrm / drv;
+                    const float o = v - dc[c * 2] + dA * dc[c * 2 + 1]; dc[c * 2] = v; dc[c * 2 + 1] = o;
+                    y = y + (o - y) * tube;
+                }
+                io[c][i] = y;
+            }
+    }
+private:
+    double sr = 48000; Biquad f[2][4]; bool act[4] {}; float key = -1; AdaaTanh sat[2]; float dc[4] {};
+};
+
+// --------------------------------------------------------------------------- VARI-MU (compressore valvolare a pendenza variabile)
+// Nel vari-mu il rapporto non e' fisso: piu' il segnale supera la soglia, piu' la valvola comprime (ginocchio larghissimo
+// che continua a salire). Attacco e rilascio lenti e "rotondi", rilascio che dipende dal programma (piu' compressione = ritorno
+// piu' lento). COMPRESS = curva dolce (~1.5:1 che sale), LIMIT = piu' ripida. TUBE = colore della valvola.
+struct VariMuSettings { float thr = -18, makeup = 0, mix = 1, tube = 0.3f; int mode = 0, att = 2, rel = 2, hpf = 1; bool autoMakeup = true, delta = false, ms = false; };
+inline float vmAtt (int i) { static const float a[5] = { 1, 5, 15, 30, 70 }; return a[juce::jlimit (0, 4, i)]; }
+inline float vmRel (int i) { static const float r[7] = { 200, 400, 600, 800, 1200, 2000, -1 }; return r[juce::jlimit (0, 6, i)]; }
+inline float vmHpf (int i) { static const float h[4] = { 0, 60, 100, 150 }; return h[juce::jlimit (0, 3, i)]; }
+// riduzione statica (dB) per un livello sopra soglia: pendenza che cresce col superamento
+inline float vmCurve (float over, int mode)
+{
+    const float W = 12.0f;                                                   // ginocchio di 12 dB centrato sulla soglia
+    const float r0 = mode == 0 ? 1.3f : 2.0f, r1 = mode == 0 ? 0.08f : 0.25f;   // il rapporto parte da r0 e sale di r1 per ogni dB sopra soglia
+    const float r = r0 + r1 * juce::jmax (0.0f, over);
+    if (over <= -W * 0.5f) return 0.0f;
+    if (over < W * 0.5f) { const float t = over + W * 0.5f; return (1.0f - 1.0f / r) * t * t / (2.0f * W); }
+    return (1.0f - 1.0f / r) * over;
+}
+class VariMu
+{
+public:
+    void prepare (double s) { sr = s; env = 0; gdb = 0; slow = 0; lastHpf = -1; for (auto& h : hp) h.reset(); for (auto& a : sat) a = {}; for (auto& v : dc) v = 0; avgGr = 0; mkG = -1; }
+    void process (float* L, float* R, int n, const VariMuSettings& S)
+    {
+        const float hz = vmHpf (S.hpf);
+        if (hz != lastHpf) { lastHpf = hz; for (auto& h : hp) { if (hz > 0) h.set (Biquad::LCUT, hz, 0, 0.707, sr); else h = Biquad(); h.reset(); } }
+        const float aK = (float) std::exp (-1.0 / (vmAtt (S.att) * 0.001 * sr));
+        const float rMs = vmRel (S.rel);
+        const float eK = (float) std::exp (-1.0 / (0.010 * sr));             // detector RMS 10 ms
+        const float avK = (float) std::exp (-(double) n / (3.0 * sr));
+        const float mkDb = S.makeup + (S.autoMakeup ? avgGr * 1.0f : 0.0f);
+        const float mk0 = mkG < 0 ? dbToG (mkDb) : mkG, mk1 = dbToG (mkDb);
+        const float tube = S.tube, drv = 0.45f + 0.45f * tube, bias = 0.08f * tube, nrm = 1.0f / (1.0f - std::tanh (bias) * std::tanh (bias));
+        const float dA = 1.0f - (float) (juce::MathConstants<double>::twoPi * 8.0 / sr);
+        float grMaxB = 0; double grSum = 0;
+        for (int i = 0; i < n; ++i)
+        {
+            float l = L[i], r = R[i];
+            if (S.ms) { const float m = 0.5f * (l + r), sd = 0.5f * (l - r); l = m; r = sd; }
+            const float dl = hp[0] (l), dr = hp[1] (r);
+            env = eK * env + (1 - eK) * 0.5f * (dl * dl + dr * dr);
+            const float lev = 10.0f * std::log10 (env + 1e-12f);
+            const float tgt = -vmCurve (lev - S.thr, S.mode);              // dB (<= 0)
+            // rilascio: fisso, oppure AUTO (veloce dopo picchi brevi, lento dopo compressione lunga)
+            float relMs = rMs;
+            if (rMs < 0) { slow = 0.9995f * slow + 0.0005f * (-gdb); relMs = 300.0f + 250.0f * slow; }
+            // la valvola stessa "ritarda": un altro filtro morbido sopra a quello di rilascio
+            const float rK = (float) std::exp (-1.0 / (relMs * 0.001 * sr * (1.0f + 0.04f * -gdb)));
+            gdb = tgt < gdb ? aK * gdb + (1 - aK) * tgt : rK * gdb + (1 - rK) * tgt;
+            grMaxB = juce::jmin (grMaxB, gdb); grSum += gdb;
+            const float g = dbToG (gdb) * (mk0 + (mk1 - mk0) * (float) (i + 1) / (float) n);
+            float yl = l * g, yr = r * g;
+            if (tube > 0.001f)
+            {   // le valvole lavorano di piu' quando comprimono: colore che segue la riduzione
+                const float d2 = drv * (1.0f + 0.03f * -gdb);
+                float* ys[2] = { &yl, &yr };
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float v = sat[c] (*ys[c] * d2, bias) * nrm / d2;
+                    const float o = v - dc[c * 2] + dA * dc[c * 2 + 1]; dc[c * 2] = v; dc[c * 2 + 1] = o;
+                    *ys[c] = *ys[c] + (o - *ys[c]) * tube;
+                }
+            }
+            if (S.ms) { const float m = yl, sd = yr; yl = m + sd; yr = m - sd; }
+            const float xl = L[i], xr = R[i];
+            yl = xl + (yl - xl) * S.mix; yr = xr + (yr - xr) * S.mix;
+            L[i] = S.delta ? yl - xl : yl; R[i] = S.delta ? yr - xr : yr;
+        }
+        gr = -grMaxB; mkG = mk1;
+        avgGr = avK * avgGr + (1 - avK) * (float) (-grSum / juce::jmax (1, n));
+    }
+    float gr = 0;
+private:
+    double sr = 48000; Biquad hp[2]; float env = 0, gdb = 0, slow = 0, lastHpf = -1, avgGr = 0, mkG = -1; AdaaTanh sat[2]; float dc[4] {};
+};
 }

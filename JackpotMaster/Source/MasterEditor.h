@@ -346,6 +346,40 @@ public:
     E4View view; std::unique_ptr<Segs> range; std::unique_ptr<Switch> sh1, sh5;
 };
 
+// PULTEC: curva passiva a valvole, sezione bassi e sezione alti come sull'hardware
+class PqView : public juce::Component
+{
+public:
+    PqView (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    Editor& ed;
+};
+class PultecPage : public ModPage
+{
+public:
+    PultecPage (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    PqView view; std::unique_ptr<Segs> lf, hf, as;
+};
+
+// VARI-MU: ago a valvole + storia della riduzione
+class VmView : public juce::Component
+{
+public:
+    VmView (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    Editor& ed; float needle = 0; float hist[240] {}; int hw = 0;
+};
+class VariMuPage : public ModPage
+{
+public:
+    VariMuPage (Editor&);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    VmView view; std::unique_ptr<Segs> mode, att, rel, hpf; std::unique_ptr<Switch> autoM, ms;
+};
+
 constexpr int TOOL_BAL = 100, TOOL_REF = 101;
 
 // bilanciamento tonale rispetto al genere
@@ -470,7 +504,7 @@ public:
     BusPage busPage { *this };
     MultiPage mbPage { *this };
     TapePage tpPage { *this };
-    ExciterPage exPage { *this }; Eq432Page e4Page { *this };
+    ExciterPage exPage { *this }; Eq432Page e4Page { *this }; PultecPage pqPage { *this }; VariMuPage vmPage { *this };
     BalancePage balPage { *this };
     RefPage refPage { *this };
     ThirdAnalyzer live;   // spettro medio dell'uscita (mobile, ~3 s)

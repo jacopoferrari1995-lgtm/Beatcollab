@@ -9,7 +9,7 @@
 namespace jms
 {
 // moduli della catena di master (in ordine). Fase 1: MAXIMIZER e LIMITER.
-enum ModId { BASS, DYNEQ, DEESS, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT, EQ432, kNumMods };   // EQ432 aggiunto in fondo (i progetti salvati restano giusti)
+enum ModId { BASS, DYNEQ, DEESS, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT, EQ432, PULTEC, VARIMU, kNumMods };   // EQ432 aggiunto in fondo (i progetti salvati restano giusti)
 struct ModInfo { const char* name; const char* sub; bool ready; juce::uint32 colour; };
 inline const ModInfo& modInfo (int m)
 {
@@ -18,7 +18,7 @@ inline const ModInfo& modInfo (int m)
         { "BUS COMP", "colla da console", true, 0xffa66bff }, { "MULTIBANDA", "dinamica + OTT", true, 0xffff7a3d },
         { "EXCITER", "armoniche per banda", true, 0xffff5ea8 }, { "TAPE", "nastro analogico", true, 0xffffd23d },
         { "IMAGER", "stereo per banda", true, 0xff3dffd2 }, { "MAXIMIZER", "volume e carattere", true, 0xffff2e88 }, { "LIMITER", "true peak finale", true, 0xffff3b5c },
-        { "EQ 432", "eq classico da mastering", true, 0xffffd27a } };
+        { "EQ 432", "eq classico da mastering", true, 0xffffd27a }, { "PULTEC", "eq passivo a valvole", true, 0xffe8c38a }, { "VARI-MU", "compressore a valvole", true, 0xffc98bff } };
     return I[juce::jlimit (0, kNumMods - 1, m)];
 }
 
@@ -84,13 +84,14 @@ public:
     // misure per l'interfaccia
     std::atomic<float> lufsM { -100 }, lufsS { -100 }, lufsI { -100 }, lra { 0 }, tpMax { -100 }, inS { -100 }, matchDb { 0 }, normDb { 0 };
     std::atomic<float> grMax { 0 }, grLim { 0 }, inPk[2] {}, outPk[2] {}, outRms[2] {};   // outRms: media quadratica ~300 ms (colonna del livello)
-    std::atomic<float> bassGain { 0 }, bassLow { 0 }, eqDyn[kEqBands] {}, eqLvl[kEqBands] {}, imCorr[kImBands] {}, imLim[kImBands] {}, corrAll { 1 };
+    std::atomic<float> bassGain { 0 }, bassLow { 0 }, eqDyn[kEqBands] {}, eqLvl[kEqBands] {}, imCorr[kImBands] {}, imLim[kImBands] {}, corrAll { 1 }, vmGr { 0 };
     std::atomic<int> eqSolo { -1 };
     std::atomic<int> eqListen { -1 };  // FACILE: BASSI/MEDI/ALTI in ascolto. 0..2 = solo della zona, 3..5 = delta della banda
     Biquad bandF[2][2]; int soloKey = -1;   // banda dell'EQ in ascolto da sola (solo interfaccia)
     Biquad solF[2][2]; float solKey[4] { -1, -1, -1, -1 };
     std::atomic<int> order[kNumMods];
     void setOrder (const std::array<int, kNumMods>&);
+    static std::array<int, kNumMods> defaultOrder() { return { BASS, DYNEQ, EQ432, PULTEC, DEESS, VARIMU, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT }; }
     std::array<int, kNumMods> getOrder() const;
     std::atomic<float> bassPeak { 0 }, exMeter { 0 };
     // traccia di riferimento
@@ -116,7 +117,7 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100;
     EasyEngine easyEng; double inAcc = 0; int inAccN = 0; float grSm = 0;
-    BassControl bass; DynEq deq; jmx::ProEq peq; Eq432 e432; Imager img; DeEsser dess; BusComp bus; Multiband mband; TapeMachine tape; Exciter exc; VarDelay deltaVar[2];
+    BassControl bass; DynEq deq; jmx::ProEq peq; Eq432 e432; Pultec pult; VariMu vmu; Imager img; DeEsser dess; BusComp bus; Multiband mband; TapeMachine tape; Exciter exc; VarDelay deltaVar[2];
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2];
     juce::AudioBuffer<float> tmp, keep;
