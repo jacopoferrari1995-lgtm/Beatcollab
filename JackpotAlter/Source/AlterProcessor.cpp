@@ -126,6 +126,7 @@ void DriveStage::prepare (double s, int maxBlock)
         lastX[k] = -1;
     }
     lastNb = -1; for (auto& t : lastTone) t = 99; eIn = eOut = 1e-6f; agSm = 1; for (auto& l : lvSm) l = 1;
+    for (auto& d : bd) d.assign ((size_t) juce::jmax (1, osLat), 0.0f); bdPos = 0; xw = 0; tdl.assign ((size_t) maxB, 0.0f); tdr = tdl;
 }
 
 void DriveStage::process (float* L, float* R, int n, const Settings& S)
@@ -154,10 +155,24 @@ void DriveStage::process (float* L, float* R, int n, const Settings& S)
         act[b] = ! S.b[b].byp && S.b[b].drive > 0.0005f;
     }
     float bandPk[kBandsMax] {};
+    bool need = nb > 1 || anySolo; for (int b = 0; b < nb; ++b) need |= act[b] || std::abs (lv[b] - 1.0f) > 1e-4f;
+    const float xs1 = 1.0f / (float) (0.02 * sr);
     for (int off = 0; off < n; off += maxB)
     {
         const int m = juce::jmin (maxB, n - off);
         float* l = L + off; float* r = R + off;
+        // percorso a riposo: ingresso ritardato quanto il sovracampionamento
+        const int BL = (int) bd[0].size();
+        for (int i = 0; i < m; ++i)
+        {
+            tdl[(size_t) i] = bd[0][(size_t) bdPos]; tdr[(size_t) i] = bd[1][(size_t) bdPos];
+            bd[0][(size_t) bdPos] = l[i]; bd[1][(size_t) bdPos] = r[i]; if (++bdPos >= BL) bdPos = 0;
+        }
+        if (! need && xw <= 0.0f)
+        {
+            for (int i = 0; i < m; ++i) { l[i] = tdl[(size_t) i]; r[i] = tdr[(size_t) i]; }
+            agSm = 1; autoDb = 0; continue;
+        }
         double ei = 0; for (int i = 0; i < m; ++i) ei += l[i] * l[i] + r[i] * r[i];
         float* chans[2] = { l, r };
         juce::dsp::AudioBlock<float> blk (chans, 2, (size_t) m);
@@ -206,6 +221,12 @@ void DriveStage::process (float* L, float* R, int n, const Settings& S)
         const float step = (target - a0) / (float) m;
         for (int i = 0; i < m; ++i) { const float a = a0 + step * (float) (i + 1); l[i] *= a; r[i] *= a; }
         agSm = target;
+        // dissolvenza fra percorso a riposo e percorso con il drive
+        for (int i = 0; i < m; ++i)
+        {
+            xw = need ? juce::jmin (1.0f, xw + xs1) : juce::jmax (0.0f, xw - xs1);
+            if (xw < 1.0f) { l[i] = tdl[(size_t) i] + (l[i] - tdl[(size_t) i]) * xw; r[i] = tdr[(size_t) i] + (r[i] - tdr[(size_t) i]) * xw; }
+        }
     }
     for (int b = 0; b < kBandsMax; ++b) bandLev[b] = b < nb ? juce::jmax (bandPk[b], bandLev[b].load() * 0.85f) : 0.0f;
 }

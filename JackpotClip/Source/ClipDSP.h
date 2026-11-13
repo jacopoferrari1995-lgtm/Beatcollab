@@ -68,9 +68,9 @@ public:
         for (int k = 0; k < 4; ++k)
         {
             if (k == 0) { ovs[k].reset(); continue; }
-            ovs[k] = std::make_unique<juce::dsp::Oversampling<float>> (2, (size_t) k, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false);
+            ovs[k] = std::make_unique<juce::dsp::Oversampling<float>> (2, (size_t) k, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
             ovs[k]->initProcessing ((size_t) maxBlock);
-            ovsLo[k] = std::make_unique<juce::dsp::Oversampling<float>> (2, (size_t) k, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false);
+            ovsLo[k] = std::make_unique<juce::dsp::Oversampling<float>> (2, (size_t) k, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
             ovsLo[k]->initProcessing ((size_t) maxBlock);
         }
         dry.setSize (2, maxBlock); lo.setSize (2, maxBlock); hi.setSize (2, maxBlock);

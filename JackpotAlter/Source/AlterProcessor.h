@@ -73,6 +73,8 @@ private:
     float lastX[3] { -1, -1, -1 }; int lastNb = -1;
     BQ toneLo[kBandsMax][2], toneHi[kBandsMax][2]; float lastTone[kBandsMax] { 99, 99, 99, 99 };
     float eIn = 1e-6f, eOut = 1e-6f, agSm = 1, lvSm[kBandsMax] { 1, 1, 1, 1 };
+    // a riposo (nessuna banda accesa) il suono passa solo ritardato: neutro esatto, senza i filtri del sovracampionamento
+    std::vector<float> bd[2], tdl, tdr; int bdPos = 0; float xw = 0;
 };
 
 // ---------------------------------------------------------------- ECHO con saturazione nel ritorno
