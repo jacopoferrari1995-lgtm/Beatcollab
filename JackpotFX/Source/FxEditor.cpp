@@ -375,6 +375,7 @@ void Editor::paintStatic (juce::Graphics& g)
 }
 void Editor::paint (juce::Graphics& g)
 {
+    neo::setTheme (0);
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
     if (bg.isNull() || std::abs (bgScale - sc) > 0.01f)

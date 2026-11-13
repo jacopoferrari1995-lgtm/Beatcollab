@@ -108,10 +108,13 @@ public:
     void autoInput();                                   // porta l'ingresso nella zona ottimale
     static constexpr float kInOpt = -15.0f;             // LUFS short-term ideali in ingresso (prima del LOUD)
     std::atomic<float> inAvg { -100 }, crush { 0 }, grAvg { 0 }, calmNow { 0 }, glueGr { 0 };
-    static constexpr int kHist = 800;   // 20 s a 25 ms
+    static constexpr int kHist = 4096;  // 20 s a 5 ms: onde fluide anche zoomate
+    static constexpr double kColSec = 0.005;
     std::atomic<float> hIn[kHist], hOut[kHist], hGrM[kHist], hGrL[kHist], hS[kHist]; std::atomic<int> hW { 0 };
     std::atomic<float> hRaw[kHist], hRawR[kHist], hOutR[kHist]; std::atomic<int> hTot { 0 };
     std::atomic<float> hPpq[kHist]; std::atomic<float> hostBpm { 120 }; std::atomic<bool> hostPlay { false }; std::atomic<int> hostNum { 4 }; double blockPpq = 0; std::atomic<int> lastBlock { 512 };
+    // stato delle viste (non automatizzabile, salvato col progetto): tema, scorrimento, finestra, spettro
+    std::atomic<int> uiTheme { 1 }, uiScan { 0 }, uiWin { 1 }, uiSpec { 0 }, uiNorm { 0 }, uiRel { 1 }, uiPrev { 0 };
     std::vector<float> mRawA, mRawQ, mInA;   // il wav senza master (picco e RMS) e l'RMS in uscita
 
 private:

@@ -584,7 +584,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
     // colonne dell'onda da 25 ms esatti, chiuse anche a meta' blocco: il tempo sullo schermo e' quello vero, qualunque sia il buffer della DAW
     colM = juce::jmax (colM, mx.gr); colL = juce::jmax (colL, lim.gr);
-    const int colLen = juce::jmax (1, (int) std::lround (sr * 0.025));
+    const int colLen = juce::jmax (1, (int) std::lround (sr * kColSec));
     lastBlock = n;
     const double bps = hostBpm.load() / 60.0;
     for (int i = 0; i < n; ++i)
@@ -738,12 +738,16 @@ void Processor::getStateInformation (juce::MemoryBlock& d)
 {
     auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr);
     juce::StringArray o; for (int k = 0; k < kNumMods; ++k) o.add (juce::String (order[k].load())); s.setProperty ("order", o.joinIntoString (","), nullptr);
+    s.setProperty ("ui", juce::String (uiTheme.load()) + "," + juce::String (uiScan.load()) + "," + juce::String (uiWin.load()) + "," + juce::String (uiSpec.load()) + "," + juce::String (uiNorm.load()) + "," + juce::String (uiRel.load()) + "," + juce::String (uiPrev.load()), nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
     if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0);
         if (! t.getChildWithProperty ("id", "mode").isValid()) { juce::ValueTree pm ("PARAM"); pm.setProperty ("id", "mode", nullptr); pm.setProperty ("value", 1.0f, nullptr); t.appendChild (pm, nullptr); }
+        { const auto u = juce::StringArray::fromTokens (t.getProperty ("ui", "").toString(), ",", "");
+          std::atomic<int>* dst[7] = { &uiTheme, &uiScan, &uiWin, &uiSpec, &uiNorm, &uiRel, &uiPrev };
+          for (int i = 0; i < juce::jmin (7, u.size()); ++i) dst[i]->store (u[i].getIntValue()); }
         const auto o = juce::StringArray::fromTokens (t.getProperty ("order", "").toString(), ",", "");
         if (o.size() > 0 && o.size() <= kNumMods)
         {   // ordine salvato: i moduli che quel progetto non conosceva vanno al loro posto di default, subito dopo il modulo che li precede

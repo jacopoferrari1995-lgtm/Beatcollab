@@ -150,7 +150,12 @@ int main (int argc, char** argv)
     }
     if (argc > 1 && juce::String (argv[1]) == "easysnap")
     {
-        auto p = blank(); p->loadPreset (1 + (std::getenv ("JPR") ? std::atoi (std::getenv ("JPR")) : 0));
+        static FakeHead fh2; if (std::getenv ("JBPM")) gHead = &fh2;
+        auto p = blank(); if (gHead) p->setPlayHead (gHead); p->loadPreset (1 + (std::getenv ("JPR") ? std::atoi (std::getenv ("JPR")) : 0));
+        if (auto* v = std::getenv ("JTHEME")) p->uiTheme = std::atoi (v);
+        if (auto* v = std::getenv ("JSCAN")) p->uiScan = std::atoi (v);
+        if (auto* v = std::getenv ("JWIN")) p->uiWin = std::atoi (v);
+        if (auto* v = std::getenv ("JSPEC")) p->uiSpec = std::atoi (v);
         std::vector<float> a, b; run (*p, [&] (int k, float& l, float& r) { beat (k, l, r); l *= 0.6f; r *= 0.6f; }, (int) sr * 22, a, b);
         Editor ed (*p);
         if (auto* v = std::getenv ("JVIEW")) ed.easyPage.view = std::atoi (v);
@@ -170,6 +175,9 @@ int main (int argc, char** argv)
             const double t1 = juce::Time::getMillisecondCounterHiRes();
             for (int i = 0; i < 20; ++i) { ed.tickForTest(); auto im = ed.easyPage.stage.createComponentSnapshot (ed.easyPage.stage.getLocalBounds(), true, 2.0f); }
             std::printf ("solo onda @2x: %.1f ms\n", (juce::Time::getMillisecondCounterHiRes() - t1) / 20.0);
+            for (int v = 0; v < kEasyViews; ++v) { ed.easyPage.view = v; const double t3 = juce::Time::getMillisecondCounterHiRes();
+              for (int i = 0; i < 20; ++i) { auto im = ed.easyPage.stage.createComponentSnapshot (ed.easyPage.stage.getLocalBounds(), true, 2.0f); }
+              std::printf ("  vista %d @2x: %.1f ms\n", v, (juce::Time::getMillisecondCounterHiRes() - t3) / 20.0); }
         }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argc > 2 ? argv[2] : "/tmp/master.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
@@ -269,6 +277,9 @@ int main (int argc, char** argv)
             const double t1 = juce::Time::getMillisecondCounterHiRes();
             for (int i = 0; i < 20; ++i) { ed.tickForTest(); auto im = ed.easyPage.stage.createComponentSnapshot (ed.easyPage.stage.getLocalBounds(), true, 2.0f); }
             std::printf ("solo onda @2x: %.1f ms\n", (juce::Time::getMillisecondCounterHiRes() - t1) / 20.0);
+            for (int v = 0; v < kEasyViews; ++v) { ed.easyPage.view = v; const double t3 = juce::Time::getMillisecondCounterHiRes();
+              for (int i = 0; i < 20; ++i) { auto im = ed.easyPage.stage.createComponentSnapshot (ed.easyPage.stage.getLocalBounds(), true, 2.0f); }
+              std::printf ("  vista %d @2x: %.1f ms\n", v, (juce::Time::getMillisecondCounterHiRes() - t3) / 20.0); }
         }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argc > 2 ? argv[2] : "/tmp/master.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);

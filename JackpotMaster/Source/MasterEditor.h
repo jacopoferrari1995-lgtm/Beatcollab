@@ -427,27 +427,45 @@ public:
 
 // modalita FACILE (stile Master Plan 2): parti vive separate, sfondo in cache
 class EasyPage;
+// viste del display: onda (bipolare), gain (unipolare in dB), spettro, immagine stereo, metering completo, ideale, reference
+enum EasyView { V_WAVE, V_GAIN, V_SPEC, V_IMAGE, V_METER, V_IDEAL, V_REF, kEasyViews };
+// colonne della storia ridotte a pixel (il massimo di quelle che ci cadono), in modo SCROLL o SCAN
+struct PxEnv
+{
+    std::vector<float> pk, rm, gr; std::vector<int> beat; int n = 0; float cursor = -1;
+    void size (int w) { n = w; pk.assign ((size_t) w, -200.0f); rm.assign ((size_t) w, -200.0f); gr.assign ((size_t) w, 0.0f); beat.assign ((size_t) w, -1); }
+};
 class EasyStage : public juce::Component
 {
 public:
-    explicit EasyStage (EasyPage& p) : page (p) {}
+    explicit EasyStage (EasyPage& p);
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
-    EasyPage& page; Analyzer anIn, anOut; float specIn[300] {}, specOut[300] {}; juce::Rectangle<float> loadR, listenR;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { hov = -1; }
+    EasyPage& page; Analyzer anIn, anOut; float specIn[300] {}, specOut[300] {}, specHold[300] {}; juce::Rectangle<float> loadR, listenR;
     int fixedView = -1;   // usata nell'AVANZATO: vista fissa, indipendente dalla pagina FACILE
     int curView() const;
-    int genreSel = -1; juce::Rectangle<float> genreR; float pkHold[2] { -100, -100 }, holdS[2] {}, mPk[2] { -100, -100 }, mLu = -100; double mLast = 0; int holdT[2] {}; int lastTot = -1; double lastMs = 0, colMs = 25;
+    bool easy() const { return fixedView < 0; }
+    int genreSel = -1; juce::Rectangle<float> genreR;
+    float mtPk[2] { -100, -100 }, mtHold[2] {};
+    float pkHold[2] { -100, -100 }, holdS[2] {}, mPk[2] { -100, -100 }, mLu = -100, mRms[2] { -100, -100 }, barHold[40] {}, normOff = 0, crS = 1, crushS = 0.5f, wS = 0;
+    double mLast = 0, disp = -1, lastT = 0, lastFrame = 0;
     double clock();   // posizione mostrata (in colonne), scorre col tempo vero e insegue i dati senza scatti
-    double disp = -1, lastT = 0;
-    neo::Bloom bloom;
+    void envelope (PxEnv&, int npx, double winSec);
+    struct Hot { juce::Rectangle<float> r; int id; }; std::vector<Hot> hots; int hov = -1;
+    juce::Image scope; std::unique_ptr<juce::VBlankAttachment> vb;
 private:
-    void wave (juce::Graphics&, juce::Rectangle<float>); void spectrum (juce::Graphics&, juce::Rectangle<float>);
-    void gain (juce::Graphics&, juce::Rectangle<float>); void ref (juce::Graphics&, juce::Rectangle<float>);
-    void ideal (juce::Graphics&, juce::Rectangle<float>); void meterCol (juce::Graphics&, juce::Rectangle<float>);
+    juce::Rectangle<float> visual();
+    juce::Image panelImg, veilImg; juce::String panelKey; void panelDraw (juce::Graphics&);
+    void panel (juce::Graphics&); void options (juce::Graphics&); void numbers (juce::Graphics&);
+    void wave (juce::Graphics&, juce::Rectangle<float>, bool bipolar, double win, bool small = false); void spectrum (juce::Graphics&, juce::Rectangle<float>, int mode, bool small = false);
+    void image (juce::Graphics&, juce::Rectangle<float>, bool small = false); void metering (juce::Graphics&, juce::Rectangle<float>);
+    void ref (juce::Graphics&, juce::Rectangle<float>); void ideal (juce::Graphics&, juce::Rectangle<float>); void meterCol (juce::Graphics&, juce::Rectangle<float>);
+    void opt (juce::Graphics&, juce::Rectangle<float>, const juce::String&, bool on, int id);
 };
+// ingresso in orizzontale nella testata del display: livello, zona ottimale, AUTO
 class EasyInput : public juce::Component { public: explicit EasyInput (EasyPage& p) : page (p) { setRepaintsOnMouseActivity (true); } void paint (juce::Graphics&) override; void mouseDown (const juce::MouseEvent&) override; EasyPage& page; juce::Rectangle<float> autoR; float sm = -100; };
-class EasyResult : public juce::Component { public: explicit EasyResult (EasyPage& p) : page (p) {} void paint (juce::Graphics&) override; EasyPage& page; float sm = 0; neo::Bloom bloom; };
-class EasyMeters : public juce::Component { public: explicit EasyMeters (EasyPage& p) : page (p) {} void paint (juce::Graphics&) override; EasyPage& page; float pk[2] {}; float big = -100; };
 
 // guide rapide: cosa sono LUFS e dB, cosa fa Spotify, true peak, dinamica, correlazione, come si fa un master
 class GuidePanel : public juce::Component
@@ -473,10 +491,10 @@ public:
     Editor& ed; int view = 0, hover = -1;
     juce::OwnedArray<neo::Knob> knobs; neo::Knob *low, *mid, *high, *thick, *warm, *silk, *pres, *loud, *speed, *glue, *calm, *wide, *ceil, *trim;
     std::unique_ptr<neo::Toggle> monoB; std::unique_ptr<juce::FileChooser> chooser;
-    EasyStage stage { *this }; EasyInput input { *this }; EasyResult result { *this }; EasyMeters meters { *this };
+    EasyStage stage { *this }; EasyInput input { *this };
     GuidePanel guide; juce::Rectangle<float> guideR;
-    neo::Segments tabs, styles; juce::Rectangle<float> targetR, cmpR, deltaR, bandR[3];
-    juce::Image bg; float bgScale = 0;
+    neo::Segments tabs, styles; juce::Rectangle<float> targetR, cmpR, deltaR, themeR, bandR[3];
+    juce::Image bg; float bgScale = 0; int bgTheme = -1;
 };
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
@@ -525,7 +543,8 @@ public:
     } advTabsComp { *this };
     void applyMode();
     juce::Rectangle<int> modeR[2]; bool lastEasy = false;
-    juce::Image neoBg; float neoScale = 0; neo::Segments modeSeg;
+    juce::Image neoBg; float neoScale = 0; int neoTheme = -1; neo::Segments modeSeg;
+    void paintOverChildren (juce::Graphics&) override { neo::setTheme (0); }   // gli altri plugin Jackpot nella stessa DAW tornano al loro tema
     void paintNeo (juce::Graphics&);
 private:
     void timerCallback() override;
