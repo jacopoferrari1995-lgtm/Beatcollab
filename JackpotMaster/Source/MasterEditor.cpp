@@ -1689,14 +1689,21 @@ EarPage::EarPage (Editor& e) : ed (e)
 {
     juce::StringArray gn; for (int g = 0; g < kGenres; ++g) gn.add (jms::genre (g).name);
     genre = std::make_unique<Segs> (ed.P ("ear_genre"), C::amber, gn); genre->font = 8.5f; genre->rows = 2; addAndMakeVisible (*genre);
+    dur = std::make_unique<Segs> (ed.P ("ear_dur"), C::magenta, juce::StringArray { "30 s", "60 s", "TUTTO" }); dur->font = 8.5f; addAndMakeVisible (*dur);
 }
-void EarPage::resized() { genre->setBounds (16, 46, getWidth() - 32, 54); }
+void EarPage::resized() { genre->setBounds (16, 46, getWidth() - 32, 54); dur->setBounds (16, 112, 200, 30); }
 void EarPage::mouseDown (const juce::MouseEvent& e)
 {
     auto& P = ed.proc;
-    if (lisR.contains (e.position)) { P.earStart(); listening = true; repaint(); return; }
+    if (lisR.contains (e.position))
+    {
+        if (P.earCap.on.load()) { if (P.earCap.n.load() >= 1500) P.earCap.stop(); }   // STOP: analizza quello che ho sentito (almeno 15 s)
+        else { P.earStart(); listening = true; }
+        repaint(); return;
+    }
     if (appR.contains (e.position) && P.ear.valid && P.earCalib < 0) { P.earApply(); ed.rack.repaint(); repaint(); return; }
     if (disR.contains (e.position) && P.earBackup.getSize() > 0) { P.earDiscard(); ed.rack.repaint(); ed.repaint(); return; }
+    for (size_t k = 0; k < stepR.size() && k < P.ear.steps.size(); ++k) if (stepR[k].contains (e.position)) { P.ear.steps[k].sel = ! P.ear.steps[k].sel; repaint(); return; }
 }
 void EarPage::paint (juce::Graphics& g)
 {
@@ -1705,40 +1712,57 @@ void EarPage::paint (juce::Graphics& g)
     glowText (g, "PROVA D'ASCOLTO", { 16, 10, 300, 26 }, C::amber, uf (17.0f));
     { auto rt = P.reference(); g.setFont (neo::f (9.5f)); g.setColour (C::dim);
       g.drawText (rt && rt->lufs > -60 ? "confronto con il RIFERIMENTO: " + rt->name : juce::String ("confronto con la curva del genere (carica un RIFERIMENTO per confrontarti con un pezzo vero)"), juce::Rectangle<float> (220, 14, (float) getWidth() - 236, 18), juce::Justification::centredRight); }
-    const bool cap = P.earCap.on.load(); const int n = P.earCap.n.load();
-    lisR = { 16, 112, 190, 30 }; appR = { 216, 112, 190, 30 }; disR = { 416, 112, 120, 30 };
-    neo::chip (g, lisR, cap ? "ASCOLTO... " + juce::String (n * 100 / EarCapture::kNeed) + "%" : E.valid ? juce::String ("RIASCOLTA 10 s") : juce::String ("ASCOLTA 10 s"), cap, C::magenta, 8.5f);
-    neo::chip (g, appR, P.earCalib >= 0 ? juce::String ("TARATURA...") : juce::String ("APPLICA LA CATENA"), P.earCalib >= 0 || (E.valid && ! cap), C::green, 8.5f);
+    const bool cap = P.earCap.on.load(); const int n = P.earCap.n.load(), need = P.earCap.need.load();
+    lisR = { 226, 112, 200, 30 }; appR = { 436, 112, 170, 30 }; disR = { 616, 112, 90, 30 };
+    const juce::String t = juce::String (n / 6000) + ":" + juce::String ((n / 100) % 60).paddedLeft ('0', 2);
+    neo::chip (g, lisR, cap ? (n >= 1500 ? "STOP E ANALIZZA  " + t : "ASCOLTO...  " + t) : E.valid ? juce::String ("RIASCOLTA") : juce::String ("ASCOLTA"), cap, C::magenta, 8.5f);
+    neo::chip (g, appR, P.earCalib >= 0 ? juce::String ("TARATURA...") : juce::String ("APPLICA LE SCELTE"), P.earCalib >= 0 || (E.valid && ! cap), C::green, 8.5f);
     neo::chip (g, disR, "SCARTA", P.earBackup.getSize() > 0, C::red, 8.5f);
-    if (P.earMsg.isNotEmpty()) { g.setFont (neo::f (10.0f)); g.setColour (P.earCalib >= 0 ? C::amber : C::green); g.drawFittedText (P.earMsg, juce::Rectangle<int> (546, 108, getWidth() - 562, 38), juce::Justification::centredLeft, 2); }
-    auto area = juce::Rectangle<float> (16, 156, (float) getWidth() - 32, (float) getHeight() - 168);
-    juce::AttributedString a1, a2; for (auto* a : { &a1, &a2 }) { a->setWordWrap (juce::AttributedString::byWord); a->setLineSpacing (2.0f); }
-    auto head = [] (juce::AttributedString& a, const juce::String& s, juce::Colour c) { a.append (s + "\n", neo::cap (8.5f), c); };
-    auto body = [] (juce::AttributedString& a, const juce::String& s) { a.append (s + "\n", neo::f (11.0f), C::text.withAlpha (0.9f)); };
-    if (cap) { head (a1, "STO ASCOLTANDO", C::magenta); body (a1, n == 0 ? juce::String ("Fai partire il pezzo dalla parte piu' piena (ritornello): conto solo i momenti in cui suona.") : juce::String ("Misuro volume, dinamica, equilibrio tonale per zone, stereo e risonanze. Lascia suonare.")); a1.draw (g, area); return; }
-    if (! E.valid)
+    if (P.earMsg.isNotEmpty()) { g.setFont (neo::f (10.0f)); g.setColour (P.earCalib >= 0 ? C::amber : C::green); g.drawFittedText (P.earMsg, juce::Rectangle<int> (716, 108, getWidth() - 732, 38), juce::Justification::centredLeft, 2); }
+    if (cap && need < EarCapture::kMax) { auto pr = juce::Rectangle<float> (226, 145, 480, 3); g.setColour (C::dim.withAlpha (0.3f)); g.fillRect (pr); g.setColour (C::magenta); g.fillRect (pr.withWidth (pr.getWidth() * juce::jmin (1.0f, n / (float) need))); }
+    auto area = juce::Rectangle<float> (16, 158, (float) getWidth() - 32, (float) getHeight() - 168);
+    juce::AttributedString a1; a1.setWordWrap (juce::AttributedString::byWord); a1.setLineSpacing (2.0f);
+    auto head = [&a1] (const juce::String& s, juce::Colour c) { a1.append (s + "\n", neo::cap (8.5f), c); };
+    auto body = [&a1] (const juce::String& s) { a1.append (s + "\n", neo::f (11.0f), C::text.withAlpha (0.9f)); };
+    if (cap)
     {
-        head (a1, "COME FUNZIONA", C::amber);
-        body (a1, "1. Scegli il genere qui sopra (o carica un RIFERIMENTO: allora mi confronto con quello, anche come volume).");
-        body (a1, "2. ASCOLTA: fai suonare 10 secondi della parte piu' piena del pezzo.");
-        body (a1, "3. Ti dico cosa sento, con i numeri, e propongo la catena modulo per modulo con il perche' di ogni scelta.");
-        body (a1, "4. APPLICA: monto la catena e taro il maximizer mentre suona fino al volume giusto. Non ti piace? SCARTA e torna tutto come prima.");
-        if (n > 0 && n < 200) body (a1, "Ho sentito troppo poco: rifai ASCOLTA con il pezzo in play.");
+        head ("STO ASCOLTANDO", C::magenta);
+        body (n == 0 ? juce::String ("Fai partire il pezzo: conto solo i momenti in cui suona. Meglio tutto il pezzo, almeno strofa e ritornello.")
+                     : juce::String ("Misuro loudness come da norma (LUFS con gating), range fra strofe e ritornelli, micro-dinamica, equilibrio tonale sulle parti piene, stereo per zone, sibilanti e risonanze."));
+        if (n >= 1500) body ("Quando vuoi premi STOP E ANALIZZA. Con TUTTO si ferma da solo dopo 5 minuti.");
         a1.draw (g, area); return;
     }
-    head (a1, "COSA SENTO", C::amber);
-    for (auto& h : E.heard) { a1.append (juce::String::fromUTF8 ("\xe2\x80\xa2 "), neo::cap (9.0f), C::amber); body (a1, h); }
-    if (! E.notes.isEmpty()) { head (a1, "PRIMA DEL MASTER", C::red); for (auto& t : E.notes) { a1.append (juce::String::fromUTF8 ("\xe2\x80\xa2 "), neo::cap (9.0f), C::red); body (a1, t); } }
-    head (a2, "CATENA PROPOSTA  (in quest'ordine)", C::green);
+    if (! E.valid)
+    {
+        head ("COME FUNZIONA", C::amber);
+        body ("1. Scegli il genere (o carica un RIFERIMENTO: mi confronto con quello, anche come volume) e quanto ascoltare. Consiglio: TUTTO IL PEZZO.");
+        body ("2. ASCOLTA e fai suonare. Servono almeno 15 secondi.");
+        body ("3. Ti dico cosa sento con i numeri e propongo solo i moduli che servono, divisi in NECESSARIO, CONSIGLIATO e GUSTO. Clicca una riga per toglierla o rimetterla.");
+        body ("4. APPLICA monta solo le scelte spuntate e tara il volume mentre suona. SCARTA riporta tutto com'era.");
+        if (n > 0 && n < 1500) body ("Ho sentito troppo poco: servono almeno 15 secondi di musica.");
+        a1.draw (g, area); return;
+    }
+    head ("COSA SENTO", C::amber);
+    for (auto& h : E.heard) { a1.append (juce::String::fromUTF8 ("\xe2\x80\xa2 "), neo::cap (9.0f), C::amber); body (h); }
+    if (! E.notes.isEmpty()) { head ("PRIMA DEL MASTER", C::red); for (auto& tt : E.notes) { a1.append (juce::String::fromUTF8 ("\xe2\x80\xa2 "), neo::cap (9.0f), C::red); body (tt); } }
+    const float half = area.getWidth() * 0.42f;
+    a1.draw (g, area.withWidth (half - 14));
+    g.setColour (C::dim.withAlpha (0.4f)); g.fillRect (area.getX() + half, area.getY(), 1.0f, area.getHeight());
+    // catena proposta: una riga per modulo, spunta per sceglierla
+    auto col = area.withTrimmedLeft (half + 14);
+    g.setFont (neo::cap (8.5f)); g.setColour (C::green); g.drawText ("CATENA PROPOSTA  -  clicca per togliere o rimettere", col.removeFromTop (18), juce::Justification::centredLeft);
+    stepR.clear(); const float rowH = juce::jmin (54.0f, col.getHeight() / juce::jmax (1, (int) E.steps.size()));
     for (size_t k = 0; k < E.steps.size(); ++k)
     {
-        const auto& s = E.steps[k];
-        a2.append (juce::String ((int) k + 1) + "   " + s.title + "\n", neo::cap (8.5f), neo::acc (juce::Colour (modInfo (s.mod).colour)));
-        body (a2, s.why);
+        const auto& s = E.steps[k]; auto r = col.removeFromTop (rowH); stepR.push_back (r);
+        const auto mc = neo::acc (juce::Colour (modInfo (s.mod).colour)); const juce::Colour pc = s.prio == PRIO_NEED ? C::red : s.prio == PRIO_ADVISE ? C::amber : C::dim;
+        auto box = juce::Rectangle<float> (r.getX(), r.getY() + 3, 14, 14);
+        g.setColour (s.sel ? mc : C::dim.withAlpha (0.5f)); g.drawRoundedRectangle (box, 3, 1.2f); if (s.sel) g.fillRoundedRectangle (box.reduced (3), 2);
+        g.setFont (neo::cap (8.0f)); g.setColour (s.sel ? mc : C::dim); g.drawText (s.title, juce::Rectangle<float> (r.getX() + 22, r.getY(), r.getWidth() - 120, 18), juce::Justification::centredLeft);
+        g.setFont (neo::cap (7.0f)); g.setColour (pc); g.drawText (prioName (s.prio), juce::Rectangle<float> (r.getRight() - 96, r.getY(), 96, 18), juce::Justification::centredRight);
+        g.setFont (neo::f (10.0f)); g.setColour (C::text.withAlpha (s.sel ? 0.85f : 0.4f));
+        g.drawFittedText (s.why, juce::Rectangle<int> ((int) r.getX() + 22, (int) r.getY() + 18, (int) r.getWidth() - 22, (int) rowH - 20), juce::Justification::topLeft, 2, 0.9f);
     }
-    const float half = area.getWidth() * 0.42f;
-    a1.draw (g, area.withWidth (half - 14)); a2.draw (g, area.withTrimmedLeft (half + 14));
-    g.setColour (C::dim.withAlpha (0.4f)); g.fillRect (area.getX() + half, area.getY(), 1.0f, area.getHeight());
 }
 
 // ======================================================================= IMPACT / SPETTRALE / STABILIZER

@@ -235,11 +235,11 @@ int main (int argc, char** argv)
             auto gen = [&] (int k, float& l, float& r) { beat (k, l, r); l *= kind == 0 ? 0.35f : 0.2f; ph += 2 * 3.14159 * 330 / sr; ph2 += 2 * 3.14159 * 52 / sr;
                 const float pad = (kind == 0 ? 0.04f : 0.12f) * (float) std::sin (ph), sub = (kind == 0 ? 0.18f : 0.04f) * (float) std::sin (ph2);
                 r = l + pad * 0.6f + sub * (kind == 0 ? 0.6f : 1.0f); l = l + pad + sub; };
-            p->earStart(); int guard = 0; while (p->earCap.on.load() && guard++ < 200) run (*p, gen, (int) sr / 2, a, b);
+            setP (*p, "ear_dur", 0); p->earStart(); int guard = 0; while (p->earCap.on.load() && guard++ < 200) run (*p, gen, (int) sr / 2, a, b);
             p->earFinish(); const auto& E = p->ear;
             std::printf ("\n==== mix %d  valid %d  ref %d\n", kind, (int) E.valid, (int) E.useRef);
             for (auto& h : E.heard) std::printf ("  . %s\n", h.toRawUTF8());
-            for (auto& st : E.steps) std::printf ("  > %s\n      %s\n", st.title.toRawUTF8(), st.why.toRawUTF8());
+            for (auto& st : E.steps) std::printf ("  > [%s%s] %s\n      %s\n", prioName (st.prio), st.sel ? "" : " off", st.title.toRawUTF8(), st.why.toRawUTF8());
             for (auto& t : E.notes) std::printf ("  ! %s\n", t.toRawUTF8());
             p->earApply();
             for (int t = 0; t < 40 && p->earCalib >= 0; ++t) { run (*p, gen, (int) sr / 2, a, b); p->earTick(); }

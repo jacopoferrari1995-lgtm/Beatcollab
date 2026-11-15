@@ -120,7 +120,7 @@ public:
     bool easy() const { return value ("mode") < 0.5f; }           // vista
     // PROVA D'ASCOLTO
     EarCapture earCap; EarPlan ear; juce::MemoryBlock earBackup; int earCalib = -1, earOk = 0, earSteps = 0; juce::String earMsg;
-    void earStart() { ear = {}; earCalib = -1; earMsg = {}; earCap.start(); }
+    void earStart() { ear = {}; earCalib = -1; earMsg = {}; const int d = juce::roundToInt (value ("ear_dur")); earCap.start (d == 0 ? 30 : d == 1 ? 60 : 0); }
     void earFinish();
     void earApply(); void earDiscard(); void earTick();
     bool runEasy() const { return value ("engine") < 0.5f; }      // motore che suona

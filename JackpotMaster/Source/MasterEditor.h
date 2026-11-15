@@ -426,7 +426,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
-    Editor& ed; std::unique_ptr<Segs> genre; juce::Rectangle<float> lisR, appR, disR; bool listening = false;
+    Editor& ed; std::unique_ptr<Segs> genre, dur; juce::Rectangle<float> lisR, appR, disR; std::vector<juce::Rectangle<float>> stepR; bool listening = false;
 };
 class RefPage : public juce::Component
 {

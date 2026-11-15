@@ -210,6 +210,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "lm_auto", 1 }, "Limiter Auto Release", true));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "lm_tp", 1 }, "True Peak", true));
     { StringArray gn; for (int g = 0; g < kGenres; ++g) gn.add (genre (g).name); l.add (std::make_unique<AudioParameterChoice> (ParameterID { "ear_genre", 1 }, "Ascolto Genere", gn, 0)); }
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "ear_dur", 1 }, "Ascolto Durata", StringArray { "30 s", "60 s", "TUTTO IL PEZZO" }, 2));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "lm_type", 1 }, "Limiter Type", StringArray { "JACKPOT", "OXFORD", "IRC" }, 0));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "lm_os", 1 }, "Limiter Oversampling", StringArray { "1x", "2x", "4x", "8x", "16x" }, 2));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "lm_enh", 1 }, "Limiter Enhance", NormalisableRange<float> (0, 1), 0));
@@ -672,7 +673,7 @@ void Processor::autoInput()
 // ---------------------------------------------------------------------------------------------------- FACILE <-> AVANZATO
 namespace
 {
-    bool skipSig (const juce::String& id) { return id == "mode" || id == "engine" || id == "ear_genre" || id == "trim" || id == "target" || id == "dither" || id == "compare" || id == "norm" || id == "lm_ceil" || id.endsWith ("delta") || id.contains ("solo") || id == "mx_learn"; }
+    bool skipSig (const juce::String& id) { return id == "mode" || id == "engine" || id == "ear_genre" || id == "ear_dur" || id == "trim" || id == "target" || id == "dither" || id == "compare" || id == "norm" || id == "lm_ceil" || id.endsWith ("delta") || id.contains ("solo") || id == "mx_learn"; }
 }
 juce::String Processor::sigEasy() const
 {
@@ -952,7 +953,7 @@ void Processor::earApply()
     auto set = [&] (const juce::String& id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
     for (int m = 0; m < kNumMods; ++m) set (onParam (m), 0);
     for (int b = 0; b < kEqBands; ++b) set (eqId (b, "on"), 0);
-    for (auto& s : ear.steps) for (auto& [id, v] : s.set) set (id, v);
+    for (auto& s : ear.steps) if (s.sel) for (auto& [id, v] : s.set) set (id, v);
     set ("engine", 1); set ("outg", 0);
     rackFromOn(); syncSnap();
     earCalib = 0; earOk = 0; earSteps = 0; earMsg = "Taratura: fai suonare il pezzo, porto il volume a " + juce::String (ear.targetLufs, 1) + " LUFS.";
