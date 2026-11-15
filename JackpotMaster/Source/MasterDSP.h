@@ -284,42 +284,121 @@ private:
 };
 
 // --------------------------------------------------------------------------- LIMITER finale (true peak)
-struct LimSettings { float ceilDb = -1, relMs = 80; bool autoRel = true, truePeak = true; };
+// LIMITER finale, tre tipi:
+//  JACKPOT = quello di sempre (lookahead, rilascio che si adatta, collegamento stereo pieno)
+//  OXFORD  = stile Sonnox Oxford: ginocchio morbido, rilascio piu' lungo e liscio, ENHANCE = densita' e un filo di colore prima del limite
+//  IRC     = stile Ozone IRC: prima tre bande limitate ognuna per conto suo (i bassi non abbassano gli alti), poi il limite finale
+// Sovracampionamento scelto da 1x a 16x (con TRUE PEAK acceso almeno 4x). La latenza resta sempre la stessa (quella del 16x).
+enum LimType { LIM_JACKPOT = 0, LIM_OXFORD, LIM_IRC, kLimTypes };
+struct LimSettings { float ceilDb = -1, relMs = 80, enhance = 0; bool autoRel = true, truePeak = true; int type = LIM_JACKPOT, os = 2; };
 class Limiter
 {
 public:
-    void prepare (double sr_)
+    void prepare (double sr_, int maxBlock = 512)
     {
-        sr = sr_; L = juce::jmax (8, (int) std::round (0.0015 * sr));
-        for (auto& e : eng) { e.prepare (sr, L); e.setLookahead (L); }
-        for (auto& d : dl) d.prepare (L + TruePeak::kDelay);
-        for (auto& t : tp) t.reset();
+        sr = sr_; maxB = juce::jmax (16, maxBlock);
+        maxLat = 0;
+        for (int k = 1; k < 5; ++k)
+        {
+            os[k] = std::make_unique<juce::dsp::Oversampling<float>> (2, (size_t) k, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+            os[k]->initProcessing ((size_t) maxB); osLat[k] = juce::roundToInt (os[k]->getLatencyInSamples()); maxLat = juce::jmax (maxLat, osLat[k]);
+        }
+        osLat[0] = 0;
+        for (int k = 0; k < 5; ++k)
+        {
+            const double fs = sr * (1 << k); Lk[k] = juce::jmax (8, (int) std::round (0.0015 * sr)) << k;   // stesso anticipo in ms a ogni rate
+            eng[k].prepare (fs, Lk[k]); eng[k].setLookahead (Lk[k]);
+            for (auto& d : dl[k]) d.prepare (Lk[k]);
+            for (auto& d : pad[k]) d.prepare (maxLat - osLat[k]);
+        }
+        // fase IRC: tre bande a frequenza base, lookahead 1.5 ms
+        Lb = juce::jmax (8, (int) std::round (0.0015 * sr));
+        for (int b = 0; b < 3; ++b) { bEng[b].prepare (sr, Lb); bEng[b].setLookahead (Lb); bEng[b].setRelease (15, 220); for (auto& d : bDl[b]) d.prepare (Lb); }
+        for (auto& d : bPad) d.prepare (Lb);
+        x1.prepare ({ sr, (juce::uint32) maxB, 2 }); x2.prepare ({ sr, (juce::uint32) maxB, 2 });
+        x1.setType (juce::dsp::LinkwitzRileyFilterType::lowpass); x2.setType (juce::dsp::LinkwitzRileyFilterType::lowpass);
+        x1.setCutoffFrequency (150.0f); x2.setCutoffFrequency (2500.0f);
+        ap.prepare ({ sr, (juce::uint32) maxB, 2 }); ap.setType (juce::dsp::LinkwitzRileyFilterType::allpass); ap.setCutoffFrequency (2500.0f);
+        sat[0] = sat[1] = {};
+        lastK = -1;
     }
-    int latency() const { return L + TruePeak::kDelay; }
+    int latency() const { return maxLat + (Lk[0]) + Lb; }   // costante: filtri del 16x + lookahead + fase a bande
     void process (float* Lc, float* Rc, int n, const LimSettings& S)
     {
-        const float ceil = dbToG (S.ceilDb - (S.truePeak ? 0.1f : 0.0f));   // piccolo margine per i picchi oltre i 20 kHz
-        if (S.autoRel) for (auto& e : eng) e.setRelease (25, 600); else for (auto& e : eng) e.setRelease (S.relMs, S.relMs);
-        float grMax = 0;
-        for (int i = 0; i < n; ++i)
+        const int k = juce::jlimit (S.truePeak ? 2 : 0, 4, S.os);
+        if (k != lastK) { if (lastK >= 0) { eng[k].reset(); for (auto& d : dl[k]) d.reset(); } lastK = k; }
+        static const float tpMargin[5] = { 0.6f, 0.4f, 0.32f, 0.16f, 0.06f };   // i filtri di ritorno al rate normale fanno risalire un filo i picchi
+        const float ceil = dbToG (S.ceilDb - (S.truePeak ? tpMargin[k] : 0.0f));
+        const bool ox = S.type == LIM_OXFORD, irc = S.type == LIM_IRC;
+        if (S.autoRel) eng[k].setRelease (ox ? 40.0f : irc ? 20.0f : 25.0f, ox ? 900.0f : irc ? 450.0f : 600.0f);
+        else eng[k].setRelease (S.relMs, S.relMs * (ox ? 1.6f : 1.0f));
+        float grMax = 0; bandGr = 0;
+        for (int off = 0; off < n; off += maxB)
         {
-            float pl = tp[0].push (Lc[i]), pr = tp[1].push (Rc[i]);
-            if (! S.truePeak) { pl = tp[0].center; pr = tp[1].center; }
-            // collegamento stereo pieno: niente spostamenti dell'immagine
-            const float req = juce::jmin (1.0f, ceil / juce::jmax (1e-9f, juce::jmax (pl, pr)));
-            const float g = eng[0].tick (req);
-            float x = dl[0] (Lc[i]) * g, y = dl[1] (Rc[i]) * g;
-            // sicurezza finale sul campione
-            x = juce::jlimit (-ceil, ceil, x); y = juce::jlimit (-ceil, ceil, y);
-            Lc[i] = x; Rc[i] = y;
-            grMax = juce::jmax (grMax, eng[0].grNow);
+            const int m = juce::jmin (maxB, n - off); float* a = Lc + off; float* b = Rc + off;
+            // ---- fase a bande (IRC). Negli altri tipi solo il ritardo, cosi' la latenza non cambia
+            for (int i = 0; i < m; ++i)
+            {
+                if (! irc) { a[i] = bPad[0] (a[i]); b[i] = bPad[1] (b[i]); continue; }
+                float lo[2], mi[2], hi[2], in[2] = { a[i], b[i] };
+                for (int c = 0; c < 2; ++c)
+                {
+                    float l1, h1; x1.processSample (c, in[c], l1, h1);
+                    l1 = ap.processSample (c, l1);                       // stessa fase delle altre bande
+                    float l2, h2; x2.processSample (c, h1, l2, h2); lo[c] = l1; mi[c] = l2; hi[c] = h2;
+                }
+                float out[2] = { 0, 0 };
+                float* bands[3] = { lo, mi, hi };
+                for (int bb = 0; bb < 3; ++bb)
+                {
+                    const float pk = juce::jmax (std::abs (bands[bb][0]), std::abs (bands[bb][1]));
+                    const float g = bEng[bb].tick (juce::jmin (1.0f, ceil * 0.94f / juce::jmax (1e-9f, pk)));
+                    bandGr = juce::jmax (bandGr, bEng[bb].grNow);
+                    out[0] += bDl[bb][0] (bands[bb][0]) * g; out[1] += bDl[bb][1] (bands[bb][1]) * g;
+                }
+                a[i] = out[0]; b[i] = out[1];
+            }
+            // ---- limite finale al rate scelto
+            float* ch[2] = { a, b };
+            juce::dsp::AudioBlock<float> blk (ch, 2, (size_t) m);
+            juce::dsp::AudioBlock<float> up = k > 0 ? os[k]->processSamplesUp (blk) : blk;
+            float* u0 = up.getChannelPointer (0); float* u1 = up.getChannelPointer (1); const int nu = (int) up.getNumSamples();
+            const float enh = ox ? S.enhance : 0.0f, kneeDb = ox ? 3.0f : 0.0f;
+            for (int i = 0; i < nu; ++i)
+            {
+                float x = u0[i], y = u1[i];
+                if (enh > 0.001f)
+                {   // ENHANCE: densita'. Una curva morbida (dispari) piu' un filo di asimmetria (pari), sovracampionata, a volume pari
+                    const float c = ceil * 1.4f;
+                    x = x + enh * (c * std::tanh (x / c) + 0.08f * x * x / c - x) - enh * sat[0].dc (0.08f * x * x / c);
+                    y = y + enh * (c * std::tanh (y / c) + 0.08f * y * y / c - y) - enh * sat[1].dc (0.08f * y * y / c);
+                }
+                const float pk = juce::jmax (std::abs (x), std::abs (y));
+                float req = juce::jmin (1.0f, ceil / juce::jmax (1e-9f, pk));
+                if (kneeDb > 0 && pk > ceil * dbToG (-kneeDb))
+                {   // ginocchio morbido: comincia a toccare 3 dB prima, arriva al limite al ceiling
+                    const float o = gToDb (pk) - (S.ceilDb - kneeDb), kn = juce::jlimit (0.0f, 1.0f, o / (2 * kneeDb));
+                    req = juce::jmin (req, dbToG (-0.5f * kn * kn * kneeDb));
+                }
+                const float g = eng[k].tick (req);
+                float ox2 = dl[k][0] (x) * g, oy = dl[k][1] (y) * g;
+                if (k == 0) { ox2 = juce::jlimit (-ceil, ceil, ox2); oy = juce::jlimit (-ceil, ceil, oy); }
+                u0[i] = ox2; u1[i] = oy; grMax = juce::jmax (grMax, eng[k].grNow);
+            }
+            if (k > 0) os[k]->processSamplesDown (blk);
+            for (int i = 0; i < m; ++i) { a[i] = pad[k][0] (a[i]); b[i] = pad[k][1] (b[i]); }
         }
-        gr = grMax;
+        gr = juce::jmax (grMax, bandGr); grBands = bandGr;
     }
-    float gr = 0;
+    float gr = 0, grBands = 0, bandGr = 0;
+    int curOs() const { return lastK; }
 private:
-    double sr = 48000; int L = 72;
-    GainEngine eng[1]; Delay dl[2]; TruePeak tp[2];
+    struct Dc { float s = 0; float dc (float v) { s += 0.0005f * (v - s); return s; } } sat[2];
+    double sr = 48000; int maxB = 512, maxLat = 0, osLat[5] {}, Lk[5] {}, Lb = 72, lastK = -1;
+    std::unique_ptr<juce::dsp::Oversampling<float>> os[5];
+    GainEngine eng[5]; Delay dl[5][2], pad[5][2], bPad[2];
+    GainEngine bEng[3]; Delay bDl[3][2];
+    juce::dsp::LinkwitzRileyFilter<float> x1, x2, ap;
 };
 
 // --------------------------------------------------------------------------- DITHER (TPDF, opzionale noise shaping)

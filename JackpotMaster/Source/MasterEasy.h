@@ -19,6 +19,10 @@ public:
         for (int c = 0; c < 2; ++c) { tLp[c].set (Biquad::HCUT, 1400, 0, 0.707, sr); tLp2[c].set (Biquad::HCUT, 1400, 0, 0.707, sr); tLp[c].reset(); tLp2[c].reset(); sHp[c].set (Biquad::LCUT, 4500, 0, 0.707, sr); sHp[c].reset(); }
         wLp.set (Biquad::HCUT, 120, 0, 0.707, sr); wLp2.set (Biquad::HCUT, 120, 0, 0.707, sr); wLp.reset(); wLp2.reset(); mLp = wLp; mLp2 = wLp2; wM = wS = 0; wSm = 1;
         tape.prepare (s); bus.prepare (s);
+        for (int c = 0; c < 2; ++c) { tEnv[c] = tDc[c] = sEnv[c] = 0; sHp3[c].set (Biquad::LCUT, 3500, 0, 0.707, sr); sHp3[c].reset(); }
+        sMax = 1024; sBuf.setSize (2, sMax);
+        sOs = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, false, false);
+        sOs->initProcessing ((size_t) sMax);
         last = {}; last.low = 99;
     }
     void process (float* L, float* R, int n, const EasySettings& S)
@@ -65,35 +69,59 @@ public:
             calmNow = juce::jmin (calm[0].g, juce::jmin (calm[1].g, calm[2].g));
         }
         else calmNow = 0;
-        // ---- THICK: saturazione a valvola (armoniche pari) solo sotto 1.4 kHz, aggiunta in parallelo: spessore e corpo
+        // ---- THICK: armoniche "da valvola" sui bassi-medi (sotto 1.4 kHz), generate esatte invece che con una curva:
+        // 2a armonica dominante (pari, calda), un po' di 3a (corpo), nient'altro -> nessun aliasing, niente pompaggio.
+        // Come in una valvola vera, piu' il passaggio e' forte piu' armoniche escono.
         if (S.thick > 0.001f)
-        {   // la saturazione comprime: si riporta al livello di prima (inviluppi), cosi resta solo la "pasta" delle armoniche
-            const float d = 1.5f + 7.0f * S.thick, amt = 0.6f + 1.1f * S.thick;
-            const float dcK = (float) std::exp (-1.0 / (0.02 * sr)), eK = (float) std::exp (-1.0 / (0.05 * sr));
+        {
+            const float aA = (float) std::exp (-1.0 / (0.001 * sr)), aR = (float) std::exp (-1.0 / (0.06 * sr)), dcK = (float) std::exp (-1.0 / (0.015 * sr));
             for (int c = 0; c < 2; ++c)
             {
                 float* x = c ? R : L;
                 for (int i = 0; i < n; ++i)
                 {
-                    const float lo = tLp2[c] (tLp[c] (x[i]));
-                    float sat = std::tanh (d * (lo + 0.2f * lo * lo)) / d;
-                    dcAvg[c] = dcK * dcAvg[c] + (1 - dcK) * sat; sat -= dcAvg[c];
-                    eLo[c] = eK * eLo[c] + (1 - eK) * std::abs (lo); eSat[c] = eK * eSat[c] + (1 - eK) * std::abs (sat);
-                    const float gc = eSat[c] > 1e-6f ? juce::jlimit (0.5f, 4.0f, eLo[c] / eSat[c]) : 1.0f;
-                    x[i] += (sat * gc - lo) * amt;
+                    const float lo = tLp2[c] (tLp[c] (x[i])), a = std::abs (lo);
+                    tEnv[c] = a > tEnv[c] ? aA * tEnv[c] + (1 - aA) * a : aR * tEnv[c] + (1 - aR) * a;
+                    const float e = juce::jmax (1.0e-5f, tEnv[c] * 1.15f), u = juce::jlimit (-1.0f, 1.0f, lo / e);
+                    const float t2 = e * (2 * u * u - 1), t3 = e * (4 * u * u * u - 3 * u);              // Chebyshev: 2a e 3a armonica pure
+                    const float drive = S.thick * (0.35f + 0.65f * e / (e + 0.25f));                       // dipende dal livello
+                    float h = drive * (0.42f * t2 + 0.14f * t3);
+                    tDc[c] = dcK * tDc[c] + (1 - dcK) * h; h -= tDc[c];
+                    x[i] += h + S.thick * 0.12f * lo;                                                       // + un filo di corpo
                 }
             }
         }
         // ---- WARM: nastro da 15 pollici (head bump, compressione morbida, alti arrotondati)
         if (S.warm > 0.001f) { TapeSettings t; t.model = 1; t.drive = 1.0f * S.warm; t.bias = 0.1f; t.noise = 0; t.mix = juce::jmin (1.0f, 0.5f + S.warm); tape.process (L, R, n, t); }
-        // ---- SILK: armoniche solo sopra 4.5 kHz, piu un filo di shelf: lucentezza senza durezza
-        if (S.silk > 0.001f)
+        // ---- SILK: aria sopra 4.5 kHz. Parte lineare (un filo di shelf) al rate normale; le armoniche (2a + 3a, generate esatte)
+        // a 4x e poi filtrate: quelle oltre i 20 kHz non rientrano come sporco (aliasing)
+        if (S.silk > 0.001f && sOs)
         {
-            const float k = S.silk;
-            for (int c = 0; c < 2; ++c)
+            const float k = S.silk; const int m = juce::jmin (n, sMax);
+            for (int off = 0; off < n; off += m)
             {
-                float* x = c ? R : L;
-                for (int i = 0; i < n; ++i) { const float h = sHp[c] (x[i]); const float s = std::tanh (3.0f * h) / 3.0f; x[i] += k * (0.55f * h + 2.6f * (s - h * 0.92f)); }
+                const int nn = juce::jmin (m, n - off);
+                for (int c = 0; c < 2; ++c) { float* x = (c ? R : L) + off; float* hb = sBuf.getWritePointer (c); for (int i = 0; i < nn; ++i) { hb[i] = sHp[c] (x[i]); x[i] += k * 0.55f * hb[i]; } }   // parte lineare, in fase
+                juce::dsp::AudioBlock<float> blk (sBuf.getArrayOfWritePointers(), 2, (size_t) nn);
+                auto up = sOs->processSamplesUp (blk);
+                const double fs4 = sr * 4; const float aA = (float) std::exp (-1.0 / (0.0005 * fs4)), aR = (float) std::exp (-1.0 / (0.03 * fs4));
+                for (int c = 0; c < 2; ++c)
+                {
+                    float* u = up.getChannelPointer ((size_t) c); const int nu = (int) up.getNumSamples();
+                    for (int i = 0; i < nu; ++i)
+                    {
+                        const float h = u[i], a = std::abs (h);
+                        sEnv[c] = a > sEnv[c] ? aA * sEnv[c] + (1 - aA) * a : aR * sEnv[c] + (1 - aR) * a;
+                        const float e = juce::jmax (1.0e-6f, sEnv[c] * 1.15f), q = juce::jlimit (-1.0f, 1.0f, h / e);
+                        u[i] = e * (0.55f * (2 * q * q - 1) + 0.3f * (4 * q * q * q - 3 * q));
+                    }
+                }
+                sOs->processSamplesDown (blk);
+                for (int c = 0; c < 2; ++c)
+                {   // armoniche: tolgo la continua e le parti sotto i 3.5 kHz che l'inviluppo puo' creare
+                    float* x = (c ? R : L) + off; float* hb2 = sBuf.getWritePointer (c);
+                    for (int i = 0; i < nn; ++i) x[i] += k * 0.5f * sHp3[c] (hb2[i]);
+                }
             }
         }
         // ---- GLUE: compressore di bus 2:1, attacco 10 ms, rilascio auto, filtro sui bassi nel sidechain
@@ -134,6 +162,6 @@ private:
     double sr = 48000;
     Biquad eq[2][3], dq[2][3], tLp[2], tLp2[2], sHp[2], wLp, wLp2, mLp, mLp2;
     CalmBand calm[3] { { 280, 1.2f, 3.0f, 4.0f }, { 3200, 1.6f, 2.5f, 6.0f }, { 7000, 2.0f, 2.0f, 6.0f } };
-    TapeMachine tape; BusComp bus; EasySettings last; float dcAvg[2] {}, eLo[2] {}, eSat[2] {}, wM = 0, wS = 0, wSm = 1;
+    TapeMachine tape; BusComp bus; EasySettings last; float dcAvg[2] {}, eLo[2] {}, eSat[2] {}, tEnv[2] {}, tDc[2] {}, sEnv[2] {}; Biquad sHp3[2]; std::unique_ptr<juce::dsp::Oversampling<float>> sOs; juce::AudioBuffer<float> sBuf; int sMax = 1024; float wM = 0, wS = 0, wSm = 1;
 };
 }

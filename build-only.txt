@@ -1,1 +1,1 @@
-JackpotMaster JackpotComp JackpotAlter JackpotPhase JackpotRewind JackpotTube JackpotClip JackpotDust JackpotMeter JackpotMotion JackpotFX
+JackpotMaster

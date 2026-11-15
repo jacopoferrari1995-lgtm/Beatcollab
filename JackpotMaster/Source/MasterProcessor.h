@@ -5,11 +5,13 @@
 #include "MasterAnalysis.h"
 #include "MasterEasy.h"
 #include "JkProEq.h"
+#include "MasterNew.h"
+#include "MasterEar.h"
 
 namespace jms
 {
 // moduli della catena di master (in ordine). Fase 1: MAXIMIZER e LIMITER.
-enum ModId { BASS, DYNEQ, DEESS, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT, EQ432, PULTEC, VARIMU, kNumMods };   // EQ432 aggiunto in fondo (i progetti salvati restano giusti)
+enum ModId { BASS, DYNEQ, DEESS, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT, EQ432, PULTEC, VARIMU, IMPACT, SPECTRAL, STABIL, kNumMods };   // EQ432 aggiunto in fondo (i progetti salvati restano giusti)
 struct ModInfo { const char* name; const char* sub; bool ready; juce::uint32 colour; };
 inline const ModInfo& modInfo (int m)
 {
@@ -18,7 +20,8 @@ inline const ModInfo& modInfo (int m)
         { "BUS COMP", "colla da console", true, 0xffa66bff }, { "MULTIBANDA", "dinamica + OTT", true, 0xffff7a3d },
         { "EXCITER", "armoniche per banda", true, 0xffff5ea8 }, { "TAPE", "nastro analogico", true, 0xffffd23d },
         { "IMAGER", "stereo per banda", true, 0xff3dffd2 }, { "MAXIMIZER", "volume e carattere", true, 0xffff2e88 }, { "LIMITER", "true peak finale", true, 0xffff3b5c },
-        { "EQ 432", "eq classico da mastering", true, 0xffffd27a }, { "PULTEC", "eq passivo a valvole", true, 0xffe8c38a }, { "VARI-MU", "compressore a valvole", true, 0xffc98bff } };
+        { "EQ 432", "eq classico da mastering", true, 0xffffd27a }, { "PULTEC", "eq passivo a valvole", true, 0xffe8c38a }, { "VARI-MU", "compressore a valvole", true, 0xffc98bff },
+        { "IMPACT", "punch per banda", true, 0xffff9f43 }, { "SPETTRALE", "risonanze e clarity", true, 0xff7fd4ff }, { "STABILIZER", "equilibrio verso il genere", true, 0xffb6f36b } };
     return I[juce::jlimit (0, kNumMods - 1, m)];
 }
 
@@ -91,7 +94,7 @@ public:
     // misure per l'interfaccia
     std::atomic<float> lufsM { -100 }, lufsS { -100 }, lufsI { -100 }, lra { 0 }, tpMax { -100 }, inS { -100 }, matchDb { 0 }, normDb { 0 };
     std::atomic<float> grMax { 0 }, grLim { 0 }, inPk[2] {}, outPk[2] {}, outRms[2] {};   // outRms: media quadratica ~300 ms (colonna del livello)
-    std::atomic<float> bassGain { 0 }, bassLow { 0 }, eqDyn[kEqBands] {}, eqLvl[kEqBands] {}, imCorr[kImBands] {}, imLim[kImBands] {}, corrAll { 1 }, vmGr { 0 };
+    std::atomic<float> bassGain { 0 }, bassLow { 0 }, eqDyn[kEqBands] {}, eqLvl[kEqBands] {}, imCorr[kImBands] {}, imLim[kImBands] {}, corrAll { 1 }, vmGr { 0 }, ipUi[4] {}, spUi[Spectral::kB] {}, stUi[kRegions] {}, stDiff[kRegions] {};
     std::atomic<int> eqSolo { -1 };
     std::atomic<int> eqListen { -1 };  // FACILE: BASSI/MEDI/ALTI in ascolto. 0..2 = solo della zona, 3..5 = delta della banda
     Biquad bandF[2][2]; int soloKey = -1;   // banda dell'EQ in ascolto da sola (solo interfaccia)
@@ -101,7 +104,7 @@ public:
     std::atomic<bool> inRack[kNumMods];
     void rackFromOn() { for (int m = 0; m < kNumMods; ++m) inRack[m] = value (onParam (m)) > 0.5f; }
     void setOrder (const std::array<int, kNumMods>&);
-    static std::array<int, kNumMods> defaultOrder() { return { BASS, DYNEQ, EQ432, PULTEC, DEESS, VARIMU, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT }; }
+    static std::array<int, kNumMods> defaultOrder() { return { BASS, DYNEQ, SPECTRAL, EQ432, PULTEC, STABIL, DEESS, VARIMU, BUSCOMP, MULTI, IMPACT, EXCITER, TAPE, IMAGER, MAXIM, LIMIT }; }
     std::array<int, kNumMods> getOrder() const;
     std::atomic<float> bassPeak { 0 }, exMeter { 0 };
     // traccia di riferimento
@@ -115,6 +118,11 @@ public:
     std::atomic<bool> resetReq { false };
     // modalita FACILE
     bool easy() const { return value ("mode") < 0.5f; }           // vista
+    // PROVA D'ASCOLTO
+    EarCapture earCap; EarPlan ear; juce::MemoryBlock earBackup; int earCalib = -1, earOk = 0, earSteps = 0; juce::String earMsg;
+    void earStart() { ear = {}; earCalib = -1; earMsg = {}; earCap.start(); }
+    void earFinish();
+    void earApply(); void earDiscard(); void earTick();
     bool runEasy() const { return value ("engine") < 0.5f; }      // motore che suona
     void autoInput();                                   // porta l'ingresso nella zona ottimale
     static constexpr float kInOpt = -15.0f;             // LUFS short-term ideali in ingresso (prima del LOUD)
@@ -133,7 +141,7 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100;
     EasyEngine easyEng; double inAcc = 0; int inAccN = 0; float grSm = 0;
-    BassControl bass; DynEq deq; jmx::ProEq peq; Eq432 e432; Pultec pult; VariMu vmu; Imager img; DeEsser dess; BusComp bus; Multiband mband; TapeMachine tape; Exciter exc; VarDelay deltaVar[2];
+    BassControl bass; DynEq deq; jmx::ProEq peq; Eq432 e432; Pultec pult; VariMu vmu; Impact imp; Spectral spec; Stabilizer stab; Imager img; DeEsser dess; BusComp bus; Multiband mband; TapeMachine tape; Exciter exc; VarDelay deltaVar[2];
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2], loudPad[2];
     juce::AudioBuffer<float> tmp, keep;

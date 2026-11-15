@@ -363,16 +363,21 @@ LimPage::LimPage (Editor& e) : ed (e), hist (e, true)
     on = std::make_unique<Switch> (ed.P ("lm_on"), C::red, "ATTIVO");
     delta = std::make_unique<Switch> (ed.P ("lm_delta"), C::amber, "DELTA");
     autoR = std::make_unique<Switch> (ed.P ("lm_auto"), C::amber, "RILASCIO AUTOMATICO");
-    tp = std::make_unique<Switch> (ed.P ("lm_tp"), C::red, "TRUE PEAK (8x)");
-    for (juce::Component* c : std::initializer_list<juce::Component*> { gain.get(), ceil.get(), rel.get(), on.get(), delta.get(), autoR.get(), tp.get(), &hist }) addAndMakeVisible (c);
-    for (auto* k : { gain.get(), ceil.get(), rel.get() }) k->onTouch = [this] { auto* p = ed.P ("lm_on"); if (p->getValue() < 0.5f) p->setValueNotifyingHost (1.0f); };
+    tp = std::make_unique<Switch> (ed.P ("lm_tp"), C::red, "TRUE PEAK (almeno 4x)");
+    enh = std::make_unique<Knob> (ed.P ("lm_enh"), C::amber); enh->label = "ENHANCE"; enh->text = [this] { return ed.proc.value ("lm_type") > 0.5f && ed.proc.value ("lm_type") < 1.5f ? juce::String (juce::roundToInt (ed.proc.value ("lm_enh") * 100)) + "%" : juce::String ("solo OXFORD"); };
+    type = std::make_unique<Segs> (ed.P ("lm_type"), C::red, juce::StringArray { "JACKPOT", "OXFORD", "IRC" });
+    os = std::make_unique<Segs> (ed.P ("lm_os"), C::amber, juce::StringArray { "1x", "2x", "4x", "8x", "16x" });
+    for (juce::Component* c : std::initializer_list<juce::Component*> { gain.get(), ceil.get(), rel.get(), enh.get(), on.get(), delta.get(), autoR.get(), tp.get(), type.get(), os.get(), &hist }) addAndMakeVisible (c);
+    for (auto* k : { gain.get(), ceil.get(), rel.get(), enh.get() }) k->onTouch = [this] { auto* p = ed.P ("lm_on"); if (p->getValue() < 0.5f) p->setValueNotifyingHost (1.0f); };
 }
 void LimPage::resized()
 {
     on->setBounds (150, 12, 100, 22); delta->setBounds (270, 12, 240, 22);
     gain->setBounds (16, 60, 150, 150 + 32); ceil->setBounds (176, 60, 150, 150 + 32); rel->setBounds (336, 82, 90, 90 + 27);
     autoR->setBounds (336, 210, 200, 22); tp->setBounds (336, 238, 200, 22);
-    hist.setBounds (16, 324, 822, 290);
+    enh->setBounds (440, 82, 90, 90 + 27);
+    type->setBounds (16, 252, 310, 28); os->setBounds (336, 268, 300, 26);
+    hist.setBounds (16, 334, 822, 280);
 }
 void LimPage::paint (juce::Graphics& g)
 {
@@ -386,7 +391,10 @@ void LimPage::paint (juce::Graphics& g)
                       "di Spotify e YouTube non distorce. -1 dBTP per lo streaming, -0.3 per club e CD.",
                       juce::Rectangle<int> ((int) r.getX() + 12, (int) r.getY() + 70, (int) r.getWidth() - 24, 120), juce::Justification::topLeft, 7);
     g.setColour (C::dim); g.setFont (uf (10.0f, false));
-    g.drawFittedText ("Il limiter dovrebbe lavorare poco (0-2 dB): il volume lo fa il MAXIMIZER, il limiter tiene fermo il tetto.", juce::Rectangle<int> (16, 286, 820, 30), juce::Justification::topLeft, 2);
+    { static const char* tw[] = { "JACKPOT: trasparente, rilascio che si adatta.", "OXFORD: ginocchio morbido e rilascio lungo, ENHANCE aggiunge densita' e un filo di colore.", "IRC: prima limita bassi, medi e alti separati (la cassa non abbassa la voce), poi il tetto." };
+      g.setColour (C::text.withAlpha (0.85f)); g.setFont (uf (10.0f, false)); g.drawFittedText (tw[juce::jlimit (0, 2, juce::roundToInt (ed.proc.value ("lm_type")))], juce::Rectangle<int> (16, 284, 310, 40), juce::Justification::topLeft, 3); }
+    g.setColour (C::dim); g.setFont (uf (10.0f, false));
+    g.drawFittedText ("Sovracampionamento: piu' alto = picchi piu' precisi e meno sporco, piu' CPU. Il limiter dovrebbe lavorare poco (0-2 dB): il volume lo fa il MAXIMIZER.", juce::Rectangle<int> (336, 298, 500, 30), juce::Justification::topLeft, 2);
 }
 
 // ======================================================================= analizzatore
@@ -1676,6 +1684,151 @@ void VariMuPage::paint (juce::Graphics& g)
     g.drawText ("RILASCIO  s", juce::Rectangle<float> (440, 336, 260, 12), juce::Justification::centredLeft);
     g.drawText ("FILTRO SIDECHAIN  Hz", juce::Rectangle<float> (580, 406, 200, 12), juce::Justification::centredLeft);
 }
+// ======================================================================= PROVA D'ASCOLTO
+EarPage::EarPage (Editor& e) : ed (e)
+{
+    juce::StringArray gn; for (int g = 0; g < kGenres; ++g) gn.add (jms::genre (g).name);
+    genre = std::make_unique<Segs> (ed.P ("ear_genre"), C::amber, gn); genre->font = 8.5f; genre->rows = 2; addAndMakeVisible (*genre);
+}
+void EarPage::resized() { genre->setBounds (16, 46, getWidth() - 32, 54); }
+void EarPage::mouseDown (const juce::MouseEvent& e)
+{
+    auto& P = ed.proc;
+    if (lisR.contains (e.position)) { P.earStart(); listening = true; repaint(); return; }
+    if (appR.contains (e.position) && P.ear.valid && P.earCalib < 0) { P.earApply(); ed.rack.repaint(); repaint(); return; }
+    if (disR.contains (e.position) && P.earBackup.getSize() > 0) { P.earDiscard(); ed.rack.repaint(); ed.repaint(); return; }
+}
+void EarPage::paint (juce::Graphics& g)
+{
+    auto& P = ed.proc; const auto& E = P.ear;
+    if (listening && ! P.earCap.on.load()) { listening = false; P.earFinish(); }
+    glowText (g, "PROVA D'ASCOLTO", { 16, 10, 300, 26 }, C::amber, uf (17.0f));
+    { auto rt = P.reference(); g.setFont (neo::f (9.5f)); g.setColour (C::dim);
+      g.drawText (rt && rt->lufs > -60 ? "confronto con il RIFERIMENTO: " + rt->name : juce::String ("confronto con la curva del genere (carica un RIFERIMENTO per confrontarti con un pezzo vero)"), juce::Rectangle<float> (220, 14, (float) getWidth() - 236, 18), juce::Justification::centredRight); }
+    const bool cap = P.earCap.on.load(); const int n = P.earCap.n.load();
+    lisR = { 16, 112, 190, 30 }; appR = { 216, 112, 190, 30 }; disR = { 416, 112, 120, 30 };
+    neo::chip (g, lisR, cap ? "ASCOLTO... " + juce::String (n * 100 / EarCapture::kNeed) + "%" : E.valid ? juce::String ("RIASCOLTA 10 s") : juce::String ("ASCOLTA 10 s"), cap, C::magenta, 8.5f);
+    neo::chip (g, appR, P.earCalib >= 0 ? juce::String ("TARATURA...") : juce::String ("APPLICA LA CATENA"), P.earCalib >= 0 || (E.valid && ! cap), C::green, 8.5f);
+    neo::chip (g, disR, "SCARTA", P.earBackup.getSize() > 0, C::red, 8.5f);
+    if (P.earMsg.isNotEmpty()) { g.setFont (neo::f (10.0f)); g.setColour (P.earCalib >= 0 ? C::amber : C::green); g.drawFittedText (P.earMsg, juce::Rectangle<int> (546, 108, getWidth() - 562, 38), juce::Justification::centredLeft, 2); }
+    auto area = juce::Rectangle<float> (16, 156, (float) getWidth() - 32, (float) getHeight() - 168);
+    juce::AttributedString a1, a2; for (auto* a : { &a1, &a2 }) { a->setWordWrap (juce::AttributedString::byWord); a->setLineSpacing (2.0f); }
+    auto head = [] (juce::AttributedString& a, const juce::String& s, juce::Colour c) { a.append (s + "\n", neo::cap (8.5f), c); };
+    auto body = [] (juce::AttributedString& a, const juce::String& s) { a.append (s + "\n", neo::f (11.0f), C::text.withAlpha (0.9f)); };
+    if (cap) { head (a1, "STO ASCOLTANDO", C::magenta); body (a1, n == 0 ? juce::String ("Fai partire il pezzo dalla parte piu' piena (ritornello): conto solo i momenti in cui suona.") : juce::String ("Misuro volume, dinamica, equilibrio tonale per zone, stereo e risonanze. Lascia suonare.")); a1.draw (g, area); return; }
+    if (! E.valid)
+    {
+        head (a1, "COME FUNZIONA", C::amber);
+        body (a1, "1. Scegli il genere qui sopra (o carica un RIFERIMENTO: allora mi confronto con quello, anche come volume).");
+        body (a1, "2. ASCOLTA: fai suonare 10 secondi della parte piu' piena del pezzo.");
+        body (a1, "3. Ti dico cosa sento, con i numeri, e propongo la catena modulo per modulo con il perche' di ogni scelta.");
+        body (a1, "4. APPLICA: monto la catena e taro il maximizer mentre suona fino al volume giusto. Non ti piace? SCARTA e torna tutto come prima.");
+        if (n > 0 && n < 200) body (a1, "Ho sentito troppo poco: rifai ASCOLTA con il pezzo in play.");
+        a1.draw (g, area); return;
+    }
+    head (a1, "COSA SENTO", C::amber);
+    for (auto& h : E.heard) { a1.append (juce::String::fromUTF8 ("\xe2\x80\xa2 "), neo::cap (9.0f), C::amber); body (a1, h); }
+    if (! E.notes.isEmpty()) { head (a1, "PRIMA DEL MASTER", C::red); for (auto& t : E.notes) { a1.append (juce::String::fromUTF8 ("\xe2\x80\xa2 "), neo::cap (9.0f), C::red); body (a1, t); } }
+    head (a2, "CATENA PROPOSTA  (in quest'ordine)", C::green);
+    for (size_t k = 0; k < E.steps.size(); ++k)
+    {
+        const auto& s = E.steps[k];
+        a2.append (juce::String ((int) k + 1) + "   " + s.title + "\n", neo::cap (8.5f), neo::acc (juce::Colour (modInfo (s.mod).colour)));
+        body (a2, s.why);
+    }
+    const float half = area.getWidth() * 0.42f;
+    a1.draw (g, area.withWidth (half - 14)); a2.draw (g, area.withTrimmedLeft (half + 14));
+    g.setColour (C::dim.withAlpha (0.4f)); g.fillRect (area.getX() + half, area.getY(), 1.0f, area.getHeight());
+}
+
+// ======================================================================= IMPACT / SPETTRALE / STABILIZER
+NewModPage::NewModPage (Editor& e, int m) : ModPage (e, m, m == IMPACT ? "ip_on" : m == SPECTRAL ? "sp_on" : "st_on", m == IMPACT ? "ip_delta" : m == SPECTRAL ? "sp_delta" : "st_delta")
+{
+    auto& P = ed.proc; const auto c = neo::acc (juce::Colour (modInfo (m).colour));
+    auto pct = [&P] (const char* id) { return [&P, id] { return juce::String (juce::roundToInt (P.value (id) * 100)) + "%"; }; };
+    auto spct = [&P] (const char* id) { return [&P, id] { const int v = juce::roundToInt (P.value (id) * 100); return (v > 0 ? "+" : "") + juce::String (v) + "%"; }; };
+    auto hz = [&P] (const char* id) { return [&P, id] { const float v = P.value (id); return v >= 1000 ? juce::String (v / 1000.0f, 1) + " kHz" : juce::String (juce::roundToInt (v)) + " Hz"; }; };
+    if (m == IMPACT)
+    {
+        knob ("ip_b1", c, "BASSI", spct ("ip_b1"), true); knob ("ip_b2", c, "MEDI", spct ("ip_b2"), true); knob ("ip_b3", c, "ALTI", spct ("ip_b3"), true); knob ("ip_b4", c, "ARIA", spct ("ip_b4"), true);
+        knob ("ip_speed", C::amber, "VELOCITA'", pct ("ip_speed"));
+    }
+    else if (m == SPECTRAL)
+    {
+        knob ("sp_res", c, "RISONANZE", pct ("sp_res")); knob ("sp_sens", c.interpolatedWith (C::text, 0.3f), "SENSIBILITA'", pct ("sp_sens"));
+        knob ("sp_clar", C::green, "CLARITY", pct ("sp_clar")); knob ("sp_lo", C::amber, "DA", hz ("sp_lo")); knob ("sp_hi", C::amber, "A", hz ("sp_hi"));
+    }
+    else
+    {
+        knob ("st_amt", c, "QUANTITA'", pct ("st_amt")); knob ("st_speed", C::amber, "VELOCITA'", pct ("st_speed"));
+        juce::StringArray gn; for (int g = 0; g < kGenres; ++g) gn.add (jms::genre (g).name);
+        genre = std::make_unique<Segs> (ed.P ("st_genre"), c, gn); genre->font = 8.5f; genre->rows = 2; addAndMakeVisible (*genre);
+    }
+}
+void NewModPage::resized()
+{
+    on->setBounds (190, 12, 100, 22); delta->setBounds (306, 12, 230, 22);
+    const int S = 74, n = knobs.size(); const float y = (float) getHeight() - 200;
+    for (int k = 0; k < n; ++k)
+    {
+        const float cx = mod == STABIL ? 90.0f + k * 130.0f : getWidth() * (k + 0.5f) / n;
+        knobs[k]->setBounds (juce::Rectangle<float> (cx - (S + 26) * 0.5f, y, (float) S + 26, (float) S + 27).toNearestInt());
+    }
+    if (genre) genre->setBounds (300, (int) y + 20, getWidth() - 320, 64);
+}
+void NewModPage::paint (juce::Graphics& g)
+{
+    static const char* help[3] = {
+        "IMPACT: in ogni banda confronta l'attacco con il corpo del suono. Positivo = il colpo esce di piu' (cassa, rullante), negativo = piu' morbido (piatti che pungono). VELOCITA' alta = lavora sui transienti piu' corti.",
+        "SPETTRALE: 28 bande guardano le vicine. RISONANZE abbassa solo le frequenze che sporgono oltre la SENSIBILITA' e solo mentre sporgono; CLARITY alza piano le zone coperte. DA / A limitano dove lavora.",
+        "STABILIZER: misura lo spettro medio degli ultimi secondi e lo avvicina piano alla curva del genere, al massimo 4 dB per zona. Segue la canzone, non il singolo colpo." };
+    paintHeader (g, help[mod == IMPACT ? 0 : mod == SPECTRAL ? 1 : 2]);
+    auto& P = ed.proc; const auto c = neo::acc (juce::Colour (modInfo (mod).colour));
+    auto v = juce::Rectangle<float> (16, 48, (float) getWidth() - 32, (float) getHeight() - 272); lcd (g, v, 8);
+    auto in = v.reduced (24, 22); const float mid = in.getCentreY(), sc = in.getHeight() * 0.5f;
+    g.setColour (C::dim.withAlpha (0.4f)); g.fillRect (in.getX(), mid, in.getWidth(), 1.0f);
+    g.setFont (neo::num (8.0f)); g.setColour (C::dim);
+    for (int d : { -6, -3, 3, 6 }) { const float yy = mid - d / 9.0f * sc; g.setColour (C::dim.withAlpha (0.15f)); g.fillRect (in.getX(), yy, in.getWidth(), 1.0f); g.setColour (C::dim); g.drawText ((d > 0 ? "+" : "") + juce::String (d), juce::Rectangle<float> (v.getX() + 2, yy - 6, 20, 12), juce::Justification::centredLeft); }
+    auto bar = [&] (juce::Rectangle<float> col, float db, const juce::String& lab, juce::Colour cc)
+    {
+        const float y = mid - juce::jlimit (-9.0f, 9.0f, db) / 9.0f * sc;
+        auto r = juce::Rectangle<float>::leftTopRightBottom (col.getX(), juce::jmin (y, mid), col.getRight(), juce::jmax (y, mid));
+        g.setColour (cc.withAlpha (0.25f)); g.fillRect (r.expanded (2, 0)); g.setColour (cc); g.fillRect (r);
+        g.setFont (neo::cap (7.0f)); g.setColour (C::text); g.drawText (lab, juce::Rectangle<float> (col.getX() - 20, in.getBottom() + 4, col.getWidth() + 40, 12), juce::Justification::centred);
+    };
+    if (mod == IMPACT)
+    {
+        static const char* nm[4] = { "BASSI  < 120", "MEDI  120-1k", "ALTI  1-6k", "ARIA  > 6k" };
+        for (int b = 0; b < 4; ++b) { const float w = in.getWidth() / 4; const float db = P.ipUi[b].load(); bar ({ in.getX() + w * b + w * 0.3f, in.getY(), w * 0.4f, in.getHeight() }, db, nm[b], c);
+            g.setFont (neo::num (11.0f)); g.setColour (C::text); g.drawText ((db > 0 ? "+" : "") + juce::String (db, 1) + " dB", juce::Rectangle<float> (in.getX() + w * b, in.getY(), w, 16), juce::Justification::centred); }
+    }
+    else if (mod == SPECTRAL)
+    {
+        const int N = Spectral::kB; const float w = in.getWidth() / N;
+        for (int b = 0; b < N; ++b)
+        {
+            const float f = 60.0f * std::pow (2.0f, b / 3.0f * 1.02f), db = P.spUi[b].load();
+            if (f > P.sampleRate() * 0.45) continue;
+            const bool act = f >= P.value ("sp_lo") && f <= P.value ("sp_hi");
+            bar ({ in.getX() + w * b + 2, in.getY(), w - 4, in.getHeight() }, db, b % 3 == 0 ? (f >= 1000 ? juce::String (f / 1000.0f, 1) + "k" : juce::String (juce::roundToInt (f))) : juce::String(), db < 0 ? C::red : act ? C::green : C::dim);
+        }
+    }
+    else
+    {
+        const float w = in.getWidth() / kRegions; const auto& G = jms::genre (juce::roundToInt (P.value ("st_genre")));
+        for (int r = 0; r < kRegions; ++r)
+        {
+            const float db = P.stUi[r].load(), df = P.stDiff[r].load();
+            bar ({ in.getX() + w * r + w * 0.3f, in.getY(), w * 0.4f, in.getHeight() }, db, regionName (r), c);
+            const float yd = mid - juce::jlimit (-9.0f, 9.0f, df) / 9.0f * sc;   // dove dovrebbe andare
+            g.setColour (C::amber); g.fillEllipse (in.getX() + w * r + w * 0.5f - 4, yd - 4, 8, 8);
+            g.setFont (neo::num (9.5f)); g.setColour (C::text); g.drawText ((db > 0 ? "+" : "") + juce::String (db, 1), juce::Rectangle<float> (in.getX() + w * r, in.getY(), w, 14), juce::Justification::centred);
+        }
+        g.setFont (neo::f (9.0f)); g.setColour (C::amber); g.drawText (juce::String::fromUTF8 ("\xe2\x97\x8f  distanza dalla curva ") + G.name + juce::String::fromUTF8 ("      barra = correzione adesso"), juce::Rectangle<float> (v.getX() + 14, v.getY() + 4, 500, 14), juce::Justification::centredLeft);
+        g.setFont (neo::cap (7.5f)); g.setColour (C::dim); g.drawText ("GENERE", juce::Rectangle<float> (300, (float) getHeight() - 194, 200, 12), juce::Justification::centredLeft);
+    }
+}
+
 void VmView::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat(); lcd (g, b, 8);
@@ -1937,10 +2090,11 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
     setLookAndFeel (&lnf);
     trim = std::make_unique<Knob> (P ("trim"), C::phos); trim->label = "INGRESSO"; trim->bipolar = true; trim->text = [this] { return dbS (proc.value ("trim")) + " dB"; };
+    outK = std::make_unique<Knob> (P ("outg"), C::green); outK->label = "USCITA"; outK->bipolar = true; outK->text = [this] { return dbS (proc.value ("outg")) + " dB"; };
     compare = std::make_unique<Switch> (P ("compare"), C::phos, "CONFRONTA");
     norm = std::make_unique<Switch> (P ("norm"), C::green, "PIATTAFORMA");
     dither = std::make_unique<Segs> (P ("dither"), C::violet, juce::StringArray { "OFF", "24 BIT", "16 BIT", "16 SH" }); dither->font = 9.0f; dither->rows = 2;
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &chain, &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &balPage, &refPage, &soon, &loud, trim.get(), compare.get(), norm.get(), dither.get() }) addAndMakeVisible (c);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &chain, &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &spPage, &stPage, &balPage, &refPage, &earPage, &soon, &loud, trim.get(), outK.get(), compare.get(), norm.get(), dither.get() }) addAndMakeVisible (c);
     addAndMakeVisible (sizeChip);
     addChildComponent (easyPage); addChildComponent (advStage); addAndMakeVisible (advTabsComp);
     for (juce::Component* c : std::initializer_list<juce::Component*> { &rack, &status }) addChildComponent (c);
@@ -1948,7 +2102,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     // tasto PRESET in ogni pagina d'effetto (in alto a destra)
     {
         juce::Component* pages[kNumMods] {}; pages[BASS] = &bassPage; pages[DYNEQ] = &eqPage; pages[DEESS] = &dsPage; pages[BUSCOMP] = &busPage; pages[MULTI] = &mbPage; pages[EXCITER] = &exPage;
-        pages[TAPE] = &tpPage; pages[IMAGER] = &imPage; pages[MAXIM] = &maxPage; pages[LIMIT] = &limPage; pages[EQ432] = &e4Page; pages[PULTEC] = &pqPage; pages[VARIMU] = &vmPage;
+        pages[TAPE] = &tpPage; pages[IMAGER] = &imPage; pages[MAXIM] = &maxPage; pages[LIMIT] = &limPage; pages[EQ432] = &e4Page; pages[PULTEC] = &pqPage; pages[VARIMU] = &vmPage; pages[IMPACT] = &ipPage; pages[SPECTRAL] = &spPage; pages[STABIL] = &stPage;
         for (int m = 0; m < kNumMods; ++m)
         {
             auto* b = presetBtns.add (new ActBtn (juce::String::fromUTF8 ("PRESET  \xe2\x96\xbe"), neo::acc (juce::Colour (modInfo (m).colour)), nullptr));
@@ -1968,7 +2122,7 @@ void Editor::applyMode()
 {
     const bool e = proc.easy(); lastEasy = e;
     easyPage.setVisible (e); advTabsComp.setVisible (! e); advStage.setVisible (false); gallery.setVisible (false); if (e) recap.setVisible (false);
-    for (juce::Component* c : std::initializer_list<juce::Component*> { compare.get(), norm.get(), &rack, &status }) c->setVisible (! e);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { compare.get(), norm.get(), trim.get(), outK.get(), &rack, &status }) c->setVisible (! e);
     dither->setVisible (false);
     // il display e lo stesso componente della modalita FACILE: in AVANZATO lo si sposta qui, cosi onde, spettro e misure sono identiche
     auto& st = easyPage.stage; juce::Component* parts[] = { &st, &easyPage.input, easyPage.trim };
@@ -1979,7 +2133,7 @@ void Editor::applyMode()
         st.toBack(); easyPage.trim->toFront (false); easyPage.input.toFront (false);
         for (auto* k : easyPage.knobs) if (k != easyPage.trim) k->toFront (false);
         easyPage.resized(); easyPage.bg = {}; easyPage.repaint();
-        for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &balPage, &refPage, &soon }) pg->setVisible (false);
+        for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &spPage, &stPage, &balPage, &refPage, &earPage, &soon }) pg->setVisible (false);
     }
     else
     {
@@ -2019,7 +2173,7 @@ void Editor::modPresetMenu (int m, juce::Component* from)
         if (r == 9999)
         {
             for (auto* p : e.proc.getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
-            { static const char* pre[kNumMods] = { "bc_", "eq", "ds_", "bus_", "mb", "ex", "tp_", "im_", "mx_", "lm_", "e4_", "pq_", "vm_" };
+            { static const char* pre[kNumMods] = { "bc_", "eq", "ds_", "bus_", "mb", "ex", "tp_", "im_", "mx_", "lm_", "e4_", "pq_", "vm_", "ip_", "sp_", "st_" };
               if (rp->paramID.startsWith (pre[m]) && rp->paramID != onParam (m)) rp->setValueNotifyingHost (rp->getDefaultValue()); }
             e.modNote = "Effetto riportato a neutro.";
         }
@@ -2053,9 +2207,9 @@ void Editor::select (int m)
     sel = m;
     if (m != DYNEQ) proc.eqSolo = -1;   // il solo dell'EQ vale solo mentre sei sulla pagina EQ
     maxPage.setVisible (m == MAXIM); limPage.setVisible (m == LIMIT); bassPage.setVisible (m == BASS); eqPage.setVisible (m == DYNEQ); imPage.setVisible (m == IMAGER);
-    dsPage.setVisible (m == DEESS); busPage.setVisible (m == BUSCOMP); mbPage.setVisible (m == MULTI); tpPage.setVisible (m == TAPE); exPage.setVisible (m == EXCITER); e4Page.setVisible (m == EQ432); pqPage.setVisible (m == PULTEC); vmPage.setVisible (m == VARIMU); balPage.setVisible (m == TOOL_BAL); refPage.setVisible (m == TOOL_REF);
+    dsPage.setVisible (m == DEESS); busPage.setVisible (m == BUSCOMP); mbPage.setVisible (m == MULTI); tpPage.setVisible (m == TAPE); exPage.setVisible (m == EXCITER); e4Page.setVisible (m == EQ432); pqPage.setVisible (m == PULTEC); vmPage.setVisible (m == VARIMU); ipPage.setVisible (m == IMPACT); spPage.setVisible (m == SPECTRAL); stPage.setVisible (m == STABIL); balPage.setVisible (m == TOOL_BAL); refPage.setVisible (m == TOOL_REF); earPage.setVisible (m == TOOL_EAR);
     soon.setVisible (m < kNumMods && ! modInfo (m).ready); soon.mod = m < kNumMods ? m : 0;
-    if (proc.easy() || advView != kEff) for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &balPage, &refPage, &soon }) pg->setVisible (false);
+    if (proc.easy() || advView != kEff) for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &spPage, &stPage, &balPage, &refPage, &earPage, &soon }) pg->setVisible (false);
     advStage.setVisible (false); advTabsComp.toFront (false); advTabsComp.repaint();
     rack.repaint(); status.repaint(); repaint();
 }
@@ -2066,7 +2220,7 @@ static int viewOf (int t) { return t == 0 ? Editor::kRecap : t == 8 ? Editor::kE
 static juce::StringArray advViewNames (const Editor& e)
 {
     juce::StringArray a { "CATENA", "ONDA", "GAIN", "SPETTRO", "IMMAGINE", "METERING", "IDEALE", "REFERENCE" };
-    a.add (e.sel < kNumMods ? juce::String (modInfo (e.sel).name) : e.sel == TOOL_BAL ? juce::String ("BILANCIO") : juce::String ("RIFERIMENTO"));
+    a.add (e.sel < kNumMods ? juce::String (modInfo (e.sel).name) : e.sel == TOOL_BAL ? juce::String ("BILANCIO") : e.sel == TOOL_EAR ? juce::String ("ASCOLTO") : juce::String ("RIFERIMENTO"));
     return a;
 }
 static juce::Point<float> kTabsOrigin { 260, 72 };
@@ -2086,7 +2240,7 @@ void Editor::applyAdvView()
     for (juce::Component* c : { (juce::Component*) &easyPage.stage, (juce::Component*) &easyPage.input, (juce::Component*) easyPage.trim }) c->setVisible (show);
     if (show) { easyPage.trim->toFront (false); easyPage.input.toFront (false); }
     if (! show) { select (sel); return; }
-    if (show) for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &balPage, &refPage, &soon }) pg->setVisible (false);
+    if (show) for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &spPage, &stPage, &balPage, &refPage, &earPage, &soon }) pg->setVisible (false);
     repaint();
 }
 void Editor::resized()
@@ -2096,21 +2250,22 @@ void Editor::resized()
     balRect = { 956, 15, 150, 36 }; refRect = { 1112, 15, 150, 36 };
     presetRect = { 486, 12, 380, 42 }; prevRect = { 446, 15, 36, 36 }; nextRect = { 870, 15, 36, 36 }; abRect = { 916, 15, 122, 36 };
     balRect = {}; refRect = {};
-    for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &balPage, &refPage, &soon }) pg->setBounds (centreR);
+    for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &spPage, &stPage, &balPage, &refPage, &earPage, &soon }) pg->setBounds (centreR);
     easyPage.setBounds (0, 64, 1280, 736); neoBg = {};
     rack.setBounds (16, 72, 232, 662);
     status.setBounds (16, 740, 1248, 56);
     gallery.setBounds (centreR.withTrimmedTop (-34));
     browser.setBounds (0, 0, W, H);
-    for (int t = 0; t < kNumTargets; ++t) tgtR[t] = { 1136, 136 + t * 30, 118, 26 };
+    for (int t = 0; t < kNumTargets; ++t) tgtR[t] = { 1136, 236 + t * 28, 118, 24 };
+    trim->setBounds (1128, 100, 66, 94); outK->setBounds (1194, 100, 66, 94);
     for (auto* b : presetBtns) if (auto* par = b->getParentComponent()) b->setBounds (par->getWidth() - 136, 10, 120, 26);
     advTabs.layout ({ 0, 74, 0, 26 }, advViewNames (*this), 7.5f); advTabs.ax = -1;
     { const float x0 = (float) centreR.getX() + 6 - advTabs.r[0].getX(); for (int i = 0; i < advTabs.n; ++i) advTabs.r[i].translate (x0, 0); kTabsOrigin = { (float) centreR.getX(), 70 }; }
     advTabsComp.setBounds (juce::Rectangle<float> (kTabsOrigin.x, kTabsOrigin.y, (float) centreR.getWidth(), 34).toNearestInt()); advTabsComp.toFront (false);
     modeSeg.layout ({ 282, 18, 0, 28 }, juce::StringArray { "FACILE", "AVANZATO" }, 9.0f); modeR[0] = modeSeg.r[0].toNearestInt(); modeR[1] = modeSeg.r[1].toNearestInt();
-    compare->setBounds (1136, 360, 126, 22); norm->setBounds (1136, 388, 126, 22);
+    compare->setBounds (1136, 428, 126, 22); norm->setBounds (1136, 454, 126, 22);
     dither->setBounds (0, 0, 0, 0);
-    for (int d = 0; d < 4; ++d) dthR[d] = { 1136 + (d % 2) * 61, 460 + (d / 2) * 30, 57, 26 };
+    for (int d = 0; d < 4; ++d) dthR[d] = { 1136 + (d % 2) * 61, 502 + (d / 2) * 28, 57, 24 };
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     jlook::scaleChildren (*this, sc);
     if (! proc.easy()) layoutAdv();
@@ -2123,7 +2278,7 @@ void Editor::paint (juce::Graphics& g)
     paintNeo (g);   // stesso sfondo e stessa testata in tutte e due le modalita
     if (proc.easy()) return;
     neo::chip (g, { 1150, 20, 110, 26 }, neo::light() ? "CHIARO" : "SCURO", false, C::dim, 8.5f);   // tema anche in AVANZATO
-    const auto mc = sel < kNumMods ? neo::acc (juce::Colour (modInfo (sel).colour)) : (sel == TOOL_BAL ? C::green : C::phos);
+    const auto mc = sel < kNumMods ? neo::acc (juce::Colour (modInfo (sel).colour)) : (sel == TOOL_BAL ? C::green : sel == TOOL_EAR ? C::amber : C::phos);
     auto card = [&] (juce::Rectangle<float> r, juce::Colour c)
     {   // zona senza scatola: velo scuro, un filo di luce del colore del modulo in basso
         juce::ColourGradient zg (veil (0.30f), r.getX(), r.getY(), veil (0.12f), r.getX(), r.getBottom(), false); g.setGradientFill (zg); g.fillRoundedRectangle (r, 16);
@@ -2135,16 +2290,20 @@ void Editor::paint (juce::Graphics& g)
     if (advView == kEff) card (centreR.toFloat(), mc);
     // colonna d'uscita: obiettivo di loudness, confronto, dither
     auto out = juce::Rectangle<float> (1126, 72, 138, 662); card (out, C::phos);
-    g.setFont (neo::cap (8.5f)); g.setColour (C::text); g.drawText ("USCITA", out.withHeight (30).withTrimmedLeft (10), juce::Justification::centredLeft);
-    g.setFont (neo::cap (7.0f)); g.setColour (C::dim); g.drawText ("OBIETTIVO", juce::Rectangle<float> (1136, 116, 118, 14), juce::Justification::centredLeft);
+    g.setFont (neo::cap (8.5f)); g.setColour (C::text); g.drawText ("INGRESSO E USCITA", out.withHeight (30).withTrimmedLeft (10), juce::Justification::centredLeft);
+    g.setFont (neo::cap (7.0f)); g.setColour (C::dim);     { const float a = proc.inS.load(), b = proc.lufsS.load(); g.setFont (neo::num (8.0f)); g.setColour (C::text);
+      g.drawText (a > -60 ? juce::String (a, 1) : juce::String ("--"), juce::Rectangle<float> (1128, 194, 66, 14), juce::Justification::centred);
+      g.drawText (b > -60 ? juce::String (b, 1) : juce::String ("--"), juce::Rectangle<float> (1194, 194, 66, 14), juce::Justification::centred);
+      g.setFont (neo::cap (6.5f)); g.setColour (C::dim); g.drawText ("LUFS BREVE", juce::Rectangle<float> (1136, 208, 118, 12), juce::Justification::centred); }
+    g.setFont (neo::cap (7.0f)); g.setColour (C::dim); g.drawText ("OBIETTIVO", juce::Rectangle<float> (1136, 220, 118, 14), juce::Justification::centredLeft);
     const int tg = juce::roundToInt (proc.value ("target"));
     for (int t = 0; t < kNumTargets; ++t) neo::chip (g, tgtR[t].toFloat(), juce::String (target (t).name) + "  " + juce::String ((int) target (t).lufs), t == tg, C::green, 7.5f);
-    g.setFont (neo::cap (7.0f)); g.setColour (C::dim); g.drawText ("ASCOLTO", juce::Rectangle<float> (1136, 340, 118, 14), juce::Justification::centredLeft);
-    g.drawText ("DITHER (EXPORT)", juce::Rectangle<float> (1136, 442, 118, 14), juce::Justification::centredLeft);
+    g.setFont (neo::cap (7.0f)); g.setColour (C::dim); g.drawText ("ASCOLTO", juce::Rectangle<float> (1136, 410, 118, 14), juce::Justification::centredLeft);
+    g.drawText ("DITHER (EXPORT)", juce::Rectangle<float> (1136, 486, 118, 14), juce::Justification::centredLeft);
     { static const char* dn[] = { "OFF", "24 BIT", "16 BIT", "16 SH" }; const int dv = juce::roundToInt (proc.value ("dither"));
       for (int d = 0; d < 4; ++d) neo::chip (g, dthR[d].toFloat(), dn[d], d == dv, C::violet, 7.0f); }
     g.setFont (neo::f (9.0f)); g.setColour (C::dim);
-    g.drawFittedText ("CONFRONTA: senti l'originale allo stesso volume. PIATTAFORMA: come lo abbassa lo streaming. Spegnili prima di esportare.", juce::Rectangle<int> (1136, 530, 118, 120), juce::Justification::topLeft, 8, 0.9f);
+    g.drawFittedText ("CONFRONTA: senti l'originale allo stesso volume. PIATTAFORMA: come lo abbassa lo streaming. Spegnili prima di esportare.", juce::Rectangle<int> (1136, 566, 118, 120), juce::Justification::topLeft, 8, 0.9f);
     g.setFont (neo::num (8.5f)); g.drawFittedText ("latenza " + juce::String (proc.getLatencySamples() * 1000.0 / juce::jmax (1.0, proc.sampleRate()), 1) + " ms", juce::Rectangle<int> (1136, 700, 118, 20), juce::Justification::centredLeft, 1, 0.8f);
 }
 
@@ -2260,15 +2419,16 @@ void Editor::timerCallback()
     // un effetto acceso da automazione o preset entra in catena da solo
     { bool ch = false; for (int m = 0; m < kNumMods; ++m) if (! proc.inRack[m].load() && proc.value (onParam (m)) > 0.5f) { proc.inRack[m] = true; ch = true; } if (ch) rack.repaint(); }
     if (tick % 3 == 0) { rack.repaint(); status.repaint(); }
+    if (tick % 15 == 0) proc.earTick();   // taratura della prova d'ascolto (2 volte al secondo)
     maxPage.gain->activity = juce::jlimit (0.0f, 1.0f, proc.grMax.load() / 6.0f);
     limPage.ceil->activity = juce::jlimit (0.0f, 1.0f, proc.grLim.load() / 3.0f);
     if (maxPage.isVisible()) maxPage.repaint();
     if (limPage.isVisible()) limPage.repaint();
     if (eqPage.isVisible()) eqPage.view.tick();
     // interruttori (ATTIVO, DELTA, ...) cambiati da preset, automazione o da un altro comando: si riaccendono da soli
-    for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage })
+    for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &spPage, &stPage })
         if (pg->isVisible()) for (auto* c : pg->getChildren()) if (auto* sw = dynamic_cast<Switch*> (c)) if (sw->param->getValue() != sw->shown) sw->repaint();
-    for (auto* pg : std::initializer_list<juce::Component*> { &bassPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &balPage, &refPage }) if (pg->isVisible()) pg->repaint();
+    for (auto* pg : std::initializer_list<juce::Component*> { &bassPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &spPage, &stPage, &balPage, &refPage, &earPage }) if (pg->isVisible()) pg->repaint();
     if (tick % 3 == 0)
     {   // spettro medio dell'uscita per bilanciamento e riferimento
         float l[4096], r[4096]; proc.ringOut.read (l, r, 4096);

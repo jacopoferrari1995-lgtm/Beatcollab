@@ -117,7 +117,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     Editor& ed;
-    std::unique_ptr<Knob> gain, ceil, rel; std::unique_ptr<Switch> on, delta, autoR, tp;
+    std::unique_ptr<Knob> gain, ceil, rel, enh; std::unique_ptr<Switch> on, delta, autoR, tp; std::unique_ptr<Segs> type, os;
     History hist;
 };
 
@@ -394,7 +394,17 @@ public:
     VmView view; std::unique_ptr<Segs> mode, att, rel, hpf; std::unique_ptr<Switch> autoM, ms;
 };
 
-constexpr int TOOL_BAL = 100, TOOL_REF = 101;
+// IMPACT, SPETTRALE, STABILIZER: una pagina sola che cambia disegno e comandi secondo il modulo
+class NewModPage : public ModPage
+{
+public:
+    NewModPage (Editor&, int mod);
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    std::unique_ptr<Segs> genre;
+};
+
+constexpr int TOOL_BAL = 100, TOOL_REF = 101, TOOL_EAR = 102;
 
 // bilanciamento tonale rispetto al genere
 class BalancePage : public juce::Component
@@ -407,6 +417,16 @@ public:
     void applyEq (const float* devRegions);
     juce::Rectangle<float> genreCell (int g) const { return { 16 + (g % 4) * 206.0f, 52.0f + (g / 4) * 30.0f, 200, 26 }; }
     Editor& ed; int genreSel = 0; std::unique_ptr<ActBtn> fix, reset;
+};
+// PROVA D'ASCOLTO: ascolta, dice cosa sente con i numeri, propone la catena, la monta e la tara; SCARTA torna a prima
+class EarPage : public juce::Component
+{
+public:
+    EarPage (Editor&);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    Editor& ed; std::unique_ptr<Segs> genre; juce::Rectangle<float> lisR, appR, disR; bool listening = false;
 };
 class RefPage : public juce::Component
 {
@@ -539,7 +559,7 @@ public:
     std::vector<int> visible() const;
     juce::Rectangle<float> row (int i) const { return { 10, 44.0f + i * 46.0f, (float) getWidth() - 20, 42 }; }
     juce::Rectangle<float> addR() const { return { 10, (float) getHeight() - 112, (float) getWidth() - 20, 32 }; }
-    juce::Rectangle<float> toolR (int t) const { const float w = ((float) getWidth() - 26) * 0.5f; return { 10 + t * (w + 6), (float) getHeight() - 70, w, 28 }; }
+    juce::Rectangle<float> toolR (int t) const { const float w = ((float) getWidth() - 32) / 3.0f; return { 10 + t * (w + 6), (float) getHeight() - 70, w, 28 }; }
     Editor& ed; int hov = -1, dragMod = -1; bool dragging = false, hovX = false, hovP = false; float dragY = 0, grab = 0;
 };
 // galleria per inserire un effetto: anteprima, cosa fa, quando usarlo
@@ -550,7 +570,7 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
-    juce::Rectangle<float> card (int i) const { const float w = ((float) getWidth() - 40 - 4 * 12) / 5; return { 20 + (i % 5) * (w + 12), 54.0f + (i / 5) * 188.0f, w, 178 }; }
+    juce::Rectangle<float> card (int i) const { const float w = ((float) getWidth() - 40 - 5 * 12) / 6; return { 20 + (i % 6) * (w + 12), 54.0f + (i / 6) * 188.0f, w, 178 }; }
     juce::Rectangle<float> closeR() const { return { (float) getWidth() - 96, 14, 80, 26 }; }
     Editor& ed; int hov = -1;
 };
@@ -620,9 +640,9 @@ public:
     BusPage busPage { *this };
     MultiPage mbPage { *this };
     TapePage tpPage { *this };
-    ExciterPage exPage { *this }; Eq432Page e4Page { *this }; PultecPage pqPage { *this }; VariMuPage vmPage { *this };
+    ExciterPage exPage { *this }; Eq432Page e4Page { *this }; PultecPage pqPage { *this }; VariMuPage vmPage { *this }; NewModPage ipPage { *this, IMPACT }, spPage { *this, SPECTRAL }, stPage { *this, STABIL };
     BalancePage balPage { *this };
-    RefPage refPage { *this };
+    RefPage refPage { *this }; EarPage earPage { *this };
     ThirdAnalyzer live;   // spettro medio dell'uscita (mobile, ~3 s)
     float liveThirds[kThirds] {};
     LimPage limPage { *this };
@@ -655,7 +675,7 @@ public:
     void paintNeo (juce::Graphics&);
 private:
     void timerCallback() override;
-    std::unique_ptr<Segs> dither; std::unique_ptr<Switch> compare, norm; std::unique_ptr<Knob> trim;
+    std::unique_ptr<Segs> dither; std::unique_ptr<Switch> compare, norm; std::unique_ptr<Knob> trim, outK;
     juce::Rectangle<int> presetRect, prevRect, nextRect, abRect, balRect, refRect; bool abHover = false; int tick = 0;
 };
 }

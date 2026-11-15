@@ -61,6 +61,45 @@ int main (int argc, char** argv)
         l = (float) m; r = (float) (m * 0.95);
     };
 
+    if (argc > 1 && juce::String (argv[1]) == "harm")
+    {   // THICK e SILK: armoniche prodotte e sporco fuori posto (aliasing) su sinusoidi
+        juce::ScopedJuceInitialiser_GUI gh; const double fs = 44100; const int N = 1 << 15;
+        auto spec = [&] (std::vector<float>& x, float f0, const char* nm)
+        {
+            juce::dsp::FFT fft (15); std::vector<float> a ((size_t) 2 * N, 0); for (int i = 0; i < N; ++i) a[(size_t) i] = x[(size_t) (x.size() - N + i)] * (0.5f - 0.5f * std::cos (6.2831853f * i / N));
+            fft.performFrequencyOnlyForwardTransform (a.data());
+            auto mag = [&] (double f) { int b = (int) std::round (f / fs * N); float m = 0; for (int k = b - 3; k <= b + 3; ++k) if (k > 0 && k < N / 2) m = std::max (m, a[(size_t) k]); return 20 * std::log10 (m + 1e-9f); };
+            const float ref = mag (f0); std::printf ("%-6s %6.0f Hz: ", nm, f0);
+            for (int h = 2; h <= 5; ++h) { const double f = f0 * h; if (f < fs / 2) std::printf ("H%d %+6.1f  ", h, mag (f) - ref); else std::printf ("H%d  oltre  ", h); }
+            // sporco: il bin piu' alto che non e' armonico (aliasing)
+            float worst = -300; for (int k = 20; k < N / 2; ++k) { const double f = k * fs / N; bool harm = false; for (int h = 1; h <= 40; ++h) if (std::abs (f - f0 * h) < 25) harm = true; if (! harm) worst = std::max (worst, 20 * std::log10 (a[(size_t) k] + 1e-9f) - ref); }
+            std::printf (" sporco max %+6.1f dB\n", worst);
+        };
+        for (int which = 0; which < 2; ++which)
+            for (float f0 : which == 0 ? std::vector<float> { 80.0f, 300.0f, 900.0f } : std::vector<float> { 5000.0f, 9000.0f, 14000.0f })
+            {
+                jms::EasyEngine e; e.prepare (fs); jms::EasySettings S; S.monoBass = false; if (which == 0) S.thick = 1; else S.silk = 1;
+                std::vector<float> L ((size_t) N * 2), R ((size_t) N * 2);
+                for (int i = 0; i < N * 2; ++i) L[(size_t) i] = R[(size_t) i] = 0.5f * (float) std::sin (2 * 3.14159265 * f0 * i / fs);
+                for (int off = 0; off < N * 2; off += 512) e.process (L.data() + off, R.data() + off, 512, S);
+                spec (L, f0, which == 0 ? "THICK" : "SILK");
+            }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "lim3")
+    {   // i tre limiter a ogni sovracampionamento: picco vero in uscita, riduzione, latenza
+        juce::ScopedJuceInitialiser_GUI gl; const double fs = 48000; juce::Random r (3);
+        for (int t = 0; t < 3; ++t) for (int o = 0; o < 5; ++o)
+        {
+            jms::Limiter lm; lm.prepare (fs, 512); jms::LimSettings S; S.type = t; S.os = o; S.truePeak = o >= 2; S.ceilDb = -1; S.enhance = t == 1 ? 0.5f : 0;
+            std::vector<float> L (512 * 280), R (512 * 280); double ph = 0;
+            for (size_t i = 0; i < L.size(); ++i) { const double tt = i / fs, b = std::fmod (tt * 2, 1.0); ph += 2 * 3.14159 * (50 + 400 * std::exp (-b * 40)) / fs; L[i] = (float) (1.6 * std::sin (ph) * std::exp (-b * 5) + 0.3 * std::sin (2 * 3.14159 * 3000 * tt) + (r.nextFloat() - 0.5f) * 0.4f); R[i] = L[i] * 0.9f; }
+            float grm = 0; for (size_t off = 0; off + 512 <= L.size(); off += 512) { lm.process (L.data() + off, R.data() + off, 512, S); grm = std::max (grm, lm.gr); }
+            jms::TruePeak tp; float pk = 0; for (size_t i = 48000; i < L.size(); ++i) pk = std::max (pk, tp.push (L[i]));
+            std::printf ("tipo %d os %2dx: true peak %+5.2f dB  GR max %4.1f  latenza %d\n", t, 1 << o, 20 * std::log10 (pk), grm, lm.latency());
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "tp")
     {
         for (double f : { 1000.0, 5000.0, 12000.0, 17000.0, 20000.0 })
@@ -185,6 +224,61 @@ int main (int argc, char** argv)
         for (int i = 0; i < (int) presets().size(); ++i) { const juce::String n (presets()[(size_t) i].name); if (n.startsWith ("Genere") || n.startsWith ("Specifico")) check (n, [i] (Processor& q) { q.loadPreset (i); }); }
         for (int i = 0; i < (int) modPresets().size(); ++i) check (juce::String ("  [") + modInfo (modPresets()[(size_t) i].mod).name + "] " + modPresets()[(size_t) i].name, [i] (Processor& q) { auto* m = q.apvts.getParameter ("mode"); m->setValueNotifyingHost (1.0f); q.loadModPreset (i); });
         std::printf ("preset con problemi: %d\n", bad);
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "ear")
+    {   // prova d'ascolto: due mix diversi, proposta, applicazione, taratura
+        for (int kind = 0; kind < 2; ++kind)
+        {
+            auto p = blank(); setP (*p, "mode", 1); setP (*p, "engine", 1); setP (*p, "ear_genre", kind == 0 ? 0 : 6); setP (*p, "target", kind == 0 ? 5 : 0);
+            std::vector<float> a, b; juce::Random rr (kind + 1); double ph = 0, ph2 = 0;
+            auto gen = [&] (int k, float& l, float& r) { beat (k, l, r); l *= kind == 0 ? 0.35f : 0.2f; ph += 2 * 3.14159 * 330 / sr; ph2 += 2 * 3.14159 * 52 / sr;
+                const float pad = (kind == 0 ? 0.04f : 0.12f) * (float) std::sin (ph), sub = (kind == 0 ? 0.18f : 0.04f) * (float) std::sin (ph2);
+                r = l + pad * 0.6f + sub * (kind == 0 ? 0.6f : 1.0f); l = l + pad + sub; };
+            p->earStart(); int guard = 0; while (p->earCap.on.load() && guard++ < 200) run (*p, gen, (int) sr / 2, a, b);
+            p->earFinish(); const auto& E = p->ear;
+            std::printf ("\n==== mix %d  valid %d  ref %d\n", kind, (int) E.valid, (int) E.useRef);
+            for (auto& h : E.heard) std::printf ("  . %s\n", h.toRawUTF8());
+            for (auto& st : E.steps) std::printf ("  > %s\n      %s\n", st.title.toRawUTF8(), st.why.toRawUTF8());
+            for (auto& t : E.notes) std::printf ("  ! %s\n", t.toRawUTF8());
+            p->earApply();
+            for (int t = 0; t < 40 && p->earCalib >= 0; ++t) { run (*p, gen, (int) sr / 2, a, b); p->earTick(); }
+            float pk = 0; bool nan = false; for (auto x : a) { if (! std::isfinite (x)) nan = true; pk = std::max (pk, std::abs (x)); }
+            std::printf ("  = %s   (picco %.2f nan %d)\n", p->earMsg.toRawUTF8(), pk, (int) nan);
+            if (kind == 0 && argc > 2)
+            {
+                juce::ScopedJuceInitialiser_GUI gg; Editor ed (*p); ed.tickForTest(); ed.openEffect (TOOL_EAR); ed.tickForTest();
+                auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+                juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+            }
+            p->earDiscard(); std::printf ("  scarta -> mx_on %.0f bc_on %.0f\n", p->value ("mx_on"), p->value ("bc_on"));
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "newmods")
+    {   // IMPACT, SPETTRALE, STABILIZER: suono (niente NaN, livello sensato) e pagina
+        for (int m : { (int) IMPACT, (int) SPECTRAL, (int) STABIL })
+        {
+            auto p = blank(); setP (*p, "mode", 1); setP (*p, "engine", 1);
+            const char* on = m == IMPACT ? "ip_on" : m == SPECTRAL ? "sp_on" : "st_on"; setP (*p, on, 1); p->inRack[m] = true;
+            if (m == IMPACT) { setP (*p, "ip_b1", 0.8f); setP (*p, "ip_b3", -0.6f); }
+            if (m == SPECTRAL) { setP (*p, "sp_res", 0.8f); setP (*p, "sp_clar", 0.5f); }
+            if (m == STABIL) { setP (*p, "st_amt", 1); setP (*p, "st_speed", 1); }
+            std::vector<float> a, b; double ph = 0;
+            run (*p, [&] (int k, float& l, float& r) { beat (k, l, r); ph += 2 * 3.14159 * 2400 / sr; l = l * 0.5f + 0.15f * (float) std::sin (ph); r = l; }, (int) sr * 8, a, b);
+            float pk = 0; bool nan = false; for (auto x : a) { if (! std::isfinite (x)) nan = true; pk = std::max (pk, std::abs (x)); }
+            std::printf ("%-10s picco %.2f nan %d  ui:", modInfo (m).name, pk, (int) nan);
+            if (m == IMPACT) for (int k = 0; k < 4; ++k) std::printf (" %.1f", p->ipUi[k].load());
+            if (m == SPECTRAL) { float mn = 0; int bm = 0; for (int k = 0; k < Spectral::kB; ++k) if (p->spUi[k].load() < mn) { mn = p->spUi[k].load(); bm = k; } std::printf (" min %.1f dB alla banda %d", mn, bm); }
+            if (m == STABIL) for (int k = 0; k < kRegions; ++k) std::printf (" %.1f/%.1f", p->stUi[k].load(), p->stDiff[k].load());
+            std::printf ("\n");
+            if (argc > 2)
+            {
+                juce::ScopedJuceInitialiser_GUI gg; Editor ed (*p); ed.tickForTest(); ed.openEffect (m); ed.tickForTest();
+                auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+                juce::File f (juce::String (argv[2]) + juce::String (m) + ".png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+            }
+        }
         return 0;
     }
     if (argc > 1 && juce::String (argv[1]) == "easysnap")

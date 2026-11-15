@@ -22,7 +22,10 @@ static const ModText& modText (int m)
         { "Ultimo controllo: nessun picco oltre il ceiling, in true peak.", "Sempre, come ultimo effetto." },
         { "EQ largo e musicale da mastering, cinque bande.", "Ritocchi ampi di colore: +1/-1 dB fanno tanto." },
         { "EQ passivo a valvole: il trucco boost + atten sui bassi.", "Bassi pieni ma puliti, aria morbida sugli alti." },
-        { "Compressore a valvole lento e morbido.", "Colla piu calda e scura del BUS COMP." } };
+        { "Compressore a valvole lento e morbido.", "Colla piu calda e scura del BUS COMP." },
+        { "Punch per banda: alza o ammorbidisce l'attacco di bassi, medi, alti e aria.", "Cassa e rullante spenti dopo il maximizer, o un mix troppo spigoloso." },
+        { "Toglie le risonanze che sporgono (stile soothe) e con CLARITY fa uscire le zone coperte.", "Frequenze che fischiano o rimbombano, mix opaco o impastato." },
+        { "Avvicina piano lo spettro medio alla curva del genere scelto.", "Quando il mix pende troppo verso bassi, medi o alti." } };
     return T[juce::jlimit (0, kNumMods - 1, m)];
 }
 
@@ -90,6 +93,23 @@ static Stat statOf (Editor& ed, int m)
         {   const float g = P.vmGr.load(); s.brief = g > 0.1f ? "-" + db1 (g) : "a riposo";
             s.doing = g > 0.1f ? "comprimo a valvole di " + db1 (g) : "non sto comprimendo";
             s.tip = g > 3 ? "Il vari-mu e lento: oltre 2-3 dB il mix si scurisce e respira troppo." : "1-2 dB di lancetta e il punto in cui si sente la colla."; break; }
+        case IMPACT:
+        {   float mx = 0; int mb = 0; for (int b = 0; b < 4; ++b) if (std::abs (P.ipUi[b].load()) > std::abs (mx)) { mx = P.ipUi[b].load(); mb = b; }
+            static const char* bn[] = { "bassi", "medi", "alti", "aria" };
+            s.brief = std::abs (mx) > 0.1f ? juce::String (bn[mb]) + " " + (mx > 0 ? "+" : "") + juce::String (mx, 1) : juce::String ("a riposo");
+            s.doing = std::abs (mx) > 0.1f ? juce::String (mx > 0 ? "alzo" : "ammorbidisco") + " l'attacco dei " + bn[mb] + " di " + juce::String (std::abs (mx), 1) + " dB" : juce::String ("nessun attacco da toccare");
+            s.tip = "Pochi dB fanno tanto: +20-30% sui bassi per la cassa, negativo sugli alti se i piatti pungono."; break; }
+        case SPECTRAL:
+        {   float mn = 0, mxv = 0; int bmin = 0; for (int b = 0; b < Spectral::kB; ++b) { const float v = P.spUi[b].load(); if (v < mn) { mn = v; bmin = b; } mxv = juce::jmax (mxv, v); }
+            const float f = 60.0f * std::pow (2.0f, bmin / 3.0f * 1.02f);
+            s.brief = mn < -0.3f ? juce::String (juce::roundToInt (f)) + " Hz " + juce::String (mn, 1) : mxv > 0.3f ? juce::String ("clarity +") + juce::String (mxv, 1) : juce::String ("a riposo");
+            s.doing = mn < -0.3f ? "tolgo una risonanza a " + juce::String (juce::roundToInt (f)) + " Hz (" + juce::String (mn, 1) + " dB)" : juce::String ("nessuna risonanza sopra la soglia");
+            s.tip = "Se senti il mix svuotarsi abbassa RISONANZE o alza la soglia: deve togliere solo cio' che fischia."; break; }
+        case STABIL:
+        {   float mx = 0; int mr = 0; for (int r = 0; r < kRegions; ++r) if (std::abs (P.stUi[r].load()) > std::abs (mx)) { mx = P.stUi[r].load(); mr = r; }
+            s.brief = std::abs (mx) > 0.1f ? juce::String (regionName (mr)).toLowerCase() + " " + (mx > 0 ? "+" : "") + juce::String (mx, 1) : juce::String ("in equilibrio");
+            s.doing = std::abs (mx) > 0.1f ? "correggo " + juce::String (regionName (mr)).toLowerCase() + " di " + juce::String (mx, 1) + " dB verso " + juce::String (genre (juce::roundToInt (P.value ("st_genre"))).name) : juce::String ("lo spettro e' gia' vicino al genere");
+            s.tip = "E' lento apposta: segue la canzone. Se una zona sbaglia di molto, meglio sistemarla con l'EQ."; break; }
         default: break;
     }
     return s;
@@ -283,6 +303,22 @@ void hwIcon (juce::Graphics& g, int m, juce::Rectangle<float> r, bool on)
             for (int k = 0; k < 18; ++k) { const float t = k / 18.0f; g.setColour ((t > 0.83f ? juce::Colour (0xffff3b5c) : t > 0.65f ? juce::Colour (0xffffb547) : juce::Colour (0xff4dffb4)).withAlpha (t < 0.9f ? 0.95f : 0.25f)); g.fillRect (ml.getX() + k * ml.getWidth() / 18, ml.getY(), ml.getWidth() / 18 - 1, ml.getHeight()); }
             g.setColour (juce::Colours::white); g.fillRect (ml.getX() + ml.getWidth() * 0.9f, ml.getY() - H * 0.12f, juce::jmax (1.0f, W * 0.012f), ml.getHeight() + H * 0.24f);
             break; }
+        case IMPACT:
+        {   plateBody (g, r, juce::Colour (0xff2b2622), juce::Colour (0xff17130f)); screws (g, r);
+            const juce::Colour caps[4] = { juce::Colour (0xffff9f43), juce::Colour (0xffffc46b), juce::Colour (0xffffe08f), juce::Colour (0xfffff2c4) };
+            for (int k = 0; k < 4; ++k) miniKnob (g, in.getX() + in.getWidth() * (k + 0.5f) / 4.0f, r.getCentreY(), juce::jmin (H * 0.18f, W * 0.08f), caps[k], -0.6f + k * 0.35f);
+            break; }
+        case SPECTRAL:
+        {   plateBody (g, r, juce::Colour (0xff10202b), juce::Colour (0xff081016));
+            for (int k = 0; k < 16; ++k) { const float t = k / 16.0f, h = in.getHeight() * (0.3f + 0.5f * std::abs (std::sin (k * 1.7f))) * (k == 9 ? 0.35f : 1.0f);
+                g.setColour ((k == 9 ? juce::Colour (0xffff5e7a) : juce::Colour (0xff7fd4ff)).withAlpha (0.9f)); g.fillRect (in.getX() + t * in.getWidth(), in.getBottom() - h, in.getWidth() / 16 - 1, h); }
+            break; }
+        case STABIL:
+        {   plateBody (g, r, juce::Colour (0xff1c2414), juce::Colour (0xff0e130a)); screws (g, r);
+            juce::Path p; for (int k = 0; k <= 20; ++k) { const float x = in.getX() + in.getWidth() * k / 20.0f, y = r.getCentreY() - H * 0.18f * std::sin (k * 0.5f) * (1 - k / 25.0f); if (k == 0) p.startNewSubPath (x, y); else p.lineTo (x, y); }
+            g.setColour (juce::Colour (0xffb6f36b)); g.strokePath (p, juce::PathStrokeType (juce::jmax (1.0f, H * 0.04f)));
+            g.setColour (juce::Colours::white.withAlpha (0.4f)); g.fillRect (in.getX(), r.getCentreY(), in.getWidth(), juce::jmax (0.6f, H * 0.015f));
+            break; }
         default: break;
     }
     if (! on) { g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillRoundedRectangle (r, juce::jmin (6.0f, H * 0.14f)); }
@@ -337,8 +373,9 @@ void Rack::paint (juce::Graphics& g)
     }
     // aggiungi + strumenti
     neo::chip (g, addR(), "+  AGGIUNGI EFFETTO", ed.gallery.isVisible(), K::violet, 8.5f, hov == 100);
-    neo::chip (g, toolR (0), "BILANCIO", ed.sel == TOOL_BAL && ed.advView == Editor::kEff, K::mint, 7.5f, hov == 101);
-    neo::chip (g, toolR (1), ed.proc.refListen.load() ? "RIF. IN ASCOLTO" : "RIFERIMENTO", ed.sel == TOOL_REF && ed.advView == Editor::kEff, K::cyan, 7.5f, hov == 102);
+    neo::chip (g, toolR (0), "BILANCIO", ed.sel == TOOL_BAL && ed.advView == Editor::kEff, K::mint, 7.0f, hov == 101);
+    neo::chip (g, toolR (1), ed.proc.refListen.load() ? "RIF. ON" : "RIFERIMENTO", ed.sel == TOOL_REF && ed.advView == Editor::kEff, K::cyan, 7.0f, hov == 102);
+    neo::chip (g, toolR (2), "ASCOLTO", ed.sel == TOOL_EAR && ed.advView == Editor::kEff, K::amber, 7.0f, hov == 103);
     g.setFont (cap (7.0f)); g.setColour (K::faint); g.drawText (juce::String::fromUTF8 ("USCITA \xe2\x86\x93"), juce::Rectangle<float> (0, (float) getHeight() - 32, (float) getWidth() - 14, 22), juce::Justification::centredRight);
     g.setFont (f (8.5f)); g.drawText ("trascina per spostare", juce::Rectangle<float> (14, (float) getHeight() - 32, 160, 22), juce::Justification::centredLeft);
 }
@@ -347,7 +384,7 @@ void Rack::mouseMove (const juce::MouseEvent& e)
     int h = -1; bool x = false;
     const auto v = visible();
     for (int i = 0; i < (int) v.size(); ++i) if (row (i).contains (e.position)) { h = v[(size_t) i]; x = e.position.x > row (i).getRight() - 26; }
-    if (addR().contains (e.position)) h = 100; if (toolR (0).contains (e.position)) h = 101; if (toolR (1).contains (e.position)) h = 102;
+    if (addR().contains (e.position)) h = 100; if (toolR (0).contains (e.position)) h = 101; if (toolR (1).contains (e.position)) h = 102; if (toolR (2).contains (e.position)) h = 103;
     if (h != hov || x != hovX) { hov = h; hovX = x; repaint(); }
     setMouseCursor (h >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
@@ -357,6 +394,7 @@ void Rack::mouseDown (const juce::MouseEvent& e)
     if (addR().contains (e.position)) { ed.gallery.setVisible (! ed.gallery.isVisible()); ed.gallery.toFront (false); repaint(); return; }
     if (toolR (0).contains (e.position)) { ed.gallery.setVisible (false); ed.openEffect (TOOL_BAL); return; }
     if (toolR (1).contains (e.position)) { ed.gallery.setVisible (false); ed.openEffect (TOOL_REF); return; }
+    if (toolR (2).contains (e.position)) { ed.gallery.setVisible (false); ed.openEffect (TOOL_EAR); return; }
     const auto v = visible();
     for (int i = 0; i < (int) v.size(); ++i)
     {
@@ -405,6 +443,9 @@ static void glyph (juce::Graphics& g, int m, juce::Rectangle<float> r, juce::Col
         case DEESS: curve ([] (float x) { return 0.55f - 0.3f * std::exp (-std::pow ((x - 0.78f) * 10, 2.0f)); }); break;
         case EXCITER: case TAPE: curve ([m] (float x) { return 0.5f + 0.42f * std::tanh ((x - 0.5f) * (m == TAPE ? 3.0f : 6.0f)) / std::tanh (m == TAPE ? 1.5f : 3.0f); }); break;
         case IMAGER: p.addEllipse (r.getCentreX() - r.getHeight() * 0.7f, r.getY(), r.getHeight() * 1.4f, r.getHeight()); break;
+        case IMPACT: curve ([] (float x) { const float t = std::fmod (x * 3, 1.0f); return 0.2f + 0.7f * std::exp (-t * 6); }); break;
+        case SPECTRAL: curve ([] (float x) { return 0.5f + 0.06f * std::sin (x * 40) - 0.25f * std::exp (-std::pow ((x - 0.6f) * 30, 2.0f)); }); break;
+        case STABIL: curve ([] (float x) { return 0.5f + 0.15f * std::cos (x * 3.14159f) * (1 - x); }); break;
         default: break;
     }
     g.setColour (c.withAlpha (0.25f)); g.strokePath (p, juce::PathStrokeType (4.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (1.6f));
@@ -418,7 +459,7 @@ void Gallery::paint (juce::Graphics& g)
     g.setFont (cap (10.0f)); g.setColour (K::ink); g.drawText ("AGGIUNGI EFFETTO", juce::Rectangle<float> (22, 14, 300, 26), juce::Justification::centredLeft);
     g.setFont (f (9.5f)); g.setColour (K::sub); g.drawText ("entra nella catena al suo posto naturale, poi puoi spostarlo", juce::Rectangle<float> (220, 14, 420, 26), juce::Justification::centredLeft);
     neo::chip (g, closeR(), "CHIUDI", false, K::sub, 8.0f, hov == 99);
-    static const int list[kNumMods] = { BASS, DYNEQ, EQ432, PULTEC, DEESS, VARIMU, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT };
+    static const int list[kNumMods] = { BASS, DYNEQ, SPECTRAL, EQ432, PULTEC, STABIL, DEESS, VARIMU, BUSCOMP, MULTI, IMPACT, EXCITER, TAPE, IMAGER, MAXIM, LIMIT };
     for (int i = 0; i < kNumMods; ++i)
     {
         const int m = list[i]; auto r = card (i); const auto c = acc (juce::Colour (modInfo (m).colour)); const bool in = ed.proc.inRack[m].load();
@@ -441,7 +482,7 @@ void Gallery::mouseMove (const juce::MouseEvent& e)
 }
 void Gallery::mouseDown (const juce::MouseEvent& e)
 {
-    static const int list[kNumMods] = { BASS, DYNEQ, EQ432, PULTEC, DEESS, VARIMU, BUSCOMP, MULTI, EXCITER, TAPE, IMAGER, MAXIM, LIMIT };
+    static const int list[kNumMods] = { BASS, DYNEQ, SPECTRAL, EQ432, PULTEC, STABIL, DEESS, VARIMU, BUSCOMP, MULTI, IMPACT, EXCITER, TAPE, IMAGER, MAXIM, LIMIT };
     if (closeR().contains (e.position)) { setVisible (false); ed.rack.repaint(); return; }
     for (int i = 0; i < kNumMods; ++i) if (card (i).contains (e.position))
     {
@@ -628,6 +669,9 @@ juce::String keyLine (Processor& P, int m)
         case EQ432:   return "colore " + pc (v ("e4_col")) + "  ·  range " + txt ("e4_range");
         case PULTEC:  return "bassi +" + juce::String (v ("pq_lb"), 1) + " / -" + juce::String (v ("pq_la"), 1) + "  ·  alti +" + juce::String (v ("pq_hb"), 1);
         case VARIMU:  return "soglia " + juce::String (v ("vm_thr"), 0) + "  ·  mix " + pc (v ("vm_mix"));
+        case IMPACT:  return "bassi " + pc (v ("ip_b1")) + "  medi " + pc (v ("ip_b2")) + "  alti " + pc (v ("ip_b3"));
+        case SPECTRAL: return "risonanze " + pc (v ("sp_res")) + "  ·  clarity " + pc (v ("sp_clar"));
+        case STABIL:  return txt ("st_genre") + "  ·  " + pc (v ("st_amt"));
         default: return {};
     }
 }
@@ -637,6 +681,9 @@ static float activityOf (Processor& P, int m)
     switch (m)
     {
         case MAXIM: a = P.grMax.load() / 6; break; case LIMIT: a = P.grLim.load() / 3; break; case BUSCOMP: a = P.busGr.load() / 4; break; case VARIMU: a = P.vmGr.load() / 4; break;
+        case IMPACT: for (int b = 0; b < 4; ++b) a = juce::jmax (a, std::abs (P.ipUi[b].load()) / 4); break;
+        case SPECTRAL: for (int b = 0; b < Spectral::kB; ++b) a = juce::jmax (a, std::abs (P.spUi[b].load()) / 5); break;
+        case STABIL: for (int r = 0; r < kRegions; ++r) a = juce::jmax (a, std::abs (P.stUi[r].load()) / 3); break;
         case DEESS: a = P.dsGr.load() / 6; break; case BASS: a = P.bassPeak.load() / 4; break; case EXCITER: a = P.exMeter.load() * 8; break;
         case DYNEQ: for (int b = 0; b < kEqBands; ++b) a = juce::jmax (a, std::abs (P.eqDyn[b].load()) / 4); break;
         case MULTI: for (int b = 0; b < kMbBands; ++b) a = juce::jmax (a, P.mbDown[b].load() / 6); break;

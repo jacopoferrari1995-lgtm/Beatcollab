@@ -5,12 +5,12 @@ namespace jms
 {
 const char* onParam (int m)
 {
-    static const char* p[kNumMods] = { "bc_on", "eq_on", "ds_on", "bus_on", "mb_on", "ex_on", "tp_on", "im_on", "mx_on", "lm_on", "e4_on", "pq_on", "vm_on" };
+    static const char* p[kNumMods] = { "bc_on", "eq_on", "ds_on", "bus_on", "mb_on", "ex_on", "tp_on", "im_on", "mx_on", "lm_on", "e4_on", "pq_on", "vm_on", "ip_on", "sp_on", "st_on" };
     return p[juce::jlimit (0, kNumMods - 1, m)];
 }
 const char* deltaParam (int m)
 {
-    static const char* p[kNumMods] = { "bc_delta", "eq_delta", "ds_delta", "bus_delta", "mb_delta", "ex_delta", "tp_delta", "im_delta", "mx_delta", "lm_delta", "e4_delta", "pq_delta", "vm_delta" };
+    static const char* p[kNumMods] = { "bc_delta", "eq_delta", "ds_delta", "bus_delta", "mb_delta", "ex_delta", "tp_delta", "im_delta", "mx_delta", "lm_delta", "e4_delta", "pq_delta", "vm_delta", "ip_delta", "sp_delta", "st_delta" };
     return p[juce::jlimit (0, kNumMods - 1, m)];
 }
 void Processor::setOrder (const std::array<int, kNumMods>& o) { for (int k = 0; k < kNumMods; ++k) order[k] = o[(size_t) k]; }
@@ -81,6 +81,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "vm_mix", 1 }, "VariMu Mix", NormalisableRange<float> (0, 1), 1));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "vm_tube", 1 }, "VariMu Tube", NormalisableRange<float> (0, 1), 0.3f));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "vm_ms", 1 }, "VariMu Mid Side", false));
+    // IMPACT
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "ip_on", 1 }, "Impact On", false)); l.add (std::make_unique<AudioParameterBool> (ParameterID { "ip_delta", 1 }, "Impact Delta", false));
+    for (int b = 1; b <= 4; ++b) l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ip_b" + String (b), 1 }, "Impact Band " + String (b), NormalisableRange<float> (-1, 1), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ip_speed", 1 }, "Impact Speed", NormalisableRange<float> (0, 1), 0.5f));
+    // SPETTRALE
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "sp_on", 1 }, "Spectral On", false)); l.add (std::make_unique<AudioParameterBool> (ParameterID { "sp_delta", 1 }, "Spectral Delta", false));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "sp_res", 1 }, "Spectral Resonances", NormalisableRange<float> (0, 1), 0.5f));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "sp_sens", 1 }, "Spectral Sensitivity", NormalisableRange<float> (0, 1), 0.5f));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "sp_clar", 1 }, "Spectral Clarity", NormalisableRange<float> (0, 1), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "sp_lo", 1 }, "Spectral Low", NormalisableRange<float> (60, 2000, 0, 0.4f), 150, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "sp_hi", 1 }, "Spectral High", NormalisableRange<float> (1000, 16000, 0, 0.5f), 12000, AudioParameterFloatAttributes().withLabel ("Hz")));
+    // STABILIZER
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "st_on", 1 }, "Stabilizer On", false)); l.add (std::make_unique<AudioParameterBool> (ParameterID { "st_delta", 1 }, "Stabilizer Delta", false));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "st_amt", 1 }, "Stabilizer Amount", NormalisableRange<float> (0, 1), 0.5f));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "st_speed", 1 }, "Stabilizer Speed", NormalisableRange<float> (0, 1), 0.4f));
+    { StringArray gn; for (int g = 0; g < kGenres; ++g) gn.add (genre (g).name); l.add (std::make_unique<AudioParameterChoice> (ParameterID { "st_genre", 1 }, "Stabilizer Genre", gn, 0)); }
     // EQ 432
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "e4_on", 1 }, "EQ432 On", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "e4_delta", 1 }, "EQ432 Delta", false));
@@ -193,6 +209,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "lm_rel", 1 }, "Limiter Release", NormalisableRange<float> (5, 1000, 0, 0.4f), 80, AudioParameterFloatAttributes().withLabel ("ms")));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "lm_auto", 1 }, "Limiter Auto Release", true));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "lm_tp", 1 }, "True Peak", true));
+    { StringArray gn; for (int g = 0; g < kGenres; ++g) gn.add (genre (g).name); l.add (std::make_unique<AudioParameterChoice> (ParameterID { "ear_genre", 1 }, "Ascolto Genere", gn, 0)); }
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "lm_type", 1 }, "Limiter Type", StringArray { "JACKPOT", "OXFORD", "IRC" }, 0));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "lm_os", 1 }, "Limiter Oversampling", StringArray { "1x", "2x", "4x", "8x", "16x" }, 2));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "lm_enh", 1 }, "Limiter Enhance", NormalisableRange<float> (0, 1), 0));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "outg", 1 }, "Output Gain", NormalisableRange<float> (-12, 12, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
     // uscita e ascolto
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "target", 1 }, "Target", tg, 0));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "norm", 1 }, "Normalized Listen", false));
@@ -238,7 +259,7 @@ void Processor::prepareToPlay (double s, int maxBlock)
     sr = s;
     const int mb = juce::jmax (64, maxBlock);
     mRawA.assign ((size_t) mb * 2, 0.0f); mRawQ.assign ((size_t) mb * 2, 0.0f); mInA.assign ((size_t) mb * 2, 0.0f);
-    mx.prepare (s, mb); lim.prepare (s); easyEng.prepare (s);
+    mx.prepare (s, mb); lim.prepare (s, mb); easyEng.prepare (s); imp.prepare (s, mb); spec.prepare (s); stab.prepare (s); earCap.prepare (s);
     bass.prepare (s); deq.prepare (s); peq.prepare (s, mb); e432.prepare (s); pult.prepare (s); vmu.prepare (s); img.prepare (s); dess.prepare (s); bus.prepare (s); mband.prepare (s); tape.prepare (s); exc.prepare (s);
     for (auto& d : deltaVar) { d.b.assign ((size_t) (mx.latency() + lim.latency() + 1), 0.0f); d.w = 0; }
     for (auto& d : mxBy) d.prepare (mx.latency());
@@ -287,6 +308,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     for (int i = 0; i < n; ++i) { kL[i] = dry[0] (L[i]); kR[i] = dry[1] (R[i]); }
 
     ringIn.push (L, R, n);
+    earCap.push (L, R, n);
     // ---- catena nell'ordine scelto (i moduli si trascinano nella fila in alto)
     float* tL = tmp.getWritePointer (0); float* tR = tmp.getWritePointer (1);
     int deltaFrom = -1, latSoFar = 0;
@@ -429,6 +451,18 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                     vmu.process (L, R, n, v); vmGr = vmu.gr;
                 }
                 break;
+            case IMPACT:
+                if (! on) break;
+                { ImpactSettings q; for (int b = 0; b < 4; ++b) q.amt[b] = value (("ip_b" + juce::String (b + 1)).toRawUTF8()); q.speed = value ("ip_speed"); q.delta = d; imp.process (L, R, n, q); for (int b = 0; b < 4; ++b) ipUi[b] = imp.ui[b]; }
+                break;
+            case SPECTRAL:
+                if (! on) break;
+                { SpectralSettings q; q.res = value ("sp_res"); q.sens = value ("sp_sens"); q.clar = value ("sp_clar"); q.lo = value ("sp_lo"); q.hi = value ("sp_hi"); q.delta = d; spec.process (L, R, n, q); for (int b = 0; b < Spectral::kB; ++b) spUi[b] = spec.ui[b]; }
+                break;
+            case STABIL:
+                if (! on) break;
+                { StabSettings q; q.amt = value ("st_amt"); q.speed = value ("st_speed"); q.genre = juce::roundToInt (value ("st_genre")); q.delta = d; stab.process (L, R, n, q); for (int r = 0; r < kRegions; ++r) { stUi[r] = stab.ui[r]; stDiff[r] = stab.diff[r]; } }
+                break;
             case EQ432:
                 if (! on) break;
                 {
@@ -483,6 +517,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             case LIMIT:
             {
                 LimSettings ls; ls.ceilDb = value ("lm_ceil"); ls.relMs = value ("lm_rel"); ls.autoRel = value ("lm_auto") > 0.5f; ls.truePeak = value ("lm_tp") > 0.5f;
+                ls.type = juce::roundToInt (value ("lm_type")); ls.os = juce::roundToInt (value ("lm_os")); ls.enhance = value ("lm_enh");
                 if (on) { const float g = dbToG (value ("lm_gain")); if (g != 1.0f) for (int i = 0; i < n; ++i) { L[i] *= g; R[i] *= g; } }
                 copyIn();
                 if (on) lim.process (L, R, n, ls);
@@ -510,6 +545,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     for (int b = 0; b < kEqBands; ++b) { eqDyn[b] = value ("eq_on") > 0.5f ? peq.dynUi[b].load() : 0.0f; eqLvl[b] = 0; }
     for (int b = 0; b < kImBands; ++b) { imCorr[b] = img.corr (b); imLim[b] = value ("im_on") > 0.5f ? img.limited (b) : 0.0f; }
 
+    // ---- volume d'uscita (manopola USCITA dell'avanzato), dopo tutta la catena
+    if (! isEasy) { const float og = dbToG (value ("outg")); if (std::abs (og - 1.0f) > 1e-5f) for (int i = 0; i < n; ++i) { L[i] *= og; R[i] *= og; } }
     // ---- misure d'uscita (prima di confronto e ascolto normalizzato)
     float po[2] = { 0, 0 }; float tpb = 0;
     for (int i = 0; i < n; ++i)
@@ -635,7 +672,7 @@ void Processor::autoInput()
 // ---------------------------------------------------------------------------------------------------- FACILE <-> AVANZATO
 namespace
 {
-    bool skipSig (const juce::String& id) { return id == "mode" || id == "engine" || id == "trim" || id == "target" || id == "dither" || id == "compare" || id == "norm" || id == "lm_ceil" || id.endsWith ("delta") || id.contains ("solo") || id == "mx_learn"; }
+    bool skipSig (const juce::String& id) { return id == "mode" || id == "engine" || id == "ear_genre" || id == "trim" || id == "target" || id == "dither" || id == "compare" || id == "norm" || id == "lm_ceil" || id.endsWith ("delta") || id.contains ("solo") || id == "mx_learn"; }
 }
 juce::String Processor::sigEasy() const
 {
@@ -903,6 +940,47 @@ const std::vector<Preset>& presets()
     return P;
 }
 
+void Processor::earFinish()
+{
+    auto rt = reference();
+    ear = earAnalyse (earCap, juce::roundToInt (value ("ear_genre")), target (juce::roundToInt (value ("target"))).lufs, value ("lm_ceil"), rt && rt->lufs > -60 ? rt.get() : nullptr);
+}
+void Processor::earApply()
+{
+    if (! ear.valid) return;
+    earBackup.reset(); getStateInformation (earBackup);   // per SCARTA
+    auto set = [&] (const juce::String& id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
+    for (int m = 0; m < kNumMods; ++m) set (onParam (m), 0);
+    for (int b = 0; b < kEqBands; ++b) set (eqId (b, "on"), 0);
+    for (auto& s : ear.steps) for (auto& [id, v] : s.set) set (id, v);
+    set ("engine", 1); set ("outg", 0);
+    rackFromOn(); syncSnap();
+    earCalib = 0; earOk = 0; earSteps = 0; earMsg = "Taratura: fai suonare il pezzo, porto il volume a " + juce::String (ear.targetLufs, 1) + " LUFS.";
+}
+void Processor::earDiscard()
+{
+    if (earBackup.getSize() == 0) return;
+    setStateInformation (earBackup.getData(), (int) earBackup.getSize()); earBackup.reset();
+    earCalib = -1; earMsg = "Scartato: tutto come prima.";
+}
+// chiamato dall'editor ~2 volte al secondo: porta il maximizer al volume voluto (LUFS brevi d'uscita)
+void Processor::earTick()
+{
+    if (earCalib < 0) return;
+    const float s = lufsS.load();
+    if (s < -50) { earMsg = "Taratura in pausa: aspetto che il pezzo suoni."; return; }
+    const float err = ear.targetLufs - s; ++earSteps;
+    auto* p = apvts.getParameter ("mx_gain"); const float g = value ("mx_gain");
+    if (std::abs (err) < 0.4f) ++earOk; else { earOk = 0; if (p) p->setValueNotifyingHost (p->convertTo0to1 (juce::jlimit (0.0f, 14.0f, g + juce::jlimit (-1.5f, 1.5f, err * 0.6f)))); }
+    earMsg = "Taratura: " + juce::String (s, 1) + " LUFS su " + juce::String (ear.targetLufs, 1) + " voluti (maximizer +" + juce::String (value ("mx_gain"), 1) + " dB).";
+    if (earOk >= 3 || earSteps > 60 || (g >= 14.0f && err > 0))
+    {
+        earCalib = -1;
+        earMsg = g >= 14.0f && err > 0 ? "Il maximizer e' al massimo e mancano " + juce::String (err, 1) + " dB: alza l'INGRESSO o abbassa l'obiettivo." : "Tarato: " + juce::String (s, 1) + " LUFS. Se non ti convince premi SCARTA.";
+        syncSnap();
+    }
+}
+
 void Processor::loadPreset (int i)
 {
     if (! juce::isPositiveAndBelow (i, (int) presets().size())) return;
@@ -1015,7 +1093,7 @@ const std::vector<ModPreset>& modPresets()
 }
 static bool ownsParam (int m, const juce::String& id)
 {
-    static const char* pre[kNumMods] = { "bc_", "eq", "ds_", "bus_", "mb", "ex", "tp_", "im_", "mx_", "lm_", "e4_", "pq_", "vm_" };
+    static const char* pre[kNumMods] = { "bc_", "eq", "ds_", "bus_", "mb", "ex", "tp_", "im_", "mx_", "lm_", "e4_", "pq_", "vm_", "ip_", "sp_", "st_" };
     return id.startsWith (pre[juce::jlimit (0, kNumMods - 1, m)]);
 }
 void Processor::loadModPreset (int i)
