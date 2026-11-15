@@ -398,20 +398,31 @@ void Graph::paint (juce::Graphics& g)
 // ======================= Guida =======================
 void GuidePanel::mouseDown (const juce::MouseEvent& e)
 {
-    if (e.position.y < 40) { tab = juce::jlimit (0, 2, (int) ((e.position.x - 16) / ((getWidth() - 32) / 3.0f))); repaint(); }
+    auto& P = ed.proc;
+    if (e.position.y < 40 && e.position.x < 16 + 4 * kTabW)
+    {
+        const int t = juce::jlimit (0, 3, (int) ((e.position.x - 16) / kTabW));
+        if (t != tab) { tab = t; ed.resized(); }   // ASCOLTO si allarga su tutta la fascia in basso
+        repaint(); return;
+    }
+    if (tab != 3) return;
+    for (int i = 0; i < kNumSrc; ++i)
+        if (srcR[i].contains (e.position)) { P.listenSrc = i; if (P.cap.n.load() >= 150 && ! P.cap.on.load()) P.finishListen(); repaint(); return; }
+    if (lisR.contains (e.position)) { P.startListen(); listening = true; repaint(); return; }
+    if (appR.contains (e.position) && P.plan.valid) { P.applyPlan(); ed.select (0); repaint(); return; }
 }
 void GuidePanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1);
     jlook::card (g, b, 14, C::amber, true, false, false);
-    const char* tabs[] = { "MODELLO", "TECNICA", "CONSIGLI LIVE" };
-    const float tw = (b.getWidth() - 32) / 3;
-    for (int i = 0; i < 3; ++i)
+    const char* tabs[] = { "MODELLO", "TECNICA", "CONSIGLI", "ASCOLTO" };
+    for (int i = 0; i < 4; ++i)
     {
-        auto r = juce::Rectangle<float> (16 + i * tw, 10, tw - 4, 24);
-        jlook::button (g, r, C::amber, i == tab, false, tabs[i], uf (11.0f));
+        auto r = juce::Rectangle<float> (16 + i * kTabW, 10, kTabW - 4, 24);
+        jlook::button (g, r, C::amber, i == tab, false, tabs[i], uf (10.5f));
         if (i == 2 && warn > 0) { g.setColour (C::red); g.fillEllipse (r.getRight() - 12, r.getY() + 4, 7, 7); }
     }
+    if (tab == 3) { paintListen (g, b); return; }
     auto t = b.reduced (18, 0).withTrimmedTop (44).withTrimmedBottom (12);
     juce::AttributedString as; as.setWordWrap (juce::AttributedString::byWord); as.setLineSpacing (2.0f);
     auto head = [&as] (const juce::String& s, juce::Colour c) { as.append (s + "\n", jlook::ui (11.0f, 2), c); };
@@ -436,6 +447,58 @@ void GuidePanel::paint (juce::Graphics& g)
         for (auto& s : tips) { as.append (juce::String::fromUTF8 ("\xe2\x80\xa2 "), jlook::ui (12.0f, 2), C::amber); body (s); }
     }
     as.draw (g, t);
+}
+
+void GuidePanel::paintListen (juce::Graphics& g, juce::Rectangle<float> b)
+{
+    auto& P = ed.proc; const auto& L = P.plan;
+    // riga dei comandi: cosa sto ascoltando, ASCOLTA, APPLICA
+    const float sw = 92;
+    for (int i = 0; i < kNumSrc; ++i)
+    {
+        srcR[i] = { 16 + i * (sw + 4), 44, sw, 24 };
+        jlook::button (g, srcR[i], C::phos, P.listenSrc == i, false, srcName (i), uf (10.0f));
+    }
+    const bool cap = P.cap.on.load(); const int n = P.cap.n.load();
+    lisR = { 510, 44, 150, 24 }; appR = { 668, 44, 150, 24 };
+    jlook::button (g, lisR, C::magenta, cap, false, cap ? "ASCOLTO... " + juce::String (n * 100 / Capture::kNeed) + "%" : (L.valid ? juce::String ("RIASCOLTA") : juce::String ("ASCOLTA 8 s")), uf (11.0f));
+    jlook::button (g, appR, C::green, P.calib >= 0, false, P.calib >= 0 ? juce::String ("TARATURA...") : juce::String ("APPLICA IL RACK"), uf (11.0f));
+    if (P.calibMsg.isNotEmpty()) { g.setColour (P.calib >= 0 ? C::amber : C::green); g.setFont (uf (11.0f)); g.drawFittedText (P.calibMsg, juce::Rectangle<int> (830, 40, (int) b.getWidth() - 846, 32), juce::Justification::centredLeft, 2); }
+
+    auto area = b.reduced (18, 0).withTrimmedTop (80).withTrimmedBottom (10);
+    juce::AttributedString a1, a2; for (auto* a : { &a1, &a2 }) { a->setWordWrap (juce::AttributedString::byWord); a->setLineSpacing (1.5f); }
+    auto head = [] (juce::AttributedString& a, const juce::String& s, juce::Colour c) { a.append (s + "\n", jlook::ui (11.0f, 2), c); };
+    auto body = [] (juce::AttributedString& a, const juce::String& s) { a.append (s + "\n", jlook::ui (11.5f, 0), C::text.withAlpha (0.9f)); };
+    if (cap)
+    {
+        head (a1, "STO ASCOLTANDO", C::magenta);
+        body (a1, n == 0 ? juce::String ("Fai partire la traccia: conto solo i momenti in cui suona, i silenzi non valgono.") : juce::String ("Raccolgo picchi, dinamica, attacchi e spettro. Lascia suonare una parte rappresentativa (strofa o ritornello)."));
+        a1.draw (g, area); return;
+    }
+    if (! L.valid)
+    {
+        head (a1, "COME FUNZIONA", C::amber);
+        body (a1, "1. Scegli cosa stai trattando (o lascia AUTO e lo capisco io).");
+        body (a1, "2. ASCOLTA: fai suonare 8 secondi della traccia. Misuro picchi, dinamica, quanti attacchi ci sono e dove sta l'energia.");
+        body (a1, "3. Ti dico cosa ho sentito con i numeri e ti propongo un rack, stadio per stadio, con il perche' di ogni scelta.");
+        body (a1, "4. APPLICA: monto il rack e mentre suona taro da solo le soglie finche' ogni stadio lavora quanto deve.");
+        if (n > 0 && n < 150) body (a1, "Ho sentito troppo poco segnale: rifai ASCOLTA con la traccia in play.");
+        a1.draw (g, area); return;
+    }
+    head (a1, "COSA HO SENTITO", C::amber); body (a1, L.srcWhy);
+    for (auto& h : L.heard) { a1.append (juce::String::fromUTF8 ("\xe2\x80\xa2 "), jlook::ui (11.5f, 2), C::amber); body (a1, h); }
+    if (! L.notes.isEmpty()) { head (a1, "IN PIU'", C::dim); for (auto& t : L.notes) { a1.append (juce::String::fromUTF8 ("\xe2\x80\xa2 "), jlook::ui (11.5f, 2), C::red); body (a1, t); } }
+    head (a2, "RACK PROPOSTO  (in serie, AUTO GAIN acceso)", C::green);
+    for (size_t k = 0; k < L.stages.size(); ++k)
+    {
+        const auto& q = L.stages[k];
+        a2.append (juce::String ((int) k + 1) + "   " + q.what + "\n", jlook::ui (12.0f, 2), neo::acc (juce::Colour (info (q.model).accent)));
+        body (a2, q.why);
+    }
+    if (L.scHpf > 21) body (a2, "HPF del sidechain a " + juce::String (juce::roundToInt (L.scHpf)) + " Hz.");
+    const float half = area.getWidth() * 0.42f;
+    a1.draw (g, area.withWidth (half - 12)); a2.draw (g, area.withTrimmedLeft (half + 12));
+    g.setColour (C::dim.withAlpha (0.4f)); g.fillRect (area.getX() + half, area.getY(), 1.0f, area.getHeight());
 }
 
 void Editor::computeTips()
@@ -518,7 +581,8 @@ void Editor::resized()
     scHpf->setBounds (rx + 246, 222, 72, 72 + 27); listen->setBounds (rx + 320, 250, 80, 22);
     autoG->setBounds (rx + 16, 380, 130, 22);
     gMix->setBounds (rx + 168, 366, 72, 72 + 27); gOut->setBounds (rx + 250, 366, 72, 72 + 27);
-    graph.setBounds (18, 502, 792, 284); guide.setBounds (818, 502, 404, 284);
+    if (guide.tab == 3) { graph.setVisible (false); guide.setBounds (18, 502, 1204, 284); }
+    else { graph.setVisible (true); graph.setBounds (18, 502, 792, 284); guide.setBounds (818, 502, 404, 284); }
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     jlook::scaleChildren (*this, sc);
 }
@@ -622,6 +686,12 @@ void Editor::timerCallback()
     if (stage.isMb()) stage.repaint (stage.vuRect().toNearestInt().expanded (4));
     rack.repaint(); graph.repaint();
     repaint (scaler.map ({ 818, 354, 404, 136 }));
+    proc.calibTick();
+    if (guide.tab == 3)
+    {
+        if (guide.listening && ! proc.cap.on.load()) { guide.listening = false; proc.finishListen(); guide.repaint(); }
+        if (tick % 6 == 0) guide.repaint();
+    }
     if (++tick % 15 == 0) { computeTips(); guide.repaint(); repaint (scaler.map ({ W - 260, 10, 250, 44 })); }
 }
 }

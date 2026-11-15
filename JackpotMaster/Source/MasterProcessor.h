@@ -114,7 +114,8 @@ public:
     double eqRate() const { return sr; }
     std::atomic<bool> resetReq { false };
     // modalita FACILE
-    bool easy() const { return value ("mode") < 0.5f; }
+    bool easy() const { return value ("mode") < 0.5f; }           // vista
+    bool runEasy() const { return value ("engine") < 0.5f; }      // motore che suona
     void autoInput();                                   // porta l'ingresso nella zona ottimale
     static constexpr float kInOpt = -15.0f;             // LUFS short-term ideali in ingresso (prima del LOUD)
     std::atomic<float> inAvg { -100 }, crush { 0 }, grAvg { 0 }, calmNow { 0 }, glueGr { 0 };

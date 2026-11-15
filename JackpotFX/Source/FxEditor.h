@@ -59,7 +59,7 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     static constexpr int W = 1200, H = 740;
-    neo::KeepFonts keepFonts;   // i caratteri restano caricati (prima si ricaricavano a ogni scritta)
+    juce::SharedResourcePointer<jlook::Resources> keepLook; neo::KeepFonts keepFonts;   // i caratteri restano caricati (prima si ricaricavano a ogni scritta)
     void parentHierarchyChanged() override { jlook::preferFastRenderer (*this); }
     Processor& proc;
     jlook::Scaler scaler { *this, "fx", W, H };

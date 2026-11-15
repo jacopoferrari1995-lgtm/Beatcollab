@@ -2,6 +2,7 @@
 #include "JackpotLook.h"
 #include "CompDSP.h"
 #include "CompGuide.h"
+#include "CompListen.h"
 
 namespace jc
 {
@@ -43,6 +44,13 @@ public:
     static constexpr int kHist = 400;
     std::atomic<float> hIn[kHist], hOut[kHist], hGr[kStages][kHist]; std::atomic<int> hW { 0 };
     std::atomic<float> mbGr[4] {}, gr[kStages] {}, avgGr[kStages] {}, inPk[2] {}, outPk[2] {}, inRms { 0 }, outRms { 0 };
+    // ASCOLTO: cattura, proposta, applicazione e taratura automatica delle soglie
+    Capture cap; Plan plan; int listenSrc = SRC_AUTO;
+    int calib = -1, calibOk = 0, calibSteps = 0; float calibT[kStages] {}; std::vector<float> calibBuf; juce::String calibMsg;
+    void startListen() { plan = {}; calib = -1; calibMsg = {}; cap.start(); }
+    void finishListen() { plan = analyse (cap, listenSrc); }
+    void applyPlan();
+    void calibTick();   // dal timer dell'editor, 30 volte al secondo
     bool anySolo() const { for (int s = 0; s < kStages; ++s) if (value ((juce::String (stagePfx (s)) + "solo").toRawUTF8()) > 0.5f) return true; return false; }
 
 private:

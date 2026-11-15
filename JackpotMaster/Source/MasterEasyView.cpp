@@ -45,7 +45,7 @@ EasyPage::EasyPage (Editor& e) : ed (e)
     monoB = std::make_unique<neo::Toggle> (ed.P ("e_monob"), "BASSI MONO", C0); addAndMakeVisible (*monoB);
     addAndMakeVisible (stage); stage.toBack();
     addAndMakeVisible (input);
-    addChildComponent (guide);
+    addChildComponent (guide); addChildComponent (lock);
     trim->toFront (false); input.toFront (false); loud->toFront (false); pres->toFront (false); speed->toFront (false);
 }
 
@@ -66,6 +66,7 @@ void EasyPage::resized()
     themeR = { 1182, 6, 82, 26 }; cmpR = { themeR.getX() - 84, 6, 78, 26 }; deltaR = { cmpR.getX() - 72, 6, 66, 26 }; targetR = { deltaR.getX() - 150, 6, 144, 26 };
     { styles.layout ({ 0, 700, 0, 24 }, styleNames(), 8.0f); const float ww = styles.width(), dx = 640 - ww * 0.5f - styles.r[0].getX(); for (int i = 0; i < styles.n; ++i) styles.r[i].translate (dx, 0); styles.ax = -1; }
     for (int b = 0; b < 3; ++b) bandR[b] = { 70.0f + 76.0f * b - 20, kKnobY + kS + 44, 40, 18 };
+    lock.setBounds (16, (int) kPanelY - 22, 1248, getHeight() - (int) kPanelY + 16); lock.toFront (false);
     loudDR = { 604, 676, 72, 22 };   // DELTA della LOUDNESS: senti solo cosa toglie/sporca il limiter
     bg = {};
 }
@@ -149,8 +150,26 @@ void EasyPage::mouseDown (const juce::MouseEvent& e)
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [tp, sp] (int r) { if (r > 0) { tp->setValueNotifyingHost (tp->convertTo0to1 ((float) (r - 1))); if (sp) sp->repaint(); } });
     }
 }
+void EasyLock::paint (juce::Graphics& g)
+{
+    auto b = getLocalBounds().toFloat();
+    g.setColour ((light() ? juce::Colours::white : K::lo).withAlpha (light() ? 0.78f : 0.80f)); g.fillRoundedRectangle (b, 22);
+    auto card = juce::Rectangle<float> (0, 0, 560, 128).withCentre (b.getCentre());
+    g.setColour (K::panel0); g.fillRoundedRectangle (card, 16); g.setColour (K::violet.withAlpha (0.7f)); g.drawRoundedRectangle (card, 16, 1.5f);
+    g.setFont (cap (10.0f)); g.setColour (K::violet); g.drawText (U ("STA SUONANDO L'AVANZATO"), card.withHeight (40).translated (0, 10), juce::Justification::centred);
+    g.setFont (neo::f (12.0f)); g.setColour (K::sub);
+    g.drawText (U ("Il FACILE \xc3\xa8 in bypass: qui sopra vedi cosa fa la catena dell'avanzato."), card.withTrimmedTop (44).withHeight (20), juce::Justification::centred);
+    btn = juce::Rectangle<float> (0, 0, 220, 30).withCentre ({ card.getCentreX(), card.getBottom() - 30 });
+    chip (g, btn, U ("USA IL FACILE"), true, K::mint, 9.0f, isMouseOver() && btn.contains (getMouseXYRelative().toFloat()));
+}
+void EasyLock::mouseDown (const juce::MouseEvent& e)
+{
+    if (! btn.contains (e.position)) return;   // il resto del banco e' bloccato
+    auto* p = page.ed.P ("engine"); p->setValueNotifyingHost (p->convertTo0to1 (0.0f)); page.ed.proc.syncSnap(); setVisible (false); page.repaint();
+}
 void EasyPage::tick()
 {
+    { const bool lk = ! ed.proc.runEasy(); if (lock.isVisible() != lk) { lock.setVisible (lk); if (lk) lock.toFront (false); repaint(); } }
     if (! guide.isVisible()) input.repaint();
     loud->activity = juce::jlimit (0.0f, 1.0f, ed.proc.grAvg.load() / 6.0f);
     for (auto* k : knobs) if (k->animate()) k->repaint();
@@ -364,9 +383,12 @@ double EasyStage::clock()
     const double target = tot - 1 - lag;
     if (disp < 0 || lastT <= 0 || std::abs (target - disp) > 400) { disp = target; lastT = now; return disp; }
     const double dt = juce::jlimit (0.0, 200.0, now - lastT); lastT = now;
-    disp += dt / (Processor::kColSec * 1000.0);
-    disp += (target - disp) * 0.05;
-    disp = juce::jmin (disp, (double) tot - 1);
+    // il tempo mostrato non torna mai indietro: se rallentava e tornava indietro di un soffio a cavallo di fine giro,
+    // lo SCAN saltava al giro prima e poi ricompariva (tanto piu' di rado quanto piu' lunga la finestra)
+    double cand = disp + dt / (Processor::kColSec * 1000.0);
+    cand += (target - cand) * (target > cand ? 0.05 : 0.02);
+    cand = juce::jmin (cand, (double) tot - 1);
+    disp = juce::jmax (disp, cand);
     return disp;
 }
 void EasyStage::envelope (PxEnv& e, int npx, double winSec)

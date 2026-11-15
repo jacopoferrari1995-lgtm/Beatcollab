@@ -496,6 +496,14 @@ public:
     int topic = 0, hover = -1; juce::Rectangle<float> closeR, topicR[8];
 };
 
+// quando suona l'AVANZATO il banco del FACILE e' in bypass: velo sopra le manopole, i grafici restano vivi
+class EasyLock : public juce::Component
+{
+public:
+    explicit EasyLock (EasyPage& p) : page (p) { setRepaintsOnMouseActivity (true); }
+    void paint (juce::Graphics&) override; void mouseDown (const juce::MouseEvent&) override;
+    EasyPage& page; juce::Rectangle<float> btn;
+};
 class EasyPage : public juce::Component
 {
 public:
@@ -510,7 +518,7 @@ public:
     Editor& ed; int view = 0, hover = -1;
     juce::OwnedArray<neo::Knob> knobs; neo::Knob *low, *mid, *high, *thick, *warm, *silk, *pres, *loud, *speed, *glue, *calm, *wide, *ceil, *trim;
     std::unique_ptr<neo::Toggle> monoB; std::unique_ptr<juce::FileChooser> chooser;
-    EasyStage stage { *this }; EasyInput input { *this };
+    EasyStage stage { *this }; EasyInput input { *this }; EasyLock lock { *this };
     GuidePanel guide; juce::Rectangle<float> guideR;
     neo::Segments tabs, styles; juce::Rectangle<float> targetR, cmpR, deltaR, themeR, bandR[3], loudDR;
     juce::Image bg; float bgScale = 0; int bgTheme = -1;
@@ -566,7 +574,7 @@ class StatusBar : public juce::Component
 {
 public:
     explicit StatusBar (Editor& e) : ed (e) {}
-    void paint (juce::Graphics&) override;
+    void paint (juce::Graphics&) override; void mouseDown (const juce::MouseEvent&) override;
     Editor& ed; juce::String last;
 };
 // scheda dei preset: gruppi a sinistra, elenco grande a destra con la descrizione

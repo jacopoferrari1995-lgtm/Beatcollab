@@ -452,6 +452,11 @@ void Gallery::mouseDown (const juce::MouseEvent& e)
 }
 
 // ---------------------------------------------------------------------------------------------------- barra di stato
+void StatusBar::mouseDown (const juce::MouseEvent&)
+{
+    if (! ed.proc.runEasy()) return;
+    auto* p = ed.P ("engine"); p->setValueNotifyingHost (p->convertTo0to1 (1.0f)); ed.proc.syncSnap(); repaint();
+}
 void StatusBar::paint (juce::Graphics& g)
 {
     // COSA STA SUCCEDENDO: riga 1 = tutta la catena dal vivo (cosa fa ogni effetto adesso), riga 2 = spiegazione e perche
@@ -460,6 +465,16 @@ void StatusBar::paint (juce::Graphics& g)
     auto b = getLocalBounds().toFloat();
     g.setColour (K::lo.withAlpha (light() ? 0.06f : 0.3f)); g.fillRoundedRectangle (b, 10);
     g.setColour (K::hi.withAlpha (0.05f)); g.drawRoundedRectangle (b.reduced (0.5f), 10, 1.0f);
+    if (P.runEasy())
+    {   // l'avanzato e' in bypass finche' non lo attivi (o tocchi un modulo)
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        g.setColour (K::amber.withAlpha (0.16f)); g.fillRoundedRectangle (b, 10);
+        g.setFont (cap (8.5f)); g.setColour (K::amber); g.drawText (juce::String::fromUTF8 ("STA SUONANDO IL FACILE  \xc2\xb7  L'AVANZATO \xc3\xa8 IN BYPASS"), b.withHeight (26).translated (12, 2), juce::Justification::centredLeft);
+        g.setFont (neo::f (11.5f)); g.setColour (K::sub);
+        g.drawText (juce::String::fromUTF8 ("Clicca qui, carica un preset o tocca un modulo: l'avanzato si accende e il FACILE va in bypass."), b.withTrimmedTop (28).translated (12, 0), juce::Justification::centredLeft);
+        return;
+    }
+    setMouseCursor (juce::MouseCursor::NormalCursor);
     // ---- riga 1: catena
     g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText ("ADESSO", juce::Rectangle<float> (12, 4, 60, 22), juce::Justification::centredLeft);
     float x = 64; int shown = 0;

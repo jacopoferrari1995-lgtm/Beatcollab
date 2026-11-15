@@ -200,6 +200,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "dither", 1 }, "Dither", StringArray { "OFF", "24 BIT", "16 BIT", "16 BIT SHAPED" }, 0));
     // ---- modalita FACILE
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "mode", 1 }, "Modalita", StringArray { "FACILE", "AVANZATO" }, 0));
+    // quale motore suona davvero: la vista ("mode") e' solo cosa guardi. Ne suona sempre uno solo, l'altro e' in bypass
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "engine", 1 }, "Motore", StringArray { "FACILE", "AVANZATO" }, 0));
     auto db = [] (float v, int) { return (v > 0 ? "+" : "") + String (v, 1) + " dB"; };
     auto pc = [] (float v, int) { return String (juce::roundToInt (v * 100)) + "%"; };
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "e_loud", 1 }, "Loud", NormalisableRange<float> (0, 14, 0.01f), 0, AudioParameterFloatAttributes().withStringFromValueFunction (db)));
@@ -291,7 +293,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     auto copyIn = [&] { for (int i = 0; i < n; ++i) { tL[i] = L[i]; tR[i] = R[i]; } };
     auto subIn = [&] { for (int i = 0; i < n; ++i) { L[i] -= tL[i]; R[i] -= tR[i]; } };
     mx.gr = 0; lim.gr = 0;
-    const bool isEasy = easy();
+    const bool isEasy = runEasy();
     if (isEasy)
     {   // ---- modalita FACILE: motore suo, poi LOUD (maximizer) e true peak
         EasySettings E; E.low = value ("e_low"); E.mid = value ("e_mid"); E.high = value ("e_high"); E.calm = value ("e_calm"); E.thick = value ("e_thick");
@@ -633,7 +635,7 @@ void Processor::autoInput()
 // ---------------------------------------------------------------------------------------------------- FACILE <-> AVANZATO
 namespace
 {
-    bool skipSig (const juce::String& id) { return id == "mode" || id == "trim" || id == "target" || id == "dither" || id == "compare" || id == "norm" || id == "lm_ceil" || id.endsWith ("delta") || id.contains ("solo") || id == "mx_learn"; }
+    bool skipSig (const juce::String& id) { return id == "mode" || id == "engine" || id == "trim" || id == "target" || id == "dither" || id == "compare" || id == "norm" || id == "lm_ceil" || id.endsWith ("delta") || id.contains ("solo") || id == "mx_learn"; }
 }
 juce::String Processor::sigEasy() const
 {
@@ -727,15 +729,15 @@ void Processor::advToEasy()
 // porta il maximizer al target (sul thread dei messaggi)
 void Processor::timerCallback()
 {
-    {   // cambio di modalita: se hai toccato qualcosa nella modalita che lasci, l'altra si aggiorna e suona uguale
-        const int m = easy() ? 0 : 1;
-        if (lastMode < 0) syncSnap();
-        else if (m != lastMode)
+    {   // un solo motore suona: se nella vista AVANZATO tocchi un modulo, l'avanzato si accende e il FACILE va in bypass (e viceversa)
+        const auto se = sigEasy(), sa = sigAdv();
+        if (lastMode >= 0)
         {
-            if (lastMode == 0 && sigEasy() != snapEasy) easyToAdv();
-            else if (lastMode == 1 && sigAdv() != snapAdv) advToEasy();
-            syncSnap();
+            auto setEng = [&] (float v) { if (auto* rp = apvts.getParameter ("engine")) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
+            if (! easy() && runEasy() && sa != snapAdv) setEng (1);
+            else if (easy() && ! runEasy() && se != snapEasy) setEng (0);
         }
+        snapEasy = se; snapAdv = sa; lastMode = easy() ? 0 : 1;
     }
     if (value ("mx_learn") < 0.5f || value ("mx_on") < 0.5f) return;
     const float s = lufsS.load(); if (s < -40) return;
@@ -905,13 +907,11 @@ void Processor::loadPreset (int i)
 {
     if (! juce::isPositiveAndBelow (i, (int) presets().size())) return;
     preset = i;
-    for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) if (rp->paramID != "trim" && rp->paramID != "dither" && rp->paramID != "mode" && rp->paramID != "target" && rp->paramID != "lm_ceil") rp->setValueNotifyingHost (rp->getDefaultValue());
-    // la modalita NON cambia: il preset si sente subito dove sei, e l'altra vista viene tradotta
+    for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) if (rp->paramID != "trim" && rp->paramID != "dither" && rp->paramID != "mode" && rp->paramID != "engine" && rp->paramID != "target" && rp->paramID != "lm_ceil") rp->setValueNotifyingHost (rp->getDefaultValue());
+    // i preset sono dell'AVANZATO: caricarne uno accende l'avanzato e mette il FACILE in bypass (nel FACILE restano visibili i grafici)
     for (auto& [id, v] : presets()[(size_t) i].v) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
-    if (i > 0)
-    {
-        if (juce::String (presets()[(size_t) i].name).startsWith ("Facile")) easyToAdv(); else advToEasy();
-    }
+    if (i > 0 && juce::String (presets()[(size_t) i].name).startsWith ("Facile")) easyToAdv();   // i vecchi preset del FACILE diventano moduli dell'avanzato
+    if (auto* rp = apvts.getParameter ("engine")) rp->setValueNotifyingHost (rp->convertTo0to1 (i > 0 ? 1.0f : (easy() ? 0.0f : 1.0f)));
     rackFromOn();   // la catena mostra gli effetti che il preset usa
     syncSnap();
 }
@@ -1042,6 +1042,10 @@ void Processor::setStateInformation (const void* data, int size)
 {
     if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0);
         if (! t.getChildWithProperty ("id", "mode").isValid()) { juce::ValueTree pm ("PARAM"); pm.setProperty ("id", "mode", nullptr); pm.setProperty ("value", 1.0f, nullptr); t.appendChild (pm, nullptr); }
+        if (! t.getChildWithProperty ("id", "engine").isValid())
+        {   // progetti salvati prima del motore separato: suona il motore della vista in cui erano
+            juce::ValueTree pm ("PARAM"); pm.setProperty ("id", "engine", nullptr); pm.setProperty ("value", t.getChildWithProperty ("id", "mode").getProperty ("value", 1.0f), nullptr); t.appendChild (pm, nullptr);
+        }
         { const auto u = juce::StringArray::fromTokens (t.getProperty ("ui", "").toString(), ",", "");
           std::atomic<int>* dst[7] = { &uiTheme, &uiScan, &uiWin, &uiSpec, &uiNorm, &uiRel, &uiPrev };
           for (int i = 0; i < juce::jmin (7, u.size()); ++i) dst[i]->store (u[i].getIntValue()); }

@@ -159,6 +159,7 @@ public:
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    skin::Keep skinKeep;
     juce::Rectangle<int> themeRect;
 public:
     explicit Editor (Processor&);

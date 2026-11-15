@@ -73,6 +73,7 @@ void Processor::prepareToPlay (double s, int maxBlock)
 {
     sr = s;
     for (auto& x : st) x.prepare (s);
+    cap.prepare (s);
     dry.setSize (2, maxBlock); det.setSize (2, maxBlock); aux.setSize (2, maxBlock); acc.setSize (2, maxBlock); dlt.setSize (2, maxBlock);
     for (auto& a : hp) for (auto& f : a) f.reset();
     lastHp = -1;
@@ -83,9 +84,9 @@ StageParams Processor::stageParams (int s) const
     const juce::String p = juce::String (stagePfx (s)).dropLastCharacters (1);
     StageParams q;
     q.on = value ((p + "_on").toRawUTF8()) > 0.5f;
-    q.model = (int) value ((p + "_model").toRawUTF8());
+    q.model = juce::roundToInt (value ((p + "_model").toRawUTF8()));
     q.drive = value ((p + "_drive").toRawUTF8());
-    q.ratio = juce::jlimit (0, info (q.model).ratios.size() - 1, (int) value ((p + "_ratio").toRawUTF8()));
+    q.ratio = juce::jlimit (0, info (q.model).ratios.size() - 1, juce::roundToInt (value ((p + "_ratio").toRawUTF8())));
     q.att = value ((p + "_att").toRawUTF8()); q.rel = value ((p + "_rel").toRawUTF8());
     q.outDb = value ((p + "_out").toRawUTF8()); q.color = value ((p + "_color").toRawUTF8()); q.mix = value ((p + "_mix").toRawUTF8());
     q.mb = &mbNow;
@@ -115,6 +116,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     float pkI[2] = { 0, 0 }; double eIn = 0;
     for (int i = 0; i < N; ++i) { pkI[0] = juce::jmax (pkI[0], std::abs (L[i])); pkI[1] = juce::jmax (pkI[1], std::abs (R[i])); eIn += 0.5 * (L[i] * L[i] + R[i] * R[i]); }
     dry.copyFrom (0, 0, L, N); dry.copyFrom (1, 0, R, N);
+    cap.push (L, R, N);
 
     // filtro passa alto del sidechain
     const float hpF = value ("scHpf");
@@ -324,6 +326,59 @@ void Processor::loadPreset (int i)
     if (auto* rp = apvts.getParameter ("route")) rp->setValueNotifyingHost (rp->convertTo0to1 ((float) P.route));
     if (i > 0) if (auto* rp = apvts.getParameter ("a_on")) rp->setValueNotifyingHost (1.0f);   // i preset partono dallo stadio A acceso
     for (auto& [id, v] : P.v) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+}
+
+void Processor::applyPlan()
+{
+    if (! plan.valid) return;
+    auto set = [&] (const juce::String& id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
+    set ("route", 0); set ("auto", 1); set ("mix", 1); set ("out", 0); set ("scSrc", 0); set ("scTo", 0); set ("scHpf", plan.scHpf); set ("scListen", 0);
+    for (int k = 0; k < kStages; ++k)
+    {
+        const juce::String p = juce::String (stagePfx (k)).dropLastCharacters (1);
+        if (k >= (int) plan.stages.size()) { set (p + "_on", 0); set (p + "_solo", 0); continue; }
+        const auto& q = plan.stages[(size_t) k];
+        set (p + "_on", 1); set (p + "_solo", 0); set (p + "_model", (float) q.model); set (p + "_ratio", (float) q.ratio); set (p + "_att", q.att); set (p + "_rel", q.rel);
+        set (p + "_drive", q.drive); set (p + "_color", q.color); set (p + "_mix", q.mix); set (p + "_out", 0);
+        calibT[k] = q.target;
+    }
+    calib = plan.stages.empty() ? -1 : 0; calibOk = 0; calibSteps = 0; calibBuf.clear();
+    calibMsg = "Taratura: fai suonare la traccia, regolo le soglie da solo.";
+}
+void Processor::calibTick()
+{
+    if (calib < 0 || calib >= (int) plan.stages.size()) return;
+    const float inDb = juce::Decibels::gainToDecibels (std::sqrt (inRms.load()), -100.0f);
+    if (inDb < -50) { calibMsg = "Taratura in pausa: aspetto che la traccia suoni."; return; }
+    calibBuf.push_back (gr[calib].load());
+    if (calibBuf.size() < 24) return;                      // ~0.8 s di riduzione, poi correggo
+    std::sort (calibBuf.begin(), calibBuf.end());
+    const float g = calibBuf[(size_t) (calibBuf.size() * 3 / 4)];   // quanto lavora sui passaggi forti
+    calibBuf.clear();
+    const auto& q = plan.stages[(size_t) calib];
+    const juce::String id = juce::String (stagePfx (calib)).dropLastCharacters (1) + "_drive";
+    auto* rp = apvts.getParameter (id); const float d = value (id.toRawUTF8());
+    const float err = calibT[calib] - g; ++calibSteps;
+    const juce::String nm = juce::String (calib + 1) + " (" + info (q.model).name + ")";
+    if (std::abs (err) < 0.7f) ++calibOk; else calibOk = 0;
+    if (std::abs (err) >= 0.7f && rp != nullptr)
+    {
+        const float nd = juce::jlimit (0.0f, 1.0f, d + juce::jlimit (-0.08f, 0.08f, err * 0.03f));
+        rp->setValueNotifyingHost (rp->convertTo0to1 (nd));
+        if ((nd >= 1.0f && err > 0) || (nd <= 0.0f && err < 0))
+        {   // a fine corsa: tengo il massimo possibile e lo dico
+            calibOk = 3;
+            plan.notes.add (nd <= 0.0f ? "Stadio " + nm + ": lavora troppo anche con " + juce::String (info (q.model).driveLabel) + " a zero (" + juce::String (g, 1) + " dB). Abbassa il volume prima del plugin di " + juce::String (juce::roundToInt (-err * 1.5f)) + "-" + juce::String (juce::roundToInt (-err * 2.5f)) + " dB, poi rifai APPLICA."
+                                       : "Stadio " + nm + ": anche al massimo arriva a " + juce::String (g, 1) + " dB. Il segnale e' basso: alzalo prima del plugin.");
+        }
+    }
+    calibMsg = "Taratura stadio " + nm + ": " + juce::String (g, 1) + " dB su " + juce::String (calibT[calib], 1) + " voluti.";
+    if (calibOk >= 3 || calibSteps > 40)
+    {
+        calibMsg = "Stadio " + nm + " tarato a " + juce::String (g, 1) + " dB.";
+        ++calib; calibOk = 0; calibSteps = 0;
+        if (calib >= (int) plan.stages.size()) { calib = -1; calibMsg = "Rack tarato. AUTO GAIN acceso: il confronto col bypass e' allo stesso volume."; }
+    }
 }
 
 void Processor::getStateInformation (juce::MemoryBlock& d)

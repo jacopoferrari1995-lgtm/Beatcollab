@@ -120,11 +120,15 @@ public:
     GuidePanel (Editor& e) : ed (e) {}
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
+    void paintListen (juce::Graphics&, juce::Rectangle<float>);
+    static constexpr float kTabW = 93.0f;
     Editor& ed; int tab = 0; juce::StringArray tips; int warn = 0;
+    juce::Rectangle<float> srcR[kNumSrc], lisR, appR; bool listening = false;
 };
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    skin::Keep skinKeep;
 public:
     explicit Editor (Processor&);
     ~Editor() override { setLookAndFeel (nullptr); }
@@ -144,10 +148,10 @@ public:
     void computeTips();
     Rack rack { *this };
     StageEditor stage { *this };
-private:
     void timerCallback() override;
     Graph graph { *this };
     GuidePanel guide { *this };
+private:
     std::unique_ptr<Segs> route, scSrc, scTo;
     std::unique_ptr<Knob> scHpf, gMix, gOut;
     std::unique_ptr<Switch> listen, autoG;

@@ -482,6 +482,9 @@ inline void chipDraw (juce::Graphics& g, juce::Rectangle<float> r, bool hover = 
 }
 
 // ------------------------------------------------------------------------------------------------ uso
+// da tenere come PRIMO membro dell'editor: senza un proprietario fisso i caratteri di CBRPNK, HUD e CYBER
+// venivano ricaricati a ogni scritta (scritte che sfarfallavano e interfaccia a scatti)
+struct Keep { juce::SharedResourcePointer<neo::Fonts> a; juce::SharedResourcePointer<jlook::Resources> b; };
 inline void apply()
 {
     if (cur() < 0) cur() = 3;

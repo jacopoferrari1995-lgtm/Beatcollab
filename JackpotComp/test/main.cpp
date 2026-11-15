@@ -31,6 +31,65 @@ int main (int argc, char** argv)
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "listen")
+    {   // ASCOLTO su quattro materiali sintetici: proposta, applicazione, taratura
+        juce::ScopedJuceInitialiser_GUI gl;
+        const double fs = 48000; const int B = 480;
+        auto gen = [] (int kind, long n, juce::Random& r, double& ph) -> float
+        {
+            const double t = n / 48000.0;
+            if (kind == 0)
+            {   // voce: sillabe a ~4.5/s, frasi che salgono e scendono, consonanti secche
+                const double sy = std::fmod (t * 4.5, 1.0), phrase = 0.35 + 0.65 * (0.5 + 0.5 * std::sin (t * 1.3)) * (std::fmod (t, 4.0) < 3.4 ? 1 : 0.05);
+                ph += 2 * 3.14159 * (160 + 20 * std::sin (t * 3)) / 48000;
+                const double vow = (std::sin (ph) + 0.6 * std::sin (2 * ph) + 0.4 * std::sin (3 * ph) + 0.25 * std::sin (5 * ph)) * std::min (1.0, sy * 12) * std::exp (-sy * 1.5);
+                const double cons = sy < 0.025 ? (r.nextFloat() - 0.5) * 2.2 : 0;
+                return (float) (phrase * (0.22 * vow + 0.35 * cons));
+            }
+            if (kind == 1)
+            {   // batteria: cassa sui 1 e 3, rullante sui 2 e 4, charleston in ottavi (90 bpm)
+                const double beat = t * 1.5, b4 = std::fmod (beat, 4.0), e8 = std::fmod (beat * 2, 1.0) / 2.0 / 1.5;
+                const double kb = std::fmod (b4, 2.0) / 1.5, kick = std::sin (2 * 3.14159 * (50 + 120 * std::exp (-kb * 30)) * kb) * std::exp (-kb * 7);
+                const double sb = std::fmod (b4 + 1.0, 2.0) / 1.5, snare = (r.nextFloat() - 0.5) * 2 * std::exp (-sb * 22) + std::sin (2 * 3.14159 * 190 * sb) * std::exp (-sb * 30);
+                const double hat = (r.nextFloat() - 0.5) * std::exp (-e8 * 90);
+                return (float) (0.75 * kick + 0.45 * snare + 0.12 * hat);
+            }
+            if (kind == 2)
+            {   // 808: note lunghe a 50-60 Hz con volumi diversi
+                const double nb = std::fmod (t * 2, 1.0); const int idx = (int) (t * 2); const double amp = 0.3 + 0.5 * ((idx * 7) % 5) / 4.0;
+                ph += 2 * 3.14159 * (idx % 3 == 0 ? 49 : 58) / 48000;
+                return (float) (amp * std::sin (ph) * std::exp (-nb * 1.2) * std::min (1.0, nb * 400));
+            }
+            // mix: tutto insieme, gia' un po' limitato
+            double d = 0; { juce::Random r2 (n); double p2 = ph; (void) r2; (void) p2; }
+            const double beat = t * 1.5, b4 = std::fmod (beat, 2.0) / 1.5; d += 0.5 * std::sin (2 * 3.14159 * 55 * b4) * std::exp (-b4 * 4);
+            ph += 2 * 3.14159 * 220 / 48000; d += 0.25 * (std::sin (ph) + 0.5 * std::sin (1.5 * ph)) + (r.nextFloat() - 0.5) * 0.08;
+            return (float) std::tanh (1.6 * d) * 0.6f;
+        };
+        for (int kind = 0; kind < 4; ++kind)
+        {
+            Processor p; p.prepareToPlay (fs, B);
+            juce::AudioBuffer<float> b (2, B); juce::MidiBuffer m; juce::Random r (kind + 3); double ph = 0; long n = 0;
+            auto run = [&] (int blocks) { for (int k = 0; k < blocks; ++k) { for (int i = 0; i < B; ++i) { const float v = gen (kind, n++, r, ph); b.setSample (0, i, v); b.setSample (1, i, v * 0.97f); } p.processBlock (b, m); } };
+            p.startListen(); int guard = 0; while (p.cap.on.load() && guard++ < 3000) run (1);
+            p.finishListen(); const auto& L = p.plan;
+            std::printf ("\n==== materiale %d -> %s (gaps %.0f sharp %.1f)\n%s\n", kind, srcName (L.src), L.gaps, L.sharp, L.srcWhy.toRawUTF8());
+            for (auto& h : L.heard) std::printf ("  . %s\n", h.toRawUTF8());
+            for (auto& q : L.stages) std::printf ("  > %s\n      %s\n", q.what.toRawUTF8(), q.why.toRawUTF8());
+            for (auto& t : L.notes) std::printf ("  ! %s\n", t.toRawUTF8());
+            p.applyPlan();
+            for (int s = 0; s < 1800 && p.calib >= 0; ++s) { run (4); p.calibTick(); }   // ~1 minuto massimo
+            std::printf ("  = %s\n", p.calibMsg.toRawUTF8());
+            for (size_t k = 0; k < L.stages.size(); ++k) std::printf ("    stadio %d drive %.2f  obiettivo %.1f\n", (int) k + 1, p.value ((juce::String (stagePfx ((int) k)) + "drive").toRawUTF8()), L.stages[k].target);
+            if (kind == 0 && argc > 2)
+            {
+                Editor ed (p); ed.guide.tab = 3; ed.resized(); ed.guide.listening = false;
+                auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+                juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+            }
+        }
+        return 0;
+    }
     juce::ScopedJuceInitialiser_GUI gui;
     const double sr = 44100;
     {   // multibanda senza compressione: la somma delle bande deve restare piatta
