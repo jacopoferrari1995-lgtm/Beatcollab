@@ -76,11 +76,14 @@ void EasyPage::paintStatic (juce::Graphics& g)
 {
     // banco delle manopole: una lastra unica, piu chiara del display
     auto pnl = juce::Rectangle<float> (16, kPanelY - 22, 1248, (float) getHeight() - kPanelY + 16);
+    if (neo::skinned()) { jlook::skinHooks().card (g, pnl, 18, K::accent, true, false); }
+    else {
     g.setColour (K::lo.withAlpha (light() ? 0.10f : 0.35f)); g.fillRoundedRectangle (pnl.translated (0, 4), 22);
     juce::ColourGradient pg (K::panel0, 0, pnl.getY(), K::panel1, 0, pnl.getBottom(), false); g.setGradientFill (pg); g.fillRoundedRectangle (pnl, 22);
     g.setColour (K::hi.withAlpha (light() ? 0.10f : 0.06f)); g.drawRoundedRectangle (pnl.reduced (0.5f), 22, 1.0f);
     { juce::ColourGradient hl (K::hi.withAlpha (0.0f), pnl.getX() + 40, 0, K::hi.withAlpha (0.0f), pnl.getRight() - 40, 0, false); hl.addColour (0.5, (light() ? juce::Colours::white : K::hi).withAlpha (light() ? 0.9f : 0.14f));
       g.setGradientFill (hl); g.fillRect (pnl.getX() + 40, pnl.getY() + 1, pnl.getWidth() - 80, 1.0f); }
+    }
     // didascalie dei gruppi: punto colorato + parola
     auto capt = [&] (float x, const char* t, juce::Colour c)
     {
@@ -91,7 +94,7 @@ void EasyPage::paintStatic (juce::Graphics& g)
 }
 void EasyPage::paint (juce::Graphics& g)
 {
-    neo::setTheme (ed.proc.uiTheme.load() == 2 ? 2 : 1);
+    skin::useTheme (ed.proc.uiTheme.load());
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
     if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgTheme != K::theme)
     {
@@ -107,7 +110,7 @@ void EasyPage::paint (juce::Graphics& g)
     chip (g, deltaR, "DELTA", ed.proc.value ("e_delta") > 0.5f, K::amber, 8.5f, hover == 12);
     chip (g, loudDR, U ("\xce\x94 LOUD"), ed.proc.value ("e_ldelta") > 0.5f, K::amber, 7.5f, hover == 14);
     chip (g, guideR, guide.isVisible() ? U ("CHIUDI") : U ("? GUIDA"), guide.isVisible(), K::violet, 8.5f, hover == 13);
-    chip (g, themeR, light() ? U ("CHIARO") : U ("SCURO"), false, K::sub, 8.5f, hover == 14);
+    chip (g, themeR, skin::label (ed.proc.uiTheme.load()), false, K::sub, 8.5f, hover == 14);
     // ascolto delle bande dell'EQ: S = solo la zona, D = solo cosa fa la banda
     const int le = ed.proc.eqListen.load();
     for (int b = 0; b < 3; ++b)
@@ -130,7 +133,7 @@ void EasyPage::mouseDown (const juce::MouseEvent& e)
 {
     auto& P = ed.proc;
     if (guideR.contains (e.position)) { guide.setVisible (! guide.isVisible()); if (guide.isVisible()) guide.toFront (false); repaint (0, 0, getWidth(), 40); return; }
-    if (themeR.contains (e.position)) { P.uiTheme = P.uiTheme.load() == 2 ? 1 : 2; ed.neoBg = {}; ed.repaint(); return; }
+    if (themeR.contains (e.position)) { P.uiTheme = skin::nextIn (P.uiTheme.load(), { 1, 2, 9, 10 }); ed.neoBg = {}; ed.repaint(); return; }
     if (const int t = tabs.hit (e.position); t >= 0) { view = t; repaint (0, 0, getWidth(), 40); stage.repaint(); return; }
     if (cmpR.contains (e.position)) { auto* p = ed.P ("compare"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint (0, 0, getWidth(), 40); return; }
     if (loudDR.contains (e.position)) { auto* p = ed.P ("e_ldelta"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
@@ -228,7 +231,7 @@ juce::Rectangle<float> EasyStage::visual()
 double gStageT[6] {};
 void EasyStage::paint (juce::Graphics& g)
 {
-    neo::setTheme (page.ed.proc.uiTheme.load() == 2 ? 2 : 1);
+    skin::useTheme (page.ed.proc.uiTheme.load());
     hots.clear();
     if (bare)
     {

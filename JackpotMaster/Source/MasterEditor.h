@@ -1,5 +1,6 @@
 #pragma once
 #include "MasterProcessor.h"
+#include "Skin.h"
 #include "JackpotScale.h"
 #include "MasterNeo.h"
 

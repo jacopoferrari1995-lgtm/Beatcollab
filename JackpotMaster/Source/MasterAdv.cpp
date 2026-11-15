@@ -332,7 +332,7 @@ std::vector<int> Rack::visible() const
 }
 void Rack::paint (juce::Graphics& g)
 {
-    setTheme (ed.proc.uiTheme.load() == 2 ? 2 : 1);
+    skin::useTheme (ed.proc.uiTheme.load());
     g.setFont (cap (8.5f)); g.setColour (K::ink); g.drawText ("CATENA", juce::Rectangle<float> (14, 10, 120, 24), juce::Justification::centredLeft);
     g.setFont (cap (7.0f)); g.setColour (K::faint); g.drawText (juce::String::fromUTF8 ("INGRESSO \xe2\x86\x93"), juce::Rectangle<float> (0, 10, (float) getWidth() - 14, 24), juce::Justification::centredRight);
     const auto v = visible();
@@ -452,7 +452,7 @@ static void glyph (juce::Graphics& g, int m, juce::Rectangle<float> r, juce::Col
 }
 void Gallery::paint (juce::Graphics& g)
 {
-    setTheme (ed.proc.uiTheme.load() == 2 ? 2 : 1);
+    skin::useTheme (ed.proc.uiTheme.load());
     auto b = getLocalBounds().toFloat();
     g.setColour (K::panel1); g.fillRoundedRectangle (b, 16);
     g.setColour (K::hi.withAlpha (0.08f)); g.drawRoundedRectangle (b.reduced (0.5f), 16, 1.0f);
@@ -501,7 +501,7 @@ void StatusBar::mouseDown (const juce::MouseEvent&)
 void StatusBar::paint (juce::Graphics& g)
 {
     // COSA STA SUCCEDENDO: riga 1 = tutta la catena dal vivo (cosa fa ogni effetto adesso), riga 2 = spiegazione e perche
-    setTheme (ed.proc.uiTheme.load() == 2 ? 2 : 1);
+    skin::useTheme (ed.proc.uiTheme.load());
     auto& P = ed.proc;
     auto b = getLocalBounds().toFloat();
     g.setColour (K::lo.withAlpha (light() ? 0.06f : 0.3f)); g.fillRoundedRectangle (b, 10);
@@ -598,7 +598,7 @@ static juce::Rectangle<float> grpCell (juce::Rectangle<float> bx, int i) { retur
 static constexpr float kRowH = 70;
 void PresetBrowser::paint (juce::Graphics& g)
 {
-    setTheme (ed.proc.uiTheme.load() == 2 ? 2 : 1);
+    skin::useTheme (ed.proc.uiTheme.load());
     g.fillAll (K::lo.withAlpha (light() ? 0.25f : 0.6f));
     auto bx = box();
     g.setColour (K::lo.withAlpha (0.4f)); g.fillRoundedRectangle (bx.translated (0, 6), 20);
@@ -694,7 +694,7 @@ static float activityOf (Processor& P, int m)
 }
 void RackRecap::paint (juce::Graphics& g)
 {
-    setTheme (ed.proc.uiTheme.load() == 2 ? 2 : 1);
+    skin::useTheme (ed.proc.uiTheme.load());
     auto b = getLocalBounds().toFloat();
     { juce::ColourGradient dg (K::disp0, 0, 0, K::disp1, 0, b.getBottom(), false); g.setGradientFill (dg); g.fillRoundedRectangle (b, 22); g.setColour (K::hi.withAlpha (0.07f)); g.drawRoundedRectangle (b.reduced (0.5f), 22, 1.0f); }
     const auto v = ed.rack.visible();

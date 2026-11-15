@@ -1,5 +1,6 @@
 #pragma once
 #include "FxProcessor.h"
+#include "Skin.h"
 #include "JackpotScale.h"
 #include "Neo.h"
 

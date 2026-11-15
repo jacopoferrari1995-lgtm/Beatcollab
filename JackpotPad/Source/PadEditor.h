@@ -3,6 +3,7 @@
 #include "Neo.h"
 #include "JackpotScale.h"
 #include "PadProcessor.h"
+#include "Skin.h"
 #include "Library.h"
 #include <set>
 #include <map>
@@ -19,7 +20,7 @@ namespace Col
     inline int theme = 3;
     inline void sync()
     {
-        neo::setTheme (theme >= 2 && theme <= 8 ? theme : 1); using namespace neo;
+        skin::useTheme (theme >= 2 && theme <= 10 ? theme : 1); using namespace neo;
         bg = K::bg1; chassis1 = K::panel0; chassis2 = K::panel1; inset = K::panel1;
         magenta = K::pink; cyan = K::cyan; amber = K::amber; red = K::red; green = K::mint;
         text = K::ink; dim = K::sub; faint = K::faint; lcd1 = K::disp0; lcd2 = K::disp1; phos = K::accent;

@@ -6,6 +6,7 @@ int main (int argc, char** argv)
 {
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
+        if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
         juce::ScopedJuceInitialiser_GUI gui3;
         jb::Processor p; p.prepareToPlay (48000, 480);
         const char* pn = std::getenv ("JPRESET") ? std::getenv ("JPRESET") : "Punch Moderno";

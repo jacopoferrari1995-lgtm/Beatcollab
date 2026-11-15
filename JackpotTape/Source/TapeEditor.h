@@ -2,6 +2,7 @@
 #include "JackpotLook.h"
 #include "JackpotScale.h"
 #include "TapeProcessor.h"
+#include "Skin.h"
 #include "Neo.h"
 #include <set>
 
@@ -155,6 +156,10 @@ public:
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    skin::Keep skinKeep;
+public:
+    skin::ThemeChip themeChip;
+private:
 public:
     explicit Editor (Processor&);
     ~Editor() override;

@@ -41,7 +41,7 @@ static void glow (juce::Graphics& g, const juce::String& t, juce::Rectangle<floa
 // pannello in metallo con ombra, smusso e striscia LED opzionale
 static void panel (juce::Graphics& g, juce::Rectangle<float> r, float rad, juce::Colour led = juce::Colours::transparentBlack)
 {
-    neo::setTheme (3); neo::plate (g, r, led.isTransparent() ? K::amber : led, juce::jmax (10.0f, rad));
+    skin::useTheme (skin::cur()); neo::plate (g, r, led.isTransparent() ? K::amber : led, juce::jmax (10.0f, rad));
 }
 // schermo LCD incassato
 static void inset (juce::Graphics& g, juce::Rectangle<float> r, float rad)
@@ -74,7 +74,7 @@ void Knob::paint (juce::Graphics& g)
     const float size = juce::jmin ((float) getWidth(), getHeight() - lh);
     const float v = param->getValue();
     const bool bip = param->convertFrom0to1 (0.0f) < 0 && param->convertFrom0to1 (1.0f) > 0 && std::abs (param->convertFrom0to1 (0.0f) + param->convertFrom0to1 (1.0f)) < 0.01f;
-    shown = v; neo::setTheme (3);
+    shown = v; skin::useTheme (skin::cur());
     // manopola CYBER: anello di LED a segmenti, disco nero, lancetta del colore dell'effetto
     const float cx = getWidth() * 0.5f, cy = size * 0.5f, R = size * 0.5f - 3.0f, kr = R * (big ? 0.72f : 0.7f);
     const float av = -2.356f + 4.712f * v;
@@ -120,7 +120,7 @@ void Seg::paint (juce::Graphics& g)
         auto r = juce::Rectangle<float> (x, 3, w, b.getHeight() - 6);
         if (i == cur)
         {
-            neo::setTheme (3); neo::key (g, r, true, K::amber);
+            skin::useTheme (skin::cur()); neo::key (g, r, true, K::amber);
             g.setColour (K::ink); g.setFont (neo::cap (9.0f)); g.drawFittedText (it[i].toUpperCase(), r.toNearestInt().withTrimmedLeft (4), juce::Justification::centred, 1, 0.7f);
         }
         else { g.setColour (K::dim); g.setFont (neo::cap (9.0f)); g.drawFittedText (it[i].toUpperCase(), r.toNearestInt(), juce::Justification::centred, 1, 0.7f); }
@@ -149,7 +149,7 @@ void TextBtn::paint (juce::Graphics& g)
         g.setColour (hover ? K::ink : K::amber); g.setFont (tf (20.0f, 2)); g.drawText (text, b, juce::Justification::centred);
         return;
     }
-    neo::setTheme (3); neo::key (g, b.reduced (2, 1), accent, K::brand1, hover);
+    skin::useTheme (skin::cur()); neo::key (g, b.reduced (2, 1), accent, K::brand1, hover);
     g.setColour (accent || hover ? K::ink : K::ink.withAlpha (0.8f)); g.setFont (neo::cap (9.5f)); g.drawFittedText (text.toUpperCase(), b.reduced (accent ? 10 : 6, 0).toNearestInt(), juce::Justification::centred, 1, 0.7f);
 }
 
@@ -182,7 +182,7 @@ void Display::paint (juce::Graphics& g)
     auto& P = ed.proc; auto full = getLocalBounds().toFloat();
     auto b = full.reduced (10);
     // fondo, vetro e griglia: una volta sola in cache (prima ogni fotogramma)
-    base.draw (g, full, 1, [&] (juce::Graphics& bg) { bg.fillAll (K::win); neo::setTheme (3); neo::plate (bg, full.reduced (1), K::brand2, 12.0f); neo::crt (bg, b, K::brand2, 9.0f); lcdGrid (bg, b.reduced (4), 12); });
+    base.draw (g, full, (1) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { bg.fillAll (K::win); skin::useTheme (skin::cur()); neo::plate (bg, full.reduced (1), K::brand2, 12.0f); neo::crt (bg, b, K::brand2, 9.0f); lcdGrid (bg, b.reduced (4), 12); });
     const int steps = ed.steps(); const double beats = steps / 4.0;
     auto hdr = b.removeFromTop (30).reduced (12, 0);
     const double beat = P.uiBeat.load(); const double pb = std::fmod (beat, beats);
@@ -293,7 +293,7 @@ void FxEditor::paint (juce::Graphics& g)
 {
     const bool en = ed.proc.fxEnabled (ed.sel);
     const auto c = en ? fxCol (ed.sel) : K::faint;
-    base.draw (g, getLocalBounds().toFloat(), (int) c.getARGB(), [&] (juce::Graphics& bg) { panel (bg, getLocalBounds().toFloat().reduced (1), 12, c); });
+    base.draw (g, getLocalBounds().toFloat(), ((int) c.getARGB()) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { panel (bg, getLocalBounds().toFloat().reduced (1), 12, c); });
     g.setColour (c.withAlpha (0.3f)); g.fillRect (14.0f, 13.0f, 14.0f, 14.0f); g.setColour (c.brighter (0.3f)); g.fillRect (17.0f, 16.0f, 8.0f, 8.0f);
     g.setFont (tf (15.0f, 2)); g.setColour (K::ink); g.drawText (juce::String (kFx[ed.sel].name).toUpperCase(), juce::Rectangle<float> (36, 8, 220, 24), juce::Justification::centredLeft);
     const float nw = juce::GlyphArrangement::getStringWidth (tf (15.0f, 2), juce::String (kFx[ed.sel].name).toUpperCase());
@@ -554,14 +554,14 @@ void Root::paint (juce::Graphics& g)
 {
     // tutto lo sfondo sta in un'immagine: prima veniva ridisegnato (grana, ombre sfocate, gradienti) dietro a ogni elemento che si aggiornava, 30 volte al secondo
     const int W = Editor::W, H = Editor::H;
-    base.draw (g, { 0, 0, (float) W, (float) H }, 3, [this] (juce::Graphics& bg) { paintStatic (bg); });
+    base.draw (g, { 0, 0, (float) W, (float) H }, (3) + 1000 * neo::K::theme, [this] (juce::Graphics& bg) { paintStatic (bg); });
     g.setColour (K::faint); g.setFont (neo::num (8.5f));
     g.drawText (ed.proc.uiHost.load() ? "BPM SINCRONIZZATI CON L'HOST" : (ed.proc.value ("sync") > 0.5f ? "IN ATTESA DEL PLAY DELL'HOST" : "BPM MANUALI"), juce::Rectangle<int> (W - 500, H - 30, 410, 30), juce::Justification::centredRight);
 }
 void Root::paintStatic (juce::Graphics& g)
 {
     const int W = Editor::W, H = Editor::H; const float Wf = (float) W, Hf = (float) H;
-    neo::setTheme (3);
+    skin::useTheme (skin::cur());
     neo::cyberBackdrop (g, Wf, Hf, 0.6f);
     neo::cyberHeader (g, Wf, 58, "TPE-9", "TAPE MOTION // STOP  SPIN  STUTTER  COREOGRAFIA");
     neo::plate (g, ed.sidePanel.toFloat().reduced (6, 8), K::brand2);
@@ -595,6 +595,8 @@ static juce::String fmtOut (float v) { return juce::String (v, 1) + "dB"; }
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("tape", { 0xffd8b98a, 0xffe46a4c, 0xff8fb9b0, 0xffccccc7 }, 0xffffb000); skin::useTheme (skin::cur());
+    themeChip.onChange = [this] { skin::useTheme (skin::cur()); std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* ch : c->getChildren()) all (ch); }; all (this); };
     setLookAndFeel (&lnf);
     addAndMakeVisible (root);
     sidePanel = { 0, 59, 210, 489 }; rightPanel = { 1020, 59, 220, 489 };
@@ -659,7 +661,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 
     fxEd.rebuild();
     setWantsKeyboardFocus (true);
-    root.addAndMakeVisible (sizeChip);
+    root.addAndMakeVisible (sizeChip); root.addAndMakeVisible (themeChip);
     scaler.setup();
     startTimerHz (30);
 }
@@ -700,6 +702,7 @@ void Editor::resized()
 {
     const float s = scaler.update();
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
+    themeChip.setBounds (286, 17, 86, 26);
     root.setBounds (0, 0, W, H); root.setTransform (juce::AffineTransform::scale (s));
     list.setBounds (20, 74, 172, 404);
     disp.setBounds (224, 72, 782, 182);

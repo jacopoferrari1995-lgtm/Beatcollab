@@ -2112,6 +2112,7 @@ void LoudPanel::mouseDown (const juce::MouseEvent& e)
 // ======================================================================= Editor
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("master", { 0xffb9a6e0, 0xffe58aa0, 0xffa8bea0, 0xffccccc7 }, 0xffb46bff);
     setLookAndFeel (&lnf);
     trim = std::make_unique<Knob> (P ("trim"), C::phos); trim->label = "INGRESSO"; trim->bipolar = true; trim->text = [this] { return dbS (proc.value ("trim")) + " dB"; };
     outK = std::make_unique<Knob> (P ("outg"), C::green); outK->label = "USCITA"; outK->bipolar = true; outK->text = [this] { return dbS (proc.value ("outg")) + " dB"; };
@@ -2297,14 +2298,15 @@ void Editor::resized()
 
 void Editor::paint (juce::Graphics& g)
 {
-    neo::setTheme (proc.uiTheme.load() == 2 ? 2 : 1); C::sync();
+    skin::useTheme (proc.uiTheme.load()); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     paintNeo (g);   // stesso sfondo e stessa testata in tutte e due le modalita
     if (proc.easy()) return;
-    neo::chip (g, { 1150, 20, 110, 26 }, neo::light() ? "CHIARO" : "SCURO", false, C::dim, 8.5f);   // tema anche in AVANZATO
+    neo::chip (g, { 1150, 20, 110, 26 }, skin::label (proc.uiTheme.load()), false, C::dim, 8.5f);   // tema anche in AVANZATO
     const auto mc = sel < kNumMods ? neo::acc (juce::Colour (modInfo (sel).colour)) : (sel == TOOL_BAL ? C::green : sel == TOOL_EAR ? C::amber : C::phos);
     auto card = [&] (juce::Rectangle<float> r, juce::Colour c)
     {   // zona senza scatola: velo scuro, un filo di luce del colore del modulo in basso
+        if (neo::skinned()) { jlook::skinHooks().card (g, r, 14, c, true, false); return; }
         juce::ColourGradient zg (veil (0.30f), r.getX(), r.getY(), veil (0.12f), r.getX(), r.getBottom(), false); g.setGradientFill (zg); g.fillRoundedRectangle (r, 16);
         g.setColour (glass (0.04f)); g.drawRoundedRectangle (r.reduced (0.5f), 16, 1.0f);
         juce::ColourGradient hl (c.withAlpha (0.0f), r.getX() + 30, 0, c.withAlpha (0.0f), r.getRight() - 30, 0, false); hl.addColour (0.5, c.withAlpha (0.55f));
@@ -2340,6 +2342,9 @@ void Editor::paintNeo (juce::Graphics& g)
     {
         neoScale = sc; neoTheme = K::theme; neoBg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false);
         juce::Graphics ig (neoBg); ig.addTransform (juce::AffineTransform::scale (sc));
+        if (neo::skinned()) { jlook::skinHooks().backdrop (ig, { 0, 0, (float) W, (float) H }, K::accent, K::pink); jlook::skinHooks().header (ig, { 0, 0, (float) W, 60 }, "MASTER", K::accent, "ONE KNOB MASTERING"); }
+        else
+        {
         juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, (float) H, false); ig.setGradientFill (base); ig.fillAll();
         // aurora: grandi campi di colore sfocati, nessun bordo
         juce::Image au (juce::Image::ARGB, W / 8, H / 8, true);
@@ -2364,6 +2369,7 @@ void Editor::paintNeo (juce::Graphics& g)
         ig.setFont (neo::num (15.0f)); ig.setColour (K::ink); ig.drawText ("JACKPOT", juce::Rectangle<float> (62, 15, 100, 20), juce::Justification::centredLeft);
         ig.setFont (neo::big (15.0f)); ig.setColour (K::sub); ig.drawText ("Master", juce::Rectangle<float> (139, 15, 100, 20), juce::Justification::centredLeft);
         ig.setFont (neo::cap (7.5f)); ig.setColour (K::faint); ig.drawText ("ONE KNOB MASTERING", juce::Rectangle<float> (62, 35, 200, 12), juce::Justification::centredLeft);
+        }
     }
     { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / neoScale)); g.drawImageAt (neoBg, 0, 0); g.restoreState(); }
     static const juce::StringArray modes { "FACILE", "AVANZATO" };
@@ -2395,7 +2401,7 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int n = (int) presets().size();
     if (modeR[0].contains (e.getPosition()) || modeR[1].contains (e.getPosition())) { auto* p = P ("mode"); p->setValueNotifyingHost (p->convertTo0to1 (modeR[0].contains (e.getPosition()) ? 0.0f : 1.0f)); applyMode(); return; }
-    if (! proc.easy() && juce::Rectangle<int> (1150, 20, 110, 26).contains (e.getPosition())) { proc.uiTheme = proc.uiTheme.load() == 2 ? 1 : 2; neoBg = {}; repaint(); return; }
+    if (! proc.easy() && juce::Rectangle<int> (1150, 20, 110, 26).contains (e.getPosition())) { proc.uiTheme = skin::nextIn (proc.uiTheme.load(), { 1, 2, 9, 10 }); neoBg = {}; repaint(); return; }
     if (! proc.easy()) for (int d = 0; d < 4; ++d) if (dthR[d].contains (e.getPosition())) { auto* p = P ("dither"); p->setValueNotifyingHost (p->convertTo0to1 ((float) d)); repaint(); return; }
     if (! proc.easy()) for (int t = 0; t < kNumTargets; ++t) if (tgtR[t].contains (e.getPosition())) { auto* p = P ("target"); p->setValueNotifyingHost (p->convertTo0to1 ((float) t)); repaint(); return; }
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); repaint(); }

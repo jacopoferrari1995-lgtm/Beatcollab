@@ -363,7 +363,7 @@ void Editor::paintStatic (juce::Graphics& g)
 }
 void Editor::paint (juce::Graphics& g)
 {
-    neo::setTheme (proc.uiTheme.load() == 2 ? 2 : 1);
+    skin::useTheme (proc.uiTheme.load());
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
     if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgTheme != K::theme)
@@ -373,7 +373,7 @@ void Editor::paint (juce::Graphics& g)
     }
     { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.drawImageAt (bg, 0, 0); g.restoreState(); }
     // preset
-    chip (g, themeR.toFloat(), light() ? "CHIARO" : "SCURO", false, K::sub, 8.5f);
+    chip (g, themeR.toFloat(), skin::label (proc.uiTheme.load()), false, K::sub, 8.5f);
     { auto pr = presetR.toFloat(); g.setColour (veil (0.3f)); g.fillPath (chamfer (pr, 8)); g.setColour (K::hi.withAlpha (0.1f)); g.strokePath (chamfer (pr, 8), juce::PathStrokeType (1.0f));
       g.setFont (cap (7.0f)); g.setColour (K::faint); g.drawText ("PRESET", pr.withHeight (12).translated (0, 2), juce::Justification::centred);
       g.setFont (f (13.0f, 1)); g.setColour (K::ink); g.drawFittedText (proc.presetName, pr.withTrimmedTop (11).toNearestInt(), juce::Justification::centred, 1, 0.7f);
@@ -409,7 +409,7 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     if (prevR.toFloat().contains (p)) { proc.loadFactory ((curF() + n - 1) % n); for (auto* c : cards) c->refresh(); repaint(); return; }
     if (nextR.toFloat().contains (p)) { proc.loadFactory ((curF() + 1) % n); for (auto* c : cards) c->refresh(); repaint(); return; }
     if (presetR.toFloat().contains (p)) { presetMenu(); return; }
-    if (themeR.toFloat().contains (p)) { proc.uiTheme = proc.uiTheme.load() == 2 ? 1 : 2; bg = {}; for (auto* c : cards) c->repaint(); advPanel.repaint(); repaint(); return; }
+    if (themeR.toFloat().contains (p)) { proc.uiTheme = skin::nextIn (proc.uiTheme.load(), { 1, 2, 9, 10 }); bg = {}; for (auto* c : cards) c->repaint(); advPanel.repaint(); repaint(); return; }
     if (resetR.toFloat().contains (p)) { proc.resetAmounts(); repaint(); return; }
     if (ctrlR.toFloat().contains (p)) { proc.ctrlOn = ! proc.ctrlOn.load(); repaint(); return; }
     if (bypR.toFloat().contains (p)) { auto* b = proc.P ("bypass"); b->setValueNotifyingHost (b->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }

@@ -33,7 +33,7 @@ void PKnob::paint (juce::Graphics& g)
     const float size = juce::jmin ((float) getWidth(), getHeight() - lh);
     const float v = param->getValue();
     actSm += ((activity ? juce::jlimit (0.0f, 1.0f, activity()) : 0.0f) - actSm) * 0.35f;
-    neo::setTheme (3);
+    skin::useTheme (skin::cur());
     // manopola CYBER: anello di LED a segmenti (si accende col segnale), disco nero, lancetta colorata
     const float cx = getWidth() * 0.5f, cy = size * 0.5f, R = size * 0.5f - 3.0f, kr = R * (isBig ? 0.72f : 0.7f), av = -2.356f + 4.712f * v;
     if (actSm > 0.02f) { g.setColour (col.withAlpha (0.12f * actSm)); g.fillEllipse (cx - R - 3, cy - R - 3, R * 2 + 6, R * 2 + 6); }
@@ -388,9 +388,9 @@ void Module::paint (juce::Graphics& g)
     }
     // scheda: ombra morbida, bordo che sfuma dall'accento
     // scheda in cache (prima: grana e gradienti rifatti 30 volte al secondo per ogni modulo)
-    base.draw (g, getLocalBounds().toFloat(), (on ? 1 : 0) + (dragging ? 2 : 0), [&] (juce::Graphics& bg)
+    base.draw (g, getLocalBounds().toFloat(), ((on ? 1 : 0) + (dragging ? 2 : 0)) + 1000 * neo::K::theme, [&] (juce::Graphics& bg)
     {
-        neo::setTheme (3); neo::plate (bg, b, on ? c : BC::faint, 12.0f);
+        skin::useTheme (skin::cur()); neo::plate (bg, b, on ? c : BC::faint, 12.0f);
         bg.setColour (c.withAlpha (on ? 0.85f : 0.25f)); bg.fillRect (b.getX() + 10, b.getY() + 35, b.getWidth() - 20, 1.0f);
         if (dragging) neo::brackets (bg, b.reduced (2), c, 12.0f, 1.6f);
     });
@@ -489,12 +489,12 @@ void EqPanel::updateSpectrum()
 void EqPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
-    base.draw (g, b, 1, [&] (juce::Graphics& bg) { neo::setTheme (3); neo::plate (bg, b.reduced (1), BC::phos, 12.0f); });
+    base.draw (g, b, (1) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { skin::useTheme (skin::cur()); neo::plate (bg, b.reduced (1), BC::phos, 12.0f); });
     const auto S = aeNow (ed.proc.apvts); const auto& I = aeInfo (S.model);
     glow (g, "EQ ANALOGICO", juce::Rectangle<float> (84, 6, 140, 20), BC::text, bf (11.0f, true));
     g.setFont (bf (9.0f, false, true)); g.setColour (BC::dim);
     g.drawFittedText (I.desc, juce::Rectangle<int> (190, 6, getWidth() - 390, 20), juce::Justification::centredLeft, 1, 0.8f);
-    { auto mr = modelRect().toFloat(); neo::setTheme (3); neo::key (g, mr, true, BC::amber); g.setColour (BC::text); g.setFont (neo::cap (9.5f)); g.drawFittedText (juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), mr.toNearestInt().reduced (10, 0), juce::Justification::centred, 1, 0.7f); }
+    { auto mr = modelRect().toFloat(); skin::useTheme (skin::cur()); neo::key (g, mr, true, BC::amber); g.setColour (BC::text); g.setFont (neo::cap (9.5f)); g.drawFittedText (juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), mr.toNearestInt().reduced (10, 0), juce::Justification::centred, 1, 0.7f); }
     auto r = plot(); inset (g, r, 8); auto p = r.reduced (4);
     const double sr = ed.proc.getSampleRate() > 0 ? ed.proc.getSampleRate() : 44100.0;
     for (float f : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
@@ -565,7 +565,7 @@ void PultecPanel::resized()
 void PultecPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1); const bool o = on->param->getValue() > 0.5f;
-    base.draw (g, getLocalBounds().toFloat(), o ? 1 : 0, [&] (juce::Graphics& bg) { neo::setTheme (3); neo::plate (bg, b, o ? BC::amber : BC::faint, 12.0f); });
+    base.draw (g, getLocalBounds().toFloat(), (o ? 1 : 0) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { skin::useTheme (skin::cur()); neo::plate (bg, b, o ? BC::amber : BC::faint, 12.0f); });
     glow (g, "PULTEC EQP-1A", { 38, 6, 160, 24 }, o ? BC::text : BC::dim, bf (11.5f, true));
     g.setColour (BC::dim); g.setFont (bf (8.5f, false, true)); g.drawText ("boost e atten insieme = il trucco", juce::Rectangle<float> (b.getRight() - 190, 8, 180, 20), juce::Justification::centredRight);
     auto d = juce::Rectangle<float> (12, 34, b.getWidth() - 22, 66); inset (g, d, 6);
@@ -606,7 +606,7 @@ void ImagerPanel::resized()
 void ImagerPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1); const bool o = on->param->getValue() > 0.5f;
-    base.draw (g, getLocalBounds().toFloat(), o ? 1 : 0, [&] (juce::Graphics& bg) { neo::setTheme (3); neo::plate (bg, b, o ? BC::phos : BC::faint, 12.0f); });
+    base.draw (g, getLocalBounds().toFloat(), (o ? 1 : 0) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { skin::useTheme (skin::cur()); neo::plate (bg, b, o ? BC::phos : BC::faint, 12.0f); });
     glow (g, "IMAGER", { 38, 6, 80, 24 }, o ? BC::text : BC::dim, bf (11.5f, true));
     auto& D = ed.proc.dsp;
     auto d = juce::Rectangle<float> (12, 38, b.getWidth() - 22, 82); inset (g, d, 6);
@@ -639,6 +639,8 @@ static juce::Rectangle<int> slotRect (int s) { return { 18 + s * 158, 78, 150, 4
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("butter", { 0xffe8cf86, 0xffe9a260, 0xffa8bea0, 0xffd8cdb8 }, 0xffffc23d); skin::useTheme (skin::cur());
+    themeChip.onChange = [this] { skin::useTheme (skin::cur()); std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* ch : c->getChildren()) all (ch); }; all (this); };
     setLookAndFeel (&lnf); setOpaque (true);
     for (int m = 0; m < 7; ++m) addAndMakeVisible (modules.add (new Module (*this, m)));
     eq = std::make_unique<EqPanel> (*this); addAndMakeVisible (*eq);
@@ -655,7 +657,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     add (A.getParameter ("u_out"), "OUTPUT", BC::phos, false, [] (float v) { return juce::String (v, 1) + " dB"; });
     clip = std::make_unique<Switch> (A.getParameter ("u_clip"), "LIMITE", BC::magenta); addAndMakeVisible (*clip);
     limType = std::make_unique<Pill> (dynamic_cast<juce::AudioParameterChoice*> (A.getParameter ("u_limType")), BC::magenta); addAndMakeVisible (*limType);
-    addAndMakeVisible (sizeChip);
+    addAndMakeVisible (sizeChip); addAndMakeVisible (themeChip);
     scaler.setup();
     startTimerHz (30);
 }
@@ -678,6 +680,7 @@ void Editor::resized()
     master[5]->setBounds (mx + 18, 560, 96, 94); master[6]->setBounds (mx + 122, 560, 96, 94);
     presetRect = { 500, 15, 340, 36 }; prevRect = { 462, 15, 36, 36 }; nextRect = { 842, 15, 36, 36 }; randRect = { 896, 15, 120, 36 }; abRect = { 1026, 15, 100, 36 };
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
+    themeChip.setBounds (1140, 19, 96, 30);
     jlook::scaleChildren (*this, sc);
 }
 
@@ -696,8 +699,8 @@ void Editor::paint (juce::Graphics& g)
 {
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     // fondo, testata, piastre e scritte fisse in cache: prima tutto veniva rifatto dietro a ogni display che si muoveva
-    base.draw (g, { 0, 0, (float) W, (float) H }, 3, [this] (juce::Graphics& bg) { paintStatic (bg); });
-    neo::setTheme (3);
+    base.draw (g, { 0, 0, (float) W, (float) H }, (3) + 1000 * neo::K::theme, [this] (juce::Graphics& bg) { paintStatic (bg); });
+    skin::useTheme (skin::cur());
     // preset
     inset (g, presetRect.toFloat(), 8);
     g.setFont (neo::num (12.0f)); g.setColour (BC::amber); g.drawFittedText (proc.getProgramName (proc.preset).toUpperCase(), presetRect.reduced (8, 0), juce::Justification::centred, 1, 0.7f);
@@ -724,7 +727,7 @@ void Editor::paint (juce::Graphics& g)
 void Editor::paintStatic (juce::Graphics& g)
 {
     const float Wf = (float) W, Hf = (float) H;
-    neo::setTheme (3);
+    skin::useTheme (skin::cur());
     neo::cyberBackdrop (g, Wf, Hf, 0.5f);
     neo::cyberHeader (g, Wf, 64, "BTR-7", "BUTTER RACK // DRUM BUS");
     for (int s = 0; s < 6; ++s) { const float x = (float) slotRect (s).getRight() + 4; juce::Path ar; ar.addArrow ({ x - 2, 96.0f, x + 6, 96.0f }, 1.5f, 6, 6); g.setColour (BC::phos.withAlpha (0.6f)); g.fillPath (ar); }

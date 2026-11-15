@@ -25,6 +25,8 @@ namespace K { inline juce::uint32 hudAcc = 0xffff2828; }   // 5..8: temi chiari 
 // un accento neon reso leggibile sul chiaro (sul tema scuro resta com'e')
 inline juce::Colour acc (juce::Colour c) { if (K::theme == 10) return c.withMultipliedSaturation (0.3f).interpolatedWith (juce::Colours::white, 0.45f); if (K::theme == 9 && K::customStyle == 3) return c.withMultipliedSaturation (1.1f).withMultipliedBrightness (0.42f); return light() ? c.withMultipliedSaturation (1.0f).withMultipliedBrightness (0.66f) : K::theme == 1 ? c.withMultipliedSaturation (0.68f).withMultipliedBrightness (0.95f) : c; }
 // testo sopra un bottone acceso
+// temi CBRPNK (9) e HUD (10) con la pelle installata (Common/Skin.h): le forme di base passano dalla pelle
+inline bool skinned() { return (K::theme == 9 || K::theme == 10) && jlook::skinHooks().on; }
 inline juce::Colour onText (juce::Colour c) { return light() ? c.darker (0.5f) : juce::Colours::white; }
 inline void setTheme (int t)
 {
@@ -198,6 +200,7 @@ inline void brackets (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour 
 // piastra di metallo: corpo, filo di luce in alto, codice a barre e tacca d'accento sull'angolo tagliato. Da disegnare nello sfondo in cache.
 inline void plate (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour tagCol, float cut = 12.0f)
 {
+    if (skinned() && jlook::skinHooks().card) { jlook::skinHooks().card (g, r, cut, tagCol, true, false); return; }
     auto p = chamfer (r, cut);
     g.setColour (K::lo.withAlpha (0.6f)); g.fillPath (p, juce::AffineTransform::translation (0, 3));
     juce::ColourGradient cg (K::panel0, 0, r.getY(), K::panel1, 0, r.getBottom(), false); g.setGradientFill (cg); g.fillPath (p);
@@ -215,6 +218,7 @@ inline void plate (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour tag
 // schermo a tubo catodico: vetro scuro, righe di scansione, vignetta e staffe. Da disegnare nello sfondo in cache.
 inline void crt (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour edge, float cut = 8.0f)
 {
+    if (skinned() && jlook::skinHooks().screen) { jlook::skinHooks().screen (g, r, cut, edge); return; }
     auto p = chamfer (r, cut, 2.0f);
     g.setColour (K::lo.withAlpha (0.8f)); g.fillPath (chamfer (r.expanded (1.5f), cut + 1, 2.5f));
     juce::ColourGradient cg (K::disp0, r.getCentreX(), r.getY() + r.getHeight() * 0.35f, K::disp1, r.getX(), r.getBottom(), true); g.setGradientFill (cg); g.fillPath (p);
@@ -228,6 +232,7 @@ inline void crt (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour edge,
 // tasto rettangolare con un angolo tagliato e LED a sinistra quando e' acceso
 inline void key (juce::Graphics& g, juce::Rectangle<float> r, bool on, juce::Colour c, bool hover = false)
 {
+    if (skinned() && jlook::skinHooks().button) { jlook::skinHooks().button (g, r, c, on, hover, {}, jlook::ui (11.0f)); return; }
     auto p = chamfer (r, juce::jmin (6.0f, r.getHeight() * 0.3f), 2.0f);
     if (on)
     {
@@ -258,6 +263,7 @@ inline void ledRing (juce::Graphics& g, float cx, float cy, float R, float v, bo
 // fondo CYBER comune: inchiostro, orizzonte al neon appena acceso, pavimento a griglia in prospettiva, testata con logo
 inline void cyberBackdrop (juce::Graphics& g, float W, float H, float horizon = 0.56f)
 {
+    if (skinned() && jlook::skinHooks().backdrop) { jlook::skinHooks().backdrop (g, { 0, 0, W, H }, K::accent, K::pink); return; }
     juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, H, false); g.setGradientFill (base); g.fillRect (0.0f, 0.0f, W, H);
     const float hy = H * horizon;
     { juce::ColourGradient hz (K::pink.withAlpha (0.0f), 0, hy - 120, K::pink.withAlpha (0.09f), 0, hy, false); hz.addColour (0.8, K::violet.withAlpha (0.05f)); g.setGradientFill (hz); g.fillRect (0.0f, hy - 120, W, 120.0f); }
@@ -292,6 +298,7 @@ inline void memphisBackdrop (juce::Graphics& g, float W, float H)
 }
 inline void cyberHeader (juce::Graphics& g, float W, float h, const juce::String& model, const juce::String& sub)
 {
+    if (skinned() && jlook::skinHooks().header) { jlook::skinHooks().header (g, { 0, 0, W, h }, model, K::accent, sub); return; }
     g.setColour (K::lo.withAlpha (0.5f)); g.fillRect (0.0f, 0.0f, W, h);
     g.setColour (K::accent.withAlpha (0.35f)); g.fillRect (0.0f, h - 1, W, 1.0f);
     for (int i = 0; i < 6; ++i) { g.setColour (K::accent.withAlpha (0.7f - i * 0.1f)); g.fillRect (W - 26.0f - i * 7.0f, h - 4, 4.0f, 3.0f); }
@@ -357,6 +364,7 @@ struct Segments
 // pillola di testo (bottone leggero)
 inline void chip (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& t, bool on, juce::Colour c, float fs = 9.5f, bool hover = false)
 {
+    if (skinned() && jlook::skinHooks().button) { jlook::skinHooks().button (g, r, c, on, hover, t, jlook::ui (fs * 1.15f)); return; }
     if (cyber()) { key (g, r, on, c, hover); g.setFont (cap (fs)); g.setColour (on ? K::ink : (hover ? K::ink : K::sub)); g.drawFittedText (t, r.toNearestInt().reduced (on ? 6 : 3, 0), juce::Justification::centred, 1, 0.75f); return; }
     const float rad = r.getHeight() * 0.5f;
     if (on)
@@ -389,6 +397,7 @@ public:
     bool hitTest (int x, int y) override { return getLocalBounds().reduced (pad).contains (x, y); }
     void paint (juce::Graphics& g) override
     {
+        if (skinned() && jlook::skinHooks().knob && ! (big && K::theme == 9)) { paintSkin (g); return; }   // la manopola grande del CBRPNK resta tonda (il fader gigante non si legge)
         if (K::theme != 0) { paintFlat (g); return; }
         g.addTransform (juce::AffineTransform::translation ((float) pad, (float) pad));
         const float W = (float) getWidth() - 2 * pad, s = S(), cx = W * 0.5f, cy = s * 0.5f;
@@ -463,6 +472,26 @@ public:
         {
             g.setFont (cap (9.0f)); g.setColour (hov ? K::ink : K::sub); g.drawText (label, juce::Rectangle<float> (-20, s + 3, W + 40, 14), juce::Justification::centred);
             g.setFont (num (11.0f)); g.setColour (hov ? c1.interpolatedWith (c2, v).brighter (0.5f) : K::ink.withAlpha (0.9f)); g.drawText (t, juce::Rectangle<float> (-20, s + 18, W + 40, 16), juce::Justification::centred);
+        }
+    }
+    // CBRPNK / HUD: la manopola la disegna la pelle, qui solo nome e valore
+    void paintSkin (juce::Graphics& g)
+    {
+        g.addTransform (juce::AffineTransform::translation ((float) pad, (float) pad));
+        const float W = (float) getWidth() - 2 * pad, s = S(); const bool hov = isMouseOverOrDragging();
+        const float v = shownV < 0 ? param->getValue() : shownV;
+        jlook::KnobLook kl; kl.big = big; kl.bipolar = bipolar; kl.hover = hov ? 1.0f : 0.0f; kl.activity = activity;
+        jlook::skinHooks().knob (g, { (W - s) * 0.5f, 0, s, s }, v, acc (c1), kl);
+        const juce::String t = text ? text() : param->getCurrentValueAsText();
+        if (big)
+        {
+            g.setFont (num (16.0f)); g.setColour (K::ink); g.drawText (t, juce::Rectangle<float> (0, s + 2, W, 20), juce::Justification::centred);
+            g.setFont (cap (9.5f)); g.setColour (K::sub); g.drawText (label, juce::Rectangle<float> (0, s - 12, W, 12), juce::Justification::centred);
+        }
+        else
+        {
+            g.setFont (cap (9.0f)); g.setColour (hov ? K::ink : K::sub); g.drawText (label, juce::Rectangle<float> (-20, s + 3, W + 40, 14), juce::Justification::centred);
+            g.setFont (num (11.0f)); g.setColour (K::ink.withAlpha (0.9f)); g.drawText (t, juce::Rectangle<float> (-20, s + 18, W + 40, 16), juce::Justification::centred);
         }
     }
     // manopola sobria (temi del Master): disco opaco, anello sottile, arco di un colore solo, tacca bianca. Niente bagliori.

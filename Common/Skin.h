@@ -510,4 +510,26 @@ inline void init (const juce::String& id, std::initializer_list<juce::uint32> ca
     K::theme = -1; apply();
 }
 inline void cycle() { cur() = next (cur()); save (plug(), cur()); K::theme = -1; apply(); }
+// per i plugin che hanno gia' i loro temi (Master, FX, Sampler, Tape, Butter): CBRPNK e HUD passano dalla pelle, gli altri restano loro
+inline void off() { auto& h = jlook::skinHooks(); h.on = false; jlook::fontHook().fn = nullptr; }
+inline bool use (int t)
+{
+    if (t == 9 || t == 10) { if (cur() != t || K::theme != t || ! jlook::skinHooks().on) { cur() = t; K::theme = -1; apply(); } return true; }
+    off(); return false;
+}
+inline void useTheme (int t) { if (! use (t)) setTheme (t == 2 ? 2 : (t >= 3 && t <= 8 ? t : 1)); }
+// tasto del tema da mettere nei plugin che non hanno un mouseDown comodo nella testata (Tape, Butter)
+struct ThemeChip : juce::Component
+{
+    std::vector<int> list { 3, 9, 10 }; std::function<void()> onChange;
+    ThemeChip() { setMouseCursor (juce::MouseCursor::PointingHandCursor); setRepaintsOnMouseActivity (true); }
+    void paint (juce::Graphics& g) override { chip (g, getLocalBounds().toFloat().reduced (1), label (cur()), false, K::accent, 8.5f, isMouseOver()); }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        int n = list.front(); for (size_t i = 0; i < list.size(); ++i) if (list[i] == cur()) n = list[(i + 1) % list.size()];
+        cur() = n; save (plug(), n); K::theme = -1; if (onChange) onChange();
+    }
+};
+// giro dei temi dentro una lista
+inline int nextIn (int t, std::initializer_list<int> l) { std::vector<int> v (l); for (size_t i = 0; i < v.size(); ++i) if (v[i] == t) return v[(i + 1) % v.size()]; return v.front(); }
 }

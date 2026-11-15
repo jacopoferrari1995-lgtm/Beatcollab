@@ -7,6 +7,7 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
+        if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
         Processor p; p.prepareToPlay (44100, 512);
         const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "0").getIntValue(); p.loadPreset (pr);
         std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());

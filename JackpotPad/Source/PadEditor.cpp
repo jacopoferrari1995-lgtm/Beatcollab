@@ -1793,7 +1793,7 @@ void Root::mouseDown (const juce::MouseEvent& e)
     if (juce::Rectangle<float> (660, 20, 128, 26).contains (e.position)) { ed.saveKit (true); return; }
     if (juce::Rectangle<float> (428, 12, 228, 40).contains (e.position)) { ed.kitBrowser.open(); return; }
     // temi: CYBER -> ROSSO -> RETRO -> SCURO -> CHIARO
-    if (juce::Rectangle<float> (800, 20, 90, 26).contains (e.position)) { const int t = ed.proc.uiTheme.load(); ed.proc.uiTheme = t == 3 ? 4 : t == 4 ? 8 : t == 8 ? 1 : t == 1 ? 2 : 3; bg = {}; ed.repaint(); }
+    if (juce::Rectangle<float> (800, 20, 90, 26).contains (e.position)) { const int t = ed.proc.uiTheme.load(); ed.proc.uiTheme = t == 3 ? 4 : t == 4 ? 8 : t == 8 ? 9 : t == 9 ? 10 : t == 10 ? 1 : t == 1 ? 2 : 3; bg = {}; ed.repaint(); }
 }
 void Root::paint (juce::Graphics& g)
 {
@@ -1813,7 +1813,7 @@ void Root::paint (juce::Graphics& g)
     glowText (g, ed.proc.kitName.toUpperCase() + juce::String::fromUTF8 ("  \xe2\x96\xbe"), { 462, 12, 190, 40 }, Col::text, neo::cap (9.5f));
     neo::chip (g, { 660, 20, 128, 26 }, "SALVA COME", true, Col::magenta, 8.5f);
     neo::chip (g, { 340, 20, 80, 26 }, ed.live ? juce::String ("NORMALE") : juce::String ("LIVE"), ed.live, Col::red, 8.5f);
-    { const int t = ed.proc.uiTheme.load(); neo::chip (g, { 800, 20, 90, 26 }, t == 3 ? "CYBER" : t == 4 ? "ROSSO" : t == 8 ? "RETRO" : t == 2 ? "CHIARO" : "SCURO", false, Col::dim, 8.5f); }
+    { const int t = ed.proc.uiTheme.load(); neo::chip (g, { 800, 20, 90, 26 }, skin::label (t), false, Col::dim, 8.5f); }
     // meter master
     const float m[2] = { ed.proc.meterL.load(), ed.proc.meterR.load() };
     for (int c = 0; c < (ed.live ? 0 : 2); ++c)
@@ -2339,6 +2339,7 @@ Knob* Editor::paramKnob (const char* id, const juce::String& label, juce::Colour
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("sampler", { 0xffe58aa0, 0xff9fc3e0, 0xffe8cf86, 0xffccccc7 }, 0xff19e3ff);
     setLookAndFeel (&lnf);
     addAndMakeVisible (root);
     root.addAndMakeVisible (screen); root.addAndMakeVisible (pattern); root.addAndMakeVisible (drag);
