@@ -36,8 +36,11 @@ inline const Guide& guide (int m)
           "TC2 per batteria e voce, TC5 o TC6 (automatici) per master e bus. INPUT per il colore, THRESHOLD per quanto comprime: sul master 1-2 dB, sui bus 2-4. LAT/VERT sul master per tenere fermo il centro e lasciare respirare i lati." },
         { "Multibanda a 2, 3 o 4 bande con crossover Linkwitz-Riley a fase compensata (da spento a 1:1 la somma e piatta). Ogni banda ha soglia, ratio, attacco, rilascio e guadagno suoi, solo e bypass. SOGLIE +/- sposta tutte le soglie insieme, ATTACK e RELEASE dello stadio scalano i tempi di tutte le bande, WARM ammorbidisce l'attacco e scalda come il modo Warm dell'alpha.",
           "Master, mix bus, voce (de-essing largo e controllo del fango), 808 con i bassi che ballano, bus di batteria, chitarre acustiche.",
-          "Parti da 3 bande. Bassa: soglia per 2-3 dB, ratio 3, attacco 30 ms, rilascio 200 ms. Media: piu gentile (1-2 dB). Alta: attacco 5 ms per domare le S. Ascolta in SOLO ogni banda mentre regoli." } };
-    return G[juce::jlimit (0, 9, m)];
+          "Parti da 3 bande. Bassa: soglia per 2-3 dB, ratio 3, attacco 30 ms, rilascio 200 ms. Media: piu gentile (1-2 dB). Alta: attacco 5 ms per domare le S. Ascolta in SOLO ogni banda mentre regoli." },
+        { "VCA del canale SSL 4000 E: preciso e deciso, rapporto da 1.5 a INF, soglia, rilascio 0.1-4 s e attacco AUTO (si adatta al segnale) o FAST. Suono moderno, punch con un filo di grana.",
+          "Voce pop e rap, rullante, cassa, basso, chitarre: il compressore di canale di mille dischi.",
+          "Voce: ratio 4, attacco AUTO, rilascio 0.2-0.4 s, soglia per 4-6 dB. Batteria: FAST spento per lasciare il colpo, ratio 4-6, rilascio corto a tempo." } };
+    return G[juce::jlimit (0, 10, m)];
 }
 
 // consigli generali sulle tecniche

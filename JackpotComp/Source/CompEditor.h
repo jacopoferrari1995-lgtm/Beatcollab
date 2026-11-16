@@ -98,8 +98,8 @@ public:
     float hzOf (float x) const { auto r = vuRect(); return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, (x - r.getX()) / r.getWidth())); }
     void mbBounds (float* edges, int& nb) const;
     Editor& ed; int s = 0; juce::String pfx = "a_"; int mbSel = 0, xDrag = -1;
-    std::unique_ptr<Switch> power; std::unique_ptr<Segs> ratio;
-    std::unique_ptr<Knob> drive, att, rel, out, color, mix, bThr, bRatio, bAtt, bRel, bGain;
+    std::unique_ptr<Switch> power, link, olink; std::unique_ptr<Segs> ratio, ratio2;
+    std::unique_ptr<Knob> drive, att, rel, out, color, mix, drive2, att2, bThr, bRatio, bAtt, bRel, bGain;
     float needle = 0; int lastModel = -1;
     juce::Rectangle<float> vuRect() const { return { 16, 52, 330, 150 }; }
     juce::Rectangle<int> modelRect() const { return { getWidth() - 186, 10, 170, 28 }; }

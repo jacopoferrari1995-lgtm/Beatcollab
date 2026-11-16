@@ -383,14 +383,16 @@ double EasyStage::clock()
     const int tot = P.hTot.load(); const double now = juce::Time::getMillisecondCounterHiRes();
     const double colLen = Processor::kColSec * juce::jmax (8000.0, P.sampleRate());
     const double lag = std::ceil (P.lastBlock.load() / colLen) + 1.0;
-    const double target = tot - 1 - lag;
+    const double target = tot - 1 - lag - 10;
     if (disp < 0 || lastT <= 0 || std::abs (target - disp) > 400) { disp = target; lastT = now; return disp; }
     const double dt = juce::jlimit (0.0, 200.0, now - lastT); lastT = now;
     // il tempo mostrato non torna mai indietro: se rallentava e tornava indietro di un soffio a cavallo di fine giro,
     // lo SCAN saltava al giro prima e poi ricompariva (tanto piu' di rado quanto piu' lunga la finestra)
     double cand = disp + dt / (Processor::kColSec * 1000.0);
     cand += (target - cand) * (target > cand ? 0.05 : 0.02);
-    cand = juce::jmin (cand, (double) tot - 1);
+    // mai davanti ai dati completi: tengo un margine di qualche colonna (anche con la finestra da 16 s, dove 1 pixel = ~3 colonne),
+    // cosi' l'ultima colonna a destra non e' mai a meta' e l'onda non compare e scompare al ritmo dei pacchetti della DAW
+    cand = juce::jmin (cand, (double) tot - 1 - lag - 8);
     disp = juce::jmax (disp, cand);
     return disp;
 }

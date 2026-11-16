@@ -11,6 +11,7 @@ int main (int argc, char** argv)
         Processor p; p.prepareToPlay (48000, 480);
         for (int i = 0; i < p.getNumPrograms(); ++i) if (p.getProgramName (i).contains (std::getenv ("JPRESET") ? std::getenv ("JPRESET") : "Voce a 4")) p.loadPreset (i);
         if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
+        if (std::getenv ("JUNLINK")) for (auto* id : { "a_link", "b_link" }) if (auto* r = p.apvts.getParameter (id)) r->setValueNotifyingHost (0.0f);
         Editor ed (p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer m; juce::Random r (5); double ph = 0;
@@ -110,7 +111,7 @@ int main (int argc, char** argv)
     {
         Processor p; p.prepareToPlay (sr, 512);
         auto set = [&p] (const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
-        set ("a_model", (float) m); set ("a_drive", 0.5f); set ("a_ratio", 1);
+        set ("a_on", 1); set ("a_model", (float) m); set ("a_drive", 0.5f); set ("a_ratio", 1);
         juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mi; double ph = 0; float pk = 0, maxGr = 0; bool nan = false;
         for (int k = 0; k < 400; ++k)
         {

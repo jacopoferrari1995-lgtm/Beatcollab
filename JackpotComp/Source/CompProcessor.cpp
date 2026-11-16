@@ -23,6 +23,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_out", 1 }, P + "Output", NormalisableRange<float> (-12, 24), 0));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_color", 1 }, P + "Color", NormalisableRange<float> (0, 1), 0.3f));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_mix", 1 }, P + "Mix", NormalisableRange<float> (0, 1), 1));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_drive2", 1 }, P + "Input R/Vert", NormalisableRange<float> (0, 1), 0.3f));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_att2", 1 }, P + "Threshold R/Vert", NormalisableRange<float> (0, 1), 0.5f));
+        l.add (std::make_unique<AudioParameterInt> (ParameterID { p + "_ratio2", 1 }, P + "Time Const R/Vert", 0, 7, 0));
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "_link", 1 }, P + "Link", true));
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "_olink", 1 }, P + "Output Link", false));
     }
     // multibanda
     auto F = [&l] (const String& id, const String& n, NormalisableRange<float> r, float d) { l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, n, r, d)); };
@@ -89,6 +94,8 @@ StageParams Processor::stageParams (int s) const
     q.ratio = juce::jlimit (0, info (q.model).ratios.size() - 1, juce::roundToInt (value ((p + "_ratio").toRawUTF8())));
     q.att = value ((p + "_att").toRawUTF8()); q.rel = value ((p + "_rel").toRawUTF8());
     q.outDb = value ((p + "_out").toRawUTF8()); q.color = value ((p + "_color").toRawUTF8()); q.mix = value ((p + "_mix").toRawUTF8());
+    q.drive2 = value ((p + "_drive2").toRawUTF8()); q.att2 = value ((p + "_att2").toRawUTF8()); q.ratio2 = juce::jlimit (0, 5, juce::roundToInt (value ((p + "_ratio2").toRawUTF8())));
+    q.link = value ((p + "_link").toRawUTF8()) > 0.5f; q.outLink = value ((p + "_olink").toRawUTF8()) > 0.5f;
     q.mb = &mbNow;
     return q;
 }

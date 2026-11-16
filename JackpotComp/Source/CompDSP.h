@@ -5,7 +5,7 @@
 
 namespace jc
 {
-enum Model { OPTO2A = 0, OPTO3A, FET76, VCABUS, VARIMU, RMS160, DISTRESS, OTT, VC670, MULTI, kNumModels };
+enum Model { OPTO2A = 0, OPTO3A, FET76, VCABUS, VARIMU, RMS160, DISTRESS, OTT, VC670, MULTI, SSLCH, kNumModels };
 constexpr int kStages = 6;
 inline const char* stagePfx (int s) { static const char* p[] = { "a_", "b_", "c_", "d_", "e_", "f_" }; return p[s]; }
 
@@ -34,7 +34,8 @@ inline const ModelInfo& info (int m)
         { "DISTRESS", "ispirato all'Empirical Labs Distressor", "INPUT", true, true, true, { "1", "2", "3", "4", "6", "10", "20", "NUKE" }, "RATIO", 0xff10223a, 0xff2e8bff },
         { "OTT", "ispirato all'OTT multibanda (Xfer)", "DEPTH", false, true, true, { "UP + DOWN", "DOWN", "UP" }, "MODO", 0xff1a1024, 0xffff4fd8 },
         { "VARI 670", "ispirato al Fairchild 670 (come il VC-670 di IK)", "INPUT", true, true, true, { "TC1", "TC2", "TC3", "TC4", "TC5", "TC6" }, "TIME CONSTANT", 0xff2b2620, 0xffffc861 },
-        { "MULTIBANDA", "multibanda a 4 bande (stile Pro-MB / alpha)", "THRESH", false, true, true, { "2 BANDE", "3 BANDE", "4 BANDE" }, "BANDE", 0xff101820, 0xff3dd6ff } };
+        { "MULTIBANDA", "multibanda a 4 bande (stile Pro-MB / alpha)", "THRESH", false, true, true, { "2 BANDE", "3 BANDE", "4 BANDE" }, "BANDE", 0xff101820, 0xff3dd6ff },
+        { "SSL 4000E", "ispirato al compressore di canale SSL 4000 E", "THRESH", false, true, true, { "1.5", "2", "3", "4", "6", "10", "20", "INF" }, "RATIO", 0xff1c1f24, 0xff4dd2ff } };
     return I[juce::jlimit (0, kNumModels - 1, m)];
 }
 
@@ -48,6 +49,7 @@ struct MbParams
 struct StageParams
 {
     bool on = true; int model = 0; float drive = 0.3f; int ratio = 0; float att = 0.5f, rel = 0.5f, outDb = 0, color = 0.3f, mix = 1;
+    float drive2 = 0.3f, att2 = 0.5f; int ratio2 = 0; bool link = true, outLink = false;   // 670: canale destro (o VERT) e collegamento; OUT legato all'INPUT
     const MbParams* mb = nullptr;
 };
 inline int mbBands (const StageParams& p) { return 2 + juce::jlimit (0, 2, p.ratio); }
@@ -66,6 +68,7 @@ inline float attMs (int m, float a)
         case VCABUS: { static const float t[] = { 0.1f, 0.3f, 1, 3, 10, 30 }; return t[juce::jlimit (0, 5, (int) (a * 5.99f))]; }
         case DISTRESS: return 0.05f * std::pow (600.0f, a);              // 0.05 .. 30 ms
         case OTT: return 22.4f * std::pow (4.0f, (a - 0.5f) * 2.0f);
+        case SSLCH: return a < 0.5f ? -1.0f : 1.0f;                       // AUTO (3-30 ms, dipende dal segnale) o FAST
         case OPTO2A: return 10.0f;
         case OPTO3A: return 1.5f;
         default: return 5.0f;
@@ -78,6 +81,7 @@ inline float relMs (int m, float r)   // -1 = auto
         case FET76: return 50.0f * std::pow (22.0f, r);                  // 50 .. 1100 ms
         case VCABUS: { static const float t[] = { 100, 300, 600, 1200, -1 }; return t[juce::jlimit (0, 4, (int) (r * 4.99f))]; }
         case DISTRESS: return 50.0f * std::pow (70.0f, r);               // 50 .. 3500 ms
+        case SSLCH: return 100.0f * std::pow (40.0f, r);                 // 0.1 .. 4 s
         case OTT: return 282.0f * std::pow (4.0f, (r - 0.5f) * 2.0f);
         default: return -1;
     }
@@ -105,6 +109,7 @@ inline float gainComputer (const StageParams& p, float levDb)
             return juce::jmax (0.0f, g - 0.35f);
         }
         case MULTI: return 0;
+        case SSLCH: { static const float r[] = { 1.5f, 2, 3, 4, 6, 10, 20, 100 }; R = r[juce::jlimit (0, 7, p.ratio)]; T = -p.drive * 40.0f; W = 2.0f; break; }
         case DISTRESS: { static const float r[] = { 1, 2, 3, 4, 6, 10, 20, 100 }; R = r[juce::jlimit (0, 7, p.ratio)]; T = -18; W = R <= 3 ? 10.0f : R < 20 ? 4.0f : 1.0f; break; }
         case OTT:
         {   // curva statica indicativa della banda media: giu sopra -20, su sotto -40
@@ -165,8 +170,18 @@ public:
                 lev = m2 * inG;
             }
             else lev = juce::jmax (std::abs (dL[i]), std::abs (dR[i])) * inG;
+            // OPTO e FET sono a retroazione come gli originali: il rilevatore sente l'uscita (gia' compressa).
+            // La curva si ricava dalla stessa soglia moltiplicando per il rapporto: stessa riduzione a regime, ma attacco e ginocchio "veri"
+            const bool fb = p.model == OPTO2A || p.model == OPTO3A || p.model == FET76;
+            if (fb) lev *= juce::Decibels::decibelsToGain (-gr);
             const float levDb = 20.0f * std::log10 (lev + 1.0e-9f);
-            const float tgt = gainComputer (p, levDb);
+            float tgt = gainComputer (p, levDb);
+            if (fb)
+            {
+                static const float fr[] = { 4, 8, 12, 20, 20 };
+                const float Rn = p.model == FET76 ? fr[juce::jlimit (0, 4, p.ratio)] : (p.ratio == 0 ? (p.model == OPTO2A ? 3.0f : 3.0f) : (p.model == OPTO2A ? 12.0f : 10.0f));
+                tgt = juce::jmin (40.0f, tgt * Rn);
+            }
             // balistica
             switch (p.model)
             {
@@ -180,6 +195,16 @@ public:
                     slow = tgt > slow ? at * slow + (1 - at) * tgt : rs * slow + (1 - rs) * tgt;
                     gr = 0.5f * (fast + slow);
                     charge += ((gr > 1 ? juce::jmin (1.0f, gr / 10.0f) : 0.0f) - charge) * (gr > 1 ? 1.0f / (4.0f * (float) sr) : 1.0f / (15.0f * (float) sr));
+                    break;
+                }
+                case SSLCH:
+                {   // VCA del canale SSL: attacco AUTO che si accorcia sui transienti (30 ms -> 3 ms) o FAST (1 ms), rilascio 0.1-4 s
+                    if (tgt > gr)
+                    {
+                        const float ms = p.att >= 0.5f ? 1.0f : juce::jlimit (3.0f, 30.0f, 30.0f / (1.0f + (tgt - gr) / 2.5f));
+                        const float c = std::exp (-1.0f / (0.001f * ms * (float) sr)); gr = c * gr + (1 - c) * tgt;
+                    }
+                    else gr = rFixed * gr + (1 - rFixed) * tgt;
                     break;
                 }
                 case RMS160:
@@ -234,7 +259,8 @@ public:
             const float g = juce::Decibels::decibelsToGain (-gr);
             grAvg = avgC * grAvg + (1 - avgC) * gr;
             if (deltaL) { deltaL[i] = L[i] * (1 - g); deltaR[i] = R[i] * (1 - g); }   // cio che lo stadio toglie
-            const float og = juce::Decibels::decibelsToGain (p.outDb);
+            // OUT legato: l'uscita scende quando alzi l'INPUT (circa 3/4 di quello che aggiungi), il volume resta simile
+            const float og = juce::Decibels::decibelsToGain (p.outDb - (p.outLink ? inputGainDb (p) * 0.75f : 0.0f));
             float yl = xl * g, yr = xr * g;
             // auto gain: allinea l'energia d'uscita a quella d'ingresso (media su ~1 s)
             eIn = avgC2 * eIn + (1 - avgC2) * 0.5f * (L[i] * L[i] + R[i] * R[i]);
@@ -301,7 +327,13 @@ private:
     float g6[2] {}, f6[2] {}, s6[2] {}, c6[2] {}, lfLp[2] {}, hfLp[2] {}, bLp[2] {};
     void process670 (float* L, float* R, const float* dL, const float* dR, int N, const StageParams& p, bool autoGain, float* deltaL, float* deltaR)
     {
-        const float inG = juce::Decibels::decibelsToGain (inputGainDb (p)), og = juce::Decibels::decibelsToGain (p.outDb);
+        // due canali veri come l'originale: INPUT, THRESHOLD e TIME CONSTANT per lato. LINK acceso = il destro segue il sinistro
+        // e (in L/R) i due rilevatori sono uniti, cosi' l'immagine stereo non si sposta
+        StageParams pc[2] = { p, p };
+        if (! p.link) { pc[1].drive = p.drive2; pc[1].att = p.att2; pc[1].ratio = p.ratio2; }
+        const float inGc[2] = { juce::Decibels::decibelsToGain (inputGainDb (pc[0])), juce::Decibels::decibelsToGain (inputGainDb (pc[1])) };
+        const float inG = inGc[0];
+        const float og = juce::Decibels::decibelsToGain (p.outDb - (p.outLink ? inputGainDb (p) * 0.75f : 0.0f));
         const bool ms = p.rel > 0.5f;
         static const float ta[] = { 0.2f, 0.2f, 0.4f, 0.4f, 0.4f, 0.2f }, tr[] = { 300, 800, 2000, 5000, -1, -2 };
         const int k = juce::jlimit (0, 5, p.ratio);
@@ -311,21 +343,22 @@ private:
         const float col = p.color;
         for (int i = 0; i < N; ++i)
         {
-            float a = L[i] * inG, b = R[i] * inG, da = dL[i] * inG, db = dR[i] * inG;
+            float a = L[i] * inGc[0], b = R[i] * inGc[1], da = dL[i] * inGc[0], db = dR[i] * inGc[1];
             if (ms) { const float m = 0.7071f * (a + b), s2 = 0.7071f * (a - b); a = m; b = s2; const float dm = 0.7071f * (da + db), dsd = 0.7071f * (da - db); da = dm; db = dsd; }
             float lev[2] = { std::abs (da), std::abs (db) };
-            if (! ms) lev[0] = lev[1] = juce::jmax (lev[0], lev[1]);   // L/R collegati
+            if (! ms && p.link) lev[0] = lev[1] = juce::jmax (lev[0], lev[1]);   // L/R collegati
             for (int c = 0; c < 2; ++c)
             {
-                const float tgt = gainComputer (p, 20.0f * std::log10 (lev[c] + 1.0e-9f));
+                const float tgt = gainComputer (pc[c], 20.0f * std::log10 (lev[c] + 1.0e-9f));
+                const int kc = juce::jlimit (0, 5, pc[c].ratio); const float atc = kc == k ? at : std::exp (-1.0f / (0.001f * ta[kc] * 1.5f * (float) sr));
                 float& G = g6[c];
-                if (tr[k] > 0) { const float rc = std::exp (-1.0f / (0.001f * tr[k] * (float) sr)); G = tgt > G ? at * G + (1 - at) * tgt : rc * G + (1 - rc) * tgt; }
+                if (tr[kc] > 0) { const float rc = std::exp (-1.0f / (0.001f * tr[kc] * (float) sr)); G = tgt > G ? atc * G + (1 - atc) * tgt : rc * G + (1 - rc) * tgt; }
                 else
                 {   // TC5 e TC6: rilascio automatico a due (tre) tempi
-                    const float r1 = tr[k] == -1 ? 2.0f : 0.3f, r2 = tr[k] == -1 ? 10.0f : 25.0f;
+                    const float r1 = tr[kc] == -1 ? 2.0f : 0.3f, r2 = tr[kc] == -1 ? 10.0f : 25.0f;
                     const float rf = std::exp (-1.0f / (r1 * (float) sr)), rs = std::exp (-1.0f / ((r1 + (r2 - r1) * c6[c]) * (float) sr));
-                    f6[c] = tgt > f6[c] ? at * f6[c] + (1 - at) * tgt : rf * f6[c] + (1 - rf) * tgt;
-                    s6[c] = tgt > s6[c] ? at * s6[c] + (1 - at) * tgt : rs * s6[c] + (1 - rs) * tgt;
+                    f6[c] = tgt > f6[c] ? atc * f6[c] + (1 - atc) * tgt : rf * f6[c] + (1 - rf) * tgt;
+                    s6[c] = tgt > s6[c] ? atc * s6[c] + (1 - atc) * tgt : rs * s6[c] + (1 - rs) * tgt;
                     G = 0.5f * (f6[c] + s6[c]);
                     c6[c] += ((G > 1 ? 1.0f : 0.0f) - c6[c]) * (1.0f / (6.0f * (float) sr));
                 }
@@ -449,6 +482,7 @@ private:
             case OPTO2A: z = asym (y, 1.0f + col * 1.6f, 0.25f * col); break;
             case OPTO3A: z = odd (y, 1.0f + col * 1.8f); break;
             case FET76:  z = odd (y, 1.0f + col * (1.2f + gr * 0.06f)); break;
+            case SSLCH:  z = odd (y, 1.0f + col * 0.9f); break;
             case VCABUS: z = asym (y, 1.0f + col * 1.0f, 0.1f * col); break;
             case VARIMU: z = asym (y, 1.0f + col * 2.0f, 0.35f * col); break;
             case RMS160: z = odd (y, 1.0f + col * 1.5f); break;

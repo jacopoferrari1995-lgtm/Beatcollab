@@ -107,7 +107,7 @@ void Rack::paint (juce::Graphics& g)
     for (int s = 0; s < kStages; ++s)
     {
         auto t = tile (s); const bool on = ed.sv (s, "on") > 0.5f, sel = ed.focus == s, solo = on && ed.sv (s, "solo") > 0.5f;
-        const int m = (int) ed.sv (s, "model"); const auto c = C::stage[s];
+        const int m = juce::roundToInt (ed.sv (s, "model")); const auto c = C::stage[s];
         jlook::softShadow (g, t, 12, sel ? 20.0f : 12.0f, sel ? 0.7f : 0.5f, sel ? 8.0f : 4.0f);
         jlook::card (g, t, 12, c, on, sel, false);
         if (sel) { g.setColour (c.withAlpha (0.85f)); g.drawRoundedRectangle (t.reduced (1), 11, 1.6f); }
@@ -142,13 +142,20 @@ StageEditor::StageEditor (Editor& e) : ed (e)
     auto touch = [] {};
     power = std::make_unique<Switch> (ed.P ("a_on"), C::stage[0]);
     ratio = std::make_unique<Segs> (ed.P ("a_ratio"), C::stage[0]);
-    ratio->items = [this] { return info ((int) ed.sv (s, "model")).ratios; };
+    ratio->items = [this] { return info (juce::roundToInt (ed.sv (s, "model"))).ratios; };
     auto mk = [&] (const char* id, const char* lab) { auto k = std::make_unique<Knob> (ed.P (juce::String ("a_") + id), C::stage[0]); k->label = lab; k->onTouch = touch; addAndMakeVisible (*k); return k; };
     drive = mk ("drive", "INPUT"); drive->big = true;
+    drive2 = mk ("drive2", "INPUT R"); att2 = mk ("att2", "THRESHOLD R");
+    drive2->text = [this] { return fmtDrive (VC670, ed.sv (s, "drive2")); };
+    att2->text = [this] { return juce::String (t670Thr (ed.sv (s, "att2")), 1) + " dB"; };
+    ratio2 = std::make_unique<Segs> (ed.P ("a_ratio2"), C::stage[0]); ratio2->items = [] { return info (VC670).ratios; }; addChildComponent (*ratio2);
+    link = std::make_unique<Switch> (ed.P ("a_link"), C::stage[0], "LINK L/R"); addChildComponent (*link);
+    olink = std::make_unique<Switch> (ed.P ("a_olink"), C::stage[0], "OUT LEGATO"); addChildComponent (*olink);
+    link->onTouch = [this] { layoutKnobs(); repaint(); };
     att = mk ("att", "ATTACK"); rel = mk ("rel", "RELEASE"); out = mk ("out", "OUTPUT"); color = mk ("color", "COLOR"); mix = mk ("mix", "MIX");
-    drive->text = [this] { return fmtDrive ((int) ed.sv (s, "model"), ed.sv (s, "drive")); };
-    att->text = [this] { const int m = (int) ed.sv (s, "model"); if (m == VC670) return juce::String (t670Thr (ed.sv (s, "att")), 1) + " dB"; return info (m).attKnob ? fmtTime (attMs (m, ed.sv (s, "att"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "AUTO"); };
-    rel->text = [this] { const int m = (int) ed.sv (s, "model"); if (m == VC670) return juce::String (ed.sv (s, "rel") > 0.5f ? "LAT/VERT" : "L/R"); return info (m).relKnob ? fmtTime (relMs (m, ed.sv (s, "rel"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "120 dB/s"); };
+    drive->text = [this] { return fmtDrive (juce::roundToInt (ed.sv (s, "model")), ed.sv (s, "drive")); };
+    att->text = [this] { const int m = juce::roundToInt (ed.sv (s, "model")); if (m == VC670) return juce::String (t670Thr (ed.sv (s, "att")), 1) + " dB"; return info (m).attKnob ? fmtTime (attMs (m, ed.sv (s, "att"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "AUTO"); };
+    rel->text = [this] { const int m = juce::roundToInt (ed.sv (s, "model")); if (m == VC670) return juce::String (ed.sv (s, "rel") > 0.5f ? "LAT/VERT" : "L/R"); return info (m).relKnob ? fmtTime (relMs (m, ed.sv (s, "rel"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "120 dB/s"); };
     out->text = [this] { const float v = ed.sv (s, "out"); return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; };
     color->text = [this] { return juce::String (juce::roundToInt (ed.sv (s, "color") * 100)) + "%"; };
     mix->text = [this] { return juce::String (juce::roundToInt (ed.sv (s, "mix") * 100)) + "%"; };
@@ -163,7 +170,7 @@ StageEditor::StageEditor (Editor& e) : ed (e)
     addAndMakeVisible (*power); addAndMakeVisible (*ratio);
     bind (0);
 }
-bool StageEditor::isMb() const { return (int) ed.sv (s, "model") == MULTI; }
+bool StageEditor::isMb() const { return juce::roundToInt (ed.sv (s, "model")) == MULTI; }
 void StageEditor::bindBand (int b)
 {
     mbSel = juce::jlimit (0, 3, b); const juce::String p = "mb_b" + juce::String (mbSel + 1) + "_";
@@ -184,6 +191,12 @@ void StageEditor::layoutKnobs()
     const bool mb = isMb();
     for (auto* k : { bThr.get(), bRatio.get(), bAtt.get(), bRel.get(), bGain.get() }) k->setVisible (mb);
     out->setVisible (! mb); att->setVisible (! mb); rel->setVisible (! mb);
+    const int m = juce::roundToInt (ed.sv (s, "model"));
+    const bool is670 = m == VC670, split = is670 && ed.sv (s, "link") < 0.5f;
+    drive2->setVisible (split); att2->setVisible (split); ratio2->setVisible (split); link->setVisible (is670);
+    olink->setVisible (! mb && info (m).fixedThreshold);
+    link->setBounds (64, 56, 112, 20); olink->setBounds (getWidth() - 396, 13, 120, 22);
+    ratio->setBounds (16, split ? 214 : 236, 330, split ? 26 : 30); ratio2->setBounds (16, 266, 330, 26);
     const int x0 = 370;
     if (mb)
     {
@@ -198,6 +211,11 @@ void StageEditor::layoutKnobs()
     drive->setBounds (x0 + (cw - 104) / 2, 44, 104, 104 + 30);
     att->setBounds (x0 + cw + (cw - 84) / 2, 52, 84, 84 + 27); rel->setBounds (x0 + cw * 2 + (cw - 84) / 2, 52, 84, 84 + 27);
     out->setBounds (x0 + (cw - 76) / 2, 186, 76, 76 + 27); color->setBounds (x0 + cw + (cw - 76) / 2, 186, 76, 76 + 27); mix->setBounds (x0 + cw * 2 + (cw - 76) / 2, 186, 76, 76 + 27);
+    color->setVisible (! split); mix->setVisible (! split);
+    if (split)
+    {   // 670 a canali separati: in alto il sinistro (o LAT), in basso il destro (o VERT), l'uscita in fondo a destra
+        drive2->setBounds (x0 + (cw - 76) / 2, 186, 76, 76 + 27); att2->setBounds (x0 + cw + (cw - 76) / 2, 186, 76, 76 + 27); out->setBounds (x0 + cw * 2 + (cw - 76) / 2, 186, 76, 76 + 27);
+    }
 }
 void StageEditor::mouseDrag (const juce::MouseEvent& e)
 {
@@ -212,14 +230,18 @@ void StageEditor::bind (int st)
     power->param = ed.P (pfx + "on"); power->col = c; ratio->param = ed.P (pfx + "ratio"); ratio->col = c;
     for (auto* k : { drive.get(), att.get(), rel.get(), out.get(), color.get(), mix.get() }) k->col = c;
     drive->param = ed.P (pfx + "drive"); att->param = ed.P (pfx + "att"); rel->param = ed.P (pfx + "rel");
+    drive2->param = ed.P (pfx + "drive2"); att2->param = ed.P (pfx + "att2"); ratio2->param = ed.P (pfx + "ratio2"); link->param = ed.P (pfx + "link"); olink->param = ed.P (pfx + "olink");
+    for (auto* k : { drive2.get(), att2.get() }) k->col = c; ratio2->col = c; link->col = c; olink->col = c;
     out->param = ed.P (pfx + "out"); color->param = ed.P (pfx + "color"); mix->param = ed.P (pfx + "mix");
-    const int m = (int) ed.sv (s, "model"); const auto& I = info (m);
+    const int m = juce::roundToInt (ed.sv (s, "model")); const auto& I = info (m);
     drive->label = I.driveLabel; att->enabled = I.attKnob; rel->enabled = I.relKnob;
     att->stepped = rel->stepped = m == VCABUS || m == VC670; att->steps = 6; rel->steps = 5;
     if (m == VC670) { att->stepped = false; rel->steps = 2; }
-    att->label = m == VC670 ? "THRESHOLD" : "ATTACK"; rel->label = m == VC670 ? "STEREO" : "RELEASE";
+    att->label = m == VC670 ? (ed.sv (s, "link") < 0.5f ? (ed.sv (s, "rel") > 0.5f ? "THRESH LAT" : "THRESHOLD L") : "THRESHOLD") : m == SSLCH ? "FAST ATTACK" : "ATTACK"; rel->label = m == VC670 ? "STEREO" : "RELEASE";
+    if (m == VC670 && ed.sv (s, "link") < 0.5f) { drive->label = ed.sv (s, "rel") > 0.5f ? "INPUT LAT" : "INPUT L"; drive2->label = ed.sv (s, "rel") > 0.5f ? "INPUT VERT" : "INPUT R"; att2->label = ed.sv (s, "rel") > 0.5f ? "THRESH VERT" : "THRESHOLD R"; }
+    if (m == SSLCH) { att->stepped = true; att->steps = 2; }
     for (auto* k : { bThr.get(), bRatio.get(), bAtt.get(), bRel.get(), bGain.get() }) k->col = c;
-    drive->label = m == MULTI ? "SOGLIE +/-" : I.driveLabel;
+    if (! (m == VC670 && ed.sv (s, "link") < 0.5f)) drive->label = m == MULTI ? "SOGLIE +/-" : I.driveLabel;
     if (m == MULTI) { color->label = "WARM"; bindBand (mbSel); }
     layoutKnobs();
     color->label = m == MULTI ? "WARM" : m == DISTRESS ? (ed.sv (s, "color") < 0.5f ? "DIST 2" : "DIST 3") : m == FET76 ? "GRINTA" : (m <= OPTO3A || m == VARIMU) ? "VALVOLA" : "COLOR";
@@ -271,12 +293,12 @@ void StageEditor::mouseDown (const juce::MouseEvent& e)
 }
 void StageEditor::paint (juce::Graphics& g)
 {
-    const int m = (int) ed.sv (s, "model"); if (m != lastModel) bind (s);
+    const int m = juce::roundToInt (ed.sv (s, "model")); if (m != lastModel) bind (s);
     const auto& I = info (m); const bool on = ed.sv (s, "on") > 0.5f; const auto c = C::stage[s];
     auto b = getLocalBounds().toFloat().reduced (1);
     jlook::card (g, b, 14, neo::acc (juce::Colour (I.accent)), on, false, false);
     glowText (g, "STADIO " + juce::String (s + 1), { 62, 10, 110, 28 }, on ? C::text : C::dim, uf (14.0f));
-    g.setColour (C::dim); g.setFont (uf (11.0f, false)); g.drawText (I.inspired, juce::Rectangle<float> (170, 10, b.getWidth() - 470, 28), juce::Justification::centredLeft);
+    g.setColour (C::dim); g.setFont (uf (11.0f, false)); g.drawFittedText (I.inspired, juce::Rectangle<int> (170, 10, olink->isVisible() ? 216 : (int) b.getWidth() - 470, 28), juce::Justification::centredLeft, 2, 0.8f);
     jlook::button (g, modelRect().toFloat(), neo::acc (juce::Colour (I.accent)), true, false, juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), uf (13.0f));
     jlook::button (g, soloRect().toFloat(), C::amber, ed.sv (s, "solo") > 0.5f, false, "SOLO", uf (11.5f));
     if (m == MULTI)
@@ -429,7 +451,7 @@ void GuidePanel::paint (juce::Graphics& g)
     auto body = [&as] (const juce::String& s) { as.append (s + "\n", jlook::ui (12.0f, 0), C::text.withAlpha (0.9f)); };
     if (tab == 0)
     {
-        const int m = (int) ed.sv (ed.focus, "model"); const auto& G = guide (m);
+        const int m = juce::roundToInt (ed.sv (ed.focus, "model")); const auto& G = guide (m);
         head (juce::String (info (m).name) + "  -  " + info (m).inspired, neo::acc (juce::Colour (info (m).accent))); body (G.carattere);
         head ("PER COSA", C::dim); body (G.usi);
         head ("COME PARTIRE", C::dim); body (G.partenza);
