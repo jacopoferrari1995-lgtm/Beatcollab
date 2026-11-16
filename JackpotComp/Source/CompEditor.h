@@ -2,6 +2,7 @@
 #include "CompProcessor.h"
 #include "JackpotScale.h"
 #include "Skin.h"
+#include "PresetBrowser.h"
 
 namespace jc
 {
@@ -174,6 +175,8 @@ public:
     void timerCallback() override;
     Graph graph { *this };
     GuidePanel guide { *this };
+    jbrowse::Browser browser;
+    void setupBrowser();
 private:
     std::unique_ptr<Segs> route, scSrc, scTo;
     std::unique_ptr<Knob> scHpf, gMix, gOut;

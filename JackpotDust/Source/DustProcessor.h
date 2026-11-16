@@ -2,11 +2,15 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "JackpotLook.h"
 #include "DustDSP.h"
+#include <map>
 
 namespace jds
 {
 struct Preset { const char* name; const char* note; std::vector<std::pair<const char*, float>> v; };
 const std::vector<Preset>& presets();
+constexpr int kGenresN = 8, kTargetsN = 5;
+const char* genreName (int g); const char* targetName (int t); const char* genreIdea (int g);
+int recipeIndex (int g, int t);
 
 struct Ring
 {
@@ -31,7 +35,7 @@ public:
     bool producesMidi() const override { return false; }
     double getTailLengthSeconds() const override { return 0.2; }
     int getNumPrograms() override { return (int) presets().size(); }
-    int getCurrentProgram() override { return preset; }
+    int getCurrentProgram() override { return juce::jmax (0, preset); }
     void setCurrentProgram (int i) override { loadPreset (i); }
     const juce::String getProgramName (int i) override { return juce::isPositiveAndBelow (i, (int) presets().size()) ? presets()[(size_t) i].name : ""; }
     void changeProgramName (int, const juce::String&) override {}
@@ -39,6 +43,12 @@ public:
     void setStateInformation (const void*, int) override;
 
     void loadPreset (int i);
+    int genre = -1, target = 0;          // ricetta scelta con i pulsanti GENERE / PARTE
+    juce::String userName;
+    juce::String currentName() { return userName.isNotEmpty() ? userName : getProgramName (preset); }
+    static juce::File presetFolder();
+    bool saveUserPreset (const juce::String&);
+    bool loadUserPreset (const juce::File&);
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     Settings settings() const;
     double sampleRate() const { return sr; }
@@ -51,6 +61,10 @@ public:
     std::atomic<float> inPk[2] {}, outPk[2] {};
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
+    std::map<juce::String, std::atomic<float>*> raw;
+    std::atomic<float> *pIn, *pSOn, *pSModel, *pSBits, *pSRate, *pSMix, *pDOn, *pDModel, *pDDrive, *pDTone, *pDMix, *pCOn, *pCStyle, *pCAmt, *pCAtt, *pCRel, *pCPunch, *pCMix,
+        *pFOn, *pFHp, *pFLp, *pFRes, *pF24, *pFBoom, *pFCrack, *pFWarm, *pFAir, *pTOn, *pTAge, *pTWow, *pTFlut, *pTDrop, *pNOn, *pNVinyl, *pNPops, *pNHiss, *pNHum, *pNFollow,
+        *pROn, *pRSize, *pRDecay, *pRTone, *pRMix, *pRGate, *pAmount, *pMix, *pOut, *pMono, *pAuto;
     double sr = 44100; int maxBlock = 512;
     std::vector<float> mono;
 };

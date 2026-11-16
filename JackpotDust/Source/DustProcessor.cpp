@@ -24,13 +24,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     B ("f_24", "Pendenza 24", false); F ("f_boom", "Boom", { -12, 12 }, 0); F ("f_crack", "Crack", { -12, 12 }, 0); F ("f_warm", "Caldo", { 0, 1 }, 0); F ("f_air", "Aria", { 0, 1 }, 0);
     B ("t_on", "Nastro on", false); F ("t_age", "Eta nastro", { 0, 1 }, 0.4f); F ("t_wow", "Wow", { 0, 1 }, 0.2f); F ("t_flut", "Flutter", { 0, 1 }, 0.2f); F ("t_drop", "Dropout", { 0, 1 }, 0);
     B ("n_on", "Polvere on", false); F ("n_vinyl", "Vinile", { 0, 1 }, 0.4f); F ("n_pops", "Pop", { 0, 1 }, 0.3f); F ("n_hiss", "Hiss", { 0, 1 }, 0.2f); F ("n_hum", "Ronzio", { 0, 1 }, 0); B ("n_follow", "Segue la batteria", true);
-    F ("amount", "Intensita", { 0, 1.5f }, 1); F ("mix", "Mix", { 0, 1 }, 1); F ("out", "Output", { -12, 12 }, 0); B ("mono", "Mono", false); B ("auto", "Volume automatico", false);
+    B ("r_on", "Room on", false); F ("r_size", "Room grandezza", { 0, 1 }, 0.4f); F ("r_decay", "Room coda", { 0, 1 }, 0.4f); F ("r_tone", "Room tono", { 0, 1 }, 0.5f); F ("r_mix", "Room mix", { 0, 1 }, 0.2f); B ("r_gate", "Room gate", false);
+    F ("amount", "Carattere", { 0, 1.5f }, 1); F ("mix", "Mix", { 0, 1 }, 1); F ("out", "Output", { -12, 12 }, 0); B ("mono", "Mono", false); B ("auto", "Volume automatico", false);
     return l;
 }
 
 Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "PARAMS", layout()) {}
+      apvts (*this, nullptr, "PARAMS", layout())
+{
+    // puntatori presi una volta: nel thread audio niente ricerche per nome (allocavano memoria a ogni blocco)
+    for (auto* pr : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (pr)) raw[rp->paramID] = apvts.getRawParameterValue (rp->paramID);
+    auto R = [this] (const char* id) { return raw.at (id); };
+    pIn = R ("in"); pSOn = R ("s_on"); pSModel = R ("s_model"); pSBits = R ("s_bits"); pSRate = R ("s_rate"); pSMix = R ("s_mix");
+    pDOn = R ("d_on"); pDModel = R ("d_model"); pDDrive = R ("d_drive"); pDTone = R ("d_tone"); pDMix = R ("d_mix");
+    pCOn = R ("c_on"); pCStyle = R ("c_style"); pCAmt = R ("c_amt"); pCAtt = R ("c_att"); pCRel = R ("c_rel"); pCPunch = R ("c_punch"); pCMix = R ("c_mix");
+    pFOn = R ("f_on"); pFHp = R ("f_hp"); pFLp = R ("f_lp"); pFRes = R ("f_res"); pF24 = R ("f_24"); pFBoom = R ("f_boom"); pFCrack = R ("f_crack"); pFWarm = R ("f_warm"); pFAir = R ("f_air");
+    pTOn = R ("t_on"); pTAge = R ("t_age"); pTWow = R ("t_wow"); pTFlut = R ("t_flut"); pTDrop = R ("t_drop");
+    pNOn = R ("n_on"); pNVinyl = R ("n_vinyl"); pNPops = R ("n_pops"); pNHiss = R ("n_hiss"); pNHum = R ("n_hum"); pNFollow = R ("n_follow");
+    pROn = R ("r_on"); pRSize = R ("r_size"); pRDecay = R ("r_decay"); pRTone = R ("r_tone"); pRMix = R ("r_mix"); pRGate = R ("r_gate");
+    pAmount = R ("amount"); pMix = R ("mix"); pOut = R ("out"); pMono = R ("mono"); pAuto = R ("auto");
+}
 
 bool Processor::isBusesLayoutSupported (const BusesLayout& l) const
 {
@@ -44,15 +58,16 @@ void Processor::prepareToPlay (double s, int block)
 }
 Settings Processor::settings() const
 {
-    Settings S; auto b = [this] (const char* id) { return value (id) > 0.5f; };
-    S.inDb = value ("in");
-    S.sOn = b ("s_on"); S.sModel = juce::roundToInt (value ("s_model")); S.sBits = value ("s_bits"); S.sRate = value ("s_rate"); S.sMix = value ("s_mix");
-    S.dOn = b ("d_on"); S.dModel = juce::roundToInt (value ("d_model")); S.dDrive = value ("d_drive"); S.dTone = value ("d_tone"); S.dMix = value ("d_mix");
-    S.cOn = b ("c_on"); S.cStyle = juce::roundToInt (value ("c_style")); S.cAmt = value ("c_amt"); S.cAtt = value ("c_att"); S.cRel = value ("c_rel"); S.cPunch = value ("c_punch"); S.cMix = value ("c_mix");
-    S.fOn = b ("f_on"); S.fHp = value ("f_hp"); S.fLp = value ("f_lp"); S.fRes = value ("f_res"); S.f24 = b ("f_24"); S.fBoom = value ("f_boom"); S.fCrack = value ("f_crack"); S.fWarm = value ("f_warm"); S.fAir = value ("f_air");
-    S.tOn = b ("t_on"); S.tAge = value ("t_age"); S.tWow = value ("t_wow"); S.tFlut = value ("t_flut"); S.tDrop = value ("t_drop");
-    S.nOn = b ("n_on"); S.nVinyl = value ("n_vinyl"); S.nPops = value ("n_pops"); S.nHiss = value ("n_hiss"); S.nHum = value ("n_hum"); S.nFollow = b ("n_follow");
-    S.amount = value ("amount"); S.mix = value ("mix"); S.outDb = value ("out"); S.mono = b ("mono"); S.autoGain = b ("auto");
+    Settings S; auto b = [] (std::atomic<float>* p) { return p->load() > 0.5f; }; auto v = [] (std::atomic<float>* p) { return p->load(); };
+    S.inDb = v (pIn);
+    S.sOn = b (pSOn); S.sModel = juce::roundToInt (v (pSModel)); S.sBits = v (pSBits); S.sRate = v (pSRate); S.sMix = v (pSMix);
+    S.dOn = b (pDOn); S.dModel = juce::roundToInt (v (pDModel)); S.dDrive = v (pDDrive); S.dTone = v (pDTone); S.dMix = v (pDMix);
+    S.cOn = b (pCOn); S.cStyle = juce::roundToInt (v (pCStyle)); S.cAmt = v (pCAmt); S.cAtt = v (pCAtt); S.cRel = v (pCRel); S.cPunch = v (pCPunch); S.cMix = v (pCMix);
+    S.fOn = b (pFOn); S.fHp = v (pFHp); S.fLp = v (pFLp); S.fRes = v (pFRes); S.f24 = b (pF24); S.fBoom = v (pFBoom); S.fCrack = v (pFCrack); S.fWarm = v (pFWarm); S.fAir = v (pFAir);
+    S.tOn = b (pTOn); S.tAge = v (pTAge); S.tWow = v (pTWow); S.tFlut = v (pTFlut); S.tDrop = v (pTDrop);
+    S.nOn = b (pNOn); S.nVinyl = v (pNVinyl); S.nPops = v (pNPops); S.nHiss = v (pNHiss); S.nHum = v (pNHum); S.nFollow = b (pNFollow);
+    S.rOn = b (pROn); S.rSize = v (pRSize); S.rDecay = v (pRDecay); S.rTone = v (pRTone); S.rMix = v (pRMix); S.rGate = b (pRGate);
+    S.amount = v (pAmount); S.mix = v (pMix); S.outDb = v (pOut); S.mono = b (pMono); S.autoGain = b (pAuto);
     return S;
 }
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -69,97 +84,195 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     pk[0] = pk[1] = 0;
     for (int i = 0; i < n; ++i) { pk[0] = juce::jmax (pk[0], std::abs (L[i])); pk[1] = juce::jmax (pk[1], std::abs (R[i])); }
     outPk[0] = juce::jmax (pk[0], outPk[0].load() * 0.9f); outPk[1] = juce::jmax (pk[1], outPk[1].load() * 0.9f);
-    if ((int) mono.size() < n) mono.resize ((size_t) n);
-    for (int i = 0; i < n; ++i) mono[(size_t) i] = 0.5f * (L[i] + R[i]);
-    ringOut.push (mono.data(), n);
+    for (int off = 0; off < n; off += (int) mono.size())
+    {   // a pezzi: niente memoria allocata qui dentro
+        const int m = juce::jmin ((int) mono.size(), n - off);
+        for (int i = 0; i < m; ++i) mono[(size_t) i] = 0.5f * (L[off + i] + R[off + i]);
+        ringOut.push (mono.data(), m);
+    }
 }
 void Processor::loadPreset (int i)
 {
     if (! juce::isPositiveAndBelow (i, (int) presets().size())) return;
-    preset = i;
+    preset = i; userName = {};
+    if (i >= 1 && i < 1 + kGenresN * kTargetsN) { genre = (i - 1) / kTargetsN; target = (i - 1) % kTargetsN; } else genre = -1;
     for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) if (rp->paramID != "out" && rp->paramID != "in") rp->setValueNotifyingHost (rp->getDefaultValue());
     for (auto& [id, v] : presets()[(size_t) i].v) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
 }
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
-    auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr);
+    auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr); s.setProperty ("genre", genre, nullptr); s.setProperty ("target", target, nullptr); s.setProperty ("uname", userName, nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
-    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); apvts.replaceState (t); } }
+    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); genre = t.getProperty ("genre", -1); target = t.getProperty ("target", 0); userName = t.getProperty ("uname", "").toString(); apvts.replaceState (t); } }
+}
+juce::File Processor::presetFolder()
+{
+    auto f = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Dust Preset");
+    f.createDirectory(); return f;
+}
+bool Processor::saveUserPreset (const juce::String& name)
+{
+    auto s = apvts.copyState(); auto x = s.createXml(); if (! x) return false;
+    const auto f = presetFolder().getChildFile (juce::File::createLegalFileName (name) + ".jdust");
+    if (! x->writeTo (f)) return false;
+    userName = f.getFileNameWithoutExtension(); preset = -1; genre = -1; return true;
+}
+bool Processor::loadUserPreset (const juce::File& f)
+{
+    auto x = juce::XmlDocument::parse (f); if (! x) return false;
+    auto t = juce::ValueTree::fromXml (*x); if (! t.isValid() || ! t.hasType (apvts.state.getType())) return false;
+    apvts.replaceState (t); userName = f.getFileNameWithoutExtension(); preset = -1; genre = -1; return true;
 }
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
 
-// ======================================================================= preset
-// abbreviazioni per scrivere i preset in poco spazio
+// ---------------------------------------------------------------- ricette per genere e per parte del kit
+// Ogni ricetta e' una catena completa pensata per quel suono; CARATTERE (amount) la dosa tutta insieme.
+static const char* kGenres[kGenresN] = { "BOOM BAP", "LO-FI", "DUSTY SOUL", "TRAP", "DRILL", "PHONK", "JAZZ HOP", "TRIP HOP" };
+static const char* kTargets[kTargetsN] = { "BUS", "CASSA", "RULLANTE", "HAT", "BREAK" };
+const char* genreName (int g) { return kGenres[juce::jlimit (0, kGenresN - 1, g)]; }
+const char* targetName (int t) { return kTargets[juce::jlimit (0, kTargetsN - 1, t)]; }
+const char* genreIdea (int g)
+{
+    static const char* d[kGenresN] = {
+        "Anni 90 New York: SP-12 a 12 bit, nastro, 670 che ingrossa, crack sul rullante e un velo di vinile. Batteria che bussa.",
+        "Morbida e lontana: alti chiusi, nastro che ondeggia, polvere costante, compressione lenta. Niente transienti duri.",
+        "Il break anni 70 campionato dal disco: S950, valvola, stanza vera, 670 e tanto vinile. Grosso e caldo.",
+        "Moderna e pulita: niente rumori, clipper per il volume, OTT per hat lucidi, aria sopra e sub pieno sotto.",
+        "Scura ma definita: clipper, FET con punch, crack e boom tenuti, niente sporco. Kick e snare che tagliano.",
+        "Cassetta Memphis: crush, spinta forte, FET schiacciato, nastro rovinato e fruscio.",
+        "Kit acustico morbido: nastro, bus lento, stanza piccola e calore. Spazzole e rullante jazz.",
+        "Lenta e enorme: pompa, scura, valvola, stanza grande e mono. Il suono di Bristol." };
+    return d[juce::jlimit (0, kGenresN - 1, g)];
+}
+namespace
+{
+struct Rc
+{
+    int sM = -1; float sB = 12, sR = 26040, sMix = 1;                     // sampler (-1 spento)
+    int dM = -1; float dD = 6, dT = 0, dMix = 1;                          // saturazione
+    bool f = false; float hp = 20, lp = 20000, boom = 0, crack = 0, res = 0, warm = 0, air = 0;
+    int cS = -1; float cA = 0.4f, cAt = 10, cR = 120, cP = 0, cMix = 1;   // compressore
+    bool t = false; float age = 0.3f, wow = 0.1f, flut = 0.1f, drop = 0;
+    bool r = false; float rSize = 0.4f, rDec = 0.4f, rTone = 0.5f, rMix = 0.15f; bool rGate = false;
+    bool n = false; float vin = 0.3f, pops = 0.15f, hiss = 0.1f, hum = 0;
+    bool mono = false;
+};
+Rc baseRecipe (int g)
+{
+    Rc R;
+    switch (g)
+    {
+        case 0: R.sM = S_SP12; R.sB = 12; R.sR = 26040; R.sMix = 0.7f; R.dM = D_TAPE; R.dD = 6; R.f = true; R.hp = 30; R.lp = 14000; R.boom = 2; R.crack = 1.5f; R.warm = 0.3f;
+                R.cS = C_670; R.cA = 0.45f; R.cAt = 8; R.cR = 150; R.cP = 0.3f; R.t = true; R.age = 0.25f; R.wow = 0.08f; R.flut = 0.12f; R.n = true; R.vin = 0.2f; R.pops = 0.1f; R.hiss = 0.08f; break;
+        case 1: R.sM = S_CLEAN; R.sB = 12; R.sR = 22050; R.sMix = 0.5f; R.dM = D_TAPE; R.dD = 5; R.dT = -0.3f; R.f = true; R.hp = 60; R.lp = 6500; R.warm = 0.4f;
+                R.cS = C_BUS; R.cA = 0.35f; R.cAt = 20; R.cR = 250; R.t = true; R.age = 0.7f; R.wow = 0.45f; R.flut = 0.35f; R.drop = 0.05f; R.r = true; R.rSize = 0.3f; R.rDec = 0.3f; R.rTone = 0.3f; R.rMix = 0.12f;
+                R.n = true; R.vin = 0.5f; R.pops = 0.2f; R.hiss = 0.3f; break;
+        case 2: R.sM = S_S950; R.sB = 12; R.sR = 32000; R.dM = D_TUBE; R.dD = 7; R.f = true; R.hp = 40; R.lp = 11000; R.warm = 0.5f; R.crack = 1;
+                R.cS = C_670; R.cA = 0.5f; R.cAt = 10; R.cR = 200; R.cP = 0.15f; R.t = true; R.age = 0.4f; R.wow = 0.15f; R.flut = 0.15f;
+                R.r = true; R.rSize = 0.45f; R.rDec = 0.45f; R.rTone = 0.45f; R.rMix = 0.18f; R.n = true; R.vin = 0.45f; R.pops = 0.25f; R.hiss = 0.1f; break;
+        case 3: R.dM = D_CLIP; R.dD = 4; R.f = true; R.hp = 25; R.boom = 1.5f; R.air = 0.4f; R.cS = C_OTT; R.cA = 0.3f; R.cAt = 10; R.cR = 150; R.cMix = 0.45f; break;
+        case 4: R.dM = D_CLIP; R.dD = 5; R.f = true; R.hp = 25; R.boom = 1.5f; R.crack = 1.5f; R.air = 0.25f; R.cS = C_FET; R.cA = 0.4f; R.cAt = 6; R.cR = 80; R.cP = 0.4f; break;
+        case 5: R.sM = S_CRUSH; R.sB = 10; R.sR = 18000; R.sMix = 0.6f; R.dM = D_PUSH; R.dD = 10; R.f = true; R.hp = 30; R.lp = 9000; R.boom = 3;
+                R.cS = C_FET; R.cA = 0.65f; R.cAt = 3; R.cR = 90; R.cP = 0.2f; R.t = true; R.age = 0.6f; R.wow = 0.3f; R.flut = 0.25f; R.drop = 0.12f; R.n = true; R.vin = 0.1f; R.pops = 0.05f; R.hiss = 0.5f; break;
+        case 6: R.dM = D_TAPE; R.dD = 4; R.f = true; R.hp = 50; R.lp = 10000; R.warm = 0.5f; R.cS = C_BUS; R.cA = 0.3f; R.cAt = 20; R.cR = 250;
+                R.t = true; R.age = 0.4f; R.wow = 0.25f; R.flut = 0.2f; R.r = true; R.rSize = 0.5f; R.rDec = 0.5f; R.rTone = 0.4f; R.rMix = 0.15f; R.n = true; R.vin = 0.5f; R.pops = 0.2f; R.hiss = 0.15f; break;
+        default: R.sM = S_S950; R.sB = 12; R.sR = 24000; R.dM = D_TUBE; R.dD = 10; R.dT = -0.5f; R.f = true; R.hp = 35; R.lp = 7000; R.boom = 4; R.res = 0.15f;
+                R.cS = C_PUMP; R.cA = 0.6f; R.cAt = 25; R.cR = 300; R.t = true; R.age = 0.6f; R.wow = 0.15f; R.flut = 0.15f; R.r = true; R.rSize = 0.8f; R.rDec = 0.7f; R.rTone = 0.35f; R.rMix = 0.2f;
+                R.n = true; R.vin = 0.4f; R.pops = 0.2f; R.hiss = 0.25f; R.mono = true; break;
+    }
+    return R;
+}
+Rc recipe (int g, int t)
+{
+    Rc R = baseRecipe (g);
+    const bool modern = g == 3 || g == 4;
+    switch (t)
+    {
+        case 1:   // cassa: niente polvere ne' stanza, piu' peso e punch, alti un po' piu' chiusi
+            R.n = false; if (g != 7) R.r = false; R.f = true; R.boom += 2; R.hp = 25; R.lp = std::min (R.lp * 0.75f, 12000.0f); R.cP += 0.2f; R.sMix *= 0.8f;
+            if (modern) { R.dD += 2; R.boom += 1; R.cS = C_FET; R.cA = 0.35f; R.cAt = 12; R.cR = 90; R.cMix = 1; R.air = 0; }
+            break;
+        case 2:   // rullante: niente sub, crack, un po' di stanza (gate sulle moderne)
+            R.f = true; R.hp = modern ? 110 : 140; R.crack += 2; R.boom = 0; R.n = R.n && g != 5; R.vin *= 0.6f;
+            R.r = true; R.rSize = modern ? 0.35f : std::max (R.rSize, 0.35f); R.rDec = modern ? 0.35f : std::max (R.rDec, 0.4f); R.rMix = std::max (R.rMix * 1.4f, 0.15f); R.rGate = modern;
+            R.cAt = std::max (1.0f, R.cAt * 0.6f);
+            if (modern) { R.cS = C_FET; R.cA = 0.4f; R.cP = 0.35f; R.cMix = 1; }
+            break;
+        case 3:   // hat: solo la cima, niente boom, compressione leggera (OTT sulle moderne)
+            R.f = true; R.hp = modern ? 300 : 350; R.boom = 0; R.crack = 0; R.lp = std::min (20000.0f, R.lp * 1.25f); R.r = false; R.n = R.n && g != 5; R.vin *= 0.5f;
+            R.age *= 0.6f; R.wow *= 0.6f;
+            if (modern) { R.cS = C_OTT; R.cA = 0.35f; R.cMix = 0.5f; R.air += 0.2f; R.dD = 2; }
+            else { R.cS = C_BUS; R.cA = 0.25f; R.cAt = 5; R.cR = 120; }
+            break;
+        case 4:   // break: il loop intero, piu' macchina, piu' disco
+            if (R.sM >= 0) R.sMix = 1;
+            if (! modern) { R.t = true; R.age += 0.1f; R.vin = std::min (1.0f, R.vin * 1.3f + 0.05f); R.pops = std::min (1.0f, R.pops * 1.3f); R.n = true; }
+            else { R.cS = C_FET; R.cA = 0.45f; R.cP = 0.35f; R.cMix = 1; }
+            break;
+        default: break;   // bus
+    }
+    return R;
+}
 using PV = std::vector<std::pair<const char*, float>>;
-static PV sam (int m, float bits, float rate, float mix = 1) { return { { "s_on", 1 }, { "s_model", (float) m }, { "s_bits", bits }, { "s_rate", rate }, { "s_mix", mix } }; }
-static PV sat (int m, float drive, float tone = 0, float mix = 1) { return { { "d_on", 1 }, { "d_model", (float) m }, { "d_drive", drive }, { "d_tone", tone }, { "d_mix", mix } }; }
-static PV cmp (int st, float amt, float att, float rel, float punch = 0, float mix = 1) { return { { "c_on", 1 }, { "c_style", (float) st }, { "c_amt", amt }, { "c_att", att }, { "c_rel", rel }, { "c_punch", punch }, { "c_mix", mix } }; }
-static PV flt (float hp, float lp, float boom = 0, float crack = 0, float res = 0, bool s24 = false) { return { { "f_on", 1 }, { "f_hp", hp }, { "f_lp", lp }, { "f_boom", boom }, { "f_crack", crack }, { "f_res", res }, { "f_24", s24 ? 1.0f : 0.0f } }; }
-static PV tap (float age, float wow, float flut, float drop = 0) { return { { "t_on", 1 }, { "t_age", age }, { "t_wow", wow }, { "t_flut", flut }, { "t_drop", drop } }; }
-static PV dst (float vin, float pops, float hiss, float hum = 0, bool follow = true) { return { { "n_on", 1 }, { "n_vinyl", vin }, { "n_pops", pops }, { "n_hiss", hiss }, { "n_hum", hum }, { "n_follow", follow ? 1.0f : 0.0f } }; }
-static PV cat (std::initializer_list<PV> parts) { PV r; for (auto& p : parts) r.insert (r.end(), p.begin(), p.end()); return r; }
+PV toPV (const Rc& R)
+{
+    PV v;
+    if (R.sM >= 0) v.insert (v.end(), { { "s_on", 1 }, { "s_model", (float) R.sM }, { "s_bits", R.sB }, { "s_rate", R.sR }, { "s_mix", R.sMix } });
+    if (R.dM >= 0) v.insert (v.end(), { { "d_on", 1 }, { "d_model", (float) R.dM }, { "d_drive", R.dD }, { "d_tone", R.dT }, { "d_mix", R.dMix } });
+    if (R.f) v.insert (v.end(), { { "f_on", 1 }, { "f_hp", R.hp }, { "f_lp", R.lp }, { "f_boom", R.boom }, { "f_crack", R.crack }, { "f_res", R.res }, { "f_warm", R.warm }, { "f_air", R.air } });
+    if (R.cS >= 0) v.insert (v.end(), { { "c_on", 1 }, { "c_style", (float) R.cS }, { "c_amt", R.cA }, { "c_att", R.cAt }, { "c_rel", R.cR }, { "c_punch", juce::jlimit (-1.0f, 1.0f, R.cP) }, { "c_mix", R.cMix } });
+    if (R.t) v.insert (v.end(), { { "t_on", 1 }, { "t_age", R.age }, { "t_wow", R.wow }, { "t_flut", R.flut }, { "t_drop", R.drop } });
+    if (R.r) v.insert (v.end(), { { "r_on", 1 }, { "r_size", R.rSize }, { "r_decay", R.rDec }, { "r_tone", R.rTone }, { "r_mix", R.rMix }, { "r_gate", R.rGate ? 1.0f : 0.0f } });
+    if (R.n) v.insert (v.end(), { { "n_on", 1 }, { "n_vinyl", R.vin }, { "n_pops", R.pops }, { "n_hiss", R.hiss }, { "n_hum", R.hum }, { "n_follow", 1 } });
+    if (R.mono) v.push_back ({ "mono", 1 });
+    return v;
+}
+juce::String targetNote (int g, int t)
+{
+    const bool modern = g == 3 || g == 4;
+    switch (t)
+    {
+        case 1: return modern ? "Cassa: clipper piu' spinto e FET con punch, boom a 70 Hz. Senza rumori." : "Cassa: niente polvere ne' stanza, piu' boom e punch, alti un filo chiusi per farla bussare.";
+        case 2: return modern ? "Rullante: via il sub, crack a 2.6 kHz, stanza corta col gate stile anni 80." : "Rullante: via il sub, crack, un po' di stanza che lo fa sembrare suonato in una sala vera.";
+        case 3: return modern ? "Hat: solo la cima, OTT a meta' MIX e aria: lucidi senza essere duri." : "Hat: solo la cima, compressione leggera, meno polvere: presenti ma morbidi.";
+        case 4: return modern ? "Break: tutto il loop con FET e punch, pulito." : "Break: il loop intero con la macchina al 100%, piu' nastro e piu' disco. Pronto da choppare.";
+        default: return "Bus della batteria: la catena intera sul gruppo.";
+    }
+}
+}
+int recipeIndex (int g, int t) { return 1 + juce::jlimit (0, kGenresN - 1, g) * kTargetsN + juce::jlimit (0, kTargetsN - 1, t); }
 
 const std::vector<Preset>& presets()
 {
-    static const std::vector<Preset> p = {
-        { "Init", "Tutto spento: accendi i moduli che ti servono.", {} },
-        // generi, sul bus della batteria
-        { "Boom Bap | Bus classico", "SP-12 parallelo, nastro leggero e un velo di vinile: la batteria 90 pronta.", cat ({ sam (S_SP12, 12, 26040, 0.8f), sat (D_TAPE, 6), cmp (C_FET, 0.45f, 8, 120, 0.3f), flt (30, 14000, 2, 1.5f), tap (0.3f, 0.1f, 0.15f), dst (0.25f, 0.15f, 0.1f) }) },
-        { "Boom Bap | Polveroso anni 90", "S950 scuro, valvola e vinile in evidenza.", cat ({ sam (S_S950, 12, 32000), sat (D_TUBE, 8), cmp (C_BUS, 0.5f, 12, 180), flt (40, 9000, 3), tap (0.5f, 0.2f, 0.2f), dst (0.45f, 0.3f, 0.2f, 0.1f) }) },
-        { "Boom Bap | Batteria da vinile", "Come campionata da un disco: MPC 60, console, mono.", cat ({ sam (S_MPC60, 12, 40000), sat (D_CONSOLE, 7), cmp (C_FET, 0.55f, 6, 110, 0.4f), flt (45, 12000, 0, 2), dst (0.6f, 0.4f, 0.15f), PV { { "mono", 1 } } }) },
-        { "Boom Bap | Knock pesante", "Cassa e rullante che bussano: spinta, FET veloce, boom.", cat ({ sam (S_SP12, 12, 26040, 0.6f), sat (D_PUSH, 7), cmp (C_FET, 0.6f, 4, 90, 0.5f), flt (32, 13000, 3.5f, 2.5f) }) },
-        { "Lo-fi | Chill tape", "Nastro morbido e oscillante, alti chiusi, polvere costante.", cat ({ sam (S_CLEAN, 12, 22050, 0.6f), sat (D_TAPE, 5, -0.3f), cmp (C_BUS, 0.35f, 20, 250), flt (60, 6500, 0, 0, 0.1f), tap (0.7f, 0.45f, 0.35f, 0.1f), dst (0.5f, 0.2f, 0.35f) }) },
-        { "Lo-fi | Cassetta stanca", "Cassetta consumata: crush leggero, wow, dropout e fruscio.", cat ({ sam (S_CRUSH, 10, 16000, 0.5f), sat (D_TAPE, 9), flt (90, 5000), tap (1.0f, 0.6f, 0.5f, 0.3f), dst (0.2f, 0.1f, 0.6f) }) },
-        { "Lo-fi | Notturno in cameretta", "Soffice e lontano: niente transienti duri, tanto calore.", cat ({ sat (D_TUBE, 6, -0.4f), cmp (C_BUS, 0.45f, 25, 300, -0.4f), flt (70, 4800, 1.5f, -2), tap (0.6f, 0.3f, 0.25f), dst (0.45f, 0.2f, 0.3f) }) },
-        { "Trip Hop | Pesante e scuro", "Batteria lenta e enorme: pompa, scura, mono.", cat ({ sam (S_S950, 12, 24000), sat (D_TUBE, 10, -0.5f), cmp (C_PUMP, 0.6f, 25, 300), flt (35, 7000, 4, 0, 0.15f), tap (0.6f, 0.15f, 0.15f), dst (0.4f, 0.2f, 0.25f), PV { { "mono", 1 } } }) },
-        { "Trip Hop | Break rallentato", "Il break campionato e rallentato: SP-12, console, vinile.", cat ({ sam (S_SP12, 12, 20000), sat (D_CONSOLE, 8), cmp (C_FET, 0.6f, 6, 140, 0.3f), flt (30, 8000, 3), tap (0.5f, 0.25f, 0.2f), dst (0.5f, 0.3f, 0.15f) }) },
-        { "Old School | 12 bit crudo", "Solo la macchina: SP-12 pieno e un FET deciso.", cat ({ sam (S_SP12, 12, 26040), sat (D_PUSH, 6), cmp (C_FET, 0.5f, 3, 100, 0.2f), flt (30, 20000) }) },
-        { "Old School | MPC grosso", "MPC 60 caldo, valvola, corpo in basso.", cat ({ sam (S_MPC60, 12, 40000), sat (D_TUBE, 7), cmp (C_FET, 0.5f, 8, 120, 0.2f), flt (25, 20000, 2.5f, 1) }) },
-        { "Jazz Hop | Spazzole morbide", "Kit acustico morbido: bus lento, nastro, vinile.", cat ({ sat (D_TAPE, 4), cmp (C_BUS, 0.3f, 20, 250), flt (50, 10000), tap (0.4f, 0.25f, 0.2f), dst (0.5f, 0.2f, 0.15f) }) },
-        { "Rap | Moderna ma sporca", "Batteria attuale con un velo di 12 bit e crack.", cat ({ sam (S_SP12, 12, 26040, 0.35f), sat (D_PUSH, 5), cmp (C_FET, 0.5f, 6, 100, 0.45f), flt (28, 20000, 1, 2) }) },
-        { "Phonk | Cassetta Memphis", "Crush, spinta forte e nastro rovinato.", cat ({ sam (S_CRUSH, 10, 18000, 0.7f), sat (D_PUSH, 10), cmp (C_FET, 0.65f, 3, 90, 0.2f), flt (30, 9000, 3), tap (0.7f, 0.3f, 0.25f, 0.15f), dst (0.3f, 0.1f, 0.5f) }) },
-        // singoli pezzi
-        { "Cassa | Knock boom bap", "Cassa corta e piena che buca il mix.", cat ({ sam (S_SP12, 12, 26040, 0.7f), sat (D_TUBE, 8), cmp (C_FET, 0.5f, 12, 90, 0.4f), flt (30, 9000, 4) }) },
-        { "Cassa | Morbida lo-fi", "Cassa rotonda, senza click, con coda calda.", cat ({ sam (S_CLEAN, 12, 22050, 0.6f), sat (D_TAPE, 6, -0.3f), cmp (C_BUS, 0.4f, 20, 200), flt (25, 5000, 3), tap (0.5f, 0.1f, 0.1f) }) },
-        { "Cassa | Thump trip hop", "Cassa enorme e scura che respira.", cat ({ sat (D_CONSOLE, 9), cmp (C_PUMP, 0.5f, 25, 250), flt (25, 4500, 5, 0, 0.2f), tap (0.4f, 0.05f, 0.05f) }) },
-        { "Rullante | Crack 12 bit", "Rullante che spacca, granuloso.", cat ({ sam (S_SP12, 12, 26040), sat (D_PUSH, 7), cmp (C_FET, 0.55f, 2, 90, 0.3f), flt (120, 20000, 0, 3) }) },
-        { "Rullante | Polveroso", "Rullante da disco vecchio, morbido in cima.", cat ({ sam (S_S950, 12, 28000), sat (D_TAPE, 7), cmp (C_BUS, 0.4f, 10, 150), flt (150, 9000, 0, 2), tap (0.5f, 0.1f, 0.15f), dst (0.4f, 0.15f, 0.1f) }) },
-        { "Rullante | Rim schiacciato", "Rim e clap stretti, filtrati e cattivi.", cat ({ sam (S_CRUSH, 9, 16000, 0.6f), sat (D_PUSH, 9), cmp (C_FET, 0.7f, 0.5f, 70), flt (250, 8000, 0, 4, 0.2f) }) },
-        { "Hi-hat | Croccanti", "Hat granulosi e presenti.", cat ({ sam (S_SP12, 12, 26040), sat (D_PUSH, 4), flt (400, 12000, 0, 0, 0.1f) }) },
-        { "Hi-hat | Lo-fi soffici", "Hat lontani e morbidi, nastro.", cat ({ sam (S_CLEAN, 10, 18000, 0.6f), flt (300, 6500), tap (0.6f, 0.2f, 0.2f) }) },
-        { "Hi-hat | Telefono", "Hat filtrati stretti, 8 bit.", cat ({ sam (S_CRUSH, 8, 11025, 0.7f), flt (900, 4000, 0, 0, 0.3f) }) },
-        { "Perc | Bongo vintage", "Percussioni calde da vecchio disco.", cat ({ sam (S_MPC60, 12, 40000), sat (D_TUBE, 6), flt (80, 10000), tap (0.4f, 0.15f, 0.15f), dst (0.3f, 0.1f, 0.1f) }) },
-        { "Loop | Break dusty", "Il break completo: S950, nastro, vinile, punch.", cat ({ sam (S_S950, 12, 26000), sat (D_TAPE, 8), cmp (C_FET, 0.55f, 6, 120, 0.3f), flt (40, 9500, 2, 1.5f), tap (0.4f, 0.15f, 0.15f), dst (0.5f, 0.3f, 0.15f) }) },
-        { "Loop | Break da campionare", "SP-12 e console: pronto da choppare.", cat ({ sam (S_SP12, 12, 26040), sat (D_CONSOLE, 6), cmp (C_FET, 0.6f, 5, 100, 0.2f), flt (35, 12000), dst (0.3f, 0.15f, 0.1f) }) },
-        { "Bus | Colla vintage", "Tiene insieme il kit senza sporcarlo troppo.", cat ({ sat (D_TAPE, 4), cmp (C_BUS, 0.45f, 15, 200, 0, 0.7f), flt (25, 20000), tap (0.25f, 0.05f, 0.1f) }) },
-        { "Bus | Parallelo schiacciato", "Compressione New York: il kit schiacciato sotto all'originale.", cat ({ sat (D_PUSH, 9), cmp (C_FET, 0.9f, 1, 80, 0.2f, 0.4f), flt (20, 20000, 2) }) },
-        { "Effetti | Radio AM", "Batteria da radio: stretta, sporca, ronzio.", cat ({ sam (S_CRUSH, 8, 8000, 0.8f), sat (D_PUSH, 10), flt (400, 3500, 0, 0, 0.3f, true), dst (0, 0, 0.5f, 0.3f), PV { { "mono", 1 }, { "auto", 1 } } }) },
-        { "Effetti | Vinile 78 giri", "Gommalacca: banda stretta, tanto crackle.", cat ({ sam (S_CLEAN, 10, 16000), flt (250, 5000), tap (0.3f, 0.3f, 0.2f), dst (0.9f, 0.7f, 0.4f), PV { { "mono", 1 }, { "auto", 1 } } }) },
-        { "Effetti | Nastro che muore", "Wow, flutter e dropout al massimo.", cat ({ tap (1.0f, 0.9f, 0.7f, 0.7f), dst (0, 0, 0.6f), PV { { "amount", 1.2f } } }) },
-        { "Effetti | Solo vinile", "Aggiunge solo la polvere del disco, sempre accesa.", cat ({ dst (0.5f, 0.3f, 0.15f, 0, false) }) },
-        // ---- trap: aperto e liscio, il vintage solo come colore
-        { "Trap | Aperto e liscio", "Per la trap: niente filtri che chiudono, nastro pulito per arrotondare i picchi, bus leggero, un filo di calore sotto e aria sopra.",
-          cat ({ sat (D_TAPE, 3, 0.2f), cmp (C_BUS, 0.3f, 20, 120, 0.2f), flt (20, 20000), PV { { "f_warm", 0.3f }, { "f_air", 0.45f } } }) },
-        { "Trap | 808 e cassa lucidi", "Console leggera e punch: transienti netti, bassi pieni, alti aperti. Nessun rumore.",
-          cat ({ sat (D_CONSOLE, 4, 0.15f), cmp (C_FET, 0.3f, 12, 90, 0.35f), flt (20, 20000, 1.5f, 1), PV { { "f_air", 0.35f } } }) },
-        { "Trap | Hat setosi", "Hat moderni senza durezza: nastro sulla cima, un pelo di 12 bit in parallelo, aria.",
-          cat ({ sam (S_SP12, 12, 26040, 0.2f), sat (D_TAPE, 4, 0.1f), flt (250, 20000), PV { { "f_air", 0.5f }, { "f_warm", 0.15f } } }) },
-        { "Drill | Scura ma pulita", "Drill UK: punch FET, console, poco colore, sub tenuto al centro.",
-          cat ({ sat (D_CONSOLE, 5), cmp (C_FET, 0.4f, 6, 80, 0.3f), flt (20, 16000, 2, 1.5f), PV { { "mono", 0 }, { "f_warm", 0.25f } } }) },
-        // ---- calore e colore
-        { "Calore | EQ caldo e pieno", "Solo l'EQ caldo: bassi rotondi col trucco del Pultec, medi morbidi, trasformatore che aggiunge armoniche.",
-          cat ({ flt (20, 20000), PV { { "f_warm", 0.7f }, { "f_air", 0.2f } } }) },
-        { "Calore | Valvola + EQ caldo", "Valvola e EQ caldo insieme: il colore piu spesso, per boom bap e soul.",
-          cat ({ sat (D_TUBE, 7, -0.1f), cmp (C_BUS, 0.35f, 15, 180), flt (30, 16000), PV { { "f_warm", 0.6f }, { "f_air", 0.25f } } }) },
-        { "Boom Bap | Caldo e asciutto", "Senza rumori: SP-12 al 50%, valvola e tanto calore, punch.",
-          cat ({ sam (S_SP12, 12, 26040, 0.5f), sat (D_TUBE, 7), cmp (C_FET, 0.45f, 6, 110, 0.3f), flt (30, 13000, 2, 1.5f), PV { { "f_warm", 0.55f } } }) },
-        { "Lo-fi | Morbido con aria", "Lo-fi che non affoga: nastro e polvere, ma la cima resta aperta con un filo d'aria.",
-          cat ({ sat (D_TAPE, 6, -0.2f), cmp (C_BUS, 0.35f, 18, 220), flt (40, 12000), tap (0.4f, 0.25f, 0.2f), dst (0.25f, 0.15f, 0.1f), PV { { "f_warm", 0.4f }, { "f_air", 0.2f } } }) },
-        { "Trip Hop | Calore enorme", "Trip hop con l'EQ caldo al massimo e pump lento.",
-          cat ({ sat (D_TUBE, 9, -0.3f), cmp (C_PUMP, 0.5f, 25, 280), flt (25, 7000, 4), PV { { "f_warm", 0.9f }, { "mono", 1 } } }) } };
+    static const std::vector<Preset> p = []
+    {
+        std::vector<Preset> v;
+        v.push_back ({ "Init", "Tutto spento: scegli un genere e una parte del kit, oppure accendi i moduli che ti servono.", {} });
+        for (int g = 0; g < kGenresN; ++g)
+            for (int t = 0; t < kTargetsN; ++t)
+            {
+                static std::vector<juce::String> keep; keep.reserve (128);   // i testi devono restare vivi
+                keep.push_back (juce::String (genreName (g)) + " | " + targetName (t));
+                keep.push_back (juce::String (genreIdea (g)) + " " + targetNote (g, t));
+                v.push_back ({ keep[keep.size() - 2].toRawUTF8(), keep.back().toRawUTF8(), toPV (recipe (g, t)) });
+            }
+        auto add = [&v] (const char* n, const char* d, PV pv) { v.push_back ({ n, d, std::move (pv) }); };
+        add ("EFFETTI | Radio AM", "Batteria da radio: stretta, sporca, ronzio.",
+             { { "s_on", 1 }, { "s_model", S_CRUSH }, { "s_bits", 8 }, { "s_rate", 8000 }, { "s_mix", 0.8f }, { "d_on", 1 }, { "d_model", D_PUSH }, { "d_drive", 10 },
+               { "f_on", 1 }, { "f_hp", 400 }, { "f_lp", 3500 }, { "f_res", 0.3f }, { "f_24", 1 }, { "n_on", 1 }, { "n_vinyl", 0 }, { "n_pops", 0 }, { "n_hiss", 0.5f }, { "n_hum", 0.3f }, { "mono", 1 }, { "auto", 1 } });
+        add ("EFFETTI | Vinile 78 giri", "Gommalacca: banda stretta, tanto crackle.",
+             { { "s_on", 1 }, { "s_model", S_CLEAN }, { "s_bits", 10 }, { "s_rate", 16000 }, { "f_on", 1 }, { "f_hp", 250 }, { "f_lp", 5000 }, { "t_on", 1 }, { "t_age", 0.3f }, { "t_wow", 0.3f }, { "t_flut", 0.2f },
+               { "n_on", 1 }, { "n_vinyl", 0.9f }, { "n_pops", 0.7f }, { "n_hiss", 0.4f }, { "mono", 1 }, { "auto", 1 } });
+        add ("EFFETTI | Nastro che muore", "Wow, flutter e dropout al massimo.",
+             { { "t_on", 1 }, { "t_age", 1.0f }, { "t_wow", 0.9f }, { "t_flut", 0.7f }, { "t_drop", 0.7f }, { "n_on", 1 }, { "n_vinyl", 0 }, { "n_pops", 0 }, { "n_hiss", 0.6f }, { "amount", 1.2f } });
+        add ("EFFETTI | Solo vinile", "Aggiunge solo la polvere del disco, sempre accesa.", { { "n_on", 1 }, { "n_vinyl", 0.5f }, { "n_pops", 0.3f }, { "n_hiss", 0.15f }, { "n_follow", 0 } });
+        add ("EFFETTI | Stanza gated anni 80", "Solo la stanza col gate: il rullante enorme che si chiude di colpo.", { { "r_on", 1 }, { "r_size", 0.7f }, { "r_decay", 0.7f }, { "r_tone", 0.6f }, { "r_mix", 0.45f }, { "r_gate", 1 } });
+        add ("EFFETTI | Filtro telefono", "Hat e loop filtrati stretti, 8 bit.", { { "s_on", 1 }, { "s_model", S_CRUSH }, { "s_bits", 8 }, { "s_rate", 11025 }, { "s_mix", 0.7f }, { "f_on", 1 }, { "f_hp", 900 }, { "f_lp", 4000 }, { "f_res", 0.3f } });
+        return v;
+    }();
     return p;
 }
 }

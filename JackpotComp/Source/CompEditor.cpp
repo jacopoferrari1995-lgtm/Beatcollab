@@ -1005,6 +1005,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     gOut = std::make_unique<Knob> (P ("out"), C::phos); gOut->label = "OUTPUT"; gOut->bipolar = true; gOut->text = [this] { const float v = proc.value ("out"); return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; };
     for (juce::Component* c : std::initializer_list<juce::Component*> { route.get(), scSrc.get(), scTo.get(), scHpf.get(), listen.get(), autoG.get(), gMix.get(), gOut.get() }) addAndMakeVisible (c);
     addAndMakeVisible (sizeChip);
+    setupBrowser();
     recolor();
     scaler.setup();
     startTimerHz (30);
@@ -1035,6 +1036,7 @@ void Editor::resized()
     if (guide.tab == 3) { graph.setVisible (false); guide.setBounds (18, 502, 1204, 284); }
     else { graph.setVisible (true); graph.setBounds (18, 502, 792, 284); guide.setBounds (818, 502, 404, 284); }
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
+    browser.setBounds (0, 0, W, H);
     jlook::scaleChildren (*this, sc);
 }
 
@@ -1148,42 +1150,48 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); after(); }
     else if (prevRect.contains (e.getPosition())) { proc.loadPreset ((juce::jmax (0, proc.preset) + n - 1) % n); after(); }
     else if (nextRect.contains (e.getPosition())) { proc.loadPreset ((juce::jmax (0, proc.preset) + 1) % n); after(); }
-    else if (presetRect.contains (e.getPosition()))
-    {
-        juce::PopupMenu m; std::vector<std::pair<juce::String, juce::PopupMenu>> groups;
-        for (int i = 0; i < n; ++i)
-        {
-            const juce::String name = presets()[(size_t) i].name;
-            if (! name.contains (" | ")) { m.addItem (i + 1, name, true, i == proc.preset); continue; }
-            const auto gn = name.upToFirstOccurrenceOf (" | ", false, false), it = name.fromFirstOccurrenceOf (" | ", false, false);
-            bool found = false; for (auto& gr : groups) if (gr.first == gn) { gr.second.addItem (i + 1, it, true, i == proc.preset); found = true; }
-            if (! found) { juce::PopupMenu pm; pm.addItem (i + 1, it, true, i == proc.preset); groups.push_back ({ gn, pm }); }
-        }
-        for (auto& gr : groups) m.addSubMenu (gr.first, gr.second);
-        // preset dell'utente: file nella cartella Musica/Jackpot/Studio Comp Preset
-        auto files = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jcomp"); files.sort();
-        juce::PopupMenu mine; for (int i = 0; i < files.size(); ++i) mine.addItem (5000 + i, files[i].getFileNameWithoutExtension(), true, proc.userName == files[i].getFileNameWithoutExtension());
-        m.addSeparator();
-        m.addSubMenu ("I MIEI PRESET", mine, files.size() > 0);
-        m.addItem (9001, "Salva come nuovo preset...");
-        if (proc.userName.isNotEmpty()) m.addItem (9002, "Sovrascrivi \"" + proc.userName + "\"");
-        if (files.size() > 0) { juce::PopupMenu del; for (int i = 0; i < files.size(); ++i) del.addItem (7000 + i, files[i].getFileNameWithoutExtension()); m.addSubMenu ("Cancella un mio preset", del); }
-        m.addItem (9003, "Apri la cartella dei preset");
-        juce::Component::SafePointer<Editor> sp (this);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (presetRect))), [sp, after, files] (int r)
-        {
-            if (sp == nullptr || r <= 0) return;
-            auto& pr = sp->proc;
-            if (r >= 5000 && r < 5000 + files.size()) { pr.loadUserPreset (files[r - 5000]); after(); return; }
-            if (r >= 7000 && r < 7000 + files.size()) { files[r - 7000].moveToTrash(); if (pr.userName == files[r - 7000].getFileNameWithoutExtension()) pr.userName = {}; sp->repaint(); return; }
-            if (r == 9002) { pr.saveUserPreset (pr.userName); sp->repaint(); return; }
-            if (r == 9003) { Processor::presetFolder().startAsProcess(); return; }
-            if (r == 9001) { sp->askPresetName(); return; }
-            if (r < 5000) { pr.loadPreset (r - 1); after(); }
-        });
-    }
+    else if (presetRect.contains (e.getPosition())) browser.open();
 }
 
+void Editor::setupBrowser()
+{
+    addChildComponent (browser);
+    browser.accent = C::phos;
+    auto userFiles = [] { auto f = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jcomp"); f.sort(); return f; };
+    browser.entries = [userFiles]
+    {
+        std::vector<jbrowse::Entry> v;
+        for (int i = 0; i < (int) presets().size(); ++i)
+        {
+            const juce::String n (presets()[(size_t) i].name);
+            jbrowse::Entry e; e.id = i; e.note = presets()[(size_t) i].note;
+            e.group = n.contains (" | ") ? n.upToFirstOccurrenceOf (" | ", false, false) : juce::String ("Base");
+            e.name = n.contains (" | ") ? n.fromFirstOccurrenceOf (" | ", false, false) : n;
+            v.push_back (e);
+        }
+        const auto fs = userFiles();
+        for (int i = 0; i < fs.size(); ++i) { jbrowse::Entry e; e.id = 100000 + i; e.user = true; e.group = "I MIEI"; e.name = fs[i].getFileNameWithoutExtension(); e.note = "Preset tuo, salvato in Musica / Jackpot / Studio Comp Preset."; v.push_back (e); }
+        return v;
+    };
+    browser.current = [this, userFiles]
+    {
+        if (proc.userName.isEmpty()) return proc.preset;
+        const auto fs = userFiles(); for (int i = 0; i < fs.size(); ++i) if (fs[i].getFileNameWithoutExtension() == proc.userName) return 100000 + i;
+        return -1;
+    };
+    auto after = [this] { stage.bind (focus); rack.repaint(); guide.repaint(); repaint(); };
+    browser.load = [this, after] (const jbrowse::Entry& e)
+    {
+        if (e.user) proc.loadUserPreset (Processor::presetFolder().getChildFile (e.name + ".jcomp")); else proc.loadPreset (e.id);
+        after();
+    };
+    browser.save = [this] { askPresetName(); };
+    browser.canOverwrite = [this] { return proc.userName.isNotEmpty(); };
+    browser.overwrite = [this] { proc.saveUserPreset (proc.userName); repaint(); };
+    browser.folder = [] { Processor::presetFolder().startAsProcess(); };
+    browser.remove = [this] (const jbrowse::Entry& e) { Processor::presetFolder().getChildFile (e.name + ".jcomp").moveToTrash(); if (proc.userName == e.name) proc.userName = {}; repaint(); };
+    browser.onClose = [this] { repaint(); };
+}
 void Editor::askPresetName()
 {
     auto* w = new juce::AlertWindow ("Salva preset", "Nome del preset (finisce in Musica / Jackpot / Studio Comp Preset):", juce::MessageBoxIconType::NoIcon, this);
@@ -1192,7 +1200,7 @@ void Editor::askPresetName()
     juce::Component::SafePointer<Editor> sp (this);
     w->enterModalState (true, juce::ModalCallbackFunction::create ([sp, w] (int r)
     {
-        if (sp != nullptr && r == 1) { const auto n = w->getTextEditorContents ("name").trim(); if (n.isNotEmpty()) { sp->proc.saveUserPreset (n); sp->repaint(); } }
+        if (sp != nullptr && r == 1) { const auto n = w->getTextEditorContents ("name").trim(); if (n.isNotEmpty()) { sp->proc.saveUserPreset (n); sp->browser.refresh(); sp->repaint(); } }
     }), true);
 }
 void Editor::timerCallback()

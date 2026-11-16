@@ -46,6 +46,7 @@ int main (int argc, char** argv)
             std::printf ("latenza %d campioni\n", p.getLatencySamples()); std::printf ("DSP 6 stadi: %.1f%% di un core (blocchi da 480 a 48 kHz)\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 1000.0 / 10.0 * 100.0);
             return 0;
         }
+        if (std::getenv ("JBROWSE")) ed.browser.open();
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;
