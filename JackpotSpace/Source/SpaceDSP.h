@@ -188,7 +188,7 @@ public:
         for (int i = 0; i < 4; ++i) inAp[i].d = juce::jmax (1, (int) (inLen[i] * kk));
         const float L1[2] = { 672 * kk, 908 * kk }; const int D1[2] = { (int) (4453 * kk), (int) (4217 * kk) }, A2[2] = { (int) (1800 * kk), (int) (2656 * kk) }, D2[2] = { (int) (3720 * kk), (int) (3163 * kk) };
         for (int c = 0; c < 2; ++c) { ap2[c].d = A2[c]; }
-        const float rt = map::decay (PLATE, p[0]);
+        const float rt = juce::jmax (0.08f, (map::decay (PLATE, p[0]) - 0.24f) / 0.943f);   // taratura: diffusori e prese d'uscita allungano le code corte
         const float loopLen = (L1[0] + D1[0] + A2[0] + D2[0]);   // giro di mezzo serbatoio
         const float dec = freeze ? 1.0f : juce::jmin (0.9995f, rtGain (loopLen * 0.5f, rt, sr));   // due guadagni per mezzo serbatoio
         const float dmp = coef (map::bright (p[3]), sr), bwc = coef (14000.0f, sr);
@@ -237,24 +237,24 @@ public:
         pre.prepare ((int) (0.26 * sr) + 8); er.prepare ((int) (0.12 * sr) + 8);
         clear();
     }
-    void clear() { for (auto& l : d) l.clear(); for (auto& a : diff) a.l.clear(); pre.clear(); er.clear(); for (int i = 0; i < N; ++i) { lp[i] = {}; ph[i] = i * 0.7f; } }
+    void clear() { for (auto& l : d) l.clear(); for (auto& a : diff) a.l.clear(); pre.clear(); er.clear(); for (int i = 0; i < N; ++i) { lp[i] = {}; lp2[i] = {}; ph[i] = i * 0.7f; } }
     // room: true = stanza (linee corte e riflessioni forti)
     void process (const float* inL, const float* inR, float* oL, float* oR, int n, int type, const float* p, bool freeze)
     {
         const bool room = type == ROOM;
         static const float base[N] = { 29.7f, 37.1f, 41.1f, 43.7f, 53.3f, 59.3f, 67.9f, 79.3f };   // ms, primi fra loro
         const float sz = (0.5f + p[2]) * (room ? 0.32f : 1.0f);
-        const float rt = map::decay (type, p[0]);
+        const float rt = map::decay (type, p[0]) * 1.065f;   // taratura: la modulazione e i diffusori accorciano un poco la coda
         const float rtLo = room ? rt : rt * map::bassX (p[3]), rtHi = room ? rt * (0.15f + 0.85f * p[4]) : rt * map::trebX (p[4]);
-        const float xo = coef (room ? 900.0f : 1200.0f, sr);
+        const float xoL = coef (350.0f, sr), xoH = coef (room ? 3000.0f : 4000.0f, sr);   // tre bande: bassi x, medi = DECAY, alti x (come il 224)
         const float modD = (room ? p[5] : p[5]) * 0.0009f * (float) sr;   // fino a ~1 ms di escursione: il chorus del 224
         const float diffG = room ? 0.6f : 0.35f + 0.4f * p[6];
         const int preN = (int) (map::pre (p[1]) * 0.001 * sr);
-        float len[N], gLo[N], gHi[N];
+        float len[N], gLo[N], gMid[N], gHi[N];
         for (int i = 0; i < N; ++i)
         {
             len[i] = base[i] * sz * 0.001f * (float) sr;
-            gLo[i] = freeze ? 1.0f : juce::jmin (0.9998f, rtGain (len[i], rtLo, sr)); gHi[i] = freeze ? 1.0f : juce::jmin (0.9998f, rtGain (len[i], rtHi, sr));
+            gLo[i] = freeze ? 1.0f : juce::jmin (0.9998f, rtGain (len[i], rtLo, sr)); gMid[i] = freeze ? 1.0f : juce::jmin (0.9998f, rtGain (len[i], rt, sr)); gHi[i] = freeze ? 1.0f : juce::jmin (0.9998f, rtGain (len[i], rtHi, sr));
         }
         static const int dl[4] = { 113, 167, 271, 383 };   // diffusori d'ingresso (campioni a 48k)
         for (int i = 0; i < 4; ++i) diff[i].d = juce::jmax (1, (int) (dl[i] * sr / 48000.0 * (room ? 0.6f : 1.0f)));
@@ -273,7 +273,7 @@ public:
             {
                 ph[i] += dph * (0.25f + 0.11f * i); if (ph[i] > 6.2832f) ph[i] -= 6.2832f;
                 o[i] = d[i].frac (len[i] + modD * (1 + std::sin (ph[i])) + 1);
-                const float l = lp[i].run (o[i], xo); o[i] = l * gLo[i] + (o[i] - l) * gHi[i];   // bassi e alti decadono diversi
+                const float l = lp[i].run (o[i], xoL), m = lp2[i].run (o[i], xoH); o[i] = l * gLo[i] + (m - l) * gMid[i] + (o[i] - m) * gHi[i];   // bassi, medi e alti decadono diversi
             }
             // matrice di Hadamard 8x8 (energia conservata)
             float h[N]; for (int i = 0; i < N; ++i) h[i] = o[i];
@@ -287,7 +287,7 @@ public:
         }
     }
 private:
-    double sr = 48000; Line d[N], pre, er; AP diff[4]; LP1 lp[N]; float ph[N] {};
+    double sr = 48000; Line d[N], pre, er; AP diff[4]; LP1 lp[N], lp2[N]; float ph[N] {};
 };
 
 // ---------------------------------------------------------------------------------------------------- SPRING
@@ -613,8 +613,9 @@ private:
     // SHIMMER: sala a cui torna dentro la propria coda trasposta (giro chiuso, autolimitato)
     void shimmer (const float* inL, const float* inR, float* oL, float* oR, int n, const float* p, bool freeze)
     {
-        const float hp[kP] = { p[0], p[1], p[4], 0.45f, 0.75f, 0.35f + 0.5f * p[6], 0.8f, 1.0f };
-        const float amt = freeze ? 0.0f : p[2], ratio = pitchRatio (map::pick (p[3], kPitches)), win = 0.06f * (float) sr, tc = coef (map::hiCut (p[5]), sr);
+        const float amt = freeze ? 0.0f : p[2];
+        const float hp[kP] = { map::nDecay (HALL, map::decay (SHIMMER, p[0]) * (1.0f - 0.25f * amt * p[0])), p[1], p[4], 0.45f, 0.75f, 0.35f + 0.5f * p[6], 0.8f, 1.0f };   // il giro dello shimmer allunga la coda: si compensa
+        const float ratio = pitchRatio (map::pick (p[3], kPitches)), win = 0.06f * (float) sr, tc = coef (map::hiCut (p[5]), sr);
         const float er = 1.0f - std::exp (-1.0f / (0.2f * (float) sr));
         float* xl = B (0); float* xr = B (1);
         for (int o = 0; o < n; o += kChunk)

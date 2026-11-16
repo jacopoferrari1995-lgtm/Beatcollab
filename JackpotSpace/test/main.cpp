@@ -20,21 +20,40 @@ int main (int argc, char** argv)
     if (argc > 1 && juce::String (argv[1]) == "dsp")
     {
         // risposta all'impulso di ogni motore da solo, 100% bagnato: RT60 misurato, picco, correlazione L/R, NaN
-        for (int t = 1; t < kNumTypes; ++t)
+        std::vector<std::pair<int, float>> cases; for (int t = 1; t < kNumTypes; ++t) cases.push_back ({ t, -1.0f });
+        if (std::getenv ("JRT")) { cases.clear(); for (int t : { (int) HALL, (int) ROOM, (int) SHIMMER, (int) PLATE }) for (float v : { 0.15f, 0.45f, 0.75f }) cases.push_back ({ t, v }); }
+        for (auto [t, dv] : cases)
         {
             Processor p; p.prepareToPlay (sr, 512);
             for (int k = 0; k < kSlots; ++k) p.setSlot (k, k == 0 ? t : OFF);
             p.P (mixId (0))->setValueNotifyingHost (1.0f); p.P ("dry")->setValueNotifyingHost (0.0f);
             if (isDelay (t)) p.setP (0, 2, 0.0f);   // libero
+            if (dv >= 0) p.setP (0, 0, dv);
             if (t == CONV) { p.updateIRs(); juce::Thread::sleep (600); }
-            std::vector<float> o; run (p, 600, o, true);
+            std::vector<float> o; run (p, dv > 0.7f ? 2400 : 600, o, true);
             const size_t n = o.size() / 2; std::vector<double> e (n); double tot = 0, pk = 0, lr = 0, ll = 0, rr = 0; bool nan = false;
             for (size_t i = 4100; i < n; ++i) { const double l = o[2 * i], r = o[2 * i + 1]; if (! std::isfinite (l) || ! std::isfinite (r)) nan = true; e[i] = l * l + r * r; tot += e[i]; pk = std::max (pk, std::max (std::abs (l), std::abs (r))); lr += l * r; ll += l * l; rr += r * r; }
             // integrazione di Schroeder: tempo per -5 -> -35 dB, estrapolato a 60
             double acc = tot, t5 = -1, t35 = -1; for (size_t i = 4100; i < n; ++i) { const double db = 10 * std::log10 (acc / tot + 1e-30); if (t5 < 0 && db < -5) t5 = i / sr; if (t35 < 0 && db < -35) { t35 = i / sr; break; } acc -= e[i]; }
+            // RT a 1 kHz (banda d'ottava, come si misura nelle sale vere)
+            double rt1k = -1;
+            {
+                std::vector<double> eb (n, 0.0); double tb = 0; float z[2][4] {};
+                const float a1 = 1.0f - std::exp (-6.2832f * 1400.0f / 48000.0f), a2 = 1.0f - std::exp (-6.2832f * 700.0f / 48000.0f);
+                for (size_t i = 4100; i < n; ++i)
+                {
+                    double ee = 0;
+                    for (int c = 0; c < 2; ++c) { float x = o[2 * i + c]; z[c][0] += a1 * (x - z[c][0]); z[c][1] += a1 * (z[c][0] - z[c][1]); x = z[c][1];
+                        z[c][2] += a2 * (x - z[c][2]); x -= z[c][2]; z[c][3] += a2 * (x - z[c][3]); x -= z[c][3]; ee += (double) x * x; }
+                    eb[i] = ee; tb += ee;
+                }
+                double acc = tb, b5 = -1, b35 = -1;
+                for (size_t i = 4100; i < n; ++i) { const double db = 10 * std::log10 (acc / tb + 1e-30); if (b5 < 0 && db < -5) b5 = i / sr; if (b35 < 0 && db < -35) { b35 = i / sr; break; } acc -= eb[i]; }
+                if (b35 > 0) rt1k = (b35 - b5) * 2.0;
+            }
             float pdec[kP]; for (int i = 0; i < kP; ++i) pdec[i] = p.value (pId (0, i));
-            std::printf ("%-10s decay impostato %-8s RT60 misurato %.2f s  energia %.1f dB  picco %.3f  corr L/R %.2f  nan %d\n", info (t).name, paramText (t, 0, pdec[0], pdec).toRawUTF8(),
-                         t35 > 0 ? (t35 - t5) * 2.0 : -1.0, 10 * std::log10 (tot), pk, lr / std::sqrt (ll * rr + 1e-30), (int) nan);
+            std::printf ("%-10s decay impostato %-8s RT60 %.2f s  a 1 kHz %.2f s  energia %.1f dB  picco %.3f  corr L/R %.2f  nan %d\n", info (t).name, paramText (t, 0, pdec[0], pdec).toRawUTF8(),
+                         t35 > 0 ? (t35 - t5) * 2.0 : -1.0, rt1k, 10 * std::log10 (tot), pk, lr / std::sqrt (ll * rr + 1e-30), (int) nan);
         }
         // preset con musica: picco e NaN
         for (int i = 0; i < (int) factoryPresets().size(); ++i)
