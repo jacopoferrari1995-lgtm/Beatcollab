@@ -134,7 +134,7 @@ void Processor::processBeat (juce::AudioBuffer<float>& buffer, int n, double pos
     {
         const float f = bandHz (b), lf = std::log2 (f);
         auto bump = [lf] (float lo, float hi) { const float c0 = 0.5f * (std::log2 (lo) + std::log2 (hi)), w = 0.5f * (std::log2 (hi) - std::log2 (lo)) + 0.6f; return juce::jlimit (0.0f, 1.0f, 1.0f - std::abs (lf - c0) / w); };
-        wgt[b] = juce::jlimit (0.0f, 1.0f, 0.15f + 0.85f * juce::jmax (pres * bump (1800, 5500), body * bump (160, 480), air * bump (7000, 12000), 0.55f * juce::jmax (pres, body) * bump (500, 1800)));
+        wgt[b] = (f < 140.0f ? 0.0f : 1.0f) * juce::jlimit (0.0f, 1.0f, 0.10f + 0.90f * juce::jmax (pres * bump (1800, 5500), body * bump (160, 480), air * bump (7000, 12000), 0.55f * juce::jmax (pres, body) * bump (500, 1800)));
     }
     const float* scL = scOn ? sc.getReadPointer (0) : nullptr; const float* scR = scOn ? sc.getReadPointer (juce::jmin (1, sc.getNumChannels() - 1)) : nullptr;
     for (int i = 0; i < n; ++i)
