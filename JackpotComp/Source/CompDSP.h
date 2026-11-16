@@ -105,9 +105,9 @@ inline juce::String fmtDrive (int m, float d)
     if (m <= OPTO3A) return juce::String (juce::roundToInt (d * 100));
     return d < 0.002f ? juce::String ("0 dB") : juce::String (-d * 40.0f, 1) + " dB";
 }
-// FET: manopole numerate 1..7 come sull'1176, verso destra = piu' veloce. DISTRESS: 0..10, verso destra = piu' lento
-inline float fetAttMs (float v) { return 0.8f * std::pow (0.02f / 0.8f, v); }       // 800 us -> 20 us
-inline float fetRelMs (float v) { return 1100.0f * std::pow (50.0f / 1100.0f, v); }  // 1.1 s -> 50 ms
+// FET: scala 1..7 nello stesso verso degli altri modelli: a sinistra veloce, a destra lento (tempi identici all'1176)
+inline float fetAttMs (float v) { return 0.02f * std::pow (40.0f, v); }    // 20 us -> 800 us
+inline float fetRelMs (float v) { return 50.0f * std::pow (22.0f, v); }    // 50 ms -> 1.1 s
 inline float attMs (int m, float a)
 {
     switch (m)

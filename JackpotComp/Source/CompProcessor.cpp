@@ -314,7 +314,7 @@ const std::vector<Preset>& presets()
     static const std::vector<Preset> P = {
         { "Init", "Tutto spento: accendi uno stadio dalla fila in alto. Ogni stadio parte neutro.", 0, {} },
         // ================= VOCE
-        { "Voce | Rap lead (76 > 2A)", "La catena classica: il FET prende solo i picchi (3-5 dB, attacco 3 per lasciar passare le consonanti, rilascio 6), l'OPTO livella le frasi (2-3 dB). Voce davanti senza sentirsi compressa.", 0,
+        { "Voce | Rap lead (76 > 2A)", "La catena classica: il FET prende solo i picchi (3-5 dB, attacco 5 per lasciar passare le consonanti, rilascio 2), l'OPTO livella le frasi (2-3 dB). Voce davanti senza sentirsi compressa.", 0,
           { { "a_model", FET76 }, { "a_drive", 0.25f }, { "a_out", -8 }, { "a_ratio", 0 }, { "a_att", 0.33f }, { "a_rel", 0.83f }, { "a_color", 0.25f },
             { "b_on", 1 }, { "b_model", OPTO2A }, { "b_drive", 0.45f }, { "b_color", 0.25f }, { "auto", 1 } } },
         { "Voce | Rap lead con controllo S", "76 > 2A e in fondo un multibanda solo sopra 6 kHz (attacco 2 ms): le S e le T non escono dopo la compressione.", 0,
@@ -365,7 +365,7 @@ const std::vector<Preset>& presets()
           { { "a_model", SSLCH }, { "a_drive", 0.4f }, { "a_cratio", 4 }, { "a_mode", 0 }, { "a_rel", 0.2f }, { "auto", 1 } } },
         { "Cassa | Boom bap spessa (670)", "670 in TC1 con il trasformatore spinto: la cassa si gonfia sotto e perde l'asprezza.", 0,
           { { "a_model", VC670 }, { "a_drive", 0.4f }, { "a_thr", 0.5f }, { "a_ratio", 0 }, { "a_color", 0.55f }, { "auto", 1 } } },
-        { "Rullante | Crack (76 lento > 3A)", "FET con attacco 1 (il piu' lento) per far passare il colpo, poi il 3A per tenerlo fermo.", 0,
+        { "Rullante | Crack (76 lento > 3A)", "FET con attacco 7 (il piu' lento) per far passare il colpo, poi il 3A per tenerlo fermo.", 0,
           { { "a_model", FET76 }, { "a_drive", 0.25f }, { "a_out", -8 }, { "a_ratio", 0 }, { "a_att", 0.0f }, { "a_rel", 0.83f },
             { "b_on", 1 }, { "b_model", OPTO3A }, { "b_drive", 0.45f }, { "auto", 1 } } },
         { "Rullante | Grasso (Distress DIST 2)", "Distress 4:1 con DIST 2: il rullante prende corpo e un po' di sporco da nastro.", 0,
@@ -376,9 +376,9 @@ const std::vector<Preset>& presets()
           { { "a_model", VCABUS }, { "a_drive", 0.4f }, { "a_ratio", 1 }, { "a_att", 0.2f }, { "a_rel", 0.0f }, { "auto", 1 } } },
         { "Hat | Lucidi (OTT)", "OTT a meta' MIX: hat brillanti e densi senza perdere del tutto la dinamica.", 0,
           { { "a_model", OTT }, { "a_drive", 0.35f }, { "a_mix", 0.5f }, { "a_color", 0.1f }, { "auto", 1 } } },
-        { "Percussioni | Avanti (76)", "FET 8:1, attacco 4, rilascio 6: percussioni che bucano il mix.", 0,
+        { "Percussioni | Avanti (76)", "FET 8:1, attacco 4, rilascio 2: percussioni che bucano il mix.", 0,
           { { "a_model", FET76 }, { "a_drive", 0.29f }, { "a_out", -10 }, { "a_ratio", 1 }, { "a_att", 0.5f }, { "a_rel", 0.83f }, { "a_color", 0.2f }, { "auto", 1 } } },
-        { "Room | Esplosa (76 ALL)", "Il trucco del 1176 sulla room: tutti i pulsanti, rilascio 7 che pompa, al 40% di MIX.", 0,
+        { "Room | Esplosa (76 ALL)", "Il trucco del 1176 sulla room: tutti i pulsanti, rilascio 1 (il piu' veloce) che pompa, al 40% di MIX.", 0,
           { { "a_model", FET76 }, { "a_drive", 0.58f }, { "a_out", -18 }, { "a_ratio", 4 }, { "a_att", 0.5f }, { "a_rel", 1.0f }, { "a_color", 0.6f }, { "a_mix", 0.4f }, { "auto", 1 } } },
         { "Overhead | Controllo (VCA)", "VCA 2:1, attacco 10 ms, AUTO: piatti in riga senza schiacciare i transienti.", 0,
           { { "a_model", VCABUS }, { "a_drive", 0.35f }, { "a_ratio", 0 }, { "a_att", 0.8f }, { "a_rel", 1.0f }, { "auto", 1 } } },
@@ -478,6 +478,13 @@ void Processor::loadPreset (int i)
         bool given = false; for (auto& [id, v] : P.v) if (juce::String (id) == p + "_drive") given = true;
         if (! given) if (auto* rp = apvts.getParameter (p + "_drive")) rp->setValueNotifyingHost (0.3f);
     }
+    // i preset sono scritti con il FET a destra = veloce: si gira nel verso degli altri modelli
+    for (int s = 0; s < kStages; ++s)
+    {
+        if (juce::roundToInt (pp[s].model->load()) != FET76) continue;
+        const juce::String p = juce::String (stagePfx (s)).dropLastCharacters (1);
+        for (auto [id, v] : P.v) if (juce::String (id) == p + "_att" || juce::String (id) == p + "_rel") if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (1.0f - v);
+    }
 }
 // ---- conversione dei valori salvati dalle versioni precedenti ----
 // v1 (fino alla 1.1.96): soglia al centro del ginocchio, INPUT dei modelli FET/VARI-MU/DISTRESS dentro soglie fisse
@@ -527,7 +534,7 @@ void Processor::convertStage (int s, int from)
         }
         if (m == VC670) set ("_out", out - 18.0f * d);
     }
-    if (m == FET76) { set ("_att", 1.0f - att); set ("_rel", 1.0f - rel); }
+    if (m == FET76 && from == 3) { set ("_att", 1.0f - att); set ("_rel", 1.0f - rel); }   // solo la 1.1.98 aveva il verso girato
     if (m == DISTRESS) set ("_mode", col < 0.05f ? 0.0f : col < 0.5f ? 1.0f : 2.0f);
     set ("_olink", 0);
 }

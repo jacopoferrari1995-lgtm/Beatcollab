@@ -40,7 +40,7 @@ public:
     bool loadUserPreset (const juce::File&);
     void convertLegacy (int fromVersion);
     void convertStage (int s, int fromVersion);
-    static constexpr int kStateVersion = 3;
+    static constexpr int kStateVersion = 4;
     StageParams stageParams (int s) const;
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
 
