@@ -8,7 +8,15 @@ static juce::String U (const char* s) { return juce::String::fromUTF8 (s); }
 
 static juce::Colour typeCol (int t)
 {
-    switch (t) { case PLATE: return K::cyan; case HALL: return K::violet; case ROOM: return K::blue; case SPRING: return K::mint; case TAPE: return K::amber; case DIGITAL: return K::pink; default: return K::faint; }
+    switch (t)
+    {
+        case PLATE: return K::cyan; case HALL: return K::violet; case ROOM: return K::blue; case SPRING: return K::mint; case TAPE: return K::amber; case DIGITAL: return K::pink;
+        case SHIMMER: return K::cyan.interpolatedWith (K::pink, 0.5f); case SPACED: return K::violet.interpolatedWith (K::cyan, 0.4f);
+        case MORPH: return K::mint.interpolatedWith (K::cyan, 0.5f); case NEOVERB: return K::blue.interpolatedWith (K::violet, 0.5f);
+        case CONV: return K::red; case BBD: return K::amber.interpolatedWith (K::red, 0.45f); case REVERSE: return K::pink.interpolatedWith (K::amber, 0.4f);
+        case MULTITAP: return K::amber.interpolatedWith (K::mint, 0.45f);
+        default: return K::faint;
+    }
 }
 static juce::Path rr (juce::Rectangle<float> r, float c) { juce::Path p; p.addRoundedRectangle (r, juce::jmin (c * 1.2f, r.getHeight() * 0.5f)); return p; }
 static juce::Colour veil (float a) { return K::lo.withAlpha (light() ? a * 0.22f : a); }
@@ -202,7 +210,9 @@ void Scope::paint (juce::Graphics& g)
     g.setColour (K::ink.withAlpha (0.5f)); g.strokePath (pin, juce::PathStrokeType (1.0f));
     g.setFont (cap (9.0f)); g.setColour (K::sub); g.drawText ("CODA", b.reduced (18, 12).withHeight (16), juce::Justification::centredLeft);
     g.setFont (f (9.0f)); g.setColour (K::faint);
-    g.drawText (U ("contorno = suono che entra  \xc2\xb7  pieno = riverberi e delay  \xc2\xb7  ultimi 4 s"), b.reduced (18, 12).withHeight (16).withTrimmedLeft (56), juce::Justification::centredLeft);
+    juce::String note = U ("contorno = suono che entra  \xc2\xb7  pieno = riverberi e delay  \xc2\xb7  ultimi 4 s");
+    for (auto& fp : factoryPresets()) if (fp.name == P.presetName) note = fp.note;
+    g.drawFittedText (note, b.reduced (18, 12).withHeight (16).withTrimmedLeft (56).withTrimmedRight (110).toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
     g.setFont (num (10.0f)); g.setColour (K::sub);
     g.drawText (juce::String (P.uiBpm.load(), 1) + " BPM" + (P.value ("freeze") > 0.5f ? "   FREEZE" : ""), b.reduced (18, 12).withHeight (16), juce::Justification::centredRight);
     // schema della catena: riga alta = serie (uno dopo l'altro), riga bassa = parallelo (dal pulito)
@@ -407,9 +417,17 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
 }
 void Editor::presetMenu()
 {
-    juce::PopupMenu m, fac, mine; const auto& fp = factoryPresets();
-    for (int i = 0; i < (int) fp.size(); ++i) fac.addItem (1 + i, fp[(size_t) i].name, true, proc.presetName == fp[(size_t) i].name);
-    m.addSectionHeader ("PRESET"); m.addSubMenu ("Di fabbrica", fac);
+    juce::PopupMenu m, mine; const auto& fp = factoryPresets();
+    m.addSectionHeader ("PRESET");
+    std::map<juce::String, juce::PopupMenu> cats; juce::StringArray order;
+    for (int i = 0; i < (int) fp.size(); ++i)
+    {
+        const auto& c = fp[(size_t) i].cat; if (! order.contains (c)) order.add (c);
+        juce::PopupMenu::Item it (fp[(size_t) i].name); it.itemID = 1 + i; it.isTicked = proc.presetName == fp[(size_t) i].name;
+        cats[c].addItem (it);
+    }
+    for (auto& c : order) m.addSubMenu (c, cats[c]);
+    m.addSeparator();
     auto files = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jsp"); files.sort();
     for (int i = 0; i < files.size(); ++i) mine.addItem (1000 + i, files[i].getFileNameWithoutExtension(), true, proc.presetName == files[i].getFileNameWithoutExtension());
     m.addSubMenu ("I miei", mine, files.size() > 0);

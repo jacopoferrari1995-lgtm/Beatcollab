@@ -25,7 +25,8 @@ int main (int argc, char** argv)
             Processor p; p.prepareToPlay (sr, 512);
             for (int k = 0; k < kSlots; ++k) p.setSlot (k, k == 0 ? t : OFF);
             p.P (mixId (0))->setValueNotifyingHost (1.0f); p.P ("dry")->setValueNotifyingHost (0.0f);
-            if (t == TAPE || t == DIGITAL) p.setP (0, 2, 0.0f);   // libero
+            if (isDelay (t)) p.setP (0, 2, 0.0f);   // libero
+            if (t == CONV) { p.updateIRs(); juce::Thread::sleep (600); }
             std::vector<float> o; run (p, 600, o, true);
             const size_t n = o.size() / 2; std::vector<double> e (n); double tot = 0, pk = 0, lr = 0, ll = 0, rr = 0; bool nan = false;
             for (size_t i = 4100; i < n; ++i) { const double l = o[2 * i], r = o[2 * i + 1]; if (! std::isfinite (l) || ! std::isfinite (r)) nan = true; e[i] = l * l + r * r; tot += e[i]; pk = std::max (pk, std::max (std::abs (l), std::abs (r))); lr += l * r; ll += l * l; rr += r * r; }
@@ -38,17 +39,23 @@ int main (int argc, char** argv)
         // preset con musica: picco e NaN
         for (int i = 0; i < (int) factoryPresets().size(); ++i)
         {
-            Processor p; p.prepareToPlay (sr, 512); p.loadFactory (i);
+            Processor p; p.prepareToPlay (sr, 512); p.loadFactory (i); p.updateIRs(); juce::Thread::sleep (300);
             std::vector<float> o; run (p, 800, o); bool nan = false; float pk = 0; for (float x : o) { if (! std::isfinite (x)) nan = true; pk = std::max (pk, std::abs (x)); }
-            std::printf ("%-26s picco %.2f nan %d\n", factoryPresets()[(size_t) i].name, pk, (int) nan);
+            double e = 0; for (float x : o) e += (double) x * x; std::printf ("%-10s %-24s picco %.2f  rms %.1f dB  nan %d\n", factoryPresets()[(size_t) i].cat.toRawUTF8(), factoryPresets()[(size_t) i].name.toRawUTF8(), pk, 10 * std::log10 (e / o.size() + 1e-20), (int) nan);
         }
         // feedback al massimo + freeze: deve restare limitato
         {
-            Processor p; p.prepareToPlay (sr, 512); p.setSlot (0, TAPE); p.setP (0, 1, 1.0f); p.setSlot (1, HALL); p.P ("freeze")->setValueNotifyingHost (1.0f);
+            Processor p; p.prepareToPlay (sr, 512); p.setSlot (0, TAPE); p.setP (0, 1, 1.0f); p.setSlot (1, HALL); p.setSlot (2, SHIMMER); p.setP (2, 2, 1.0f); p.setSlot (3, SPACED); p.setP (3, 1, 1.0f); p.setSlot (4, MULTITAP); p.setP (4, 1, 1.0f); p.setSlot (5, REVERSE); p.setP (5, 1, 1.0f); p.P ("freeze")->setValueNotifyingHost (1.0f);
             std::vector<float> o; run (p, 2000, o); float pk = 0; bool nan = false; for (float x : o) { if (! std::isfinite (x)) nan = true; pk = std::max (pk, std::abs (x)); }
             std::printf ("feedback max + freeze, 21 s: picco %.2f nan %d\n", pk, (int) nan);
         }
-        { Processor p; p.prepareToPlay (sr, 512); p.loadFactory (2); p.swapSlots (0, 1); std::printf ("scambio 1<->2: %s %s\n", info (p.slotType (0)).name, info (p.slotType (1)).name); }
+        {
+            Processor p; p.prepareToPlay (sr, 512); for (int k = 0; k < kSlots; ++k) p.setSlot (k, OFF);
+            p.setSlot (0, SHIMMER); p.setP (0, 0, 1.0f); p.setP (0, 2, 1.0f); p.setP (0, 4, 1.0f); p.P (mixId (0))->setValueNotifyingHost (1.0f);
+            std::vector<float> o; run (p, 3000, o); float pk = 0, pkEnd = 0; for (size_t i = 0; i < o.size(); ++i) { pk = std::max (pk, std::abs (o[i])); if (i > o.size() * 9 / 10) pkEnd = std::max (pkEnd, std::abs (o[i])); }
+            std::printf ("shimmer al massimo 32 s: picco %.2f, picco nell'ultimo 10%% %.2f\n", pk, pkEnd);
+        }
+        { Processor p; p.prepareToPlay (sr, 512); p.loadFactory (4); p.swapSlots (0, 1); std::printf ("scambio 1<->2: %s %s\n", info (p.slotType (0)).name, info (p.slotType (1)).name); }
         return 0;
     }
     if (argc > 2 && juce::String (argv[1]) == "snap")

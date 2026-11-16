@@ -1726,6 +1726,18 @@ void Root::paintStatic (juce::Graphics& g)
 {
     using namespace neo;
     const float W = (float) Editor::W, H = (float) Editor::H;
+    if (skinned())
+    {   // CBRPNK / HUD: fondo, testata e lastre dalla pelle (scritte leggibili anche fuori dai pannelli)
+        cyberBackdrop (g, W, H);
+        cyberHeader (g, W, 56, "SAMPLER", juce::String::fromUTF8 ("16 PAD  \xc2\xb7  SEQUENCER"));
+        const float dy = ed.live ? 458.0f : 0.0f;
+        plate (g, { 962, 78, 414, 416 }, K::pink);
+        if (! ed.live) plate (g, { 962, 504, 414, H - 520 }, K::violet);
+        plate (g, { 24, 536 - dy, 928, 94 }, K::accent);
+        g.setFont (cap (8.0f)); g.setColour (K::sub); g.drawText ("Q-LINK", juce::Rectangle<float> (44, 546 - dy, 80, 12), juce::Justification::centredLeft);
+        plate (g, { 24, 640 - dy, 928, ed.live ? 312.0f : 182.0f }, K::cyan);
+        return;
+    }
     if (cyber())
     {   // notte al neon ma ordinata: fondo inchiostro, orizzonte che si accende appena, pavimento a griglia in prospettiva dietro ai pannelli
         const float hy = H * 0.56f;

@@ -13,13 +13,16 @@ inline juce::String mixId (int k)  { return "s" + juce::String (k + 1) + "mix"; 
 inline juce::String rtId (int k)   { return "s" + juce::String (k + 1) + "par"; }
 inline juce::String pId (int k, int i) { return "s" + juce::String (k + 1) + "p" + juce::String (i + 1); }
 
-struct SpPreset { const char* name; const char* note; int type[kSlots]; float mix[kSlots]; bool par[kSlots]; bool on[kSlots]; };
+struct SpSlot { int type = OFF; float mix = 0.3f; bool par = true; std::vector<float> p {}; };   // p: valori 0..1, -1 = tipico del motore
+struct SpPreset { juce::String cat, name, note; std::vector<SpSlot> s; float dry = 1, wet = 0, duck = 0; };
 const std::vector<SpPreset>& factoryPresets();
 
-class Processor : public juce::AudioProcessor
+class Processor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     Processor();
+    ~Processor() override { stopTimer(); }
+    void updateIRs();                    // carica le risposte della convoluzione quando cambiano (thread dei messaggi)
     void prepareToPlay (double, int) override;
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout&) const override;
@@ -60,6 +63,8 @@ public:
     std::atomic<double> uiBpm { 120 };
 
 private:
+    void timerCallback() override { updateIRs(); }
+    bool prepared = false;
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     Slot slots[kSlots];
     juce::AudioBuffer<float> dry, chain, par, wet;

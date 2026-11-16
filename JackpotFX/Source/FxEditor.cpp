@@ -24,6 +24,7 @@ static juce::Colour glass (float a) { return K::hi.withAlpha (light() ? juce::jm
 static juce::Colour waveCol() { return light() ? juce::Colour (0xff6b3fd6) : juce::Colour (0xffd88cff).interpolatedWith (juce::Colour (0xffff7ab6), 0.35f); }
 static void panel (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour edge, float c = 14, float glow = 1.0f, bool display = false)
 {   // lastra arrotondata come nel Master: ombra corta, fondo sfumato, un filo di luce in alto e un velo del colore del gruppo
+    if (skinned()) { neo::plate (g, r, edge); return; }
     const float rad = juce::jmin (20.0f, c * 1.3f);
     g.setColour (K::lo.withAlpha (light() ? 0.10f : 0.35f)); g.fillRoundedRectangle (r.translated (0, 3), rad);
     juce::ColourGradient bgc (display ? K::disp0 : K::panel0, 0, r.getY(), display ? K::disp1 : K::panel1, 0, r.getBottom(), false); g.setGradientFill (bgc); g.fillRoundedRectangle (r, rad);
@@ -303,6 +304,8 @@ void AdvPanel::tick()
 // ======================================================================= editor
 Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
 {
+    skin::init ("fx", { 0xffe58aa0, 0xffb9a6e0, 0xffe9a260, 0xffa8bea0 }, 0xffff2e88);
+    skin::useTheme (proc.uiTheme.load());
     addAndMakeVisible (scope);
     addChildComponent (advPanel);
     for (int k = 0; k < kSlots; ++k) addAndMakeVisible (cards.add (new SlotCard (*this, k)));
@@ -332,6 +335,9 @@ void Editor::resized()
 void Editor::paintStatic (juce::Graphics& g)
 {
     const float Wf = (float) W, Hf = (float) H;
+    if (skinned()) { neo::cyberBackdrop (g, Wf, Hf); neo::cyberHeader (g, Wf, 64, "FX", juce::String::fromUTF8 ("PERFORMANCE RACK  \xc2\xb7  8 SLOT")); }
+    else
+    {
     juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, Hf, false); g.setGradientFill (base); g.fillAll();
     juce::Image au (juce::Image::ARGB, W / 8, H / 8, true);
     { juce::Graphics ag (au); ag.addTransform (juce::AffineTransform::scale (1.0f / 8)); const float la = light() ? 0.35f : 0.6f;
@@ -346,6 +352,7 @@ void Editor::paintStatic (juce::Graphics& g)
     g.setFont (num (15.0f)); g.setColour (K::ink); g.drawText ("JACKPOT", juce::Rectangle<float> (62, 15, 100, 20), juce::Justification::centredLeft);
     g.setFont (big (15.0f)); g.setColour (K::sub); g.drawText ("FX", juce::Rectangle<float> (139, 15, 60, 20), juce::Justification::centredLeft);
     g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (U ("PERFORMANCE RACK  \xc2\xb7  8 SLOT"), juce::Rectangle<float> (62, 35, 260, 12), juce::Justification::centredLeft);
+    }
     // pannelli fissi
     panel (g, { 24, 80, 872, 252 }, waveCol(), 16, 1.0f, true);
     panel (g, { 912, 80, 264, 252 }, K::violet, 16);
