@@ -46,10 +46,11 @@ public:
     void tick();
     Editor& ed; int k = -1, shownType = -1;
     juce::OwnedArray<neo::Knob> knobs;
-    juce::Rectangle<float> closeR, resetR;
+    juce::Rectangle<float> closeR, resetR, irR;
+    std::unique_ptr<juce::FileChooser> chooser;
 };
 
-class Editor : public juce::AudioProcessorEditor, private juce::Timer
+class Editor : public juce::AudioProcessorEditor, public juce::FileDragAndDropTarget, private juce::Timer
 {
 public:
     explicit Editor (Processor&);
@@ -57,6 +58,8 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
+    bool isInterestedInFileDrag (const juce::StringArray& f) override { for (auto& x : f) if (juce::File (x).hasFileExtension ("wav;aif;aiff;flac")) return true; return false; }
+    void filesDropped (const juce::StringArray& f, int x, int y) override;
     static constexpr int W = 1200, H = 740;
     juce::SharedResourcePointer<jlook::Resources> keepLook; neo::KeepFonts keepFonts;
     void parentHierarchyChanged() override { jlook::preferFastRenderer (*this); }

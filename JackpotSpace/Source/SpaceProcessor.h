@@ -2,6 +2,7 @@
 // JACKPOT SPACE: rack di 6 slot fra riverberi e delay. Ogni slot sceglie il motore, l'ordine si cambia trascinando,
 // e ogni slot puo' stare IN SERIE (prende quello che esce dallo slot prima) o IN PARALLELO (prende il suono pulito).
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include "SpaceDSP.h"
 
 namespace jsp
@@ -55,6 +56,10 @@ public:
     bool loadPreset (const juce::File&);
     static juce::File presetFolder();
     juce::String presetName { "Init" };
+    // risposte all'impulso caricate dall'utente (una per slot)
+    juce::String userIR[kSlots];
+    bool setUserIR (int k, const juce::File& f);      // carica il file, mette SPAZIO = TUO FILE
+    juce::String userIRName (int k) const { return userIR[k].isEmpty() ? juce::String() : juce::File (userIR[k]).getFileNameWithoutExtension(); }
     std::atomic<int> uiTheme { 1 };
 
     static constexpr int kHist = 400;
@@ -65,6 +70,8 @@ public:
 private:
     void timerCallback() override { updateIRs(); }
     bool prepared = false;
+    juce::AudioBuffer<float> irData[kSlots]; double irRate[kSlots] {}; juce::String irLoaded[kSlots];
+    bool readIR (int k);
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     Slot slots[kSlots];
     juce::AudioBuffer<float> dry, chain, par, wet;

@@ -21,7 +21,7 @@ int main (int argc, char** argv)
     {
         // risposta all'impulso di ogni motore da solo, 100% bagnato: RT60 misurato, picco, correlazione L/R, NaN
         std::vector<std::pair<int, float>> cases; for (int t = 1; t < kNumTypes; ++t) cases.push_back ({ t, -1.0f });
-        if (std::getenv ("JRT")) { cases.clear(); for (int t : { (int) HALL, (int) ROOM, (int) SHIMMER, (int) PLATE }) for (float v : { 0.15f, 0.45f, 0.75f }) cases.push_back ({ t, v }); }
+        if (std::getenv ("JRT")) { cases.clear(); for (int t : { (int) HALL, (int) ROOM, (int) SHIMMER, (int) PLATE, (int) CHAMBER, (int) STUDIO }) for (float v : { 0.15f, 0.45f, 0.75f }) cases.push_back ({ t, v }); }
         for (auto [t, dv] : cases)
         {
             Processor p; p.prepareToPlay (sr, 512);
@@ -73,6 +73,16 @@ int main (int argc, char** argv)
             p.setSlot (0, SHIMMER); p.setP (0, 0, 1.0f); p.setP (0, 2, 1.0f); p.setP (0, 4, 1.0f); p.P (mixId (0))->setValueNotifyingHost (1.0f);
             std::vector<float> o; run (p, 3000, o); float pk = 0, pkEnd = 0; for (size_t i = 0; i < o.size(); ++i) { pk = std::max (pk, std::abs (o[i])); if (i > o.size() * 9 / 10) pkEnd = std::max (pkEnd, std::abs (o[i])); }
             std::printf ("shimmer al massimo 32 s: picco %.2f, picco nell'ultimo 10%% %.2f\n", pk, pkEnd);
+        }
+        {   // IR dell'utente: scrive un wav e lo carica
+            juce::File wf ("/tmp/test_ir.wav"); wf.deleteFile();
+            { auto ir = makeIR (2, 1.0f, 0.0f, false, sr); juce::WavAudioFormat wav; std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (new juce::FileOutputStream (wf), sr, 2, 24, {}, 0)); w->writeFromAudioSampleBuffer (ir, 0, ir.getNumSamples()); }
+            Processor p; p.prepareToPlay (sr, 512); for (int k = 0; k < kSlots; ++k) p.setSlot (k, OFF);
+            const bool ok = p.setUserIR (2, wf); juce::Thread::sleep (600);
+            p.P (mixId (2))->setValueNotifyingHost (1.0f); p.P ("dry")->setValueNotifyingHost (0.0f);
+            std::vector<float> o; run (p, 300, o); double e = 0; for (size_t i = o.size() / 2; i < o.size(); ++i) e += (double) o[i] * o[i];
+            std::printf ("IR utente caricata %s, slot 3 = %s / %s, rms %.1f dB\n", ok ? "si" : "no", info (p.slotType (2)).name, paramText (CONV, 0, p.value (pId (2, 0)), nullptr).toRawUTF8(), 10 * std::log10 (e / (o.size() / 2) + 1e-20));
+            juce::MemoryBlock mb; p.getStateInformation (mb); Processor q; q.setStateInformation (mb.getData(), (int) mb.getSize()); std::printf ("IR salvata nella sessione: %s\n", q.userIRName (2).toRawUTF8());
         }
         { Processor p; p.prepareToPlay (sr, 512); p.loadFactory (4); p.swapSlots (0, 1); std::printf ("scambio 1<->2: %s %s\n", info (p.slotType (0)).name, info (p.slotType (1)).name); }
         return 0;

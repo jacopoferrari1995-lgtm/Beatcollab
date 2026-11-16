@@ -13,10 +13,10 @@
 
 namespace jsp
 {
-enum Type { OFF = 0, PLATE, HALL, ROOM, SPRING, TAPE, DIGITAL, SHIMMER, SPACED, MORPH, NEOVERB, CONV, BBD, REVERSE, MULTITAP, kNumTypes };
+enum Type { OFF = 0, PLATE, HALL, ROOM, SPRING, TAPE, DIGITAL, SHIMMER, SPACED, MORPH, NEOVERB, CONV, BBD, REVERSE, MULTITAP, CHAMBER, GATED, STUDIO, CLOUD, GRANULAR, kNumTypes };
 constexpr int kP = 8;   // parametri per motore
 // come si legge ogni parametro
-enum Kind { KP, KDEC, KPRE, KLO, KHI, KBR, KSIZE, KBX, KTX, KSPR, KSPT, KTIME, KFB, KSYNC, KTT, KOFF, KWID, KPITCH, KIR, KPAT, KLEN, KDIV, KMORPH, KONOFF, KBIP };
+enum Kind { KP, KDEC, KPRE, KLO, KHI, KBR, KSIZE, KBX, KTX, KSPR, KSPT, KTIME, KFB, KSYNC, KTT, KOFF, KWID, KPITCH, KIR, KPAT, KLEN, KDIV, KMORPH, KONOFF, KBIP, KGP, KGS, KDENS, KHOLD, KREL, KTHR, KERS };
 struct EngInfo { const char* name; const char* group; const char* desc; int n; const char* pn[kP]; float def[kP]; Kind kind[kP]; };
 inline const EngInfo& info (int t)
 {
@@ -63,10 +63,25 @@ inline const EngInfo& info (int t)
           { KTIME, KFB, KSYNC, KHI, KLO, KP } },
         { "MULTITAP", "DELAY", "Quattro ripetizioni a ritmo (dritto, puntato, terzine, rampa, swing, cascata) sparse nello stereo.", 8,
           { "TEMPO", "FEEDBACK", "SYNC", "PATTERN", "SPREAD", "HI-CUT", "LO-CUT", "CODA" }, { 0.727f, 0.20f, 1.0f, 0.0f, 0.70f, 0.70f, 0.25f, 0.50f },
-          { KTIME, KFB, KSYNC, KPAT, KP, KHI, KLO, KP } } };
+          { KTIME, KFB, KSYNC, KPAT, KP, KHI, KLO, KP } },
+        { "CHAMBER", "RIVERBERI", "Camera d'eco in muratura (stile SSL Reverb Collection e studi storici): densa, calda, medi in avanti. Voci soul, rullanti, fiati.", 8,
+          { "DECAY", "PRE-DELAY", "SIZE", "DIFFUSIONE", "BRILLO", "MOD", "LO-CUT", "HI-CUT" }, { 0.30f, 0.06f, 0.50f, 0.60f, 0.45f, 0.20f, 0.35f, 0.65f },
+          { KDEC, KPRE, KSIZE, KP, KP, KP, KLO, KHI } },
+        { "GATED", "RIVERBERI", "Il riverbero gated anni 80 delle console SSL: stanza grande schiacciata dal listen mic e tagliata dal gate. Rullanti, tom, clap.", 8,
+          { "HOLD", "SOGLIA", "SIZE", "RELEASE", "CRUNCH", "PRE-DELAY", "LO-CUT", "HI-CUT" }, { 0.45f, 0.55f, 0.60f, 0.25f, 0.50f, 0.0f, 0.35f, 0.75f },
+          { KHOLD, KTHR, KSIZE, KREL, KP, KPRE, KLO, KHI } },
+        { "STUDIO", "RIVERBERI", "Stile Voxengo CRTIV: prime riflessioni e coda regolate a parte (grandezza, bilanciamento, densita'). Per costruire lo spazio su misura.", 8,
+          { "DECAY", "PRE-DELAY", "EARLY SIZE", "EARLY/CODA", "DENSITA'", "BRILLO", "WIDTH", "HI-CUT" }, { 0.40f, 0.05f, 0.40f, 0.50f, 0.70f, 0.55f, 0.67f, 0.80f },
+          { KDEC, KPRE, KERS, KP, KP, KP, KWID, KHI } },
+        { "CLOUD", "SPAZIALI", "Riverbero granulare: il suono si sbriciola in grani (anche trasposti) che finiscono in una nuvola. Pad, texture, transizioni.", 8,
+          { "DECAY", "GRANI", "DENSITA'", "PITCH", "SPRAY", "NUVOLA", "MOD", "HI-CUT" }, { 0.55f, 0.50f, 0.50f, 0.40f, 0.50f, 0.60f, 0.40f, 0.70f },
+          { KDEC, KGS, KDENS, KGP, KP, KP, KP, KHI } },
+        { "GRANULAR", "DELAY", "Delay granulare: ripetizioni fatte di grani, sparse, trasposte o al contrario. Glitch, ad-lib, campioni.", 8,
+          { "TEMPO", "FEEDBACK", "SYNC", "GRANI", "DENSITA'", "PITCH", "SPRAY", "REVERSE" }, { 0.727f, 0.30f, 1.0f, 0.40f, 0.50f, 0.40f, 0.30f, 0.0f },
+          { KTIME, KFB, KSYNC, KGS, KDENS, KGP, KP, KP } } };
     return I[juce::jlimit (0, kNumTypes - 1, t)];
 }
-inline bool isDelay (int t) { return t == TAPE || t == DIGITAL || t == BBD || t == REVERSE || t == MULTITAP; }
+inline bool isDelay (int t) { return t == TAPE || t == DIGITAL || t == BBD || t == REVERSE || t == MULTITAP || t == GRANULAR; }
 
 // divisioni a tempo
 constexpr int kDivs = 12;
@@ -75,8 +90,10 @@ inline double divBeats (int i) { static const double b[kDivs] = { 0.125, 1.0 / 6
 constexpr int kPitches = 6;
 inline const char* pitchName (int i) { static const char* n[kPitches] = { "-12", "+5", "+7", "+12", "+19", "+24" }; return n[juce::jlimit (0, kPitches - 1, i)]; }
 inline float pitchRatio (int i) { static const float s[kPitches] = { -12, 5, 7, 12, 19, 24 }; return std::pow (2.0f, s[juce::jlimit (0, kPitches - 1, i)] / 12.0f); }
-constexpr int kIRs = 8;
-inline const char* irName (int i) { static const char* n[kIRs] = { "STUDIO A", "CHAMBER", "CHIESA", "CATTEDRALE", "PLATE '70", "TUNNEL", "LEGNO", "CISTERNA" }; return n[juce::jlimit (0, kIRs - 1, i)]; }
+constexpr int kIRs = 8, kIRChoices = kIRs + 1;   // l'ultima scelta = il tuo file
+inline const char* irName (int i) { static const char* n[kIRChoices] = { "STUDIO A", "CHAMBER", "CHIESA", "CATTEDRALE", "PLATE '70", "TUNNEL", "LEGNO", "CISTERNA", "TUO FILE" }; return n[juce::jlimit (0, kIRChoices - 1, i)]; }
+constexpr int kGPitch = 6;
+inline const char* gpName (int i) { static const char* n[kGPitch] = { "-12", "-5", "0", "+7", "+12", "OTTAVE" }; return n[juce::jlimit (0, kGPitch - 1, i)]; }
 constexpr int kPats = 6;
 inline const char* patName (int i) { static const char* n[kPats] = { "DRITTO", "PUNTATO", "TERZINE", "RAMPA", "SWING", "CASCATA" }; return n[juce::jlimit (0, kPats - 1, i)]; }
 
@@ -96,6 +113,12 @@ inline int springs (float n) { return 1 + juce::jlimit (0, 2, (int) std::round (
 inline int pick (float n, int count) { return juce::jlimit (0, count - 1, (int) std::round (n * (count - 1))); }
 inline float len (float n) { return 0.5f * std::pow (4.0f, n); }                // 0.5x .. 2x
 inline float tapeTone (float n) { return 1500.0f * std::pow (6.0f, n); }
+inline float grainMs (float n) { return 10.0f * std::pow (50.0f, n); }          // 10..500 ms
+inline float density (float n) { return 2.0f * std::pow (30.0f, n); }           // 2..60 grani al secondo
+inline float holdMs (float n) { return 30.0f + 770.0f * n * n; }
+inline float relMs (float n) { return 5.0f * std::pow (80.0f, n); }             // 5..400 ms
+inline float thrDb (float n) { return -50.0f + 50.0f * n; }
+inline float erMs (float n) { return 5.0f * std::pow (16.0f, n); }              // 5..80 ms
 // dal valore vero allo 0..1 (per i preset)
 inline float nDecay (int t, float sec) { const float a = t == ROOM ? 0.1f : t == SPRING ? 0.4f : t == PLATE ? 0.2f : 0.3f, b = t == ROOM ? 40.0f : t == SPRING ? 15.0f : 100.0f; return juce::jlimit (0.0f, 1.0f, std::log (sec / a) / std::log (b)); }
 inline float nPre (float ms) { return juce::jlimit (0.0f, 1.0f, ms / 250.0f); }
@@ -132,11 +155,18 @@ inline juce::String paramText (int t, int i, float n, const float* all)
         case KOFF: return (n > 0.5f ? "+" : "") + juce::String (juce::roundToInt ((n - 0.5f) * 40)) + " ms";
         case KWID: return pct (n * 1.5f);
         case KPITCH: return juce::String (pitchName (map::pick (n, kPitches))) + " st";
-        case KIR: return irName (map::pick (n, kIRs));
+        case KIR: return irName (map::pick (n, kIRChoices));
         case KPAT: return patName (map::pick (n, kPats));
         case KLEN: return pct (map::len (n));
         case KONOFF: return n > 0.5f ? "SI" : "NO";
         case KMORPH: return n < 0.25f ? "ROOM" : n < 0.45f ? "ROOM > PLATE" : n < 0.55f ? "PLATE" : n < 0.75f ? "PLATE > HALL" : "HALL";
+        case KGP: return juce::String (gpName (map::pick (n, kGPitch))) + (map::pick (n, kGPitch) < 5 ? " st" : "");
+        case KGS: return juce::String (juce::roundToInt (map::grainMs (n))) + " ms";
+        case KDENS: return juce::String (map::density (n), 1) + " /s";
+        case KHOLD: return juce::String (juce::roundToInt (map::holdMs (n))) + " ms";
+        case KREL: return juce::String (juce::roundToInt (map::relMs (n))) + " ms";
+        case KTHR: return juce::String (juce::roundToInt (map::thrDb (n))) + " dB";
+        case KERS: return juce::String (juce::roundToInt (map::erMs (n))) + " ms";
         case KBIP: return (n > 0.5f ? "+" : "") + juce::String (juce::roundToInt ((n - 0.5f) * 200)) + "%";
         default: return pct (n);
     }
@@ -241,14 +271,14 @@ public:
     // room: true = stanza (linee corte e riflessioni forti)
     void process (const float* inL, const float* inR, float* oL, float* oR, int n, int type, const float* p, bool freeze)
     {
-        const bool room = type == ROOM;
+        const bool room = type == ROOM, ch = type == CHAMBER;
         static const float base[N] = { 29.7f, 37.1f, 41.1f, 43.7f, 53.3f, 59.3f, 67.9f, 79.3f };   // ms, primi fra loro
-        const float sz = (0.5f + p[2]) * (room ? 0.32f : 1.0f);
+        const float sz = (0.5f + p[2]) * (room ? 0.32f : ch ? 0.55f : 1.0f);
         const float rt = map::decay (type, p[0]) * 1.065f;   // taratura: la modulazione e i diffusori accorciano un poco la coda
-        const float rtLo = room ? rt : rt * map::bassX (p[3]), rtHi = room ? rt * (0.15f + 0.85f * p[4]) : rt * map::trebX (p[4]);
-        const float xoL = coef (350.0f, sr), xoH = coef (room ? 3000.0f : 4000.0f, sr);   // tre bande: bassi x, medi = DECAY, alti x (come il 224)
+        const float rtLo = room ? rt : ch ? rt * 1.1f : rt * map::bassX (p[3]), rtHi = room ? rt * (0.15f + 0.85f * p[4]) : ch ? rt * (0.2f + 0.8f * p[4]) : rt * map::trebX (p[4]);
+        const float xoL = coef (350.0f, sr), xoH = coef (room ? 3000.0f : ch ? 3500.0f : 4000.0f, sr);   // tre bande: bassi x, medi = DECAY, alti x (come il 224)
         const float modD = (room ? p[5] : p[5]) * 0.0009f * (float) sr;   // fino a ~1 ms di escursione: il chorus del 224
-        const float diffG = room ? 0.6f : 0.35f + 0.4f * p[6];
+        const float diffG = room ? 0.6f : ch ? 0.45f + 0.3f * p[3] : 0.35f + 0.4f * p[6];
         const int preN = (int) (map::pre (p[1]) * 0.001 * sr);
         float len[N], gLo[N], gMid[N], gHi[N];
         for (int i = 0; i < N; ++i)
@@ -257,8 +287,8 @@ public:
             gLo[i] = freeze ? 1.0f : juce::jmin (0.9998f, rtGain (len[i], rtLo, sr)); gMid[i] = freeze ? 1.0f : juce::jmin (0.9998f, rtGain (len[i], rt, sr)); gHi[i] = freeze ? 1.0f : juce::jmin (0.9998f, rtGain (len[i], rtHi, sr));
         }
         static const int dl[4] = { 113, 167, 271, 383 };   // diffusori d'ingresso (campioni a 48k)
-        for (int i = 0; i < 4; ++i) diff[i].d = juce::jmax (1, (int) (dl[i] * sr / 48000.0 * (room ? 0.6f : 1.0f)));
-        const float erG = room ? 0.9f * p[3] : 0.25f;
+        for (int i = 0; i < 4; ++i) diff[i].d = juce::jmax (1, (int) (dl[i] * sr / 48000.0 * (room ? 0.6f : ch ? 0.8f : 1.0f)));
+        const float erG = room ? 0.9f * p[3] : ch ? 0.45f : 0.25f;
         static const float erT[8] = { 4.3f, 7.9f, 11.3f, 17.1f, 23.9f, 31.3f, 41.9f, 53.7f };
         const float dph = (float) (juce::MathConstants<double>::twoPi / sr);
         for (int s = 0; s < n; ++s)
@@ -282,7 +312,7 @@ public:
             for (int i = 0; i < N; ++i) d[i].push (h[i] * nrm + (i & 4 ? -x : x) * 0.5f + ((i ^ (i >> 1)) & 1 ? -inS : inS) * 0.3f);
             float l = 0, r = 0; for (int i = 0; i < N; ++i) { l += i & 1 ? -o[i] : o[i]; r += i & 2 ? -o[i] : o[i]; }
             // riflessioni iniziali (dal segnale prima del pre-delay della coda)
-            float el = 0, erv = 0; for (int k = 0; k < 8; ++k) { const float v = er.at ((int) (erT[k] * sz * (room ? 2.2f : 1.0f) * 0.001f * (float) sr)) * (1.0f - k * 0.09f); if (k & 1) erv += v; else el += v; }
+            float el = 0, erv = 0; for (int k = 0; k < 8; ++k) { const float v = er.at ((int) (erT[k] * sz * (room ? 2.2f : ch ? 1.4f : 1.0f) * 0.001f * (float) sr)) * (1.0f - k * 0.09f); if (k & 1) erv += v; else el += v; }
             oL[s] = 0.52f * l + erG * el * 0.6f; oR[s] = 0.52f * r + erG * erv * 0.6f;
         }
     }
@@ -454,6 +484,55 @@ private:
     double sr = 48000; Line ln; float fb = 0, hp[2] {}; LP1 lp[2];
 };
 
+// ---------------------------------------------------------------------------------------------------- GRANULARE (delay e nuvola)
+class Granular
+{
+public:
+    static constexpr int kMax = 48;
+    void prepare (double s) { sr = s; for (auto& l : ln) l.prepare ((int) (4.6 * sr) + 64); clear(); }
+    void clear() { for (auto& l : ln) l.clear(); for (auto& g : gr) g.on = false; acc = 0; fb[0] = fb[1] = 0; }
+    // T = ritardo di base (campioni); restituisce i grani in oL/oR
+    void process (const float* inL, const float* inR, float* oL, float* oR, int n, float T, float fbk, float sizeN, float densN, int pitch, float spray, float revP, float width)
+    {
+        const float L = map::grainMs (sizeN) * 0.001f * (float) sr, dens = map::density (densN), maxD = (float) ln[0].mask - 8.0f;
+        const float norm = 1.0f / std::sqrt (juce::jmax (1.0f, dens * L / (float) sr * 0.5f));
+        static const float ratios[kGPitch] = { 0.5f, 0.7492f, 1.0f, 1.4983f, 2.0f, 1.0f };
+        for (int i = 0; i < n; ++i)
+        {
+            ln[0].push (inL[i] + fbk * std::tanh (fb[0])); ln[1].push (inR[i] + fbk * std::tanh (fb[1]));
+            acc += dens / (float) sr;
+            while (acc >= 1.0f)
+            {
+                acc -= 1.0f;
+                for (auto& g : gr) if (! g.on)
+                {
+                    float r = ratios[juce::jlimit (0, kGPitch - 1, pitch)];
+                    if (pitch == kGPitch - 1) { const float q = rnd.nextFloat(); r = q < 0.33f ? 0.5f : q < 0.66f ? 1.0f : 2.0f; }
+                    if (rnd.nextFloat() < revP) r = -r;
+                    float d0 = T * (1.0f + spray * (rnd.nextFloat() * 2.0f - 1.0f) * 0.5f) + spray * rnd.nextFloat() * L;
+                    d0 = juce::jmax (d0, (r - 1.0f) * L + 4.0f, 4.0f);
+                    if (d0 + (1.0f - r) * L > maxD) d0 = maxD - (1.0f - r) * L;
+                    const float a = (juce::jlimit (-1.0f, 1.0f, (rnd.nextFloat() * 2.0f - 1.0f) * width) + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
+                    g = { true, d0, r, L, 0.0f, std::cos (a) * 1.4142f, std::sin (a) * 1.4142f };
+                    break;
+                }
+            }
+            float l = 0, rr = 0;
+            for (auto& g : gr)
+            {
+                if (! g.on) continue;
+                const float s = std::sin (juce::MathConstants<float>::pi * g.t / g.len), w = s * s;
+                l += ln[0].frac (g.d) * w * g.gl; rr += ln[1].frac (g.d) * w * g.gr;
+                g.d += 1.0f - g.rate; g.t += 1.0f; if (g.t >= g.len) g.on = false;
+            }
+            oL[i] = l * norm; oR[i] = rr * norm; fb[0] = oL[i]; fb[1] = oR[i];
+        }
+    }
+private:
+    struct Grain { bool on = false; float d = 0, rate = 1, len = 1, t = 0, gl = 1, gr = 1; };
+    double sr = 48000; Line ln[2]; Grain gr[kMax]; float acc = 0, fb[2] {}; juce::Random rnd { 11 };
+};
+
 // ---------------------------------------------------------------------------------------------------- pitch shifter a due teste (per shimmer e sparkle)
 struct Shifter
 {
@@ -545,17 +624,17 @@ public:
     void prepare (double s, int maxBlock)
     {
         sr = s; maxB = juce::jmax (64, maxBlock);
-        plate.prepare (s); fdnA.prepare (s); fdnB.prepare (s); spring.prepare (s); dly.prepare (s); rev.prepare (s); mt.prepare (s);
-        for (int c = 0; c < 2; ++c) { sh[c].prepare ((int) (0.2 * sr) + 64); conPre[c].prepare ((int) (0.26 * sr) + 8); }
+        plate.prepare (s); fdnA.prepare (s); fdnB.prepare (s); spring.prepare (s); dly.prepare (s); rev.prepare (s); mt.prepare (s); gran.prepare (s);
+        for (int c = 0; c < 2; ++c) { sh[c].prepare ((int) (0.2 * sr) + 64); conPre[c].prepare ((int) (0.26 * sr) + 8); erLn[c].prepare ((int) (0.36 * sr) + 8); }
         for (auto& v : buf) v.assign ((size_t) maxB, 0.0f);
         conv.reset(); conv.prepare ({ s, (juce::uint32) maxB, 2 }); convBuf.setSize (2, maxB);
         type = -1; irKey = -1; clearAll();
     }
     void clearAll()
     {
-        plate.clear(); fdnA.clear(); fdnB.clear(); spring.clear(); dly.clear(); rev.clear(); mt.clear(); um.clear(); conv.reset();
-        for (int c = 0; c < 2; ++c) { sh[c].clear(); conPre[c].clear(); lo[c] = 0; hi[c] = {}; tl[c] = {}; shFb[c].fill (0.0f); }
-        env = 0; duckG = 1; shEnv = 0;
+        plate.clear(); fdnA.clear(); fdnB.clear(); spring.clear(); dly.clear(); rev.clear(); mt.clear(); gran.clear(); um.clear(); conv.reset();
+        for (int c = 0; c < 2; ++c) { sh[c].clear(); conPre[c].clear(); erLn[c].clear(); lo[c] = 0; hi[c] = {}; tl[c] = {}; shFb[c].fill (0.0f); }
+        env = 0; duckG = 1; shEnv = 0; gEnv = 0; gGain = 0; hold = 0; cEnv = 0;
     }
     // scrive solo la parte "bagnata" in oL/oR
     void process (const float* inL, const float* inR, float* oL, float* oR, int n, int t, const float* p, double bpm, bool freeze)
@@ -564,11 +643,29 @@ public:
         for (int o = 0; o < n; o += maxB) { const int m = juce::jmin (maxB, n - o); run (inL + o, inR + o, oL + o, oR + o, m, t, p, bpm, freeze); }
     }
     // la convoluzione si carica dal thread dei messaggi (Processor::updateIRs)
-    int irWanted (const float* p) const { return map::pick (p[0], kIRs) * 100000 + juce::roundToInt (p[1] * 40) * 1000 + juce::roundToInt (p[3] * 20) * 10 + (p[7] > 0.5f ? 1 : 0); }
+    int irWanted (const float* p, int fileHash) const { return (map::pick (p[0], kIRChoices) * 100000 + juce::roundToInt (p[1] * 40) * 1000 + juce::roundToInt (p[3] * 20) * 10 + (p[7] > 0.5f ? 1 : 0)) ^ (map::pick (p[0], kIRChoices) == kIRs ? fileHash : 0); }
     void loadIR (int key, const float* p)
     {
         irKey = key;
-        conv.loadImpulseResponse (makeIR (map::pick (p[0], kIRs), map::len (p[1]), p[3], p[7] > 0.5f, sr), sr, juce::dsp::Convolution::Stereo::yes, juce::dsp::Convolution::Trim::no, juce::dsp::Convolution::Normalise::no);
+        conv.loadImpulseResponse (makeIR (juce::jmin (kIRs - 1, map::pick (p[0], kIRChoices)), map::len (p[1]), p[3], p[7] > 0.5f, sr), sr, juce::dsp::Convolution::Stereo::yes, juce::dsp::Convolution::Trim::no, juce::dsp::Convolution::Normalise::no);
+    }
+    // il tuo file: LUNGHEZZA lo accorcia (con dissolvenza), SCURO toglie gli alti, REVERSE lo gira
+    void loadUserIR (int key, const juce::AudioBuffer<float>& src, double srcRate, const float* p)
+    {
+        irKey = key;
+        const int keep = juce::jmax (64, (int) (src.getNumSamples() * juce::jmin (1.0f, map::len (p[1]) * 0.5f)));
+        juce::AudioBuffer<float> b (2, keep);
+        for (int c = 0; c < 2; ++c) b.copyFrom (c, 0, src, juce::jmin (c, src.getNumChannels() - 1), 0, keep);
+        const int fade = juce::jmin (keep / 4, (int) (0.05 * srcRate));
+        for (int c = 0; c < 2; ++c)
+        {
+            float* x = b.getWritePointer (c); LP1 a, bb; const float k = coef (20000.0f * std::pow (0.15f, p[3]), srcRate);
+            double e = 0;
+            for (int i = 0; i < keep; ++i) { if (p[3] > 0.02f) x[i] = bb.run (a.run (x[i], k), k); if (i > keep - fade) x[i] *= (float) (keep - i) / (float) fade; e += (double) x[i] * x[i]; }
+            const float g = (float) std::sqrt (0.5 / juce::jmax (1e-12, e)); for (int i = 0; i < keep; ++i) x[i] *= g;
+            if (p[7] > 0.5f) std::reverse (x, x + keep);
+        }
+        conv.loadImpulseResponse (std::move (b), srcRate, juce::dsp::Convolution::Stereo::yes, juce::dsp::Convolution::Trim::no, juce::dsp::Convolution::Normalise::no);
     }
     int type = -1, irKey = -1;
 private:
@@ -587,6 +684,16 @@ private:
             case SPACED: spaced (inL, inR, oL, oR, n, p, bpm, freeze); break;
             case MORPH: case NEOVERB: blend (inL, inR, oL, oR, n, t, p, freeze); break;
             case CONV: convolve (inL, inR, oL, oR, n, p); break;
+            case CHAMBER: fdnA.process (inL, inR, oL, oR, n, CHAMBER, p, freeze); break;
+            case GATED: gated (inL, inR, oL, oR, n, p, freeze); break;
+            case STUDIO: studio (inL, inR, oL, oR, n, p, freeze); break;
+            case CLOUD: cloud (inL, inR, oL, oR, n, p, freeze); break;
+            case GRANULAR:
+            {
+                const float tMs = p[2] > 0.5f ? (float) (divBeats (map::div (p[0])) * 60000.0 / juce::jmax (30.0, bpm)) : map::delayMs (p[0]);
+                gran.process (inL, inR, oL, oR, n, juce::jmin (4.0f, tMs * 0.001f) * (float) sr, p[1] * 0.95f, p[3], p[4], map::pick (p[5], kGPitch), p[6], p[7], 0.8f);
+                break;
+            }
             default: std::fill (oL, oL + n, 0.0f); std::fill (oR, oR + n, 0.0f); return;
         }
         // filtri e larghezza d'uscita (dove il motore li prevede)
@@ -599,6 +706,9 @@ private:
             case SHIMMER: lcI = 7; break;
             case SPACED: hcI = 6; break;
             case CONV: lcI = 4; hcI = 5; wI = 6; break;
+            case CHAMBER: case GATED: lcI = 6; hcI = 7; break;
+            case STUDIO: wI = 6; hcI = 7; break;
+            case CLOUD: hcI = 7; break;
             default: return;
         }
         const float a = lcI >= 0 ? coef (map::loCut (p[lcI]), sr) : 0.0f, b = hcI >= 0 ? coef (map::hiCut (p[hcI]), sr) : 0.0f, wid = wI >= 0 ? p[wI] * 1.5f : 1.0f;
@@ -674,6 +784,60 @@ private:
             const float mk = t == NEOVERB ? 1.8f : 1.0f; oL[i] = l * mk; oR[i] = r * mk;
         }
     }
+    // GATED: sala grande schiacciata dal listen mic e tagliata dal gate che si apre sui colpi
+    void gated (const float* inL, const float* inR, float* oL, float* oR, int n, const float* p, bool freeze)
+    {
+        const float hp[kP] = { map::nDecay (HALL, 2.5f), p[5], p[2], 0.5f, 0.7f, 0.1f, 0.9f, 1.0f };
+        fdnA.process (inL, inR, oL, oR, n, HALL, hp, freeze);
+        const float thr = juce::Decibels::decibelsToGain (map::thrDb (p[1])), holdN = map::holdMs (p[0]) * 0.001f * (float) sr;
+        const float ga = 1.0f - std::exp (-1.0f / (0.0005f * (float) sr)), gr = 1.0f - std::exp (-1.0f / (map::relMs (p[3]) * 0.001f * (float) sr));
+        const float ea = 1.0f - std::exp (-1.0f / (0.001f * (float) sr)), er = 1.0f - std::exp (-1.0f / (0.05f * (float) sr)), ca = 1.0f - std::exp (-1.0f / (0.002f * (float) sr)), cr = 1.0f - std::exp (-1.0f / (0.08f * (float) sr));
+        const float cr2 = p[4];
+        for (int i = 0; i < n; ++i)
+        {
+            const float lv = juce::jmax (std::abs (inL[i]), std::abs (inR[i])); gEnv = lv > gEnv ? lv : gEnv + er * (lv - gEnv);   // rivelatore di picco: il gate si apre sul primo campione del colpo
+            if (gEnv > thr) hold = holdN; else hold = juce::jmax (0.0f, hold - 1.0f);
+            const float tg = (hold > 0 || freeze) ? 1.0f : 0.0f; gGain += (tg > gGain ? ga : gr) * (tg - gGain);
+            // listen mic: compressore rapido e forte sul riverbero (il "crunch" SSL)
+            const float rv = 0.5f * (std::abs (oL[i]) + std::abs (oR[i])); cEnv += (rv > cEnv ? ca : cr) * (rv - cEnv);
+            const float comp = (1.0f + cr2 * 2.0f) / (1.0f + cr2 * 30.0f * cEnv);
+            oL[i] = std::tanh (oL[i] * comp) * 0.6f * gGain; oR[i] = std::tanh (oR[i] * comp) * 0.6f * gGain;
+        }
+    }
+    // STUDIO: prime riflessioni disegnate a parte + coda
+    void studio (const float* inL, const float* inR, float* oL, float* oR, int n, const float* p, bool freeze)
+    {
+        const float span = map::erMs (p[2]) * 0.001f * (float) sr; const int preN = (int) (map::pre (p[1]) * 0.001 * sr);
+        const float hp[kP] = { p[0], juce::jmin (1.0f, p[1] + map::erMs (p[2]) * 0.5f / 250.0f), 0.3f + 0.7f * p[2], 0.5f, 0.2f + 0.8f * p[5], 0.25f, p[4], 1.0f };
+        fdnA.process (inL, inR, oL, oR, n, HALL, hp, freeze);
+        static const float tt[12] = { 0.07f, 0.13f, 0.19f, 0.26f, 0.33f, 0.41f, 0.48f, 0.57f, 0.66f, 0.75f, 0.86f, 1.0f };
+        const int taps = 4 + juce::roundToInt (p[4] * 8.0f);
+        const float bal = p[3], erG = (1.0f - bal) * 1.8f / std::sqrt ((float) taps), lateG = bal * 1.4f;
+        const float dmp = coef (map::bright (p[5]), sr);
+        for (int i = 0; i < n; ++i)
+        {
+            erLn[0].push (freeze ? 0.0f : inL[i]); erLn[1].push (freeze ? 0.0f : inR[i]);
+            float el = 0, err = 0;
+            for (int k = 0; k < taps; ++k)
+            {
+                const int d = preN + (int) (span * tt[k]); const float g = (1.0f - k * 0.06f) * ((k * 7) % 3 ? 1.0f : -1.0f);
+                el += erLn[k & 1].at (d) * g; err += erLn[(k + 1) & 1].at (d + 7 + k * 3) * g;
+            }
+            el = tl[0].run (el, dmp); err = tl[1].run (err, dmp);
+            oL[i] = oL[i] * lateG + el * erG; oR[i] = oR[i] * lateG + err * erG;
+        }
+    }
+    // CLOUD: grani che finiscono in una sala
+    void cloud (const float* inL, const float* inR, float* oL, float* oR, int n, const float* p, bool freeze)
+    {
+        float* gl = B (0); float* gr2 = B (1); float* xl = B (2); float* xr = B (3);
+        gran.process (inL, inR, gl, gr2, n, 0.08f * (float) sr * (1.0f + 4.0f * p[4]), 0.0f, p[1], p[2], map::pick (p[3], kGPitch), p[4], 0.15f, 1.0f);
+        const float c = p[5];
+        for (int i = 0; i < n; ++i) { xl[i] = inL[i] * (1.0f - 0.7f * c) + gl[i] * c * 1.5f; xr[i] = inR[i] * (1.0f - 0.7f * c) + gr2[i] * c * 1.5f; }
+        const float hp[kP] = { p[0], 0.0f, 0.8f, 0.5f, 0.55f, p[6], 0.85f, 1.0f };
+        fdnA.process (xl, xr, oL, oR, n, HALL, hp, freeze);
+        for (int i = 0; i < n; ++i) { oL[i] += gl[i] * 0.35f * c; oR[i] += gr2[i] * 0.35f * c; }
+    }
     void convolve (const float* inL, const float* inR, float* oL, float* oR, int n, const float* p)
     {
         const int preN = (int) (map::pre (p[2]) * 0.001 * sr);
@@ -684,9 +848,9 @@ private:
         for (int i = 0; i < n; ++i) { oL[i] = cl[i]; oR[i] = cr[i]; }
     }
     double sr = 48000; int maxB = 512;
-    Plate plate; Fdn fdnA, fdnB; Spring spring; Delay dly; Reverse rev; Multitap mt; Shifter sh[2]; Unmask um; Line conPre[2];
+    Plate plate; Fdn fdnA, fdnB; Spring spring; Delay dly; Reverse rev; Multitap mt; Granular gran; Shifter sh[2]; Unmask um; Line conPre[2], erLn[2];
     juce::dsp::Convolution conv; juce::AudioBuffer<float> convBuf;
     std::array<std::vector<float>, 4> buf; std::array<float, kChunk> shFb[2] {};
-    float lo[2] {}, env = 0, duckG = 1, shEnv = 0; LP1 hi[2], tl[2];
+    float lo[2] {}, env = 0, duckG = 1, shEnv = 0, gEnv = 0, gGain = 0, hold = 0, cEnv = 0; LP1 hi[2], tl[2];
 };
 }

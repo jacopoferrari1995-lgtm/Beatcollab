@@ -10,7 +10,7 @@ const std::vector<SpPreset>& factoryPresets()
         auto S = [] (int t, float mix, bool par, std::vector<float> p = {}) { SpSlot x; x.type = t; x.mix = mix; x.par = par; x.p = std::move (p); return x; };
         auto D = [] (int t, float s) { return nDecay (t, s); };
         const float PITCH12 = nPick (3, kPitches), PITCH7 = nPick (2, kPitches), PITCH19 = nPick (4, kPitches);
-        auto IR = [] (int i) { return nPick (i, kIRs); };
+        auto IR = [] (int i) { return nPick (i, kIRChoices); };
         auto PAT = [] (int i) { return nPick (i, kPats); };
         auto OFFS = [] (float ms) { return juce::jlimit (0.0f, 1.0f, 0.5f + ms / 40.0f); };
         std::vector<SpPreset> v;
@@ -75,6 +75,13 @@ const std::vector<SpPreset>& factoryPresets()
                S (SHIMMER, 0.12f, true, { D (SHIMMER, 6.0f), nPre (80), 0.45f, PITCH7, 0.80f, nHi (6000), 0.50f, nLo (500) }) }, 0.35f);
         add ("VOCE", "Morph Strofa > Rit", "Parte da stanza: automatizza MORPH verso destra nel ritornello e diventa una sala.",
              { S (MORPH, 0.20f, true, { D (MORPH, 2.0f), nPre (30), 0.25f, 0.55f, 0.55f, 0.30f, nLo (250), nHi (10000) }) }, 0.25f);
+        add ("VOCE", "Chamber Soul", "Camera d'eco calda e piena, pre-delay corto: soul, gospel, voci che devono stare dentro la band.",
+             { S (CHAMBER, 0.22f, true, { D (CHAMBER, 1.6f), nPre (25), 0.50f, 0.60f, 0.45f, 0.20f, nLo (300), nHi (7500) }) }, 0.20f);
+        add ("VOCE", "Studio Su Misura", "Prime riflessioni vicine e coda separata: la voce sembra in una stanza vera ma con la coda di una sala.",
+             { S (STUDIO, 0.20f, true, { D (STUDIO, 1.8f), nPre (10), 0.35f, 0.45f, 0.80f, 0.55f, 0.70f, nHi (10000) }) }, 0.20f);
+        add ("VOCE", "Ad-lib Granulari", "Le ad-lib si sbriciolano in grani all'ottava sparsi nello stereo: effetto moderno senza coprire la voce.",
+             { S (GRANULAR, 0.25f, true, { nDiv ("1/8"), 0.30f, 1, 0.35f, 0.55f, nPick (4, kGPitch), 0.40f, 0.20f }),
+               S (PLATE, 0.15f, true, { D (PLATE, 1.8f), nPre (20), 0.60f, nBr (7000), 0.30f, nLo (300), nHi (9000), 0.80f }) }, 0.50f);
         // ------------------------------------------------------------------ BATTERIA
         add ("BATTERIA", "Rullante Plate", "Lastra corta e brillante, bassi tagliati: il rullante prende coda senza sporcare la cassa.",
              { S (PLATE, 0.20f, true, { D (PLATE, 1.1f), nPre (0), 0.45f, nBr (9000), 0.20f, nLo (350), nHi (12000), 0.90f }) });
@@ -88,6 +95,12 @@ const std::vector<SpPreset>& factoryPresets()
         add ("BATTERIA", "Clap Riverso", "Il clap che arriva al contrario un quarto prima, con la lastra.",
              { S (REVERSE, 0.30f, true, { nDiv ("1/4"), 0.10f, 1, nHi (10000), nLo (400), 0.30f }),
                S (PLATE, 0.15f, true, { D (PLATE, 1.5f), nPre (0), 0.50f, nBr (9000), 0.25f, nLo (400), nHi (12000), 0.80f }) });
+        add ("BATTERIA", "Rullante Gated 80", "Il rullante gated delle console SSL: grande, schiacciato, tagliato secco dopo 300 ms.",
+             { S (GATED, 0.35f, true, { 0.55f, 0.55f, 0.70f, 0.20f, 0.60f, nPre (0), nLo (250), nHi (9000) }) });
+        add ("BATTERIA", "Tom Gated", "Gate piu' lungo e meno crunch per i tom e i fill.",
+             { S (GATED, 0.30f, true, { 0.70f, 0.50f, 0.80f, 0.35f, 0.35f, nPre (5), nLo (120), nHi (8000) }) });
+        add ("BATTERIA", "Clap Chamber", "Camera d'eco corta e brillante sui clap e gli snap.",
+             { S (CHAMBER, 0.25f, true, { D (CHAMBER, 0.9f), nPre (0), 0.40f, 0.70f, 0.65f, 0.10f, nLo (400), nHi (11000) }) });
         // ------------------------------------------------------------------ STRUMENTI
         add ("STRUMENTI", "Chitarra Spring", "Molla piena e un'eco a nastro: la chitarra da ampli.",
              { S (SPRING, 0.30f, true, { D (SPRING, 2.0f), 0.50f, 1.0f, 0.50f, 0.50f, nLo (150), 0.70f, 0.0f }),
@@ -120,6 +133,12 @@ const std::vector<SpPreset>& factoryPresets()
         add ("CREATIVI", "Ottava Riversa", "Reverse a mezza battuta dentro uno shimmer: transizioni e drop.",
              { S (REVERSE, 0.40f, false, { nDiv ("1/2"), 0.35f, 1, nHi (9000), nLo (300), 0.60f }),
                S (SHIMMER, 0.30f, false, { D (SHIMMER, 5.0f), nPre (0), 0.50f, PITCH12, 0.80f, nHi (8000), 0.60f, nLo (300) }) });
+        add ("CREATIVI", "Nuvola Granulare", "Il suono si sbriciola in grani che salgono e scendono di ottava dentro una sala lunga.",
+             { S (CLOUD, 0.45f, true, { D (CLOUD, 5.0f), 0.55f, 0.60f, nPick (5, kGPitch), 0.70f, 0.70f, 0.50f, nHi (9000) }) });
+        add ("CREATIVI", "Glitch Grani", "Delay granulare a un sedicesimo, grani corti, meta' al contrario: glitch su loop e campioni.",
+             { S (GRANULAR, 0.40f, true, { nDiv ("1/16"), 0.45f, 1, 0.15f, 0.80f, nPick (2, kGPitch), 0.60f, 0.50f }) });
+        add ("CREATIVI", "Il Tuo Spazio (IR)", "Convoluzione con il tuo file: trascina un .wav sulla scheda o usa CARICA IR nei parametri.",
+             { S (CONV, 0.30f, true, { 1.0f, 0.50f, nPre (0), 0.0f, nLo (100), nHi (16000), 0.67f, 0.0f }) });
         // ------------------------------------------------------------------ MANDATA (DRY a 0, da mettere su una traccia return)
         add ("MANDATA", "Mandata | Plate", "Solo lastra, DRY a 0: da mettere su una traccia di ritorno.",
              { S (PLATE, 1.0f, true, { D (PLATE, 1.8f), nPre (30), 0.60f, nBr (7000), 0.30f, nLo (250), nHi (10000), 0.80f }) }, 0.0f, 0.0f);
@@ -171,6 +190,27 @@ Processor::Processor()
     presetName = factoryPresets()[0].name;
     startTimerHz (10);
 }
+bool Processor::readIR (int k)
+{
+    if (userIR[k].isEmpty()) return false;
+    if (irLoaded[k] == userIR[k] && irData[k].getNumSamples() > 0) return true;
+    juce::File f (userIR[k]); if (! f.existsAsFile()) return false;
+    juce::AudioFormatManager fm; fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (f)); if (r == nullptr) return false;
+    const int n = (int) std::min<juce::int64> (r->lengthInSamples, (juce::int64) (r->sampleRate * 12.0));
+    irData[k].setSize (2, n); irData[k].clear(); r->read (&irData[k], 0, n, 0, true, true);
+    if (r->numChannels == 1) irData[k].copyFrom (1, 0, irData[k], 0, 0, n);
+    irRate[k] = r->sampleRate; irLoaded[k] = userIR[k];
+    return true;
+}
+bool Processor::setUserIR (int k, const juce::File& f)
+{
+    const auto old = userIR[k]; userIR[k] = f.getFullPathName();
+    if (! readIR (k)) { userIR[k] = old; return false; }
+    if (slotType (k) != CONV) setSlot (k, CONV);
+    setP (k, 0, 1.0f);   // SPAZIO = TUO FILE
+    updateIRs(); return true;
+}
 void Processor::updateIRs()
 {
     if (! prepared) return;
@@ -178,8 +218,11 @@ void Processor::updateIRs()
     {
         if (slotType (k) != CONV) continue;
         float p[kP]; for (int i = 0; i < kP; ++i) p[i] = value (pId (k, i));
-        const int key = slots[k].irWanted (p);
-        if (key != slots[k].irKey) slots[k].loadIR (key, p);
+        const bool user = map::pick (p[0], kIRChoices) == kIRs;
+        if (user && ! readIR (k)) continue;   // nessun file: resta l'ultimo ambiente caricato
+        const int key = slots[k].irWanted (p, user ? userIR[k].hashCode() : 0);
+        if (key == slots[k].irKey) continue;
+        if (user) slots[k].loadUserIR (key, irData[k], irRate[k], p); else slots[k].loadIR (key, p);
     }
 }
 bool Processor::isBusesLayoutSupported (const BusesLayout& l) const
@@ -264,6 +307,7 @@ void Processor::setSlot (int k, int type)
 void Processor::swapSlots (int a, int b)
 {
     if (a == b) return;
+    std::swap (userIR[a], userIR[b]); std::swap (irData[a], irData[b]); std::swap (irRate[a], irRate[b]); std::swap (irLoaded[a], irLoaded[b]);
     const int ta = slotType (a), tb = slotType (b);
     float xa[kP + 3], xb[kP + 3];
     for (int i = 0; i < kP; ++i) { xa[i] = value (pId (a, i)); xb[i] = value (pId (b, i)); }
@@ -302,6 +346,7 @@ bool Processor::savePreset (const juce::File& f)
         s->setAttribute ("type", juce::String (info (slotType (k)).name)); s->setAttribute ("on", value (onId (k)) > 0.5f ? 1 : 0);
         s->setAttribute ("mix", (double) value (mixId (k))); s->setAttribute ("par", value (rtId (k)) > 0.5f ? 1 : 0);
         juce::StringArray av; for (int i = 0; i < kP; ++i) av.add (juce::String (value (pId (k, i)), 4)); s->setAttribute ("p", av.joinIntoString (","));
+        if (userIR[k].isNotEmpty()) s->setAttribute ("ir", userIR[k]);
     }
     for (auto id : { "dry", "wet", "duck", "out" }) x.setAttribute (id, (double) value (id));
     const bool ok = x.writeTo (f); if (ok) presetName = f.getFileNameWithoutExtension(); return ok;
@@ -318,6 +363,7 @@ bool Processor::loadPreset (const juce::File& f)
         P (mixId (k))->setValueNotifyingHost ((float) s->getDoubleAttribute ("mix", 0.3)); P (rtId (k))->setValueNotifyingHost (s->getIntAttribute ("par", 1) ? 1.0f : 0.0f);
         const auto av = juce::StringArray::fromTokens (s->getStringAttribute ("p"), ",", "");
         for (int i = 0; i < juce::jmin (kP, av.size()); ++i) setP (k, i, av[i].getFloatValue());
+        userIR[k] = s->getStringAttribute ("ir");
         ++k;
     }
     for (auto id : { "dry", "wet", "duck", "out" }) if (x->hasAttribute (id)) { auto* p = P (id); p->setValueNotifyingHost (p->convertTo0to1 ((float) x->getDoubleAttribute (id))); }
@@ -326,6 +372,7 @@ bool Processor::loadPreset (const juce::File& f)
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
     auto s = apvts.copyState(); s.setProperty ("preset", presetName, nullptr); s.setProperty ("theme", uiTheme.load(), nullptr);
+    for (int k = 0; k < kSlots; ++k) s.setProperty ("ir" + juce::String (k + 1), userIR[k], nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
@@ -334,6 +381,7 @@ void Processor::setStateInformation (const void* data, int size)
     {
         auto t = juce::ValueTree::fromXml (*x); if (! t.isValid()) return;
         presetName = t.getProperty ("preset", presetName).toString(); uiTheme = (int) t.getProperty ("theme", 1);
+        for (int k = 0; k < kSlots; ++k) userIR[k] = t.getProperty ("ir" + juce::String (k + 1), "").toString();
         apvts.replaceState (t);
     }
 }

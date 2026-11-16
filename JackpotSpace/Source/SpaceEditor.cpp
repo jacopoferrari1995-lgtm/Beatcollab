@@ -15,6 +15,9 @@ static juce::Colour typeCol (int t)
         case MORPH: return K::mint.interpolatedWith (K::cyan, 0.5f); case NEOVERB: return K::blue.interpolatedWith (K::violet, 0.5f);
         case CONV: return K::red; case BBD: return K::amber.interpolatedWith (K::red, 0.45f); case REVERSE: return K::pink.interpolatedWith (K::amber, 0.4f);
         case MULTITAP: return K::amber.interpolatedWith (K::mint, 0.45f);
+        case CHAMBER: return K::amber.interpolatedWith (K::violet, 0.5f); case GATED: return K::red.interpolatedWith (K::violet, 0.3f);
+        case STUDIO: return K::blue.interpolatedWith (K::mint, 0.4f); case CLOUD: return K::pink.interpolatedWith (K::violet, 0.5f);
+        case GRANULAR: return K::mint.interpolatedWith (K::pink, 0.4f);
         default: return K::faint;
     }
 }
@@ -108,7 +111,8 @@ void SlotCard::paint (juce::Graphics& g)
         auto l = routeR.withWidth (routeR.getWidth() * 0.5f - 2), r = routeR.withTrimmedLeft (routeR.getWidth() * 0.5f + 2);
         chip (g, l, "SERIE", ! par, K::amber, 7.5f); chip (g, r, "PARALLELO", par, K::cyan, 7.5f);
     }
-    g.setFont (cap (6.5f)); g.setColour (K::faint); g.drawText (I.group, juce::Rectangle<float> (0, 90, b.getWidth(), 10), juce::Justification::centred);
+    g.setFont (cap (6.5f)); g.setColour (K::faint);
+    g.drawText (t == CONV && map::pick (P.value (pId (k, 0)), kIRChoices) == kIRs && P.userIR[k].isNotEmpty() ? P.userIRName (k).toUpperCase() : juce::String (I.group), juce::Rectangle<float> (0, 90, b.getWidth(), 10), juce::Justification::centred);
     // ingranaggio
     {
         const bool open = ed.advPanel.isVisible() && ed.advPanel.k == k;
@@ -252,7 +256,7 @@ void AdvPanel::open (int kk)
 void AdvPanel::resized()
 {
     auto b = getLocalBounds().toFloat();
-    closeR = { b.getRight() - 46, 14, 30, 24 }; resetR = { b.getRight() - 160, 14, 106, 24 };
+    closeR = { b.getRight() - 46, 14, 30, 24 }; resetR = { b.getRight() - 160, 14, 106, 24 }; irR = { b.getRight() - 290, 14, 122, 24 };
     const int n = knobs.size(); if (n == 0) return;
     const int S = 58, w = S + 26, gap = 18, tot = n * w + (n - 1) * gap, x0 = (int) b.getCentreX() - tot / 2;
     for (int i = 0; i < n; ++i) knobs[i]->setBounds (juce::Rectangle<int> (x0 + i * (w + gap), 82, w, S + 38).expanded (Knob::pad));
@@ -271,11 +275,25 @@ void AdvPanel::paint (juce::Graphics& g)
     g.drawText (U ("doppio clic = valore tipico  \xc2\xb7  shift = fine  \xc2\xb7  le prime due sono anche sulla scheda"), juce::Rectangle<float> (20, b.getBottom() - 30, b.getWidth() - 40, 16), juce::Justification::centredLeft);
     chip (g, resetR, "RIPRISTINA", false, K::amber, 8.0f);
     chip (g, closeR, "X", false, K::pink, 10.0f);
+    if (t == CONV)
+    {
+        chip (g, irR, "CARICA IR...", ed.proc.userIR[k].isNotEmpty(), K::red, 8.0f);
+        g.setFont (f (9.0f)); g.setColour (K::sub);
+        const auto nm = ed.proc.userIRName (k);
+        g.drawText (nm.isEmpty() ? juce::String ("nessun file: trascina un .wav sulla scheda") : "file: " + nm, juce::Rectangle<float> (irR.getX() - 280, 14, 270, 24), juce::Justification::centredRight);
+    }
 }
 void AdvPanel::mouseDown (const juce::MouseEvent& e)
 {
     if (closeR.contains (e.position)) { setVisible (false); for (auto* c : ed.cards) c->repaint(); return; }
-    if (resetR.contains (e.position)) { ed.proc.resetP (k); repaint(); if (k >= 0) ed.cards[k]->repaint(); }
+    if (resetR.contains (e.position)) { ed.proc.resetP (k); repaint(); if (k >= 0) ed.cards[k]->repaint(); return; }
+    if (k >= 0 && ed.proc.slotType (k) == CONV && irR.contains (e.position))
+    {
+        chooser = std::make_unique<juce::FileChooser> ("Scegli una risposta all'impulso", juce::File::getSpecialLocation (juce::File::userMusicDirectory), "*.wav;*.aif;*.aiff;*.flac");
+        juce::Component::SafePointer<AdvPanel> sp (this);
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [sp] (const juce::FileChooser& c)
+        { if (sp == nullptr) return; auto f = c.getResult(); if (f.existsAsFile() && sp->ed.proc.setUserIR (sp->k, f)) sp->ed.refreshAll(); });
+    }
 }
 void AdvPanel::tick()
 {
@@ -439,6 +457,13 @@ void Editor::presetMenu()
         if (r < 1000) sp->proc.loadFactory (r - 1); else if (r < 2000) sp->proc.loadPreset (files[r - 1000]); else Processor::presetFolder().revealToUser();
         sp->refreshAll();
     });
+}
+void Editor::filesDropped (const juce::StringArray& files, int x, int y)
+{
+    const auto pos = juce::Point<float> ((float) x, (float) y) / scaler.s;
+    for (int k = 0; k < kSlots; ++k)
+        if (cards[k]->getBoundsInParent().toFloat().contains (pos))
+            for (auto& fn : files) if (proc.setUserIR (k, juce::File (fn))) { refreshAll(); advPanel.open (k); return; }
 }
 void Editor::endDrag (juce::Point<float> pos)
 {
