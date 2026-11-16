@@ -28,8 +28,75 @@ int main (int argc, char** argv)
         }
         ed.select (0);
         for (int k = 0; k < 20; ++k) { ed.stage.needle += (p.gr[0].load() - ed.stage.needle) * 0.5f; }
+        if (std::getenv ("JBENCH"))
+        {
+            auto bench = [] (juce::Component& c, const char* nm)
+            {
+                const auto t0 = juce::Time::getMillisecondCounterHiRes(); const int n = 20;
+                for (int i = 0; i < n; ++i) { auto im = c.createComponentSnapshot (c.getLocalBounds(), true, 2.0f); (void) im; }
+                std::printf ("%-18s %7.2f ms per disegno (Retina 2x)\n", nm, (juce::Time::getMillisecondCounterHiRes() - t0) / n);
+            };
+            bench (ed, "editor intero"); bench (ed, "editor (cache calda)");
+            for (auto* c : ed.getChildren()) c->setVisible (false); bench (ed, "solo sfondo editor"); for (auto* c : ed.getChildren()) c->setVisible (true);
+            ed.graph.setVisible (true); bench (ed.stage, "stadio"); bench (ed.rack, "rack"); bench (ed.graph, "grafico"); bench (ed.guide, "guida");
+            if (auto* k = ed.stage.drive.get()) bench (*k, "manopola grande"); if (auto* k = ed.stage.att.get()) bench (*k, "manopola");
+            // DSP: 6 stadi accesi
+            for (int s2 = 0; s2 < kStages; ++s2) if (auto* q = p.apvts.getParameter (juce::String (stagePfx (s2)) + "on")) q->setValueNotifyingHost (1.0f);
+            const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int k = 0; k < 1000; ++k) p.processBlock (b, m);
+            std::printf ("DSP 6 stadi: %.1f%% di un core (blocchi da 480 a 48 kHz)\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 1000.0 / 10.0 * 100.0);
+            return 0;
+        }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "presets")
+    {
+        juce::ScopedJuceInitialiser_GUI gui2;
+        Processor p0; const int np = p0.getNumPrograms();
+        for (int i = 1; i < np; ++i)
+        {
+            Processor p; p.prepareToPlay (48000, 480); p.loadPreset (i);
+            juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer mi; juce::Random r (5); double ph = 0; float g[kStages] {}; double ein = 0, eout = 0;
+            for (int k = 0; k < 500; ++k)
+            {
+                for (int i2 = 0; i2 < 480; ++i2)
+                {
+                    const long n = (long) k * 480 + i2; const double t = n / 48000.0, sy = std::fmod (t * 3.1, 1.0);
+                    ph += 2 * 3.14159 * (180 + 40 * std::sin (t * 2)) / 48000;
+                    const float v = 0.5f * ((float) (std::sin (ph) + 0.4 * std::sin (ph * 2.01)) * (float) (0.15 + 0.5 * std::exp (-sy * 4)) + (r.nextFloat() - 0.5f) * 0.05f);
+                    b.setSample (0, i2, v); b.setSample (1, i2, v * 0.95f);
+                }
+                if (k > 200) for (int i2 = 0; i2 < 480; ++i2) ein += b.getSample (0, i2) * b.getSample (0, i2);
+                p.processBlock (b, mi);
+                if (k > 200) for (int i2 = 0; i2 < 480; ++i2) eout += b.getSample (0, i2) * b.getSample (0, i2);
+                if (k > 200) for (int s = 0; s < kStages; ++s) g[s] += p.avgGr[s].load() / 299.0f;
+            }
+            juce::String l; for (int s = 0; s < kStages; ++s) if (p.stageParams (s).on) l << info (p.stageParams (s).model).name << " " << juce::String (g[s], 1) << " (soglia " << juce::String (stageThrDb (p.stageParams (s).model, p.stageParams (s).drive, p.stageParams (s).thr670), 0) << ")  ";
+            std::printf ("%-40s %+5.1f dB | %s\n", p.getProgramName (i).toRawUTF8(), 10 * std::log10 (eout / ein), l.toRawUTF8());
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "neutral")
+    {   // ogni modello acceso con i valori di partenza: non deve comprimere ne' cambiare volume
+        juce::ScopedJuceInitialiser_GUI gui2;
+        for (int m = 0; m < kNumModels; ++m)
+        {
+            Processor p; p.prepareToPlay (48000, 480);
+            p.apvts.getParameter ("a_on")->setValueNotifyingHost (1.0f);
+            auto* pm = p.apvts.getParameter ("a_model"); pm->setValueNotifyingHost (pm->convertTo0to1 ((float) m));
+            if (m == MULTI) { auto* d = p.apvts.getParameter ("a_drive"); d->setValueNotifyingHost (0.3f); }
+            juce::AudioBuffer<float> b (2, 480); juce::MidiBuffer mi; double ph = 0, ein = 0, eout = 0; float mx = 0;
+            for (int k = 0; k < 300; ++k)
+            {
+                for (int i = 0; i < 480; ++i) { ph += 2 * 3.14159 * 220 / 48000; const float v = 0.89f * (float) std::sin (ph) * (float) (0.3 + 0.7 * ((k / 25) % 2)); b.setSample (0, i, v); b.setSample (1, i, v); }
+                if (k > 100) for (int i = 0; i < 480; ++i) ein += b.getSample (0, i) * b.getSample (0, i);
+                p.processBlock (b, mi);
+                if (k > 100) for (int i = 0; i < 480; ++i) eout += b.getSample (0, i) * b.getSample (0, i);
+                if (k > 100) mx = juce::jmax (mx, p.gr[0].load());
+            }
+            std::printf ("%-11s GR max %5.2f dB   volume %+.2f dB\n", info (m).name, mx, 10 * std::log10 (eout / ein));
+        }
         return 0;
     }
     if (argc > 1 && juce::String (argv[1]) == "listen")

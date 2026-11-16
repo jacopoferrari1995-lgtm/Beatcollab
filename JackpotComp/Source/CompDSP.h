@@ -25,17 +25,17 @@ struct ModelInfo
 inline const ModelInfo& info (int m)
 {
     static const ModelInfo I[kNumModels] = {
-        { "OPTO 2A", "ispirato al Teletronix LA-2A", "PEAK RED.", false, false, false, { "COMPRESS", "LIMIT" }, "MODO", 0xffe9dfc6, 0xffffb000 },
-        { "OPTO 3A", "ispirato all'Urei LA-3A", "PEAK RED.", false, false, false, { "COMPRESS", "LIMIT" }, "MODO", 0xffd8d2c4, 0xffff8a3d },
+        { "OPTO 2A", "ispirato al Teletronix LA-2A", "PEAK REDUCTION", false, false, false, { "COMPRESS", "LIMIT" }, "MODO", 0xffe9dfc6, 0xffffb000 },
+        { "OPTO 3A", "ispirato all'Urei LA-3A", "PEAK REDUCTION", false, false, false, { "COMPRESS", "LIMIT" }, "MODO", 0xffd8d2c4, 0xffff8a3d },
         { "FET 76", "ispirato all'Urei 1176", "INPUT", true, true, true, { "4", "8", "12", "20", "ALL" }, "RATIO", 0xff16181d, 0xff5ef2ff },
-        { "VCA BUS", "ispirato al bus comp SSL G", "THRESH", false, true, true, { "2", "4", "10" }, "RATIO", 0xff1d2a24, 0xff7dff5a },
+        { "VCA BUS", "ispirato al bus comp SSL G", "THRESHOLD", false, true, true, { "2", "4", "10" }, "RATIO", 0xff1d2a24, 0xff7dff5a },
         { "VARI-MU", "ispirato a Fairchild 670 / Manley", "INPUT", true, false, false, { "TC1", "TC2", "TC3", "TC4", "TC5", "TC6" }, "TIME CONST.", 0xff2a2418, 0xffffd23f },
-        { "RMS 160", "ispirato al dbx 160", "THRESH", false, false, false, { "2", "3", "4", "6", "10", "INF" }, "RATIO", 0xff121418, 0xffa66bff },
+        { "RMS 160", "ispirato al dbx 160", "THRESHOLD", false, false, false, { "2", "3", "4", "6", "10", "INF" }, "RATIO", 0xff121418, 0xffa66bff },
         { "DISTRESS", "ispirato all'Empirical Labs Distressor", "INPUT", true, true, true, { "1", "2", "3", "4", "6", "10", "20", "NUKE" }, "RATIO", 0xff10223a, 0xff2e8bff },
         { "OTT", "ispirato all'OTT multibanda (Xfer)", "DEPTH", false, true, true, { "UP + DOWN", "DOWN", "UP" }, "MODO", 0xff1a1024, 0xffff4fd8 },
         { "VARI 670", "ispirato al Fairchild 670 (come il VC-670 di IK)", "INPUT", true, true, true, { "TC1", "TC2", "TC3", "TC4", "TC5", "TC6" }, "TIME CONSTANT", 0xff2b2620, 0xffffc861 },
         { "MULTIBANDA", "multibanda a 4 bande (stile Pro-MB / alpha)", "THRESH", false, true, true, { "2 BANDE", "3 BANDE", "4 BANDE" }, "BANDE", 0xff101820, 0xff3dd6ff },
-        { "SSL 4000E", "ispirato al compressore di canale SSL 4000 E", "THRESH", false, true, true, { "1.5", "2", "3", "4", "6", "10", "20", "INF" }, "RATIO", 0xff1c1f24, 0xff4dd2ff } };
+        { "SSL 4000E", "ispirato al compressore di canale SSL 4000 E", "THRESHOLD", false, true, true, { "1.5", "2", "3", "4", "6", "10", "20", "INF" }, "RATIO", 0xff1c1f24, 0xff4dd2ff } };
     return I[juce::jlimit (0, kNumModels - 1, m)];
 }
 
@@ -48,18 +48,53 @@ struct MbParams
 };
 struct StageParams
 {
-    bool on = true; int model = 0; float drive = 0.3f; int ratio = 0; float att = 0.5f, rel = 0.5f, outDb = 0, color = 0.3f, mix = 1;
-    float drive2 = 0.3f, att2 = 0.5f; int ratio2 = 0; bool link = true, outLink = false;   // 670: canale destro (o VERT) e collegamento; OUT legato all'INPUT
+    bool on = true; int model = 0; float drive = 0; int ratio = 0; float att = 0.5f, rel = 0.5f, outDb = 0, color = 0, mix = 1;
+    float drive2 = 0, att2 = 0, thr670 = 0; int ratio2 = 0; bool link = true, outLink = false;   // 670: canale destro (o VERT) e collegamento; OUT legato all'INPUT
     const MbParams* mb = nullptr;
 };
 inline int mbBands (const StageParams& p) { return 2 + juce::jlimit (0, 2, p.ratio); }
 // manopola SOGLIE +/-: 0 dB al valore di default (0.3), da -12 a +12 dB
 inline float mbOffset (float d) { return d >= 0.3f ? (d - 0.3f) / 0.7f * 12.0f : (d - 0.3f) / 0.3f * 12.0f; }
 // 670: soglia, modo stereo
-inline float t670Thr (float a) { return -4.0f - a * 24.0f; }
+// Soglie: tutti i modelli partono neutri a manopola zero (soglia a 0 dBFS = non comprime).
+// - modelli a soglia (OPTO, VCA, RMS, SSL): soglia = -40 dB x manopola
+// - modelli a INPUT (FET, VARI-MU, DISTRESS): come l'hardware alzi l'ingresso dentro una soglia fissa; qui l'uscita
+//   e' gia' compensata, quindi INPUT +X dB = soglia -X dB rispetto al segnale (fino a +48 dB)
+// - 670: THRESHOLD da 0 a -28 dB, piu' l'INPUT che spinge le valvole (compensato in uscita)
+inline float t670Thr (float a) { return -a * 28.0f; }
+inline float inputRangeDb (int m) { return m == VC670 ? 18.0f : 48.0f; }
+inline bool isInputModel (int m) { return m == FET76 || m == VARIMU || m == DISTRESS; }
+inline float stageThrDb (int m, float d, float a = 0) { return m == VC670 ? t670Thr (a) - d * 18.0f : isInputModel (m) ? -d * 48.0f : -d * 40.0f; }
+// ginocchio: larghezza in dB della zona in cui la compressione entra piano piano
+inline float kneeDb (int m, int ratio)
+{
+    switch (m)
+    {
+        case OPTO2A: return ratio == 0 ? 14.0f : 6.0f; case OPTO3A: return ratio == 0 ? 10.0f : 5.0f; case FET76: return ratio == 0 ? 6.0f : 2.0f;
+        case VCABUS: return ratio == 0 ? 4.0f : ratio == 1 ? 2.0f : 1.0f; case VARIMU: return 24.0f; case RMS160: return 0.5f; case VC670: return 12.0f;
+        case SSLCH: return 2.0f; case DISTRESS: return ratio <= 2 ? 10.0f : ratio < 6 ? 4.0f : 1.0f; default: return 0.0f;
+    }
+}
+// conversione dei valori salvati con la versione precedente (soglia al centro del ginocchio, ingresso che alzava davvero il volume):
+// stessa curva di prima, ma ora la manopola indica dove la compressione INIZIA
+inline float convOldDrive (int m, int ratio, float d)
+{
+    if (m == OTT || m == MULTI || m == VC670) return d;
+    const float Told = isInputModel (m) ? (m == FET76 ? (ratio == 0 ? -16.0f : -12.0f) : m == VARIMU ? -12.0f : -18.0f) - 36.0f * d : -40.0f * d;
+    return juce::jlimit (0.0f, 1.0f, (kneeDb (m, ratio) * 0.5f - Told) / (isInputModel (m) ? 48.0f : 40.0f));
+}
+inline float convOld670Thr (float a) { return juce::jlimit (0.0f, 1.0f, (10.0f + 24.0f * a) / 28.0f); }
 
 // valori mostrati a schermo
-inline juce::String fmtDrive (int m, float d) { if (m == MULTI) return (mbOffset (d) > 0 ? "+" : "") + juce::String (mbOffset (d), 1) + " dB"; if (m == VC670) return "+" + juce::String (d * 18.0f, 1) + " dB"; if (m == OTT) return juce::String (juce::roundToInt (d * 100)) + "%"; return info (m).fixedThreshold ? "+" + juce::String (d * 36.0f, 1) + " dB" : (m <= OPTO3A ? juce::String (juce::roundToInt (d * 100)) : juce::String (-d * 40.0f, 1) + " dB"); }
+inline juce::String fmtDb (float v, int dec = 1) { return (v > 0.04f ? "+" : "") + juce::String (v, dec) + " dB"; }
+inline juce::String fmtDrive (int m, float d)
+{
+    if (m == MULTI) return fmtDb (mbOffset (d));
+    if (m == OTT) return juce::String (juce::roundToInt (d * 100)) + "%";
+    if (m == VC670 || isInputModel (m)) return d < 0.002f ? juce::String ("0 dB") : "+" + juce::String (d * inputRangeDb (m), 1) + " dB";
+    if (m <= OPTO3A) return juce::String (juce::roundToInt (d * 100));
+    return d < 0.002f ? juce::String ("0 dB") : juce::String (-d * 40.0f, 1) + " dB";
+}
 inline float attMs (int m, float a)
 {
     switch (m)
@@ -96,21 +131,21 @@ inline float gainComputer (const StageParams& p, float levDb)
     {
         case OPTO2A: T = -p.drive * 40.0f; R = p.ratio == 0 ? 3.0f : 12.0f; W = p.ratio == 0 ? 14.0f : 6.0f; break;
         case OPTO3A: T = -p.drive * 40.0f; R = p.ratio == 0 ? 3.0f : 10.0f; W = p.ratio == 0 ? 10.0f : 5.0f; break;
-        case FET76: { static const float r[] = { 4, 8, 12, 20, 20 }; const int k = juce::jlimit (0, 4, p.ratio); R = r[k]; T = k == 0 ? -16.0f : -12.0f; W = k == 0 ? 6.0f : 2.0f; break; }
+        case FET76: { static const float r[] = { 4, 8, 12, 20, 20 }; const int k = juce::jlimit (0, 4, p.ratio); R = r[k]; T = stageThrDb (FET76, p.drive); W = k == 0 ? 6.0f : 2.0f; break; }
         case VCABUS: { static const float r[] = { 2, 4, 10 }; R = r[juce::jlimit (0, 2, p.ratio)]; T = -p.drive * 40.0f; W = R <= 2 ? 4.0f : R <= 4 ? 2.0f : 1.0f; break; }
-        case VARIMU: { T = -12; W = 24; const float over = juce::jmax (0.0f, levDb - T); R = 1.5f + over / 5.0f; R = juce::jmin (R, 8.0f); break; }
+        case VARIMU: { T = stageThrDb (VARIMU, p.drive); W = 24; const float over = juce::jmax (0.0f, levDb - T - 12.0f); R = 1.5f + over / 5.0f; R = juce::jmin (R, 8.0f); break; }
         case RMS160: { static const float r[] = { 2, 3, 4, 6, 10, 60 }; R = r[juce::jlimit (0, 5, p.ratio)]; T = -p.drive * 40.0f; W = 0.5f; break; }
         case VC670:
         {   // valvola remote-cutoff: il rapporto cresce con quanto si va oltre la soglia (circa 1.3:1 -> 20:1), ginocchio larghissimo
-            const float T6 = t670Thr (p.att), K = 7.0f;
-            const float o = levDb - T6, x = o > 30 ? o : K * std::log1p (std::exp (o / K));   // ginocchio morbido
+            const float T6 = t670Thr (p.thr670), K = 6.0f;
+            const float o = levDb - T6 - K, x = o > 30 ? o : K * std::log1p (std::exp (o / K));   // ginocchio morbido
             const float k = 0.18f;   // rapporto = 1.3 + 0.18 x dB oltre la soglia
             const float g = x - (1.0f / k) * std::log ((1.3f + k * x) / 1.3f);
-            return juce::jmax (0.0f, g - 0.35f);
+            return juce::jmax (0.0f, g - 0.6f);
         }
         case MULTI: return 0;
         case SSLCH: { static const float r[] = { 1.5f, 2, 3, 4, 6, 10, 20, 100 }; R = r[juce::jlimit (0, 7, p.ratio)]; T = -p.drive * 40.0f; W = 2.0f; break; }
-        case DISTRESS: { static const float r[] = { 1, 2, 3, 4, 6, 10, 20, 100 }; R = r[juce::jlimit (0, 7, p.ratio)]; T = -18; W = R <= 3 ? 10.0f : R < 20 ? 4.0f : 1.0f; break; }
+        case DISTRESS: { static const float r[] = { 1, 2, 3, 4, 6, 10, 20, 100 }; R = r[juce::jlimit (0, 7, p.ratio)]; T = stageThrDb (DISTRESS, p.drive); W = R <= 3 ? 10.0f : R < 20 ? 4.0f : 1.0f; break; }
         case OTT:
         {   // curva statica indicativa della banda media: giu sopra -20, su sotto -40
             float g = 0; const bool dn = p.ratio != 2, up = p.ratio != 1;
@@ -120,6 +155,7 @@ inline float gainComputer (const StageParams& p, float levDb)
         }
         default: break;
     }
+    T += W * 0.5f;   // la soglia a schermo e' dove il ginocchio comincia
     const float over = levDb - T, s = 1.0f - 1.0f / R;
     if (2 * over < -W) return 0;
     if (2 * std::abs (over) <= W) return s * (over + W / 2) * (over + W / 2) / (2 * W);
@@ -127,8 +163,8 @@ inline float gainComputer (const StageParams& p, float levDb)
     if (p.model == FET76 && p.ratio == 4) gr *= 1.15f;    // "all buttons": eccesso tipico
     return gr;
 }
-inline float inputGainDb (const StageParams& p) { return p.model == VC670 ? p.drive * 18.0f : info (p.model).fixedThreshold ? p.drive * 36.0f : 0.0f; }
-
+// guadagno che il rilevatore vede in piu' (solo 670: l'INPUT spinge davvero le valvole e l'uscita viene compensata)
+inline float inputGainDb (const StageParams& p) { return p.model == VC670 ? p.drive * 18.0f : 0.0f; }
 class Stage
 {
 public:
@@ -260,7 +296,7 @@ public:
             grAvg = avgC * grAvg + (1 - avgC) * gr;
             if (deltaL) { deltaL[i] = L[i] * (1 - g); deltaR[i] = R[i] * (1 - g); }   // cio che lo stadio toglie
             // OUT legato: l'uscita scende quando alzi l'INPUT (circa 3/4 di quello che aggiungi), il volume resta simile
-            const float og = juce::Decibels::decibelsToGain (p.outDb - (p.outLink ? inputGainDb (p) * 0.75f : 0.0f));
+            const float og = juce::Decibels::decibelsToGain (p.outDb);
             float yl = xl * g, yr = xr * g;
             // auto gain: allinea l'energia d'uscita a quella d'ingresso (media su ~1 s)
             eIn = avgC2 * eIn + (1 - avgC2) * 0.5f * (L[i] * L[i] + R[i] * R[i]);
@@ -330,10 +366,9 @@ private:
         // due canali veri come l'originale: INPUT, THRESHOLD e TIME CONSTANT per lato. LINK acceso = il destro segue il sinistro
         // e (in L/R) i due rilevatori sono uniti, cosi' l'immagine stereo non si sposta
         StageParams pc[2] = { p, p };
-        if (! p.link) { pc[1].drive = p.drive2; pc[1].att = p.att2; pc[1].ratio = p.ratio2; }
+        if (! p.link) { pc[1].drive = p.drive2; pc[1].thr670 = p.att2; pc[1].ratio = p.ratio2; }
         const float inGc[2] = { juce::Decibels::decibelsToGain (inputGainDb (pc[0])), juce::Decibels::decibelsToGain (inputGainDb (pc[1])) };
-        const float inG = inGc[0];
-        const float og = juce::Decibels::decibelsToGain (p.outDb - (p.outLink ? inputGainDb (p) * 0.75f : 0.0f));
+        const float og = juce::Decibels::decibelsToGain (p.outDb);   // INPUT compensato per canale piu' sotto: piu' valvola, stesso volume
         const bool ms = p.rel > 0.5f;
         static const float ta[] = { 0.2f, 0.2f, 0.4f, 0.4f, 0.4f, 0.2f }, tr[] = { 300, 800, 2000, 5000, -1, -2 };
         const int k = juce::jlimit (0, 5, p.ratio);
@@ -373,15 +408,16 @@ private:
             {
                 float x = y[c];
                 lfLp[c] += (x - lfLp[c]) * aLf; const float lo = lfLp[c], kd = 1.0f + col * 2.5f;
-                x += (std::tanh (lo * kd * 1.6f) / (kd * 1.6f) - lo) * 0.9f + lo * 0.0f;
+                x += (std::tanh (lo * kd * 1.6f) / (kd * 1.6f) - lo) * 0.9f * (0.25f + 0.75f * col);
                 const float bias = 0.04f + 0.22f * col + 0.012f * juce::jmin (gr, 15.0f), d = 1.0f + col * 1.4f;
                 const float n = d * (1 - std::tanh (bias) * std::tanh (bias));
-                x = 1.4f * (std::tanh (d * x / 1.4f + bias) - std::tanh (bias)) / n;
+                const float tube = 1.4f * (std::tanh (d * x / 1.4f + bias) - std::tanh (bias)) / n, wt = 0.3f + 0.7f * col;
+                x += (tube - x) * wt;
                 bLp[c] += (x - bLp[c]) * 0.0005f; x -= bLp[c];
                 hfLp[c] += (x - hfLp[c]) * aHf; x += (x - hfLp[c]) * (0.06f + 0.14f * col);
-                y[c] = x;
+                y[c] = x / inGc[c];
             }
-            if (deltaL) { deltaL[i] = L[i] - y[0] / inG; deltaR[i] = R[i] - y[1] / inG; }
+            if (deltaL) { deltaL[i] = L[i] - y[0]; deltaR[i] = R[i] - y[1]; }
             float yl = y[0], yr = y[1];
             eIn = avgC2 * eIn + (1 - avgC2) * 0.5f * (L[i] * L[i] + R[i] * R[i]);
             eOut = avgC2 * eOut + (1 - avgC2) * 0.5f * (yl * yl + yr * yr);

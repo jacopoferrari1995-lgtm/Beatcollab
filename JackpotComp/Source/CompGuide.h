@@ -9,7 +9,7 @@ inline const Guide& guide (int m)
     static const Guide G[] = {
         { "Ottico a valvole: attacco morbido (10 ms), rilascio in due tempi, prima veloce poi lungo e dipendente da quanto ha lavorato. Non si sente, livella. Colore valvolare caldo.",
           "Voce, basso elettrico, synth pad, bus degli strumenti. Ottimo DOPO un FET 76 in serie.",
-          "COMPRESS. Alza PEAK RED. finche vedi 3-6 dB di riduzione sui passaggi forti, poi recupera col GAIN. Per la voce rap 4-6 dB." },
+          "COMPRESS. Alza PEAK REDUCTION finche vedi 3-6 dB di riduzione sui passaggi forti, poi recupera col GAIN. Per la voce rap 4-6 dB." },
         { "Ottico piu rapido (1.5 ms) e piu presente nelle medie, rilascio piu corto. Tiene sotto controllo senza ammorbidire troppo.",
           "Chitarre, voce davanti al mix, rullante, synth lead.",
           "COMPRESS, 3-5 dB di riduzione. LIMIT quando devi bloccare picchi ballerini." },

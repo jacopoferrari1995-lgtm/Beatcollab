@@ -100,6 +100,25 @@ inline void softShadow (juce::Graphics& g, juce::Rectangle<float> r, float rad, 
     }
     g.drawImage (*img, area, juce::RectanglePlacement::stretchToFit);
 }
+// strato statico in cache: si disegna una volta (finche' la chiave non cambia) e poi si copia.
+// Serve ai pannelli che hanno sopra parti animate: senza, ogni lancetta o LED ridisegnava tutto lo sfondo
+// (sfumature, grana, ombre) 30 volte al secondo, e sul filo di Ableton questo fa andare a scatti tutto il set.
+struct StaticLayer
+{
+    juce::Image img; float sc = 0; juce::String key;
+    void invalidate() { img = {}; }
+    template <typename F> void draw (juce::Graphics& g, juce::Rectangle<int> area, const juce::String& k, F&& fn)
+    {
+        const float s = juce::jlimit (0.5f, 6.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        if (img.isNull() || std::abs (s - sc) > 0.01f || k != key || img.getWidth() != juce::roundToInt (area.getWidth() * s))
+        {
+            sc = s; key = k;
+            img = juce::Image (juce::Image::ARGB, juce::jmax (1, juce::roundToInt (area.getWidth() * s)), juce::jmax (1, juce::roundToInt (area.getHeight() * s)), true);
+            juce::Graphics ig (img); ig.addTransform (juce::AffineTransform::translation ((float) -area.getX(), (float) -area.getY()).scaled (s)); fn (ig);
+        }
+        g.drawImage (img, area.toFloat(), juce::RectanglePlacement::stretchToFit);
+    }
+};
 // grana fine (texture cacheata) per togliere l'effetto "piatto"
 inline void grain (juce::Graphics& g, juce::Rectangle<int> r, float alpha = 0.035f)
 {

@@ -16,18 +16,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
         static const int defM[kStages] = { FET76, OPTO2A, VCABUS, RMS160, VARIMU, OTT };
         l.add (std::make_unique<AudioParameterChoice> (ParameterID { p + "_model", 1 }, P + "Model", modelNames(), defM[st]));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "_solo", 1 }, P + "Solo", false));
-        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_drive", 1 }, P + "Input/Thresh", NormalisableRange<float> (0, 1), 0.3f));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_drive", 1 }, P + "Input/Thresh", NormalisableRange<float> (0, 1), 0.0f));
         l.add (std::make_unique<AudioParameterInt> (ParameterID { p + "_ratio", 1 }, P + "Ratio", 0, 7, 0));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_att", 1 }, P + "Attack", NormalisableRange<float> (0, 1), 0.5f));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_rel", 1 }, P + "Release", NormalisableRange<float> (0, 1), 0.35f));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_out", 1 }, P + "Output", NormalisableRange<float> (-12, 24), 0));
-        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_color", 1 }, P + "Color", NormalisableRange<float> (0, 1), 0.3f));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_color", 1 }, P + "Color", NormalisableRange<float> (0, 1), 0.0f));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_mix", 1 }, P + "Mix", NormalisableRange<float> (0, 1), 1));
-        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_drive2", 1 }, P + "Input R/Vert", NormalisableRange<float> (0, 1), 0.3f));
-        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_att2", 1 }, P + "Threshold R/Vert", NormalisableRange<float> (0, 1), 0.5f));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_drive2", 1 }, P + "Input R/Vert", NormalisableRange<float> (0, 1), 0.0f));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_att2", 1 }, P + "Threshold R/Vert", NormalisableRange<float> (0, 1), 0.0f));
         l.add (std::make_unique<AudioParameterInt> (ParameterID { p + "_ratio2", 1 }, P + "Time Const R/Vert", 0, 7, 0));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "_link", 1 }, P + "Link", true));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "_olink", 1 }, P + "Output Link", false));
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { p + "_thr", 1 }, P + "Threshold 670", NormalisableRange<float> (0, 1), 0.0f));
     }
     // multibanda
     auto F = [&l] (const String& id, const String& n, NormalisableRange<float> r, float d) { l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, n, r, d)); };
@@ -36,7 +37,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     for (int b = 1; b <= 4; ++b)
     {
         const String p = "mb_b" + String (b) + "_", P = "MB banda " + String (b) + " ";
-        F (p + "thr", P + "soglia", { -60, 0 }, -20); F (p + "ratio", P + "ratio", skew (1, 20, 3), 2.5f);
+        F (p + "thr", P + "soglia", { -60, 0 }, 0); F (p + "ratio", P + "ratio", skew (1, 20, 3), 2.5f);
         F (p + "att", P + "attacco", skew (0.1f, 200, 10), 10); F (p + "rel", P + "rilascio", skew (5, 2000, 150), 150); F (p + "gain", P + "guadagno", { -12, 12 }, 0);
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "solo", 1 }, P + "solo", false));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "byp", 1 }, P + "bypass", false));
@@ -47,6 +48,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "scHpf", 1 }, "SC HPF", NormalisableRange<float> (20, 500, 0, 0.4f), 20));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "scListen", 1 }, "SC Listen", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "auto", 1 }, "Auto Gain", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "delta", 1 }, "Delta", false));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mix", 1 }, "Mix", NormalisableRange<float> (0, 1), 1));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "out", 1 }, "Output", NormalisableRange<float> (-12, 12), 0));
     return l;
@@ -59,6 +61,23 @@ Processor::Processor()
       apvts (*this, nullptr, "JSC", layout())
 {
     for (int i = 0; i < kHist; ++i) { hIn[i] = -60; hOut[i] = -60; for (int s = 0; s < kStages; ++s) hGr[s][i] = 0; }
+    // puntatori ai parametri presi una volta sola: nel processBlock niente stringhe ne' ricerche (allocavano memoria nel thread audio)
+    auto R = [this] (const juce::String& id) { return apvts.getRawParameterValue (id); };
+    for (int s = 0; s < kStages; ++s)
+    {
+        const juce::String p = juce::String (stagePfx (s)).dropLastCharacters (1);
+        auto& q = pp[s];
+        q.on = R (p + "_on"); q.model = R (p + "_model"); q.solo = R (p + "_solo"); q.drive = R (p + "_drive"); q.ratio = R (p + "_ratio");
+        q.att = R (p + "_att"); q.rel = R (p + "_rel"); q.out = R (p + "_out"); q.color = R (p + "_color"); q.mix = R (p + "_mix");
+        q.drive2 = R (p + "_drive2"); q.att2 = R (p + "_att2"); q.ratio2 = R (p + "_ratio2"); q.link = R (p + "_link"); q.olink = R (p + "_olink"); q.thr = R (p + "_thr");
+    }
+    for (int b = 0; b < 4; ++b)
+    {
+        const juce::String p = "mb_b" + juce::String (b + 1) + "_";
+        mbp[b] = { R (p + "thr"), R (p + "ratio"), R (p + "att"), R (p + "rel"), R (p + "gain"), R (p + "solo"), R (p + "byp") };
+    }
+    gx[0] = R ("mb_x1"); gx[1] = R ("mb_x2"); gx[2] = R ("mb_x3");
+    gScSrc = R ("scSrc"); gScTo = R ("scTo"); gScHpf = R ("scHpf"); gScListen = R ("scListen"); gRoute = R ("route"); gAuto = R ("auto"); gMix = R ("mix"); gOut = R ("out"); gDelta = R ("delta");
 }
 
 bool Processor::isBusesLayoutSupported (const BusesLayout& l) const
@@ -79,23 +98,23 @@ void Processor::prepareToPlay (double s, int maxBlock)
     sr = s;
     for (auto& x : st) x.prepare (s);
     cap.prepare (s);
-    dry.setSize (2, maxBlock); det.setSize (2, maxBlock); aux.setSize (2, maxBlock); acc.setSize (2, maxBlock); dlt.setSize (2, maxBlock);
+    dry.setSize (2, maxBlock); det.setSize (2, maxBlock); aux.setSize (2, maxBlock); acc.setSize (2, maxBlock); dlt.setSize (2, maxBlock); tmp.setSize (2, maxBlock);
     for (auto& a : hp) for (auto& f : a) f.reset();
     lastHp = -1;
 }
 
 StageParams Processor::stageParams (int s) const
 {
-    const juce::String p = juce::String (stagePfx (s)).dropLastCharacters (1);
+    const auto& p = pp[s];
     StageParams q;
-    q.on = value ((p + "_on").toRawUTF8()) > 0.5f;
-    q.model = juce::roundToInt (value ((p + "_model").toRawUTF8()));
-    q.drive = value ((p + "_drive").toRawUTF8());
-    q.ratio = juce::jlimit (0, info (q.model).ratios.size() - 1, juce::roundToInt (value ((p + "_ratio").toRawUTF8())));
-    q.att = value ((p + "_att").toRawUTF8()); q.rel = value ((p + "_rel").toRawUTF8());
-    q.outDb = value ((p + "_out").toRawUTF8()); q.color = value ((p + "_color").toRawUTF8()); q.mix = value ((p + "_mix").toRawUTF8());
-    q.drive2 = value ((p + "_drive2").toRawUTF8()); q.att2 = value ((p + "_att2").toRawUTF8()); q.ratio2 = juce::jlimit (0, 5, juce::roundToInt (value ((p + "_ratio2").toRawUTF8())));
-    q.link = value ((p + "_link").toRawUTF8()) > 0.5f; q.outLink = value ((p + "_olink").toRawUTF8()) > 0.5f;
+    q.on = p.on->load() > 0.5f;
+    q.model = juce::jlimit (0, kNumModels - 1, juce::roundToInt (p.model->load()));
+    q.drive = p.drive->load();
+    q.ratio = juce::jlimit (0, info (q.model).ratios.size() - 1, juce::roundToInt (p.ratio->load()));
+    q.att = p.att->load(); q.rel = p.rel->load();
+    q.outDb = p.out->load(); q.color = p.color->load(); q.mix = p.mix->load();
+    q.drive2 = p.drive2->load(); q.att2 = p.att2->load(); q.thr670 = p.thr->load(); q.ratio2 = juce::jlimit (0, 5, juce::roundToInt (p.ratio2->load()));
+    q.link = p.link->load() > 0.5f; q.outLink = false;
     q.mb = &mbNow;
     return q;
 }
@@ -105,7 +124,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     juce::ScopedNoDenormals nd;
     auto main = getBusBuffer (buffer, true, 0);
     const int N = buffer.getNumSamples(), nch = juce::jmin (2, main.getNumChannels());
-    if (N > dry.getNumSamples()) for (auto* b : { &dry, &det, &aux, &acc, &dlt }) b->setSize (2, N, false, false, true);
+    if (N > dry.getNumSamples()) for (auto* b : { &dry, &det, &aux, &acc, &dlt, &tmp }) b->setSize (2, N, false, false, true);
     float* L = main.getWritePointer (0); float* R = nch > 1 ? main.getWritePointer (1) : main.getWritePointer (0);
 
     // sidechain esterno
@@ -116,8 +135,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         if (sc.getNumChannels() > 0) { eL = sc.getReadPointer (0); eR = sc.getReadPointer (juce::jmin (1, sc.getNumChannels() - 1)); }
     }
     extSc = eL != nullptr;
-    const bool useExt = value ("scSrc") > 0.5f && eL != nullptr;
-    const int scTo = juce::roundToInt (value ("scTo"));
+    const bool useExt = gScSrc->load() > 0.5f && eL != nullptr;
+    const int scTo = juce::roundToInt (gScTo->load());
 
     // misura ingresso
     float pkI[2] = { 0, 0 }; double eIn = 0;
@@ -126,7 +145,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     cap.push (L, R, N);
 
     // filtro passa alto del sidechain
-    const float hpF = value ("scHpf");
+    const float hpF = gScHpf->load();
     if (std::abs (hpF - lastHp) > 0.5f)
     {
         auto c = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr, juce::jmax (20.0f, hpF), 0.707f);
@@ -141,37 +160,43 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         if (hpF > 21) for (int i = 0; i < N; ++i) { dl[i] = hp[s][0].processSample (dl[i]); dr[i] = hp[s][1].processSample (dr[i]); }
     };
 
-    mbNow.xo[0] = value ("mb_x1"); mbNow.xo[1] = value ("mb_x2"); mbNow.xo[2] = value ("mb_x3");
+    for (int k = 0; k < 3; ++k) mbNow.xo[k] = gx[k]->load();
     for (int b = 0; b < 4; ++b)
     {
-        const juce::String p = "mb_b" + juce::String (b + 1) + "_";
-        mbNow.thr[b] = value ((p + "thr").toRawUTF8()); mbNow.ratio[b] = value ((p + "ratio").toRawUTF8()); mbNow.att[b] = value ((p + "att").toRawUTF8());
-        mbNow.rel[b] = value ((p + "rel").toRawUTF8()); mbNow.gain[b] = value ((p + "gain").toRawUTF8());
-        mbNow.solo[b] = value ((p + "solo").toRawUTF8()) > 0.5f; mbNow.byp[b] = value ((p + "byp").toRawUTF8()) > 0.5f;
+        const auto& q = mbp[b];
+        mbNow.thr[b] = q.thr->load(); mbNow.ratio[b] = q.ratio->load(); mbNow.att[b] = q.att->load(); mbNow.rel[b] = q.rel->load(); mbNow.gain[b] = q.gain->load();
+        mbNow.solo[b] = q.solo->load() > 0.5f; mbNow.byp[b] = q.byp->load() > 0.5f;
     }
-    const bool parallel = juce::roundToInt (value ("route")) == 2, autoG = value ("auto") > 0.5f;
+    const bool parallel = juce::roundToInt (gRoute->load()) == 2, autoG = gAuto->load() > 0.5f, deltaAll = gDelta->load() > 0.5f;
     StageParams sp[kStages]; bool solo[kStages]; bool anyS = false; int nOn = 0;
-    for (int s = 0; s < kStages; ++s) { sp[s] = stageParams (s); solo[s] = sp[s].on && value ((juce::String (stagePfx (s)) + "solo").toRawUTF8()) > 0.5f; anyS |= solo[s]; nOn += sp[s].on ? 1 : 0; }
+    // DELTA = tutti gli stadi accesi in solo: si sente solo quello che la compressione toglie
+    for (int s = 0; s < kStages; ++s) { sp[s] = stageParams (s); solo[s] = sp[s].on && (deltaAll || pp[s].solo->load() > 0.5f); anyS |= solo[s]; nOn += sp[s].on ? 1 : 0; }
     float* xL = aux.getWritePointer (0); float* xR = aux.getWritePointer (1);
     float* aL = acc.getWritePointer (0); float* aR = acc.getWritePointer (1);
     float* dlL = dlt.getWritePointer (0); float* dlR = dlt.getWritePointer (1);
     if (anyS) { juce::FloatVectorOperations::clear (dlL, N); juce::FloatVectorOperations::clear (dlR, N); }
     if (parallel && nOn > 0) { juce::FloatVectorOperations::clear (aL, N); juce::FloatVectorOperations::clear (aR, N); }
-    float tmpL[4096], tmpR[4096];
+    float* tmpL = tmp.getWritePointer (0); float* tmpR = tmp.getWritePointer (1);
     for (int s = 0; s < kStages; ++s)
     {
         if (! sp[s].on) { st[s].reset(); continue; }
         float* pl = L; float* pr = R;
         if (parallel) { juce::FloatVectorOperations::copy (xL, dry.getReadPointer (0), N); juce::FloatVectorOperations::copy (xR, dry.getReadPointer (1), N); pl = xL; pr = xR; }
         makeDet (s, pl, pr);
-        const bool wantD = solo[s] && N <= 4096;
+        {   // livello che entra nel rilevatore di questo stadio: serve per mostrare la soglia
+            const float a = juce::FloatVectorOperations::findMaximum (det.getReadPointer (0), N), b = -juce::FloatVectorOperations::findMinimum (det.getReadPointer (0), N);
+            const float c = juce::FloatVectorOperations::findMaximum (det.getReadPointer (1), N), d = -juce::FloatVectorOperations::findMinimum (det.getReadPointer (1), N);
+            const float pk = juce::jmax (a, b, juce::jmax (c, d));
+            stIn[s] = juce::jmax (pk, stIn[s].load() * std::exp (-(float) N / (0.35f * (float) sr)));
+        }
+        const bool wantD = solo[s];
         st[s].process (pl, pr, det.getReadPointer (0), det.getReadPointer (1), N, sp[s], autoG, wantD ? tmpL : nullptr, wantD ? tmpR : nullptr);
         if (wantD) { juce::FloatVectorOperations::add (dlL, tmpL, N); juce::FloatVectorOperations::add (dlR, tmpR, N); }
         if (parallel) { juce::FloatVectorOperations::add (aL, xL, N); juce::FloatVectorOperations::add (aR, xR, N); }
     }
     if (parallel && nOn > 0) { const float k = 1.0f / (float) nOn; for (int i = 0; i < N; ++i) { L[i] = aL[i] * k; R[i] = aR[i] * k; } }
 
-    if (value ("scListen") > 0.5f)
+    if (gScListen->load() > 0.5f)
     {
         makeDet (0, dry.getReadPointer (0), dry.getReadPointer (1));
         juce::FloatVectorOperations::copy (L, det.getReadPointer (0), N); juce::FloatVectorOperations::copy (R, det.getReadPointer (1), N);
@@ -182,7 +207,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
     else
     {
-        const float mix = value ("mix"), og = juce::Decibels::decibelsToGain (value ("out"));
+        const float mix = gMix->load(), og = juce::Decibels::decibelsToGain (gOut->load());
         for (int i = 0; i < N; ++i) { L[i] = (dry.getSample (0, i) * (1 - mix) + L[i] * mix) * og; R[i] = (dry.getSample (1, i) * (1 - mix) + R[i] * mix) * og; }
     }
 
@@ -332,7 +357,30 @@ void Processor::loadPreset (int i)
     const auto& P = presets()[(size_t) i];
     if (auto* rp = apvts.getParameter ("route")) rp->setValueNotifyingHost (rp->convertTo0to1 ((float) P.route));
     if (i > 0) if (auto* rp = apvts.getParameter ("a_on")) rp->setValueNotifyingHost (1.0f);   // i preset partono dallo stadio A acceso
+    if (i > 0)   // i preset sono scritti sui valori di partenza della versione precedente
+        for (int s = 0; s < kStages; ++s)
+        {
+            const juce::String p = juce::String (stagePfx (s)).dropLastCharacters (1);
+            for (auto [k, v] : { std::pair<const char*, float> { "_drive", 0.3f }, { "_color", 0.3f }, { "_drive2", 0.3f }, { "_att2", 0.5f } })
+                if (auto* rp = apvts.getParameter (p + k)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+        }
+    if (i > 0) for (int b = 1; b <= 4; ++b) if (auto* rp = apvts.getParameter ("mb_b" + juce::String (b) + "_thr")) rp->setValueNotifyingHost (rp->convertTo0to1 (-20.0f));
     for (auto& [id, v] : P.v) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+    if (i > 0) convertLegacy();   // i preset sono scritti con le soglie della versione precedente
+}
+// valori della versione precedente -> nuove soglie (stesso punto di intervento, uscita gia' compensata)
+void Processor::convertLegacy()
+{
+    auto set = [this] (const juce::String& id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
+    for (int s = 0; s < kStages; ++s)
+    {
+        const juce::String p = juce::String (stagePfx (s)).dropLastCharacters (1);
+        const auto& q = pp[s];
+        const int m = juce::roundToInt (q.model->load()), r = juce::roundToInt (q.ratio->load());
+        set (p + "_drive", convOldDrive (m, r, q.drive->load()));
+        if (m == VC670) { set (p + "_thr", convOld670Thr (q.att->load())); set (p + "_att2", convOld670Thr (q.att2->load())); }
+        set (p + "_olink", 0);
+    }
 }
 
 void Processor::applyPlan()
@@ -346,7 +394,7 @@ void Processor::applyPlan()
         if (k >= (int) plan.stages.size()) { set (p + "_on", 0); set (p + "_solo", 0); continue; }
         const auto& q = plan.stages[(size_t) k];
         set (p + "_on", 1); set (p + "_solo", 0); set (p + "_model", (float) q.model); set (p + "_ratio", (float) q.ratio); set (p + "_att", q.att); set (p + "_rel", q.rel);
-        set (p + "_drive", q.drive); set (p + "_color", q.color); set (p + "_mix", q.mix); set (p + "_out", 0);
+        set (p + "_drive", convOldDrive (q.model, q.ratio, q.drive)); set (p + "_color", q.color); set (p + "_mix", q.mix); set (p + "_out", 0);
         calibT[k] = q.target;
     }
     calib = plan.stages.empty() ? -1 : 0; calibOk = 0; calibSteps = 0; calibBuf.clear();
@@ -390,12 +438,12 @@ void Processor::calibTick()
 
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
-    auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr);
+    auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr); s.setProperty ("thrv", 2, nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
-    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); apvts.replaceState (t); } }
+    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); const bool old = (int) t.getProperty ("thrv", 1) < 2; apvts.replaceState (t); if (old) convertLegacy(); } }
 }
 
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
