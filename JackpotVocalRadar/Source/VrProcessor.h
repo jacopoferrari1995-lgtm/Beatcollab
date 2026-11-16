@@ -7,7 +7,7 @@ struct VrPreset { const char* name; const char* note; float amount, pres, body, 
 const std::vector<VrPreset>& presets();
 
 // risultato della prova d'ascolto (ONE CLICK)
-struct Proposal { bool ready = false; juce::StringArray lines; float amount = 0, pres = 0, body = 0, air = 0, vol = 0, stereo = 0, rel = 0, ant = 0; };
+struct Proposal { int state = 0; /* 0 niente, 1 pronta, 2 applicata, 3 fallita */ bool ready = false; juce::StringArray lines; float amount = 0, pres = 0, body = 0, air = 0, vol = 0, stereo = 0, rel = 0, ant = 0; };
 
 class Processor : public juce::AudioProcessor
 {

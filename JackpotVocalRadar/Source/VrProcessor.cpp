@@ -36,6 +36,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     F ("sens", "Sensibilita", -60, -20, -42, 1);
     F ("mix", "Mix", 0, 1, 1); F ("out", "Output", -12, 12, 0, 0.1f);
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "delta", 1 }, "Delta", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "byp", 1 }, "Confronta (bypass)", false));
     return l;
 }
 
@@ -122,7 +123,7 @@ void Processor::processBeat (juce::AudioBuffer<float>& buffer, int n, double pos
     const bool linked = ! useSc && voiceAlive (c); uiLinked = linked; uiSide = scOn;
     const float amount = v ("amount"), pres = v ("pres"), body = v ("body"), air = v ("air"), volMax = v ("vol"), st = v ("stereo");
     const float relMs = v ("rel"), antMs = v ("ant"), thr = v ("sens"), mix = v ("mix"), og = juce::Decibels::decibelsToGain (v ("out"));
-    const bool delta = v ("delta") > 0.5f;
+    const bool delta = v ("delta") > 0.5f, byp = v ("byp") > 0.5f;
     const float hopSec = (float) HOP / (float) sr;
     const float aAtt = 1.0f - std::exp (-hopSec / 0.006f), aRel = 1.0f - std::exp (-hopSec / (relMs * 0.001f));
     const float bandAtt = 1.0f - std::exp (-hopSec / 0.004f), bandRel = 1.0f - std::exp (-hopSec / (juce::jmax (0.03f, relMs * 0.0006f)));
@@ -184,7 +185,8 @@ void Processor::processBeat (juce::AudioBuffer<float>& buffer, int n, double pos
         mo *= vg; so *= vg;
         float ol = mo + so, orr = mo - so;
         const float dl = md + sd, dr = md - sd;
-        if (delta) { ol = dl - ol; orr = dr - orr; }
+        if (byp) { ol = dl; orr = dr; }
+        else if (delta) { ol = dl - ol; orr = dr - orr; }
         else { ol = dl + (ol - dl) * mix; orr = dr + (orr - dr) * mix; }
         Lp[i] = ol * og; Rp[i] = orr * og;
     }
@@ -224,7 +226,7 @@ void Processor::learnStop()
     {
         p.lines.add ("Ho sentito troppa poca voce (" + juce::String (lsOn * HOP / sr, 1) + " s su " + juce::String (secs, 1) + " s).");
         p.lines.add (hub().ch[channel()].w.load() == 0 && v ("src") < 0.5f ? "Nessuna copia VOCE sul canale " + juce::String (chName (channel())) + ": mettila sulla traccia della voce." : "Fai suonare voce e beat insieme per almeno 10 secondi.");
-        p.ready = false; proposal = p; return;
+        p.ready = false; p.state = 3; proposal = p; return;
     }
     float mv[NB], mb[NB], over[NB];
     for (int b = 0; b < NB; ++b) { mv[b] = (float) (lsV[b] / lsN); mb[b] = (float) (lsB[b] / lsN); over[b] = mb[b] - mv[b]; }
@@ -245,6 +247,7 @@ void Processor::learnStop()
     auto zone = [] (float r) { return r > 8 ? juce::String ("forte") : r > 4 ? juce::String ("media") : juce::String ("leggera"); };
     p.lines.add ("Copertura del beat sulla voce: corpo " + zone (rBody) + ", centro " + zone (rMid) + ", presenza " + zone (rPres) + ", aria " + zone (rAir) + ".");
     p.lines.add ("Il beat sta " + juce::String (std::abs (bmv), 1) + " dB " + (bmv > 0 ? "sopra" : "sotto") + " la voce mentre canta" + (p.vol > 0.5f ? ": aggiungo " + juce::String (p.vol, 1) + " dB di volume." : ": niente volume, bastano le bande."));
+    p.state = 1;
     p.lines.add ("Proposta: AMOUNT " + juce::String (p.amount, 1) + " dB, PRESENZA " + juce::String (juce::roundToInt (p.pres * 100)) + "%, CORPO " + juce::String (juce::roundToInt (p.body * 100)) + "%, ARIA " + juce::String (juce::roundToInt (p.air * 100)) + "%, RILASCIO " + juce::String (juce::roundToInt (p.rel)) + " ms.");
     proposal = p;
 }
@@ -255,7 +258,7 @@ void Processor::learnApply()
     for (int i = 0; i < 8; ++i) backup[i] = v (ids[i]); hasBackup = true;
     setV ("amount", proposal.amount); setV ("pres", proposal.pres); setV ("body", proposal.body); setV ("air", proposal.air);
     setV ("vol", proposal.vol); setV ("stereo", proposal.stereo); setV ("rel", proposal.rel); setV ("ant", proposal.ant);
-    presetName = "ONE CLICK"; proposal.ready = false;
+    presetName = "ONE CLICK"; proposal.ready = false; proposal.state = 2;
 }
 void Processor::learnDiscard()
 {

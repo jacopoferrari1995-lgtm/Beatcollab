@@ -14,7 +14,7 @@ int main (int argc, char** argv)
     // misura: energia del beat 2-4 kHz in uscita quando la voce canta e quando tace
     double eOn = 0, eOff = 0, eIn = 0; int nOn = 0, nOff = 0; float z1 = 0, z2 = 0; bool nan = false; float bmax = 0;
     beat.learnStart();
-    const int blocks = (int) (12 * sr / B);
+    const int blocks = (int) ((std::getenv ("JMID") ? 12.5 : 12.0) * sr / B);
     for (int k = 0; k < blocks; ++k)
     {
         for (int i = 0; i < B; ++i)
@@ -36,7 +36,7 @@ int main (int argc, char** argv)
             if (t > 2.0) { const double ph = std::fmod (t, 2.0); if (ph > 0.3 && ph < 0.9) { eOn += band * band; ++nOn; } else if (ph > 1.5 && ph < 1.95) { eOff += band * band; ++nOff; } }
         }
     }
-    beat.learnStop();
+    beat.learnStop(); if (std::getenv ("JAPPLY")) beat.learnApply();
     std::printf ("latenza BEAT %d campioni (%.1f ms), VOCE %d\n", beat.getLatencySamples(), beat.getLatencySamples() / sr * 1000, voice.getLatencySamples());
     std::printf ("collegato: %d, beat in ascolto sul canale A: %d\n", (int) beat.uiLinked.load(), beatsListening (0));
     std::printf ("banda 1.5-5 kHz del beat: voce che canta %.1f dB, voce zitta %.1f dB  ->  spazio aperto %.1f dB\n", 10 * std::log10 (eOn / nOn), 10 * std::log10 (eOff / nOff), 10 * std::log10 (eOn / nOn) - 10 * std::log10 (eOff / nOff));
@@ -46,8 +46,8 @@ int main (int argc, char** argv)
     {
         Processor* P = std::getenv ("JVOICE") ? &voice : &beat;
         Editor ed (*P);
-        for (int i = 0; i < 20; ++i) ed.radar.sweep += 0.07f;
-        for (int b = 0; b < NB; ++b) { ed.radar.smV[b] = P->uiVoice[b]; ed.radar.smB[b] = P->uiBeat[b]; ed.radar.smC[b] = P->uiCut[b]; }
+        
+        for (int b = 0; b < NB; ++b) { ed.space.smV[b] = P->uiVoice[b]; ed.space.smB[b] = P->uiBeat[b]; ed.space.smC[b] = P->uiCut[b]; }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
     }
