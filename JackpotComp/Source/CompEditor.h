@@ -119,7 +119,8 @@ public:
     void mbBounds (float* edges, int& nb) const;
     Editor& ed; int s = 0; juce::String pfx = "a_"; int mbSel = 0, xDrag = -1;
     std::unique_ptr<Switch> power, link, olink; std::unique_ptr<Segs> ratio, ratio2;
-    std::unique_ptr<Knob> drive, att, rel, out, color, mix, drive2, att2, bThr, bRatio, bAtt, bRel, bGain;
+    std::unique_ptr<Knob> drive, att, rel, out, color, mix, drive2, att2, thrK, bThr, bRatio, bAtt, bRel, bGain;
+    std::unique_ptr<Segs> distSeg; std::unique_ptr<Switch> hpSw;
     float needle = 0; int lastModel = -1; bool lastOn = true;
     juce::Rectangle<float> vuRect() const { return isMb() ? juce::Rectangle<float> { 16, 52, 330, 150 } : juce::Rectangle<float> { 16, 52, 248, 150 }; }
     juce::Rectangle<int> modelRect() const { return { getWidth() - 186, 10, 170, 28 }; }
@@ -167,6 +168,7 @@ public:
     float sv (int s, const char* k) const { return proc.value ((juce::String (stagePfx (s)) + k).toRawUTF8()); }
     void select (int s);
     void computeTips();
+    void askPresetName();
     Rack rack { *this };
     StageEditor stage { *this };
     void timerCallback() override;

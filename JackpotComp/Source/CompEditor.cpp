@@ -107,32 +107,45 @@ void Knob::paintHw (juce::Graphics& g)
         g.setColour (col.withAlpha (0.25f + 0.2f * live)); g.strokePath (arc, PathStrokeType (4.5f, PathStrokeType::curved, PathStrokeType::rounded));
         g.setColour (col.interpolatedWith (Colours::white, 0.15f + 0.3f * live)); g.strokePath (arc, PathStrokeType (1.6f, PathStrokeType::curved, PathStrokeType::rounded));
     }
-    // corpo della manopola
-    const float rs = R - 10, rc = rs * (hw == 1 ? 0.66f : hw == 2 ? 0.58f : 0.62f);
-    g.setColour (Colours::black.withAlpha (0.45f)); g.fillEllipse (cx - rs - 1, cy - rs + 2.5f, 2 * rs + 2, 2 * rs + 2);
+    // corpo della manopola: cilindro con ombra morbida, fianco, faccia superiore e riflesso fisso (la luce non gira con la manopola)
+    const float rs = R - 10, rc = rs * (hw == 1 ? 0.7f : hw == 2 ? 0.6f : 0.64f), depth = rs * 0.16f;
+    for (int i = 6; i >= 1; --i) { const float e = i * rs * 0.07f; g.setColour (Colours::black.withAlpha (0.07f)); g.fillEllipse (cx - rs - e * 0.6f + depth * 0.5f, cy - rs + depth * 1.4f - e * 0.4f, 2 * rs + e * 1.2f, 2 * rs + e * 1.2f); }
+    auto disc = [&] (float r, float dy) { return Rectangle<float> (cx - r, cy - r + dy, 2 * r, 2 * r); };
     if (hw == 1)
-    {   // alluminio con zigrinatura
-        ColourGradient sk (Colour (0xffeff0f2), cx - rs * 0.6f, cy - rs, Colour (0xff7d8086), cx + rs * 0.5f, cy + rs, false); g.setGradientFill (sk); g.fillEllipse (cx - rs, cy - rs, 2 * rs, 2 * rs);
-        for (int i = 0; i < 40; ++i) { const float a = av + i * MathConstants<float>::twoPi / 40; g.setColour (Colours::black.withAlpha (0.16f)); g.drawLine (Line<float> (P (a, rs), P (a, rs - 2.5f)), 0.8f); }
-        ColourGradient cg (Colour (0xffffffff), cx - rc * 0.4f, cy - rc * 0.5f, Colour (0xff9ea2a8), cx + rc * 0.6f, cy + rc, true); g.setGradientFill (cg); g.fillEllipse (cx - rc, cy - rc, 2 * rc, 2 * rc);
-        g.setColour (Colours::black.withAlpha (0.25f)); g.drawEllipse (cx - rc, cy - rc, 2 * rc, 2 * rc, 0.8f);
-        g.setColour (Colour (0xff111214)); g.drawLine (Line<float> (P (av, rc * 0.25f), P (av, rs - 1)), 2.2f);
+    {   // alluminio tornito: fianco zigrinato, faccia con anelli concentrici e riflesso conico
+        { ColourGradient sd (Colour (0xff9a9ea5), cx - rs, cy, Colour (0xff3d4045), cx + rs, cy, false); sd.addColour (0.35, Colour (0xffd8dbe0)); g.setGradientFill (sd); g.fillEllipse (disc (rs, depth)); }
+        { ColourGradient sk (Colour (0xfff2f3f5), cx - rs * 0.6f, cy - rs, Colour (0xff70747a), cx + rs * 0.5f, cy + rs, false); g.setGradientFill (sk); g.fillEllipse (disc (rs, 0)); }
+        for (int i = 0; i < 48; ++i) { const float a = av + i * MathConstants<float>::twoPi / 48; g.setColour (Colours::black.withAlpha (0.18f)); g.drawLine (Line<float> (P (a, rs - 0.3f), P (a, rs - 3.0f)), 0.9f); }
+        g.setColour (Colours::black.withAlpha (0.35f)); g.drawEllipse (disc (rc + 1.2f, 0), 1.2f);
+        { ColourGradient cg (Colour (0xffe9ebee), cx, cy - rc, Colour (0xffa2a6ad), cx, cy + rc, false); g.setGradientFill (cg); g.fillEllipse (disc (rc, 0)); }
+        for (float r2 = rc - 1.5f; r2 > 2; r2 -= 1.6f) { g.setColour ((((int) (r2 * 3)) & 1 ? Colours::white : Colours::black).withAlpha (0.05f)); g.drawEllipse (disc (r2, 0), 0.8f); }
+        {   // riflesso conico: due spicchi chiari opposti
+            for (float base : { -0.9f, 2.24f })
+            { Path sp; sp.addPieSegment (disc (rc, 0), base - 0.35f, base + 0.35f, 0.0f); ColourGradient hg (Colours::white.withAlpha (0.55f), cx, cy, Colours::white.withAlpha (0.0f), P (base, rc).x, P (base, rc).y, false); g.setGradientFill (hg); g.fillPath (sp); }
+        }
+        g.setColour (Colour (0xff15161a)); g.drawLine (Line<float> (P (av, rc * 0.3f), P (av, rs - 1.5f)), 2.4f);
+        g.setColour (Colours::white.withAlpha (0.3f)); g.drawLine (Line<float> (P (av + 0.06f, rc * 0.3f), P (av + 0.04f, rc * 0.95f)), 0.8f);
     }
     else if (hw == 2)
-    {   // gonna scura con alette, cappuccio colorato
-        ColourGradient sk (Colour (0xff4a4d53), cx, cy - rs, Colour (0xff17181b), cx, cy + rs, false); g.setGradientFill (sk); g.fillEllipse (cx - rs, cy - rs, 2 * rs, 2 * rs);
-        for (int i = 0; i < 24; ++i) { const float a = av + i * MathConstants<float>::twoPi / 24; g.setColour (Colours::white.withAlpha (0.07f)); g.drawLine (Line<float> (P (a, rs - 0.5f), P (a, rc + 1)), 1.0f); }
+    {   // manopola da console: gonna scura con alette, cappuccio colorato lucido
+        { ColourGradient sd (Colour (0xff2a2c31), cx - rs, cy, Colour (0xff0b0c0e), cx + rs, cy, false); g.setGradientFill (sd); g.fillEllipse (disc (rs, depth)); }
+        { ColourGradient sk (Colour (0xff50545b), cx, cy - rs, Colour (0xff15161a), cx, cy + rs, false); g.setGradientFill (sk); g.fillEllipse (disc (rs, 0)); }
+        for (int i = 0; i < 24; ++i) { const float a = av + i * MathConstants<float>::twoPi / 24; g.setColour (Colours::white.withAlpha (0.08f)); g.drawLine (Line<float> (P (a, rs - 0.5f), P (a, rc + 2)), 1.1f); g.setColour (Colours::black.withAlpha (0.25f)); g.drawLine (Line<float> (P (a + 0.05f, rs - 0.5f), P (a + 0.05f, rc + 2)), 0.8f); }
         const auto cc = enabled ? cap : Colour (0xff55585e);
-        ColourGradient cg (cc.brighter (0.45f), cx - rc * 0.5f, cy - rc, cc.darker (0.5f), cx + rc * 0.4f, cy + rc, false); g.setGradientFill (cg); g.fillEllipse (cx - rc, cy - rc, 2 * rc, 2 * rc);
-        g.setColour (Colours::white.withAlpha (0.25f)); g.fillEllipse (cx - rc * 0.55f, cy - rc * 0.8f, rc * 0.9f, rc * 0.55f);
-        g.setColour (Colours::white.withAlpha (0.95f)); g.drawLine (Line<float> (P (av, rc * 0.2f), P (av, rs - 1.5f)), 2.0f);
+        { ColourGradient cs (cc.darker (0.8f), cx - rc, cy, cc.darker (1.6f), cx + rc, cy, false); g.setGradientFill (cs); g.fillEllipse (disc (rc, depth * 0.7f)); }
+        { ColourGradient cg (cc.brighter (0.5f), cx - rc * 0.5f, cy - rc, cc.darker (0.45f), cx + rc * 0.4f, cy + rc, true); g.setGradientFill (cg); g.fillEllipse (disc (rc, 0)); }
+        { ColourGradient hl (Colours::white.withAlpha (0.55f), cx - rc * 0.2f, cy - rc * 0.75f, Colours::white.withAlpha (0.0f), cx, cy, false); g.setGradientFill (hl); g.fillEllipse (cx - rc * 0.7f, cy - rc * 0.92f, rc * 1.3f, rc * 0.85f); }
+        g.setColour (Colours::white.withAlpha (0.95f)); g.drawLine (Line<float> (P (av, rc * 0.25f), P (av, rs - 1.5f)), 2.1f);
     }
     else
-    {   // nera grande con zigrinatura, tipo studio anni 60
-        ColourGradient sk (Colour (0xff3b3c40), cx - rs * 0.4f, cy - rs, Colour (0xff050506), cx + rs * 0.4f, cy + rs, false); g.setGradientFill (sk); g.fillEllipse (cx - rs, cy - rs, 2 * rs, 2 * rs);
-        for (int i = 0; i < 36; ++i) { const float a = av + i * MathConstants<float>::twoPi / 36; g.setColour (Colours::white.withAlpha (0.09f)); g.drawLine (Line<float> (P (a, rs - 0.5f), P (a, rs - 3.5f)), 1.0f); }
-        ColourGradient cg (Colour (0xff2c2d31), cx - rc * 0.5f, cy - rc, Colour (0xff020203), cx + rc * 0.5f, cy + rc, false); g.setGradientFill (cg); g.fillEllipse (cx - rc, cy - rc, 2 * rc, 2 * rc);
-        g.setColour (Colours::white.withAlpha (0.14f)); g.fillEllipse (cx - rc * 0.6f, cy - rc * 0.85f, rc * 1.0f, rc * 0.6f);
+    {   // bakelite nera grande, zigrinata, con punta crema (anni 60)
+        { ColourGradient sd (Colour (0xff202124), cx - rs, cy, Colour (0xff030304), cx + rs, cy, false); g.setGradientFill (sd); g.fillEllipse (disc (rs, depth)); }
+        { ColourGradient sk (Colour (0xff3f4045), cx - rs * 0.4f, cy - rs, Colour (0xff060607), cx + rs * 0.4f, cy + rs, false); g.setGradientFill (sk); g.fillEllipse (disc (rs, 0)); }
+        for (int i = 0; i < 40; ++i) { const float a = av + i * MathConstants<float>::twoPi / 40; g.setColour (Colours::white.withAlpha (0.1f)); g.drawLine (Line<float> (P (a, rs - 0.5f), P (a, rs - 4.0f)), 1.0f); }
+        { ColourGradient cs (Colour (0xff1b1c1f), cx, cy - rc, Colour (0xff000000), cx, cy + rc, false); g.setGradientFill (cs); g.fillEllipse (disc (rc + 1.5f, 1.0f)); }
+        { ColourGradient cg (Colour (0xff35363b), cx - rc * 0.5f, cy - rc, Colour (0xff040405), cx + rc * 0.5f, cy + rc, true); g.setGradientFill (cg); g.fillEllipse (disc (rc, 0)); }
+        { ColourGradient hl (Colours::white.withAlpha (0.28f), cx - rc * 0.25f, cy - rc * 0.8f, Colours::white.withAlpha (0.0f), cx, cy - rc * 0.1f, false); g.setGradientFill (hl); g.fillEllipse (cx - rc * 0.75f, cy - rc * 0.95f, rc * 1.4f, rc * 0.9f); }
+        g.setColour (Colours::black.withAlpha (0.6f)); g.drawLine (Line<float> (P (av, rc * 0.12f), P (av, rs - 1.0f)), 4.0f);
         g.setColour (Colour (0xfff3eee2).withAlpha (al)); g.drawLine (Line<float> (P (av, rc * 0.15f), P (av, rs - 1.5f)), 2.4f);
     }
     // lettura in un piccolo display
@@ -283,8 +296,27 @@ StageEditor::StageEditor (Editor& e) : ed (e)
     link->onTouch = [this] { layoutKnobs(); repaint(); };
     att = mk ("att", "ATTACK"); rel = mk ("rel", "RELEASE"); out = mk ("out", "OUTPUT"); color = mk ("color", "COLOR"); mix = mk ("mix", "MIX");
     drive->text = [this] { return fmtDrive (juce::roundToInt (ed.sv (s, "model")), ed.sv (s, "drive")); };
-    att->text = [this] { const int m = juce::roundToInt (ed.sv (s, "model")); if (m == VC670) return juce::String (t670Thr (ed.sv (s, "thr")), 1) + " dB"; return info (m).attKnob ? fmtTime (attMs (m, ed.sv (s, "att"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "AUTO"); };
-    rel->text = [this] { const int m = juce::roundToInt (ed.sv (s, "model")); if (m == VC670) return juce::String (ed.sv (s, "rel") > 0.5f ? "LAT/VERT" : "L/R"); return info (m).relKnob ? fmtTime (relMs (m, ed.sv (s, "rel"))) : juce::String (m <= OPTO3A ? "OTTICO" : m == VARIMU ? "TC" : "120 dB/s"); };
+    att->text = [this]
+    {
+        const int m = juce::roundToInt (ed.sv (s, "model")); const float a = ed.sv (s, "att");
+        if (m == VC670) return juce::String (t670Thr (ed.sv (s, "thr")), 1) + " dB";
+        if (m == RMS160 || m == SSLCH) return fmtRatio (ed.sv (s, "cratio"));
+        if (m == FET76) return juce::String (1 + a * 6, 1) + "  " + fmtTime (attMs (m, a));                 // 1..7 come sull'1176
+        if (m == DISTRESS) return juce::String (a * 10, 1) + "  " + fmtTime (attMs (m, a));              // 0..10 come sul Distressor
+        return info (m).attKnob ? fmtTime (attMs (m, a)) : juce::String (m <= OPTO3A ? "OTTICO" : "AUTO");
+    };
+    rel->text = [this]
+    {
+        const int m = juce::roundToInt (ed.sv (s, "model")); const float r = ed.sv (s, "rel");
+        if (m == VC670) return juce::String (r > 0.5f ? "LAT/VERT" : "L/R");
+        if (m == FET76) return juce::String (1 + r * 6, 1) + "  " + fmtTime (relMs (m, r));
+        if (m == DISTRESS) return juce::String (r * 10, 1) + "  " + fmtTime (relMs (m, r));
+        return info (m).relKnob ? fmtTime (relMs (m, r)) : juce::String (m <= OPTO3A ? "OTTICO" : "120 dB/s");
+    };
+    thrK = mk ("thr", "THRESHOLD");
+    thrK->text = [this] { return juce::String (tMuThr (ed.sv (s, "thr")), 1) + " dB"; };
+    distSeg = std::make_unique<Segs> (ed.P ("a_mode"), C::stage[0]); distSeg->items = [] { return juce::StringArray { "OFF", "D2", "D3", "2+3" }; }; addChildComponent (*distSeg);
+    hpSw = std::make_unique<Switch> (ed.P ("a_hp"), C::stage[0], "HP DETECTOR"); addChildComponent (*hpSw);
     out->text = [this] { return fmtDb (ed.sv (s, "out")); };
     color->text = [this]
     {
@@ -334,6 +366,8 @@ void StageEditor::layoutInner()
     for (auto* k : { bThr.get(), bRatio.get(), bAtt.get(), bRel.get(), bGain.get() }) k->setVisible (mb);
     out->setVisible (! mb); att->setVisible (! mb); rel->setVisible (! mb);
     const int m = juce::roundToInt (ed.sv (s, "model"));
+    thrK->setVisible (m == VARIMU); distSeg->setVisible (m == DISTRESS); hpSw->setVisible (m == DISTRESS);
+    if (m == RMS160) { rel->setVisible (false); ratio->setVisible (false); }
     const bool is670 = m == VC670, split = is670 && ed.sv (s, "link") < 0.5f;
     drive2->setVisible (split); att2->setVisible (split); ratio2->setVisible (split); link->setVisible (is670);
     olink->setVisible (false);   // non serve piu': l'INPUT non alza il volume d'uscita
@@ -356,7 +390,19 @@ void StageEditor::layoutInner()
     if (hw) place (drive.get(), x0 + cw / 2, 46, 100); else drive->setBounds (x0 + (cw - 104) / 2, 44, 104, 104 + 30);
     place (att.get(), x0 + cw + cw / 2, hw ? 56 : 52, 84); place (rel.get(), x0 + cw * 2 + cw / 2, hw ? 56 : 52, 84);
     place (out.get(), x0 + cw / 2, hw ? 184 : 186, 76); place (color.get(), x0 + cw + cw / 2, hw ? 184 : 186, 76); place (mix.get(), x0 + cw * 2 + cw / 2, hw ? 184 : 186, 76);
-    color->setVisible (! split); mix->setVisible (! split);
+    color->setVisible (! split && m != DISTRESS); mix->setVisible (! split);
+    if (m == VARIMU)
+    {   // Manley: INPUT, THRESHOLD, ATTACK, RECOVERY in alto
+        const int c4 = (getWidth() - x0 - 14) / 4;
+        auto pl4 = [] (Knob* k, int cx, int y, int sz) { k->setBounds (cx - sz / 2 - 12, y, sz + 24, sz + 33); };
+        pl4 (drive.get(), x0 + c4 / 2, 50, 82); pl4 (thrK.get(), x0 + c4 + c4 / 2, 50, 82);
+        pl4 (att.get(), x0 + c4 * 2 + c4 / 2, 58, 72); pl4 (rel.get(), x0 + c4 * 3 + c4 / 2, 58, 72);
+    }
+    if (m == DISTRESS)
+    {   // al posto della manopola COLOR: i pulsanti di distorsione e l'HP del rilevatore, come sull'originale
+        const int cx = x0 + cw + cw / 2;
+        distSeg->setBounds (cx - 66, 200, 132, 28); hpSw->setBounds (cx - 52, 240, 120, 22);
+    }
 
     if (split)
     {   // 670 a canali separati: in alto il sinistro (o LAT), in basso il destro (o VERT), l'uscita in fondo a destra
@@ -367,7 +413,7 @@ juce::RangedAudioParameter* StageEditor::thrParam()
 {
     const int m = juce::roundToInt (ed.sv (s, "model"));
     if (m == OTT || m == MULTI) return nullptr;
-    return ed.P (pfx + (m == VC670 ? "thr" : "drive"));
+    return ed.P (pfx + ((m == VC670 || m == VARIMU) ? "thr" : "drive"));
 }
 float StageEditor::thrDb() const
 {
@@ -385,7 +431,8 @@ void StageEditor::mouseDrag (const juce::MouseEvent& e)
     if (thrDrag)
     {   // trascini la linea della soglia: la manopola segue
         const int m = juce::roundToInt (ed.sv (s, "model")); const float db = dbOfY (e.position.y);
-        float v = m == VC670 ? (-db - ed.sv (s, "drive") * 18.0f) / 28.0f : -db / (isInputModel (m) ? 48.0f : 40.0f);
+        // soglia mostrata = soglia della manopola - INPUT: la manopola che si muove e' THRESHOLD (670, Vari-Mu) o INPUT/THRESHOLD
+        float v = m == VC670 ? (-db - ed.sv (s, "drive") * 18.0f) / 28.0f : m == VARIMU ? (-db - ed.sv (s, "drive") * 24.0f) / 30.0f : -db / (isInputModel (m) ? 48.0f : 40.0f);
         if (auto* p = thrParam()) p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, v));
         return;
     }
@@ -397,42 +444,47 @@ void StageEditor::mouseDrag (const juce::MouseEvent& e)
 void StageEditor::bind (int st)
 {
     s = st; pfx = stagePfx (s); const auto c = C::stage[s];
-    power->param = ed.P (pfx + "on"); power->col = c; ratio->param = ed.P (pfx + "ratio"); ratio->col = c;
-    for (auto* k : { drive.get(), att.get(), rel.get(), out.get(), color.get(), mix.get() }) k->col = c;
-    drive->param = ed.P (pfx + "drive"); att->param = ed.P (pfx + (juce::roundToInt (ed.sv (st, "model")) == VC670 ? "thr" : "att")); rel->param = ed.P (pfx + "rel");
-    drive2->param = ed.P (pfx + "drive2"); att2->param = ed.P (pfx + "att2"); ratio2->param = ed.P (pfx + "ratio2"); link->param = ed.P (pfx + "link"); olink->param = ed.P (pfx + "olink");
-    for (auto* k : { drive2.get(), att2.get() }) k->col = c; ratio2->col = c; link->col = c; olink->col = c;
-    out->param = ed.P (pfx + "out"); color->param = ed.P (pfx + "color"); mix->param = ed.P (pfx + "mix");
     const int m = juce::roundToInt (ed.sv (s, "model")); const auto& I = info (m);
-    drive->label = I.driveLabel; att->enabled = I.attKnob; rel->enabled = I.relKnob;
-    att->stepped = rel->stepped = m == VCABUS || m == VC670; att->steps = 6; rel->steps = 5;
-    if (m == VC670) { att->stepped = false; rel->steps = 2; }
-    att->label = m == VC670 ? (ed.sv (s, "link") < 0.5f ? (ed.sv (s, "rel") > 0.5f ? "THRESH LAT" : "THRESHOLD L") : "THRESHOLD") : m == SSLCH ? "FAST ATTACK" : "ATTACK"; rel->label = m == VC670 ? "STEREO" : "RELEASE";
-    if (m == VC670 && ed.sv (s, "link") < 0.5f) { drive->label = ed.sv (s, "rel") > 0.5f ? "INPUT LAT" : "INPUT L"; drive2->label = ed.sv (s, "rel") > 0.5f ? "INPUT VERT" : "INPUT R"; att2->label = ed.sv (s, "rel") > 0.5f ? "THRESH VERT" : "THRESHOLD R"; }
-    if (m == SSLCH) { att->stepped = true; att->steps = 2; }
+    const bool split = m == VC670 && ed.sv (s, "link") < 0.5f, ms = ed.sv (s, "rel") > 0.5f;
+    power->param = ed.P (pfx + "on"); power->col = c;
+    ratio->param = ed.P (pfx + (m == SSLCH ? "mode" : "ratio")); ratio->col = c;
+    distSeg->param = ed.P (pfx + "mode"); distSeg->col = c; hpSw->param = ed.P (pfx + "hp"); hpSw->col = c;
+    for (auto* k : { drive.get(), att.get(), rel.get(), out.get(), color.get(), mix.get(), thrK.get(), drive2.get(), att2.get() }) k->col = c;
+    drive->param = ed.P (pfx + "drive"); rel->param = ed.P (pfx + "rel"); thrK->param = ed.P (pfx + "thr");
+    att->param = ed.P (pfx + (m == VC670 ? "thr" : (m == RMS160 || m == SSLCH) ? "cratio" : "att"));
+    drive2->param = ed.P (pfx + "drive2"); att2->param = ed.P (pfx + "att2"); ratio2->param = ed.P (pfx + "ratio2"); link->param = ed.P (pfx + "link"); olink->param = ed.P (pfx + "olink");
+    ratio2->col = c; link->col = c; olink->col = c;
+    out->param = ed.P (pfx + "out"); color->param = ed.P (pfx + "color"); mix->param = ed.P (pfx + "mix");
+    // nomi come sull'hardware
+    drive->label = m == MULTI ? "SOGLIE +/-" : I.driveLabel;
+    att->enabled = I.attKnob || m == RMS160 || m == VC670; rel->enabled = I.relKnob;
+    att->stepped = m == VCABUS; att->steps = 6; rel->stepped = m == VCABUS || m == VC670 || m == VARIMU; rel->steps = m == VC670 ? 2 : 5;
+    att->label = m == VC670 ? (split ? (ms ? "THRESH LAT" : "THRESHOLD L") : "THRESHOLD") : m == RMS160 ? "COMPRESSION" : m == SSLCH ? "RATIO" : "ATTACK";
+    rel->label = m == VC670 ? "STEREO" : m == VARIMU ? "RECOVERY" : "RELEASE";
+    if (split) { drive->label = ms ? "INPUT LAT" : "INPUT L"; drive2->label = ms ? "INPUT VERT" : "INPUT R"; att2->label = ms ? "THRESH VERT" : "THRESHOLD R"; }
+    color->label = m == MULTI ? "WARM" : m == FET76 ? "GRINTA" : (m <= OPTO3A || m == VARIMU || m == VC670) ? "VALVOLA" : "COLOR";
+    out->label = m <= OPTO3A ? "GAIN" : (m == VCABUS || m == SSLCH) ? "MAKE-UP" : m == RMS160 ? "OUTPUT GAIN" : "OUTPUT";
     for (auto* k : { bThr.get(), bRatio.get(), bAtt.get(), bRel.get(), bGain.get() }) k->col = c;
-    if (! (m == VC670 && ed.sv (s, "link") < 0.5f)) drive->label = m == MULTI ? "SOGLIE +/-" : I.driveLabel;
-    if (m == MULTI) { color->label = "WARM"; bindBand (mbSel); }
-    layoutKnobs();
-    color->label = m == MULTI ? "WARM" : m == DISTRESS ? "DIST" : m == FET76 ? "GRINTA" : (m <= OPTO3A || m == VARIMU || m == VC670) ? "VALVOLA" : "COLOR";
-    out->label = m <= OPTO3A ? "GAIN" : (m == VCABUS || m == SSLCH) ? "MAKE-UP" : "OUTPUT";
-    if (m == VC670 && ed.sv (s, "link") >= 0.5f) att->label = "THRESHOLD";
+    if (m == MULTI) bindBand (mbSel);
     // stile del frontale
     const auto& F = face (m);
-    for (auto* k : { drive.get(), att.get(), rel.get(), out.get(), color.get(), mix.get(), drive2.get(), att2.get() }) { k->hw = F.knob; k->ink = juce::Colour (F.ink); k->lo = k->hi = {}; }
-    drive->cap = juce::Colour (0xffd23b3b); att->cap = rel->cap = juce::Colour (0xff3f7fd6); out->cap = juce::Colour (0xff9aa0a8); color->cap = juce::Colour (0xffe0a020); mix->cap = juce::Colour (0xff6f8496);
-    drive2->cap = drive->cap; att2->cap = att->cap;
+    for (auto* k : { drive.get(), att.get(), rel.get(), out.get(), color.get(), mix.get(), drive2.get(), att2.get(), thrK.get() }) { k->hw = F.knob; k->ink = juce::Colour (F.ink); k->lo = k->hi = {}; }
+    drive->cap = juce::Colour (0xffd23b3b); att->cap = juce::Colour (m == SSLCH ? 0xffe8e8e8 : 0xff3f7fd6); rel->cap = juce::Colour (0xff3f7fd6); out->cap = juce::Colour (0xff9aa0a8); color->cap = juce::Colour (0xffe0a020); mix->cap = juce::Colour (0xff6f8496);
+    drive2->cap = drive->cap; att2->cap = att->cap; thrK->cap = drive->cap;
     auto ends = [] (Knob* k, const char* a, const char* b) { k->lo = a; k->hi = b; };
     if (m == MULTI) ends (drive.get(), "-12", "+12"); else if (m == OTT) ends (drive.get(), "0", "100%");
     else if (m <= OPTO3A) ends (drive.get(), "0", "100"); else if (m == VC670) { ends (drive.get(), "0", "+18"); ends (drive2.get(), "0", "+18"); ends (att2.get(), "0", "-28"); }
+    else if (m == VARIMU) { ends (drive.get(), "0", "+24"); ends (thrK.get(), "0", "-30"); }
     else if (isInputModel (m)) ends (drive.get(), "0", "+48"); else ends (drive.get(), "0", "-40");
-    if (m == FET76) { ends (att.get(), "20us", "0.8"); ends (rel.get(), "50", "1.1s"); }
+    if (m == FET76) { ends (att.get(), "1", "7"); ends (rel.get(), "1", "7"); }
     else if (m == VCABUS) { ends (att.get(), ".1", "30"); ends (rel.get(), ".1", "AUTO"); }
-    else if (m == DISTRESS) { ends (att.get(), ".05", "30"); ends (rel.get(), "50", "3.5s"); }
-    else if (m == SSLCH) { ends (att.get(), "AUTO", "FAST"); ends (rel.get(), ".1", "4s"); }
+    else if (m == DISTRESS) { ends (att.get(), "0", "10"); ends (rel.get(), "0", "10"); }
+    else if (m == SSLCH) { ends (att.get(), "1", "INF"); ends (rel.get(), ".1", "4s"); }
+    else if (m == RMS160) ends (att.get(), "1", "INF");
+    else if (m == VARIMU) { ends (att.get(), "25", "70ms"); ends (rel.get(), ".2", "8s"); }
     else if (m == OTT) { ends (att.get(), "x0.25", "x4"); ends (rel.get(), "x0.25", "x4"); }
     else if (m == VC670) { ends (att.get(), "0", "-28"); ends (rel.get(), "L/R", "M/S"); }
-    ends (out.get(), "-12", "+24"); ends (color.get(), "0", "100"); ends (mix.get(), "0", "100");
+    ends (out.get(), "-40", "+24"); ends (color.get(), "0", "100"); ends (mix.get(), "0", "100");
     for (auto* k : { drive.get(), att.get(), rel.get() }) if (! k->enabled) k->lo = k->hi = {};
     layoutKnobs();
     lastModel = m; bg.invalidate(); repaint();
@@ -490,6 +542,8 @@ void StageEditor::mouseDown (const juce::MouseEvent& e)
             if (from == OTT && to != OTT) set ("drive", 0.0f);
             if (to == OTT && from != OTT) set ("drive", 0.0f);
             if (from == VC670 && to != VC670) set ("rel", 0.35f);   // la manopola STEREO del 670 e' il RELEASE degli altri
+            if ((to == VC670 || to == VARIMU) && from != to) { set ("thr", 0.0f); if (to == VARIMU) { set ("att", 0.4f); set ("rel", 0.5f); } }
+            if (to == FET76 && from != FET76) { set ("att", 0.5f); set ("rel", 0.5f); }   // attack e release a 4, come si parte sull'1176
             if (to == DISTRESS && rp->convertFrom0to1 (rp->getValue()) < 0.5f) set ("ratio", 3.0f);   // 1:1 non comprime: si parte da 4:1
             bind (s); ed.rack.repaint();
         });
@@ -501,10 +555,16 @@ void StageEditor::paintStatic (juce::Graphics& g)
     const auto& I = info (m); const auto& F = face (m); const bool on = ed.sv (s, "on") > 0.5f;
     const auto acc = neo::acc (juce::Colour (I.accent)), ink = juce::Colour (F.ink);
     auto b = getLocalBounds().toFloat().reduced (1);
-    // cornice esterna scura e pannello del modello
-    g.setColour (juce::Colour (0xff060709)); g.fillRoundedRectangle (b, 14);
+    // telaio: metallo scuro con bisello (luce dall'alto), il pannello ci sta dentro incassato
+    { juce::ColourGradient fr (juce::Colour (0xff30333a), 0, b.getY(), juce::Colour (0xff050607), 0, b.getBottom(), false); g.setGradientFill (fr); g.fillRoundedRectangle (b, 14); }
+    g.setColour (juce::Colours::white.withAlpha (0.10f)); g.drawRoundedRectangle (b.reduced (0.5f), 14, 1.0f);
     auto pl = b.reduced (5);
+    g.setColour (juce::Colours::black.withAlpha (0.8f)); g.fillRoundedRectangle (pl.expanded (1.5f).translated (0, 1.5f), 11);   // incasso
     { juce::ColourGradient pg (juce::Colour (F.p1), 0, pl.getY(), juce::Colour (F.p2), 0, pl.getBottom(), false); g.setGradientFill (pg); g.fillRoundedRectangle (pl, 10); }
+    {   // curvatura del pannello: bordi un filo piu' scuri, centro piu' chiaro
+        juce::ColourGradient vg (juce::Colours::white.withAlpha (0.06f), pl.getCentreX(), pl.getY() + pl.getHeight() * 0.35f, juce::Colours::black.withAlpha (0.22f), pl.getX(), pl.getBottom(), true);
+        g.setGradientFill (vg); g.fillRoundedRectangle (pl, 10);
+    }
     {   // spazzolatura orizzontale e luce dall'alto
         g.saveState(); g.reduceClipRegion (pl.toNearestInt());
         juce::Random rnd (7 + m);
@@ -512,12 +572,30 @@ void StageEditor::paintStatic (juce::Graphics& g)
         juce::ColourGradient sh (juce::Colours::white.withAlpha (0.10f), 0, pl.getY(), juce::Colours::transparentWhite, 0, pl.getY() + 90, false); g.setGradientFill (sh); g.fillRect (pl);
         g.restoreState();
     }
-    g.setColour (juce::Colours::black.withAlpha (0.5f)); g.drawRoundedRectangle (pl, 10, 1.2f);
+    // bisello del pannello: spigolo alto chiaro, basso scuro; scanalatura incisa tutto intorno
+    { juce::ColourGradient bv (juce::Colours::white.withAlpha (0.35f), 0, pl.getY(), juce::Colours::black.withAlpha (0.55f), 0, pl.getBottom(), false); g.setGradientFill (bv); g.drawRoundedRectangle (pl.reduced (0.5f), 10, 1.4f); }
+    { auto gr = pl.reduced (7).withTrimmedTop (38); g.setColour (juce::Colours::black.withAlpha (0.28f)); g.drawRoundedRectangle (gr, 6, 1.0f); g.setColour (juce::Colours::white.withAlpha (0.10f)); g.drawRoundedRectangle (gr.translated (0, 1), 6, 0.8f); }
     // binario superiore scuro con i comandi
     auto rail = pl.withHeight (38);
     { juce::Path rp; rp.addRoundedRectangle (rail.getX(), rail.getY(), rail.getWidth(), rail.getHeight(), 10, 10, true, true, false, false);
       g.setColour (juce::Colour (0xe0090a0d)); g.fillPath (rp); g.setColour (acc.withAlpha (0.55f)); g.fillRect (rail.getX() + 10, rail.getBottom() - 1, rail.getWidth() - 20, 1.0f); }
     for (auto x : { pl.getX() + 12, pl.getRight() - 12 }) screw (g, x, pl.getBottom() - 12, 5.0f, 0.4f + x * 0.01f);
+    {   // spia a gemma (vetro rosso) accesa con lo stadio
+        const float lx = 344, ly = 283, lr = 6.5f;
+        g.setColour (juce::Colour (0xff9aa0a8)); g.fillEllipse (lx - lr - 2, ly - lr - 2, 2 * lr + 4, 2 * lr + 4);
+        g.setColour (juce::Colour (0xff2a2c30)); g.drawEllipse (lx - lr - 2, ly - lr - 2, 2 * lr + 4, 2 * lr + 4, 1.0f);
+        const auto lc = on ? juce::Colour (0xffff3b30) : juce::Colour (0xff4a1512);
+        if (on) { juce::ColourGradient glow (lc.withAlpha (0.45f), lx, ly, lc.withAlpha (0.0f), lx + 18, ly, true); g.setGradientFill (glow); g.fillEllipse (lx - 18, ly - 18, 36, 36); }
+        juce::ColourGradient jg (lc.brighter (0.6f), lx - lr * 0.4f, ly - lr * 0.5f, lc.darker (0.8f), lx + lr, ly + lr, true); g.setGradientFill (jg); g.fillEllipse (lx - lr, ly - lr, 2 * lr, 2 * lr);
+        for (int k = 0; k < 6; ++k) { const float a = k * 1.047f; g.setColour (juce::Colours::white.withAlpha (0.12f)); g.drawLine (lx, ly, lx + std::cos (a) * lr, ly + std::sin (a) * lr, 0.7f); }
+        g.setColour (juce::Colours::white.withAlpha (0.7f)); g.fillEllipse (lx - lr * 0.5f, ly - lr * 0.6f, lr * 0.5f, lr * 0.35f);
+    }
+    {   // luce al neon sotto il pannello e chevron cyber sul binario
+        juce::ColourGradient ug (acc.withAlpha (0.0f), b.getX() + 30, 0, acc.withAlpha (0.0f), b.getRight() - 30, 0, false); ug.addColour (0.5, acc.withAlpha (0.55f));
+        g.setGradientFill (ug); g.fillRect (b.getX() + 30, b.getBottom() - 2.5f, b.getWidth() - 60, 1.5f);
+        g.setColour (acc.withAlpha (0.5f));
+        for (int k = 0; k < 4; ++k) { juce::Path ch; const float x = 488 + k * 7.0f, y = 18; ch.startNewSubPath (x, y); ch.lineTo (x + 4, y + 5); ch.lineTo (x, y + 10); g.strokePath (ch, juce::PathStrokeType (1.4f)); }
+    }
     cyberFrame (g, b.reduced (1.5f), acc);
     // targhetta del modello incisa sul pannello
     if (! (m == VC670 && ed.sv (s, "link") < 0.5f))
@@ -535,8 +613,17 @@ void StageEditor::paintStatic (juce::Graphics& g)
     {
         // VU della riduzione: parte fissa
         auto vu = vuRect();
-        g.setColour (juce::Colour (0xff0a0b0e)); g.fillRoundedRectangle (vu.expanded (5), 11);
-        { juce::ColourGradient fr (juce::Colour (0xff3a3e48), 0, vu.getY() - 5, juce::Colour (0xff121419), 0, vu.getBottom() + 5, false); g.setGradientFill (fr); g.drawRoundedRectangle (vu.expanded (4), 10, 2.0f); }
+        auto bezel = [&g] (juce::Rectangle<float> r)
+        {   // cornice cromata incassata con 4 viti
+            g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillRoundedRectangle (r.expanded (8).translated (0, 2), 13);
+            juce::ColourGradient ch (juce::Colour (0xffd9dce2), 0, r.getY() - 7, juce::Colour (0xff3b3e44), 0, r.getBottom() + 7, false); ch.addColour (0.5, juce::Colour (0xff7d8189));
+            g.setGradientFill (ch); g.fillRoundedRectangle (r.expanded (7), 12);
+            g.setColour (juce::Colour (0xff0a0b0e)); g.fillRoundedRectangle (r.expanded (3), 9);
+            g.setColour (juce::Colours::white.withAlpha (0.35f)); g.drawRoundedRectangle (r.expanded (6.5f), 11.5f, 0.8f);
+            for (auto pt : { r.getTopLeft().translated (-3.5f, -3.5f), r.getTopRight().translated (3.5f, -3.5f), r.getBottomLeft().translated (-3.5f, 3.5f), r.getBottomRight().translated (3.5f, 3.5f) })
+            { g.setColour (juce::Colour (0xff23252a)); g.fillEllipse (pt.x - 2.2f, pt.y - 2.2f, 4.4f, 4.4f); g.setColour (juce::Colours::white.withAlpha (0.4f)); g.drawLine (pt.x - 1.5f, pt.y, pt.x + 1.5f, pt.y, 0.7f); }
+        };
+        bezel (vu); bezel (meterRect());
         const auto fc = juce::Colour (I.face); const bool light = fc.getPerceivedBrightness() > 0.5f;
         juce::ColourGradient fg (fc.brighter (0.15f), vu.getCentreX(), vu.getY(), fc.darker (0.25f), vu.getCentreX(), vu.getBottom(), false); g.setGradientFill (fg); g.fillRoundedRectangle (vu, 8);
         juce::ColourGradient lamp (juce::Colour (0xffffc46b).withAlpha (light ? 0.38f : 0.14f), vu.getCentreX(), vu.getBottom(), juce::Colours::transparentBlack, vu.getCentreX(), vu.getY(), true); g.setGradientFill (lamp); g.fillRoundedRectangle (vu, 8);
@@ -557,7 +644,6 @@ void StageEditor::paintStatic (juce::Graphics& g)
         g.setFont (mf (10.0f)); g.drawText ("dB", vu.reduced (12, 8), juce::Justification::topLeft);
         // misuratore d'ingresso con la soglia: parte fissa (scala)
         auto mr = meterRect();
-        g.setColour (juce::Colour (0xff0a0b0e)); g.fillRoundedRectangle (mr.expanded (5), 11);
         lcd (g, mr, 8);
         g.setFont (mf (8.0f));
         for (int db = 0; db >= -50; db -= 10)
@@ -586,6 +672,13 @@ void StageEditor::paintNeedle (juce::Graphics& g)
     g.setColour (juce::Colours::black.withAlpha (0.25f)); g.drawLine (pcx + 4, pcy, pcx + 4 + std::sin (a) * (rad - 16), pcy - std::cos (a) * (rad - 16), 2.2f);
     g.setColour (light ? juce::Colour (0xff111111) : juce::Colour (0xffff4040)); g.drawLine (pcx, pcy, pcx + std::sin (a) * (rad - 16), pcy - std::cos (a) * (rad - 16), 1.7f);
     g.restoreState();
+    {   // vetro bombato: riflesso diagonale e ombra interna in alto
+        g.saveState(); g.reduceClipRegion (vu.toNearestInt());
+        juce::Path rf; rf.startNewSubPath (vu.getX(), vu.getY()); rf.lineTo (vu.getX() + vu.getWidth() * 0.55f, vu.getY()); rf.lineTo (vu.getX() + vu.getWidth() * 0.25f, vu.getBottom()); rf.lineTo (vu.getX(), vu.getBottom()); rf.closeSubPath();
+        g.setColour (juce::Colours::white.withAlpha (0.05f)); g.fillPath (rf);
+        juce::ColourGradient sh (juce::Colours::black.withAlpha (0.35f), 0, vu.getY(), juce::Colours::transparentBlack, 0, vu.getY() + 14, false); g.setGradientFill (sh); g.fillRect (vu.withHeight (14));
+        g.restoreState();
+    }
     jlook::glass (g, vu, 8);
 }
 void StageEditor::paintMeter (juce::Graphics& g)
@@ -731,7 +824,7 @@ void Graph::paint (juce::Graphics& g)
     // curva di trasferimento dello stadio selezionato
     const float ig = inputGainDb (sp);
     juce::Path cv;
-    for (int k = 0; k <= 120; ++k) { const float x = -60.0f + k * 0.5f, o = juce::jlimit (-60.0f, 0.0f, x - gainComputer (sp, x + ig)); if (k == 0) cv.startNewSubPath (tx (x), ty (o)); else cv.lineTo (tx (x), ty (o)); }
+    for (int k = 0; k <= 120; ++k) { const float x = -60.0f + k * 0.5f, o = juce::jlimit (-60.0f, 0.0f, x + ig - gainComputer (sp, x + ig) + sp.outDb); if (k == 0) cv.startNewSubPath (tx (x), ty (o)); else cv.lineTo (tx (x), ty (o)); }
     g.setColour (c.withAlpha (0.3f)); g.strokePath (cv, juce::PathStrokeType (4.0f)); g.setColour (c); g.strokePath (cv, juce::PathStrokeType (1.6f));
     if (hasThr && thr > -60 && thr < -0.05f)
     {
@@ -740,7 +833,7 @@ void Graph::paint (juce::Graphics& g)
         g.setFont (mf (8.5f)); g.drawText (juce::String (thr, 1), juce::Rectangle<float> (x + 3, tr.getBottom() - 24, 40, 10), juce::Justification::centredLeft);
     }
     const float lin = juce::Decibels::gainToDecibels (P.stIn[ed.focus].load(), -60.0f);
-    if (sp.on && lin > -59) { const float o = juce::jlimit (-60.0f, 0.0f, lin - gainComputer (sp, lin + ig)); g.setColour (c.withAlpha (0.3f)); g.fillEllipse (tx (lin) - 7, ty (o) - 7, 14, 14); g.setColour (juce::Colours::white); g.fillEllipse (tx (lin) - 3, ty (o) - 3, 6, 6); }
+    if (sp.on && lin > -59) { const float o = juce::jlimit (-60.0f, 0.0f, lin + ig - gainComputer (sp, lin + ig) + sp.outDb); g.setColour (c.withAlpha (0.3f)); g.fillEllipse (tx (lin) - 7, ty (o) - 7, 14, 14); g.setColour (juce::Colours::white); g.fillEllipse (tx (lin) - 3, ty (o) - 3, 6, 6); }
     g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText (juce::String (info (sp.model).name) + "  " + juce::String (ed.focus + 1), tr.reduced (6, 4), juce::Justification::topLeft);
     // righe e vetro sopra, anch'essi in cache (trasparenti)
     ov.draw (g, getLocalBounds(), juce::String (skin::cur()) + "/" + juce::String (getWidth()), [&] (juce::Graphics& g2)
@@ -947,7 +1040,7 @@ void Editor::resized()
 
 juce::String Editor::staticKey()
 {
-    juce::String k; k << skin::cur() << "/" << proc.preset << proc.getProgramName (proc.preset) << "/" << juce::roundToInt (proc.value ("route")) << "/" << (int) proc.hasExtSidechain();
+    juce::String k; k << skin::cur() << "/" << proc.preset << proc.currentName() << "/" << juce::roundToInt (proc.value ("route")) << "/" << (int) proc.hasExtSidechain();
     for (int s = 0; s < kStages; ++s) k << (int) (sv (s, "on") > 0.5f);
     return k;
 }
@@ -963,18 +1056,31 @@ void Editor::paint (juce::Graphics& g)
     jlook::header (g, { 0, 0, Wf, 64 }, "STUDIO COMP", C::phos, "JC-6  MULTI COMPRESSOR", C::magenta, C::phos);
     for (auto* c : { (juce::Component*) &stage, (juce::Component*) &graph, (juce::Component*) &guide }) jlook::softShadow (g, c->getBounds().toFloat(), 14);
     lcd (g, presetRect.toFloat(), 8); jlook::glass (g, presetRect.toFloat(), 8);
-    glowText (g, proc.getProgramName (proc.preset).toUpperCase(), presetRect.toFloat(), neo::light() ? C::text : C::amber, mf (12.5f), juce::Justification::centred);
+    glowText (g, (proc.userName.isNotEmpty() ? juce::String::fromUTF8 ("\xe2\x98\x85 ") + proc.userName : proc.currentName()).toUpperCase(), presetRect.toFloat(), neo::light() ? C::text : C::amber, mf (12.5f), juce::Justification::centred);
     g.setColour (C::phos); g.setFont (uf (20.0f));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
     skin::chipDraw (g, themeRect.toFloat());
     auto cardR = [&] (juce::Rectangle<float> r, juce::Colour c, const char* t) { jlook::softShadow (g, r, 14); jlook::card (g, r, 14, c, true, false, false); glowText (g, t, { r.getX() + 16, r.getY() + 6, 200, 22 }, C::text, uf (12.0f)); };
     cardR ({ rx, 78, rw, 112 }, C::magenta, "ROUTING");
+    g.setColour (C::dim); g.setFont (uf (9.5f, false));
+    g.drawFittedText ("SERIE: uno dopo l'altro, ognuno comprime l'uscita del precedente.\nPARALLELO: ognuno lavora sul suono originale, poi si sommano.", juce::Rectangle<int> ((int) rx + 100, 82, (int) rw - 112, 28), juce::Justification::centredLeft, 2, 0.9f);
     { // catena
         const bool par = juce::roundToInt (proc.value ("route")) == 2; auto d = juce::Rectangle<float> (rx + 16, 150, rw - 32, 32);
         g.setColour (C::dim); g.setFont (mf (9.5f)); g.drawText ("IN", juce::Rectangle<float> (d.getX(), d.getY(), 24, 32), juce::Justification::centredLeft); g.drawText ("OUT", juce::Rectangle<float> (d.getRight() - 28, d.getY(), 28, 32), juce::Justification::centredRight);
         juce::Array<int> on; for (int s = 0; s < kStages; ++s) if (sv (s, "on") > 0.5f) on.add (s);
         const float x0 = d.getX() + 26, x1 = d.getRight() - 30, cy = d.getCentreY();
         g.setColour (C::dim.withAlpha (0.6f)); g.drawLine (x0, cy, x1, cy);
+        if (par && on.size() > 1)
+        {   // parallelo: il segnale si apre a ventaglio verso ogni stadio e si richiude in uscita
+            const int n2 = on.size(); const float bw2 = juce::jmin (34.0f, (x1 - x0 - 120) / n2 - 4);
+            for (int i = 0; i < n2; ++i)
+            {
+                const float bx = (x0 + x1) / 2 + (i - (n2 - 1) / 2.0f) * (bw2 + 4);
+                juce::Path f1; f1.startNewSubPath (x0, cy); f1.cubicTo (x0 + 40, cy, bx - 30, cy - 13, bx, cy - 9);
+                juce::Path f2; f2.startNewSubPath (bx, cy + 9); f2.cubicTo (bx + 30, cy + 13, x1 - 40, cy, x1, cy);
+                g.setColour (C::stage[on[i]].withAlpha (0.55f)); g.strokePath (f1, juce::PathStrokeType (1.0f)); g.strokePath (f2, juce::PathStrokeType (1.0f));
+            }
+        }
         const int n = juce::jmax (1, on.size()); const float bw = juce::jmin (34.0f, (x1 - x0) / n - 6);
         for (int i = 0; i < on.size(); ++i)
         {
@@ -988,7 +1094,9 @@ void Editor::paint (juce::Graphics& g)
     cardR ({ rx, 202, rw, 140 }, C::green, "SIDECHAIN");
     g.setFont (mf (9.5f)); g.setColour (proc.hasExtSidechain() ? C::green : C::dim);
     g.drawText (proc.hasExtSidechain() ? "esterno collegato" : "esterno non collegato", juce::Rectangle<float> (rx + 200, 208, rw - 216, 18), juce::Justification::centredRight);
-    g.setColour (C::dim); g.setFont (uf (9.5f)); g.drawText ("su", juce::Rectangle<float> (rx + 16, 300, 30, 14), juce::Justification::centredLeft);
+    g.setColour (C::dim); g.setFont (uf (8.5f)); g.drawText ("quali stadi ascoltano l'esterno", juce::Rectangle<float> (rx + 16, 300, 230, 12), juce::Justification::centredLeft);
+    g.setFont (uf (9.0f, false));
+    g.drawFittedText ("INTERNO: il compressore ascolta la traccia stessa. ESTERNO: ascolta un'altra traccia scelta in Ableton (es. la cassa per il ducking). HPF: ignora i bassi. LISTEN: senti cosa ascolta.", juce::Rectangle<int> ((int) rx + 16, 312, 224, 30), juce::Justification::topLeft, 3, 0.85f);
     cardR ({ rx, 354, rw, 136 }, C::phos, "USCITA");
     g.setColour (C::dim); g.setFont (uf (10.0f, false));
     g.drawFittedText ("AUTO GAIN pareggia il volume: confronta ad orecchio onesto.", juce::Rectangle<int> ((int) rx + 16, 412, 140, 60), juce::Justification::topLeft, 4);
@@ -1038,8 +1146,8 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
         stage.repaint(); rack.repaint(); repaint (scaler.map (dltRect.expanded (8))); return;
     }
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); after(); }
-    else if (prevRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + n - 1) % n); after(); }
-    else if (nextRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + 1) % n); after(); }
+    else if (prevRect.contains (e.getPosition())) { proc.loadPreset ((juce::jmax (0, proc.preset) + n - 1) % n); after(); }
+    else if (nextRect.contains (e.getPosition())) { proc.loadPreset ((juce::jmax (0, proc.preset) + 1) % n); after(); }
     else if (presetRect.contains (e.getPosition()))
     {
         juce::PopupMenu m; std::vector<std::pair<juce::String, juce::PopupMenu>> groups;
@@ -1052,15 +1160,46 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
             if (! found) { juce::PopupMenu pm; pm.addItem (i + 1, it, true, i == proc.preset); groups.push_back ({ gn, pm }); }
         }
         for (auto& gr : groups) m.addSubMenu (gr.first, gr.second);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (presetRect))), [this, after] (int r) { if (r > 0) { proc.loadPreset (r - 1); after(); } });
+        // preset dell'utente: file nella cartella Musica/Jackpot/Studio Comp Preset
+        auto files = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jcomp"); files.sort();
+        juce::PopupMenu mine; for (int i = 0; i < files.size(); ++i) mine.addItem (5000 + i, files[i].getFileNameWithoutExtension(), true, proc.userName == files[i].getFileNameWithoutExtension());
+        m.addSeparator();
+        m.addSubMenu ("I MIEI PRESET", mine, files.size() > 0);
+        m.addItem (9001, "Salva come nuovo preset...");
+        if (proc.userName.isNotEmpty()) m.addItem (9002, "Sovrascrivi \"" + proc.userName + "\"");
+        if (files.size() > 0) { juce::PopupMenu del; for (int i = 0; i < files.size(); ++i) del.addItem (7000 + i, files[i].getFileNameWithoutExtension()); m.addSubMenu ("Cancella un mio preset", del); }
+        m.addItem (9003, "Apri la cartella dei preset");
+        juce::Component::SafePointer<Editor> sp (this);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (presetRect))), [sp, after, files] (int r)
+        {
+            if (sp == nullptr || r <= 0) return;
+            auto& pr = sp->proc;
+            if (r >= 5000 && r < 5000 + files.size()) { pr.loadUserPreset (files[r - 5000]); after(); return; }
+            if (r >= 7000 && r < 7000 + files.size()) { files[r - 7000].moveToTrash(); if (pr.userName == files[r - 7000].getFileNameWithoutExtension()) pr.userName = {}; sp->repaint(); return; }
+            if (r == 9002) { pr.saveUserPreset (pr.userName); sp->repaint(); return; }
+            if (r == 9003) { Processor::presetFolder().startAsProcess(); return; }
+            if (r == 9001) { sp->askPresetName(); return; }
+            if (r < 5000) { pr.loadPreset (r - 1); after(); }
+        });
     }
 }
 
+void Editor::askPresetName()
+{
+    auto* w = new juce::AlertWindow ("Salva preset", "Nome del preset (finisce in Musica / Jackpot / Studio Comp Preset):", juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", proc.userName.isNotEmpty() ? proc.userName : proc.currentName().replace (" | ", " - "));
+    w->addButton ("SALVA", 1, juce::KeyPress (juce::KeyPress::returnKey)); w->addButton ("ANNULLA", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<Editor> sp (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([sp, w] (int r)
+    {
+        if (sp != nullptr && r == 1) { const auto n = w->getTextEditorContents ("name").trim(); if (n.isNotEmpty()) { sp->proc.saveUserPreset (n); sp->repaint(); } }
+    }), true);
+}
 void Editor::timerCallback()
 {
     // si ridisegna solo cio' che e' cambiato e solo la sua zona
     stage.tick();
-    for (auto* k : { stage.drive.get(), stage.att.get(), stage.rel.get(), stage.out.get(), stage.color.get(), stage.mix.get(), stage.drive2.get(), stage.att2.get(), scHpf.get(), gMix.get(), gOut.get(), stage.bThr.get(), stage.bRatio.get(), stage.bAtt.get(), stage.bRel.get(), stage.bGain.get() }) if (k->isVisible()) k->refresh();
+    for (auto* k : { stage.drive.get(), stage.att.get(), stage.rel.get(), stage.out.get(), stage.color.get(), stage.mix.get(), stage.drive2.get(), stage.att2.get(), stage.thrK.get(), scHpf.get(), gMix.get(), gOut.get(), stage.bThr.get(), stage.bRatio.get(), stage.bAtt.get(), stage.bRel.get(), stage.bGain.get() }) if (k->isVisible()) k->refresh();
     rack.tick();
     if (graph.isVisible() && (tick & 1) == 0) graph.repaint();
     {   // misuratori IN/OUT

@@ -43,11 +43,43 @@ int main (int argc, char** argv)
             // DSP: 6 stadi accesi
             for (int s2 = 0; s2 < kStages; ++s2) if (auto* q = p.apvts.getParameter (juce::String (stagePfx (s2)) + "on")) q->setValueNotifyingHost (1.0f);
             const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int k = 0; k < 1000; ++k) p.processBlock (b, m);
-            std::printf ("DSP 6 stadi: %.1f%% di un core (blocchi da 480 a 48 kHz)\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 1000.0 / 10.0 * 100.0);
+            std::printf ("latenza %d campioni\n", p.getLatencySamples()); std::printf ("DSP 6 stadi: %.1f%% di un core (blocchi da 480 a 48 kHz)\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 1000.0 / 10.0 * 100.0);
             return 0;
         }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "alias")
+    {   // tono a 10 kHz, colore al massimo: componente non armonica piu' forte (aliasing)
+        juce::ScopedJuceInitialiser_GUI gui2;
+        const int order = 15, NF = 1 << order; const double fs = 48000, f0 = 9999.27;   // bin dispari
+        for (int m = 0; m < kNumModels; ++m)
+        {
+            Processor p; p.prepareToPlay (fs, 512);
+            auto set = [&] (const char* id, float v) { auto* q = p.apvts.getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+            set ("a_on", 1); set ("a_model", (float) m); set ("a_color", 1.0f); set ("a_mode", 3); if (m == MULTI) set ("a_drive", 0.3f);
+            if (m == FET76 || m == DISTRESS) set ("a_drive", 0.25f);
+            std::vector<float> outv; juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mi; long n = 0;
+            while ((int) outv.size() < NF + 48000)
+            {
+                for (int i = 0; i < 512; ++i, ++n) { const float v = 0.5f * (float) std::sin (2 * juce::MathConstants<double>::pi * f0 * n / fs); b.setSample (0, i, v); b.setSample (1, i, v); }
+                p.processBlock (b, mi); for (int i = 0; i < 512; ++i) outv.push_back (b.getSample (0, i));
+            }
+            std::vector<float> fb ((size_t) NF * 2, 0.0f);
+            for (int i = 0; i < NF; ++i) { const float w = 0.5f - 0.5f * std::cos (2 * juce::MathConstants<float>::pi * i / NF); fb[(size_t) i] = outv[(size_t) (48000 + i)] * w; }
+            juce::dsp::FFT fft (order); fft.performFrequencyOnlyForwardTransform (fb.data());
+            const int k0 = juce::roundToInt (f0 * NF / fs); float ref = 0; for (int k = k0 - 3; k <= k0 + 3; ++k) ref = juce::jmax (ref, fb[(size_t) k]);
+            float worst = 0; double wf = 0;
+            for (int k = 20; k < NF / 2 - 2; ++k)
+            {
+                const double f = k * fs / NF; bool harm = false;
+                for (int h = 1; h < 10; ++h) if (std::abs (f - h * f0) < 25 * fs / NF) harm = true;
+                if (harm) continue;
+                if (fb[(size_t) k] > worst) { worst = fb[(size_t) k]; wf = f; }
+            }
+            std::printf ("%-11s spur %6.1f dB a %5.0f Hz\n", info (m).name, 20 * std::log10 (worst / ref + 1e-12), wf);
+        }
         return 0;
     }
     if (argc > 1 && juce::String (argv[1]) == "presets")

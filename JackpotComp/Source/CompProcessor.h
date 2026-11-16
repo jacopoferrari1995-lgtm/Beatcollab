@@ -17,6 +17,7 @@ public:
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout&) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
     const juce::String getName() const override { return "Jackpot Studio Comp"; }
@@ -24,7 +25,7 @@ public:
     bool producesMidi() const override { return false; }
     double getTailLengthSeconds() const override { return 0; }
     int getNumPrograms() override { return (int) presets().size(); }
-    int getCurrentProgram() override { return preset; }
+    int getCurrentProgram() override { return juce::jmax (0, preset); }
     void setCurrentProgram (int i) override { loadPreset (i); }
     const juce::String getProgramName (int i) override { return juce::isPositiveAndBelow (i, (int) presets().size()) ? presets()[(size_t) i].name : ""; }
     void changeProgramName (int, const juce::String&) override {}
@@ -32,7 +33,14 @@ public:
     void setStateInformation (const void*, int) override;
 
     void loadPreset (int i);
-    void convertLegacy();
+    juce::String userName;   // preset dell'utente caricato (vuoto = preset di fabbrica)
+    juce::String currentName() { return userName.isNotEmpty() ? userName : getProgramName (preset); }
+    static juce::File presetFolder();
+    bool saveUserPreset (const juce::String& name);
+    bool loadUserPreset (const juce::File&);
+    void convertLegacy (int fromVersion);
+    void convertStage (int s, int fromVersion);
+    static constexpr int kStateVersion = 3;
     StageParams stageParams (int s) const;
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
 
@@ -57,11 +65,16 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
-    struct SP { std::atomic<float> *on, *model, *solo, *drive, *ratio, *att, *rel, *out, *color, *mix, *drive2, *att2, *ratio2, *link, *olink, *thr; } pp[kStages] {};
+    struct SP { std::atomic<float> *on, *model, *solo, *drive, *ratio, *att, *rel, *out, *color, *mix, *drive2, *att2, *ratio2, *link, *olink, *thr, *cratio, *mode, *hp; } pp[kStages] {};
     struct MP { std::atomic<float> *thr, *ratio, *att, *rel, *gain, *solo, *byp; } mbp[4] {};
     std::atomic<float> *gx[3] {}, *gScSrc = nullptr, *gScTo = nullptr, *gScHpf = nullptr, *gScListen = nullptr, *gRoute = nullptr, *gAuto = nullptr, *gMix = nullptr, *gOut = nullptr, *gDelta = nullptr;
     Stage st[kStages]; double sr = 44100; MbParams mbNow;
-    juce::AudioBuffer<float> dry, det, aux, acc, dlt, tmp;
+    juce::AudioBuffer<float> dry, det, aux, acc, dlt, tmp, inB, scB, dryD, dly; int dlyW = 0, latency = 0, osMax = 512;
+    static constexpr int kOsStages = 3, kOs = 8;
+    std::unique_ptr<juce::dsp::Oversampling<float>> os, osSc;
+    juce::SmoothedValue<float> sMix, sOut;
+    void processChunk (float* L, float* R, const float* eL, const float* eR, int N);
+    void delayDry (const float* L, const float* R, float* oL, float* oR, int N);
     juce::dsp::IIR::Filter<float> hp[kStages][2];  // per stadio, per canale
     float lastHp = -1; std::atomic<bool> extSc { false };
     float colIn = 0, colOut = 0, colGr[kStages] {}; int colN = 0; float rmsIn = 0, rmsOut = 0;
