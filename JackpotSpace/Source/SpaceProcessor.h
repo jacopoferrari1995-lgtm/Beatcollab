@@ -62,8 +62,10 @@ public:
     juce::String userIRName (int k) const { return userIR[k].isEmpty() ? juce::String() : juce::File (userIR[k]).getFileNameWithoutExtension(); }
     std::atomic<int> uiTheme { 1 };
 
-    static constexpr int kHist = 400;
-    std::atomic<float> hIn[kHist], hOut[kHist]; std::atomic<int> hW { 0 };
+    static constexpr int kHist = 4800;   // 24 s a colonne da 5 ms (onda SCAN come il Master)
+    static constexpr double kColSec = 0.005;
+    std::atomic<float> hIn[kHist], hOut[kHist], hPpq[kHist]; std::atomic<int> hMask[kHist]; std::atomic<long> hTot { 0 };
+    std::atomic<bool> uiPlay { false };
     std::atomic<float> pkOut[2], slotLvl[kSlots];
     std::atomic<double> uiBpm { 120 };
 
@@ -76,6 +78,10 @@ private:
     Slot slots[kSlots];
     juce::AudioBuffer<float> dry, chain, par, wet;
     double sr = 48000; float dryS = 1, wetS = 1, outS = 1, env = 0, duckS = 1, mixS[kSlots] {};
-    float colIn = 0, colOut = 0; int colN = 0;
+    float colIn = 0, colOut = 0; int colN = 0, colMask = 0;
+    static constexpr int kSub = 32;
+    static bool isStep (Kind k) { return k == KSPR || k == KPITCH || k == KIR || k == KPAT || k == KONOFF || k == KGP || k == KSYNC; }
+    int runT[kSlots] {}; float fadeG[kSlots] {}, ps[kSlots][kP] {}; bool idle[kSlots] {}, needClear[kSlots] {};
+    void processChunk (float* L, float* R, int N, double bpm, double ppq, bool play);
 };
 }

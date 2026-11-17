@@ -16,7 +16,9 @@ const std::vector<SpPreset>& factoryPresets()
         std::vector<SpPreset> v;
         auto add = [&v] (const char* cat, const char* name, const char* note, std::vector<SpSlot> sl, float duck = 0, float dry = 1, float wet = 0) { SpPreset x; x.cat = cat; x.name = name; x.note = note; x.s = std::move (sl); x.duck = duck; x.dry = dry; x.wet = wet; v.push_back (x); };
 
-        add ("INIT", "Init  |  Plate + Tape", "Una lastra e un'eco a nastro in parallelo: la partenza per voci e synth.",
+        add ("INIT", "Init", "Tutto a zero: una lastra e un'eco a nastro pronte, con i MIX chiusi. Alza il MIX dello slot che vuoi sentire.",
+             { S (PLATE, 0.0f, true), S (TAPE, 0.0f, true) });
+        add ("INIT", "Plate + Tape", "Una lastra e un'eco a nastro in parallelo: la partenza per voci e synth.",
              { S (PLATE, 0.30f, true), S (TAPE, 0.25f, true) });
         // ------------------------------------------------------------------ VOCE
         add ("VOCE", "Plate Classica", "La lastra da studio sulla voce: pre-delay che lascia passare le consonanti, bassi tolti, alti morbidi.",
@@ -163,7 +165,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     for (int k = 0; k < kSlots; ++k)
     {
         const String s = "Slot " + String (k + 1);
-        const SpSlot sl = k < (int) d.s.size() ? d.s[(size_t) k] : SpSlot();
+        SpSlot sl = k < (int) d.s.size() ? d.s[(size_t) k] : SpSlot(); sl.mix = 0.0f;   // all'apertura nessuno slot suona
         l.add (std::make_unique<AudioParameterChoice> (ParameterID { typeId (k), 1 }, s + " Motore", tn, sl.type));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { onId (k), 1 }, s + " On", true));
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { mixId (k), 1 }, s + " Mix", NormalisableRange<float> (0, 1), sl.mix));
@@ -184,7 +186,7 @@ Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", layout())
 {
-    for (int i = 0; i < kHist; ++i) { hIn[i] = -100; hOut[i] = -100; }
+    for (int i = 0; i < kHist; ++i) { hIn[i] = 0; hOut[i] = 0; hPpq[i] = -1; hMask[i] = 0; }
     for (int c = 0; c < 2; ++c) pkOut[c] = 0;
     for (int k = 0; k < kSlots; ++k) slotLvl[k] = 0;
     presetName = factoryPresets()[0].name;
@@ -234,7 +236,7 @@ void Processor::prepareToPlay (double s, int block)
     sr = s; const int n = juce::jmax (block, 4096);
     for (auto& sl : slots) sl.prepare (s, n);
     dry.setSize (2, n); chain.setSize (2, n); par.setSize (2, n); wet.setSize (2, n);
-    for (int k = 0; k < kSlots; ++k) mixS[k] = value (mixId (k));
+    for (int k = 0; k < kSlots; ++k) { mixS[k] = value (mixId (k)); runT[k] = OFF; fadeG[k] = 0; idle[k] = true; for (int i = 0; i < kP; ++i) ps[k][i] = value (pId (k, i)); }
     setLatencySamples (0);
     prepared = true; updateIRs();
 }
@@ -244,39 +246,81 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     juce::ScopedNoDenormals nd; midi.clear();
     const int N = buffer.getNumSamples(); if (N == 0) return;
     for (int c = getTotalNumInputChannels(); c < getTotalNumOutputChannels(); ++c) buffer.clear (c, 0, N);
-    if (dry.getNumSamples() < N) { dry.setSize (2, N, false, false, true); chain.setSize (2, N, false, false, true); par.setSize (2, N, false, false, true); wet.setSize (2, N, false, false, true); }
-    double bpm = 120;
-    if (auto* ph = getPlayHead()) if (auto pos = ph->getPosition()) if (auto b = pos->getBpm()) bpm = *b;
-    uiBpm = bpm;
+    double bpm = 120, ppq = 0; bool play = false;
+    if (auto* ph = getPlayHead()) if (auto pos = ph->getPosition())
+    { if (auto b = pos->getBpm()) bpm = *b; if (auto q = pos->getPpqPosition()) ppq = *q; play = pos->getIsPlaying(); }
+    uiBpm = bpm; uiPlay = play;
     float* L = buffer.getWritePointer (0); float* R = buffer.getWritePointer (juce::jmin (1, buffer.getNumChannels() - 1));
+    // a pezzi grandi quanto i buffer preparati: niente memoria nuova mentre suona
+    const int maxN = dry.getNumSamples(); const double qps = bpm / 60.0 / sr;
+    for (int off = 0; off < N; off += maxN) { const int m = juce::jmin (maxN, N - off); processChunk (L + off, R + off, m, bpm, ppq + off * qps, play); }
+}
+void Processor::processChunk (float* L, float* R, int N, double bpm, double ppq, bool play)
+{
     for (int c = 0; c < 2; ++c) { dry.copyFrom (c, 0, c ? R : L, N); chain.copyFrom (c, 0, c ? R : L, N); par.clear (c, 0, N); }
     const bool byp = value ("bypass") > 0.5f, frz = value ("freeze") > 0.5f;
     float* cL = chain.getWritePointer (0); float* cR = chain.getWritePointer (1);
     float* pL = par.getWritePointer (0); float* pR = par.getWritePointer (1);
     const float* dL = dry.getReadPointer (0); const float* dR = dry.getReadPointer (1);
     float* wL = wet.getWritePointer (0); float* wR = wet.getWritePointer (1);
+    const float fadeStep = 1.0f / (0.015f * (float) sr);   // 15 ms per uscire o entrare quando cambi motore
+    int mask = 0;
     for (int k = 0; k < kSlots; ++k)
     {
-        const int t = value (onId (k)) > 0.5f && ! byp ? slotType (k) : (int) OFF;
-        if (t == OFF) { slotLvl[k] = slotLvl[k].load() * 0.8f; continue; }
-        float p[kP]; for (int i = 0; i < kP; ++i) p[i] = value (pId (k, i));
-        const bool isPar = value (rtId (k)) > 0.5f;
-        // in parallelo lo slot sente il suono pulito, in serie quello che esce dagli slot prima
-        slots[k].process (isPar ? dL : cL, isPar ? dR : cR, wL, wR, N, t, p, bpm, frz);
-        const float mt = value (mixId (k)); float lv = 0;
-        for (int i = 0; i < N; ++i)
+        const int want = value (onId (k)) > 0.5f && ! byp ? slotType (k) : (int) OFF;
+        const float mt = want == OFF ? 0.0f : value (mixId (k));
+        // slot fermo: mix chiuso e coda finita -> non calcola (e quando riparte, riparte pulito)
+        if (mt < 1e-4f && mixS[k] < 1e-4f && (fadeG[k] <= 0.0f || runT[k] == OFF))
         {
-            mixS[k] += (mt - mixS[k]) * 0.003f;
-            const float a = wL[i] * mixS[k], b = wR[i] * mixS[k];
-            if (isPar) { pL[i] += a; pR[i] += b; } else { cL[i] += a; cR[i] += b; }
-            lv = juce::jmax (lv, std::abs (a) + std::abs (b));
+            if (! idle[k]) { idle[k] = true; needClear[k] = true; }
+            mixS[k] = 0; slotLvl[k] = slotLvl[k].load() * 0.8f;
+            if (want != runT[k]) { runT[k] = want; fadeG[k] = 0; }
+            continue;
         }
+        if (needClear[k]) { slots[k].clearAll(); needClear[k] = false; for (int i = 0; i < kP; ++i) ps[k][i] = value (pId (k, i)); }
+        idle[k] = false;
+        if (runT[k] == OFF && want != OFF) { runT[k] = want; fadeG[k] = 0; for (int i = 0; i < kP; ++i) ps[k][i] = value (pId (k, i)); }
+        const bool leaving = want != runT[k];   // motore cambiato: si sfuma quello vecchio, poi entra il nuovo
+        if (runT[k] == OFF) { mixS[k] = 0; continue; }
+        // valori: i continui scivolano (30 ms), quelli a scatti (molle, pattern, pitch, on/off) entrano dopo un attimo di silenzio dello slot
+        const auto& I = info (runT[k]);
+        float pt[kP]; for (int i = 0; i < kP; ++i) pt[i] = value (pId (k, i));
+        bool stepChanged = false;
+        if (! leaving) for (int i = 0; i < I.n; ++i) if (isStep (I.kind[i]) && std::abs (pt[i] - ps[k][i]) > 1e-6f) stepChanged = true;
+        const bool dip = leaving || stepChanged;
+        const bool isPar = value (rtId (k)) > 0.5f;
+        const float* inL = isPar ? dL : cL; const float* inR = isPar ? dR : cR;
+        const float a = 1.0f - std::exp (-(float) kSub / (0.03f * (float) sr)), aSlow = 1.0f - std::exp (-(float) kSub / (0.12f * (float) sr));
+        float lv = 0;
+        for (int o = 0; o < N; o += kSub)
+        {
+            const int m = juce::jmin (kSub, N - o);
+            if (! leaving) for (int i = 0; i < kP; ++i)
+            {
+                if (i < I.n && isStep (I.kind[i])) { if (! dip || fadeG[k] <= 0.0f) ps[k][i] = pt[i]; }
+                else { const Kind kd = i < I.n ? I.kind[i] : KP; ps[k][i] += (pt[i] - ps[k][i]) * (kd == KPRE || kd == KSIZE || kd == KERS || kd == KTIME ? aSlow : a); }   // tempi e grandezze: piu' lenti, niente graffi
+            }
+            // in parallelo lo slot sente il suono pulito, in serie quello che esce dagli slot prima
+            slots[k].process (inL + o, inR + o, wL + o, wR + o, m, runT[k], ps[k], bpm, frz);
+            for (int i = o; i < o + m; ++i)
+            {
+                mixS[k] += (mt - mixS[k]) * 0.003f;
+                fadeG[k] = dip ? juce::jmax (0.0f, fadeG[k] - fadeStep) : juce::jmin (1.0f, fadeG[k] + fadeStep);
+                const float g = mixS[k] * fadeG[k] * fadeG[k];
+                const float aa = wL[i] * g, bb = wR[i] * g;
+                if (isPar) { pL[i] += aa; pR[i] += bb; } else { cL[i] += aa; cR[i] += bb; }
+                lv = juce::jmax (lv, std::abs (aa) + std::abs (bb));
+            }
+        }
+        if (leaving && fadeG[k] <= 0.0f) { runT[k] = want; fadeG[k] = 0; for (int i = 0; i < kP; ++i) ps[k][i] = value (pId (k, i)); if (want != OFF) slots[k].clearAll(); }
         slotLvl[k] = juce::jmax (lv * 0.5f, slotLvl[k].load() * 0.85f);
+        if (lv > 1e-4f) mask |= 1 << k;
     }
     // uscita: pulito + (catena - pulito) + parallelo; il ducking abbassa il bagnato quando suona l'ingresso
     const float dt = byp ? 1.0f : value ("dry"), wt = byp ? 0.0f : juce::Decibels::decibelsToGain (value ("wet")), og = byp ? 1.0f : juce::Decibels::decibelsToGain (value ("out"));
     const float duck = value ("duck"), att = 1.0f - std::exp (-1.0f / (0.005f * (float) sr)), rel = 1.0f - std::exp (-1.0f / (0.25f * (float) sr));
     float po[2] = { 0, 0 };
+    const int colLen = juce::jmax (1, (int) (sr * kColSec));
     for (int i = 0; i < N; ++i)
     {
         dryS += (dt - dryS) * 0.002f; wetS += (wt - wetS) * 0.002f; outS += (og - outS) * 0.002f;
@@ -288,11 +332,12 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         L[i] = (dL[i] * dryS + wl) * outS; R[i] = (dR[i] * dryS + wr) * outS;
         if (! std::isfinite (L[i]) || ! std::isfinite (R[i])) { L[i] = R[i] = 0; }
         po[0] = juce::jmax (po[0], std::abs (L[i])); po[1] = juce::jmax (po[1], std::abs (R[i]));
-        colIn = juce::jmax (colIn, std::abs (dL[i]) + std::abs (dR[i])); colOut = juce::jmax (colOut, std::abs (wl) + std::abs (wr));
-        if (++colN >= (int) (sr * 0.01))
-        {
-            const int w = hW.load(); hIn[w] = juce::Decibels::gainToDecibels (colIn * 0.5f, -100.0f); hOut[w] = juce::Decibels::gainToDecibels (colOut * 0.5f, -100.0f);
-            hW = (w + 1) % kHist; colIn = colOut = 0; colN = 0;
+        colIn = juce::jmax (colIn, 0.5f * (std::abs (dL[i]) + std::abs (dR[i]))); colOut = juce::jmax (colOut, 0.5f * (std::abs (wl) + std::abs (wr))); colMask |= mask;
+        if (++colN >= colLen)
+        {   // una colonna dell'onda ogni 5 ms: entrata, solo bagnato, posizione nel pezzo, slot che suonano
+            const long t = hTot.load(); const int w = (int) (t % kHist);
+            hIn[w] = colIn; hOut[w] = colOut; hPpq[w] = play ? (float) (ppq + (double) i * bpm / 60.0 / sr) : -1.0f; hMask[w] = colMask;
+            hTot = t + 1; colIn = colOut = 0; colN = 0; colMask = 0;
         }
     }
     for (int c = 0; c < 2; ++c) pkOut[c] = juce::jmax (po[c], pkOut[c].load() * 0.9f);

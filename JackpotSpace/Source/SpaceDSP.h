@@ -195,6 +195,19 @@ struct AP   // allpass di Schroeder su una linea
     float run (float x, float g) { const float v = l.at (d - 1); const float u = x + g * v; l.push (u); return v - g * u; }
     float runMod (float x, float g, float dd) { const float v = l.frac (dd - 1); const float u = x + g * v; l.push (u); return v - g * u; }
 };
+// tanh con antiderivata del primo ordine (in double): la saturazione non crea aliasing udibile
+struct AdTanh
+{
+    double x1 = 0, F1 = 0;
+    static double lc (double x) { const double a = std::abs (x); return a + std::log1p (std::exp (-2.0 * a)) - 0.69314718055994531; }
+    void reset() { x1 = 0; F1 = 0; }
+    float run (float xf)
+    {
+        const double x = xf, F = lc (x), d = x - x1; double y;
+        if (std::abs (d) < 1e-5) y = std::tanh (0.5 * (x + x1)); else y = (F - F1) / d;
+        x1 = x; F1 = F; return (float) y;
+    }
+};
 struct LP1 { float z = 0; float run (float x, float a) { z += a * (x - z); return z; } };
 inline float coef (float hz, double sr) { return 1.0f - std::exp (-juce::MathConstants<float>::twoPi * juce::jlimit (5.0f, 0.49f * (float) sr, hz) / (float) sr); }
 inline float rtGain (float lenSamples, float rt, double sr) { return std::pow (10.0f, -3.0f * lenSamples / (juce::jmax (0.05f, rt) * (float) sr)); }
@@ -326,7 +339,7 @@ class Spring
 public:
     static constexpr int kAp = 48;
     void prepare (double s) { sr = s; for (int c = 0; c < 3; ++c) { loop[c].prepare ((int) (0.12 * sr) + 8); } pre.prepare ((int) (0.26 * sr) + 8); clear(); }
-    void clear() { for (int c = 0; c < 3; ++c) { loop[c].clear(); for (auto& z : apz[c]) z = 0; for (auto& z : apx[c]) z = 0; lp[c] = {}; hp[c] = 0; fb[c] = 0; } pre.clear(); }
+    void clear() { for (int c = 0; c < 3; ++c) { loop[c].clear(); for (auto& z : apz[c]) z = 0; for (auto& z : apx[c]) z = 0; lp[c] = {}; hp[c] = 0; fb[c] = 0; } pre.clear(); adDrip.reset(); }
     void process (const float* inL, const float* inR, float* oL, float* oR, int n, const float* p, bool freeze)
     {
         const int ns = map::springs (p[2]);
@@ -340,7 +353,7 @@ public:
             pre.push (freeze ? 0.0f : 0.5f * (inL[i] + inR[i]));
             float x = pre.at (preN);
             // drip: i transienti eccitano la molla in modo non lineare (il "plic" del riverbero a molla)
-            const float drip = p[3] * 3.0f; x = x + drip * (x - std::tanh (x * 2.5f) / 2.5f) * 4.0f;
+            const float drip = p[3] * 3.0f; x = x + drip * (x - adDrip.run (x * 2.5f) / 2.5f) * 4.0f;
             float out[3] = { 0, 0, 0 };
             for (int c = 0; c < ns; ++c)
             {
@@ -360,7 +373,7 @@ public:
         }
     }
 private:
-    double sr = 48000; Line loop[3], pre; float apz[3][kAp] {}, apx[3][kAp] {}, hp[3] {}, fb[3] {}; LP1 lp[3];
+    double sr = 48000; Line loop[3], pre; float apz[3][kAp] {}, apx[3][kAp] {}, hp[3] {}, fb[3] {}; LP1 lp[3]; AdTanh adDrip;
 };
 
 // ---------------------------------------------------------------------------------------------------- DELAY a linea (nastro, BBD, digitale)
@@ -368,7 +381,7 @@ class Delay
 {
 public:
     void prepare (double s) { sr = s; for (auto& l : ln) l.prepare ((int) (4.2 * sr) + 64); clear(); }
-    void clear() { for (auto& l : ln) l.clear(); for (int c = 0; c < 2; ++c) { lp[c] = {}; lp2[c] = {}; hp[c] = 0; } tS[0] = tS[1] = -1; ph = ph2 = 0; }
+    void clear() { for (auto& l : ln) l.clear(); for (int c = 0; c < 2; ++c) { lp[c] = {}; lp2[c] = {}; hp[c] = 0; adD[c].reset(); } tS[0] = tS[1] = -1; ph = ph2 = 0; }
     void process (const float* inL, const float* inR, float* oL, float* oR, int n, int type, const float* p, double bpm)
     {
         const bool tape = type == TAPE, bbd = type == BBD, warm = tape || bbd, sync = p[2] > 0.5f;
@@ -384,7 +397,7 @@ public:
         const float drive = tape ? 1.0f + p[5] * 4.0f : bbd ? 1.0f + p[5] * 3.0f : 1.0f;
         const float wow = tape ? p[3] : 0.0f, mod = tape ? 0.0f : p[3];
         for (int c = 0; c < 2; ++c) if (tS[c] < 0) tS[c] = tgt[c];
-        const float glide = warm ? 0.00015f : 0.002f;
+        const float glide = warm ? 0.00015f : 0.0004f;
         const float d1 = (float) (juce::MathConstants<double>::twoPi * (bbd ? 0.9 : 0.6) / sr), d2 = (float) (juce::MathConstants<double>::twoPi * 6.1 / sr);
         for (int i = 0; i < n; ++i)
         {
@@ -397,7 +410,7 @@ public:
             {
                 float v = lp[c].run (rd[c], lc); if (bbd) v = lp2[c].run (v, lc);
                 hp[c] += hc * (v - hp[c]); v -= hp[c];
-                if (warm) v = std::tanh (v * drive) / drive * (1.0f + 0.15f * (drive - 1.0f) / 4.0f);
+                if (warm) v = adD[c].run (v * drive) / drive * (1.0f + 0.15f * (drive - 1.0f) / 4.0f);
                 w[c] = v;
             }
             const float inl = inL[i], inr = inR[i];
@@ -410,7 +423,7 @@ public:
         }
     }
 private:
-    double sr = 48000; Line ln[2]; LP1 lp[2], lp2[2]; float hp[2] {}, tS[2] { -1, -1 }, ph = 0, ph2 = 0; juce::Random rnd { 5 };
+    double sr = 48000; Line ln[2]; LP1 lp[2], lp2[2]; float hp[2] {}, tS[2] { -1, -1 }, ph = 0, ph2 = 0; juce::Random rnd { 5 }; AdTanh adD[2];
 };
 
 // ---------------------------------------------------------------------------------------------------- REVERSE
@@ -418,15 +431,17 @@ class Reverse
 {
 public:
     void prepare (double s) { sr = s; for (auto& l : ln) l.prepare ((int) (8.5 * sr) + 64); clear(); }
-    void clear() { for (auto& l : ln) l.clear(); ph = 0; for (int c = 0; c < 2; ++c) { lp[c] = {}; hp[c] = 0; fb[c] = 0; } }
+    void clear() { for (auto& l : ln) l.clear(); ph = 0; Ts = -1; for (int c = 0; c < 2; ++c) { lp[c] = {}; hp[c] = 0; fb[c] = 0; } }
     void process (const float* inL, const float* inR, float* oL, float* oR, int n, const float* p, double bpm)
     {
         float tMs = p[2] > 0.5f ? (float) (divBeats (map::div (p[0])) * 60000.0 / juce::jmax (30.0, bpm)) : map::delayMs (p[0]);
-        const float T = juce::jlimit (0.03f, 4.0f, tMs * 0.001f) * (float) sr;
+        const float Tt = juce::jlimit (0.03f, 4.0f, tMs * 0.001f) * (float) sr;
+        if (Ts < 0) Ts = Tt;
         const float fbk = p[1] * 0.95f, lc = coef (map::hiCut (p[3]), sr), hc = coef (map::loCut (p[4]), sr), wd = p[5] * 0.5f;
         const float* in[2] = { inL, inR }; float* out[2] = { oL, oR };
         for (int i = 0; i < n; ++i)
         {
+            Ts += (Tt - Ts) * 0.0005f; const float T = Ts;
             ph += 1.0f / T; if (ph >= 1.0f) ph -= 1.0f;
             for (int c = 0; c < 2; ++c)
             {
@@ -444,7 +459,7 @@ public:
         }
     }
 private:
-    double sr = 48000; Line ln[2]; float ph = 0, hp[2] {}, fb[2] {}; LP1 lp[2];
+    double sr = 48000; Line ln[2]; float ph = 0, Ts = -1, hp[2] {}, fb[2] {}; LP1 lp[2];
 };
 
 // ---------------------------------------------------------------------------------------------------- MULTITAP
@@ -452,13 +467,14 @@ class Multitap
 {
 public:
     void prepare (double s) { sr = s; ln.prepare ((int) (4.2 * sr) + 64); clear(); }
-    void clear() { ln.clear(); fb = 0; for (int c = 0; c < 2; ++c) { lp[c] = {}; hp[c] = 0; } }
+    void clear() { ln.clear(); fb = 0; Ts = -1; for (int c = 0; c < 2; ++c) { lp[c] = {}; hp[c] = 0; } }
     void process (const float* inL, const float* inR, float* oL, float* oR, int n, const float* p, double bpm)
     {
         static const float mul[kPats][4] = { { 1, 2, 3, 4 }, { 0.75f, 1.5f, 2.25f, 3 }, { 0.667f, 1.333f, 2, 2.667f }, { 0.25f, 0.5f, 1, 2 }, { 0.5f, 0.833f, 1.5f, 1.833f }, { 0.5f, 1, 1.5f, 2 } };
         const int pat = map::pick (p[3], kPats);
         float tMs = p[2] > 0.5f ? (float) (divBeats (map::div (p[0])) * 60000.0 / juce::jmax (30.0, bpm)) : map::delayMs (p[0]);
         float T = tMs * 0.001f * (float) sr; const float last = mul[pat][3] * T, cap = 4.0f * (float) sr; if (last > cap) T *= cap / last;
+        if (Ts < 0) Ts = T;
         const float k = 0.3f + 0.65f * p[7], sp = p[4];
         static const float pan[4] = { -1.0f, 1.0f, -0.6f, 0.6f };
         float gl[4], gr[4], d[4];
@@ -466,14 +482,15 @@ public:
         {
             const float gg = pat == 5 ? std::pow (k, (float) (3 - j)) : std::pow (k, (float) j);
             const float a = (pan[j] * sp + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
-            gl[j] = gg * std::cos (a) * 1.2f; gr[j] = gg * std::sin (a) * 1.2f; d[j] = juce::jmax (2.0f, mul[pat][j] * T);
+            gl[j] = gg * std::cos (a) * 1.2f; gr[j] = gg * std::sin (a) * 1.2f; d[j] = mul[pat][j];
         }
         const float fbk = p[1] * 0.9f, lc = coef (map::hiCut (p[5]), sr), hc = coef (map::loCut (p[6]), sr);
         for (int i = 0; i < n; ++i)
         {
             ln.push (0.5f * (inL[i] + inR[i]) + fbk * fb);
+            Ts += (T - Ts) * 0.0005f;
             float l = 0, r = 0;
-            for (int j = 0; j < 4; ++j) { const float v = ln.frac (d[j]); l += v * gl[j]; r += v * gr[j]; if (j == 3) fb = v; }
+            for (int j = 0; j < 4; ++j) { const float v = ln.frac (juce::jmax (2.0f, d[j] * Ts)); l += v * gl[j]; r += v * gr[j]; if (j == 3) fb = v; }
             l = lp[0].run (l, lc); r = lp[1].run (r, lc);
             hp[0] += hc * (l - hp[0]); l -= hp[0]; hp[1] += hc * (r - hp[1]); r -= hp[1];
             fb = std::tanh (fb);
@@ -481,7 +498,7 @@ public:
         }
     }
 private:
-    double sr = 48000; Line ln; float fb = 0, hp[2] {}; LP1 lp[2];
+    double sr = 48000; Line ln; float fb = 0, Ts = -1, hp[2] {}; LP1 lp[2];
 };
 
 // ---------------------------------------------------------------------------------------------------- GRANULARE (delay e nuvola)
@@ -634,7 +651,7 @@ public:
     {
         plate.clear(); fdnA.clear(); fdnB.clear(); spring.clear(); dly.clear(); rev.clear(); mt.clear(); gran.clear(); um.clear(); conv.reset();
         for (int c = 0; c < 2; ++c) { sh[c].clear(); conPre[c].clear(); erLn[c].clear(); lo[c] = 0; hi[c] = {}; tl[c] = {}; shFb[c].fill (0.0f); }
-        env = 0; duckG = 1; shEnv = 0; gEnv = 0; gGain = 0; hold = 0; cEnv = 0;
+        env = 0; duckG = 1; shEnv = 0; gEnv = 0; gGain = 0; hold = 0; cEnv = 0; adG[0].reset(); adG[1].reset();
     }
     // scrive solo la parte "bagnata" in oL/oR
     void process (const float* inL, const float* inR, float* oL, float* oR, int n, int t, const float* p, double bpm, bool freeze)
@@ -801,7 +818,7 @@ private:
             // listen mic: compressore rapido e forte sul riverbero (il "crunch" SSL)
             const float rv = 0.5f * (std::abs (oL[i]) + std::abs (oR[i])); cEnv += (rv > cEnv ? ca : cr) * (rv - cEnv);
             const float comp = (1.0f + cr2 * 2.0f) / (1.0f + cr2 * 30.0f * cEnv);
-            oL[i] = std::tanh (oL[i] * comp) * 0.6f * gGain; oR[i] = std::tanh (oR[i] * comp) * 0.6f * gGain;
+            oL[i] = adG[0].run (oL[i] * comp) * 0.6f * gGain; oR[i] = adG[1].run (oR[i] * comp) * 0.6f * gGain;
         }
     }
     // STUDIO: prime riflessioni disegnate a parte + coda
@@ -851,6 +868,7 @@ private:
     Plate plate; Fdn fdnA, fdnB; Spring spring; Delay dly; Reverse rev; Multitap mt; Granular gran; Shifter sh[2]; Unmask um; Line conPre[2], erLn[2];
     juce::dsp::Convolution conv; juce::AudioBuffer<float> convBuf;
     std::array<std::vector<float>, 4> buf; std::array<float, kChunk> shFb[2] {};
+    AdTanh adG[2];
     float lo[2] {}, env = 0, duckG = 1, shEnv = 0, gEnv = 0, gGain = 0, hold = 0, cEnv = 0; LP1 hi[2], tl[2];
 };
 }
