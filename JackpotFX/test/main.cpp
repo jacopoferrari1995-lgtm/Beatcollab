@@ -203,6 +203,35 @@ int main (int argc, char** argv)
         pc.swapSlots (0, 4); std::printf ("scambio 1<->5: slot1 %s, slot5 %s\n", pfx::info (pc.slotType (0)).name, pfx::info (pc.slotType (4)).name);
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "perf")
+    {
+        // CPU: 20 s di audio col caso peggiore, in % del tempo reale
+        {
+            Processor p; p.prepareToPlay (sr, 512); for (int k = 0; k < kSlots; ++k) { if (k < 8) p.P (amtId (k))->setValueNotifyingHost (0.7f); }
+            std::vector<float> o; o.reserve (2 * 512 * 2000);
+            const auto t0 = juce::Time::getMillisecondCounterHiRes(); run (p, 1875, o); const auto ms = juce::Time::getMillisecondCounterHiRes() - t0;
+            std::printf ("CPU caso peggiore: %.1f%% di un core (20 s in %.0f ms)\n", ms / 200.0, ms);
+        }
+        Processor p; p.prepareToPlay (sr, 512); for (int k = 0; k < kSlots; ++k) { if (k < 8) p.P (amtId (k))->setValueNotifyingHost (0.7f); }
+        std::vector<float> o; run (p, 300, o);
+        Editor ed (p); ed.tickForTest();
+        const int th[] = { 3, 4, 8, 9, 10, 1, 2 };
+        for (int t : th)
+        {
+            skin::cur() = t; neo::K::theme = -1; skin::apply();
+            ed.repaint(); for (auto* c : ed.getChildren()) c->repaint();
+            auto t0 = juce::Time::getMillisecondCounterHiRes();
+            auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+            const double full = juce::Time::getMillisecondCounterHiRes() - t0;
+            // regime: 30 fotogrammi come li disegna il timer (pannello statico in cache)
+            t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int i = 0; i < 30; ++i) { ed.tickForTest(); ed.scope.createComponentSnapshot (ed.scope.getLocalBounds(), true, 1.0f); }
+            const double fr = (juce::Time::getMillisecondCounterHiRes() - t0) / 30.0;
+            std::printf ("tema %2d: primo disegno %.1f ms, fotogramma onda + timer %.2f ms\n", t, full, fr);
+            juce::File f ("/tmp/" "fx" "_tema" + juce::String (t) + ".png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+        }
+        return 0;
+    }
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
         Processor p; p.prepareToPlay (sr, 512);
