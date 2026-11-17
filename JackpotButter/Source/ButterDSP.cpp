@@ -352,7 +352,13 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         case 1:
         {
     // ---- 2. SHIFT ----
-    if (v ("u_shOn") > 0.5f && live (1, "u_shAmt"))
+    const bool shLive = v ("u_shOn") > 0.5f && live (1, "u_shAmt");
+    if (! shLive)
+    {   // spento: il buffer si tiene aggiornato, cosi' quando si alza la manopola non suona audio vecchio
+        const int BL = shBuf.getNumSamples();
+        for (int i = 0; i < N; ++i) { shBuf.setSample (0, shW, ch[0][i]); shBuf.setSample (1, shW, ch[1][i]); if (++shW >= BL) shW = 0; }
+    }
+    if (shLive)
     {
         const auto amtR = ramp (1, "u_shAmt"); const float tgt = ramp (17, "u_shTgt").b; const int foc = (int) v ("u_shFoc");
         const float fst = v ("u_shForm"); const bool useF = std::abs (fst) > 0.05f;
@@ -479,7 +485,10 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
                     const float rest = xin - band;
                     // il fuzz ha gia' tanto guadagno suo: meno spinta, e gli acuti oltre i 5 kHz non entrano nel transistor (come da un pedale vero)
                     float y = model == ja::FUZZ ? drv[c].process (satAA[c][1] (satAA[c][0] (band)), g * 0.7f, ae * 0.3f) : drv[c].process (band, g, ae);
-                    if (st < 0.49f || st > 0.51f || type == 1) { const float lp = satTone[c] (y); y = st >= 0.5f && type != 1 ? y + (y - lp) * (st - 0.5f) * 1.2f : lp; }
+                    {   // STILE continuo: a sinistra sfuma verso lo scuro, a destra aggiunge brillantezza, al centro neutro (niente salti a meta')
+                        const float lp = satTone[c] (y);
+                        y = type == 1 ? lp : st >= 0.5f ? y + (y - lp) * (st - 0.5f) * 1.2f : y + (lp - y) * jmin (1.0f, (0.5f - st) * 4.0f);
+                    }
                     u[c][k] = rest + band + (y - band) * w * wet;
                 }
             }
@@ -601,7 +610,7 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         case 6:
         {
         // ---- 7. EXTRA: delay a tempo, bitcrush, wobble ----
-        if (v ("u_xOn") > 0.5f && live (9, "u_xAmt"))
+        if (v ("u_xOn") > 0.5f && (live (9, "u_xAmt") || (int) v ("u_xType") == 0))
         {
             const auto amtR = ramp (9, "u_xAmt"); const int type = (int) v ("u_xType"); const float p1 = v ("u_xP1"), p2 = v ("u_xP2"), tgt = ramp (18, "u_xTgt").b;
             const int BL = xBuf.getNumSamples();
@@ -622,9 +631,11 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
                     const float yl = xBuf.getSample (0, i0) * (1 - fr) + xBuf.getSample (0, i1) * fr, yr = xBuf.getSample (1, i0) * (1 - fr) + xBuf.getSample (1, i1) * fr;
                     xLp[0] = (1 - a) * yr + a * xLp[0]; xLp[1] = (1 - a) * yl + a * xLp[1];
                     const float fl = xfilt (xLp[0], 0), fr2 = xfilt (xLp[1], 1);
-                    xBuf.setSample (0, xW, ch[0][i] * w + std::tanh (fl * fb)); xBuf.setSample (1, xW, ch[1][i] * w + std::tanh (fr2 * fb));
+                    // la quantita' entra nel delay e non all'uscita: le eco entrano ed escono morbide, la coda resta
+                    const float am = amtR.at (i);
+                    xBuf.setSample (0, xW, ch[0][i] * w * am + std::tanh (fl * fb)); xBuf.setSample (1, xW, ch[1][i] * w * am + std::tanh (fr2 * fb));
                     if (++xW >= BL) xW = 0;
-                    ch[0][i] += yl * amtR.at (i); ch[1][i] += yr * amtR.at (i);
+                    ch[0][i] += yl; ch[1][i] += yr;
                 }
             }
             else if (type == 1)
