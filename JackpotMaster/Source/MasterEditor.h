@@ -700,6 +700,6 @@ public:
 private:
     void timerCallback() override;
     std::unique_ptr<Segs> dither; std::unique_ptr<Switch> compare, norm; std::unique_ptr<Knob> trim, outK;
-    juce::Rectangle<int> presetRect, prevRect, nextRect, abRect, balRect, refRect; bool abHover = false; int tick = 0;
+    juce::Rectangle<int> presetRect, prevRect, nextRect, abRect, balRect, refRect, undoR, redoR; bool abHover = false; int tick = 0, undoHover = -1; double lastUserMs = 0;
 };
 }

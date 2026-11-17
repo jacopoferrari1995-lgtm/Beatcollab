@@ -2466,7 +2466,8 @@ void Editor::resized()
     const float sc = scaler.update();
     presetRect = { 474, 15, 300, 36 }; prevRect = { 438, 15, 34, 36 }; nextRect = { 776, 15, 34, 36 }; abRect = { 818, 15, 122, 36 };
     balRect = { 956, 15, 150, 36 }; refRect = { 1112, 15, 150, 36 };
-    presetRect = { 486, 12, 380, 42 }; prevRect = { 446, 15, 36, 36 }; nextRect = { 870, 15, 36, 36 }; abRect = { 916, 15, 122, 36 };
+    presetRect = { 486, 12, 380, 42 }; prevRect = { 446, 15, 36, 36 }; nextRect = { 870, 15, 36, 36 }; abRect = { 914, 15, 106, 36 };
+    undoR = { 1022, 15, 36, 36 }; redoR = { 1058, 15, 36, 36 };
     balRect = {}; refRect = {};
     for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &spPage, &stPage, &balPage, &refPage, &earPage, &soon }) pg->setBounds (centreR);
     easyPage.setBounds (0, 64, 1280, 736); neoBg = {};
@@ -2576,6 +2577,16 @@ void Editor::paintNeo (juce::Graphics& g)
       g.setFont (neo::f (18.0f)); g.setColour (K::sub);
       g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred); }
     neo::chip (g, abRect.toFloat().reduced (8, 4), "MEMORIA " + proc.ab.label(), proc.ab.cur == 1, K::cyan, 9.0f, abHover);
+    for (int k = 0; k < 2; ++k)
+    {   // ANNULLA / RIFAI: freccia curva
+        const auto r = (k ? redoR : undoR).toFloat().reduced (3, 4); const bool en = k ? ! proc.redoStack.empty() : ! proc.undoStack.empty();
+        neo::chip (g, r, "", false, K::cyan, 9.0f, undoHover == k && en);
+        const float cx = r.getCentreX(), cy = r.getCentreY(), d = k ? -1.0f : 1.0f;   // freccia a uncino: verso sinistra (annulla) o destra (rifai)
+        juce::Path a; a.startNewSubPath (cx - 4 * d, cy - 3); a.lineTo (cx + 2 * d, cy - 3);
+        a.addCentredArc (cx + 2 * d, cy + 1, 4, 4, 0, 0, d * juce::MathConstants<float>::pi, false); a.lineTo (cx - 3 * d, cy + 5);
+        g.setColour ((en ? K::ink : K::faint).withAlpha (en ? 0.9f : 0.5f)); g.strokePath (a, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        juce::Path h; h.addTriangle (cx - 8 * d, cy - 3, cx - 3.5f * d, cy - 6.5f, cx - 3.5f * d, cy + 0.5f); g.fillPath (h);
+    }
     if (proc.easy()) { const float gr = proc.grAvg.load(); const bool on = proc.lufsS.load() > -60;
       auto r = juce::Rectangle<float> (1100, 22, 160, 20); const auto c = on ? (gr > 3 ? K::pink : K::mint) : K::faint;
       g.setColour (c.withAlpha (0.25f)); g.fillEllipse (r.getX() - 2, r.getCentreY() - 7, 14, 14); g.setColour (c); g.fillEllipse (r.getX() + 2, r.getCentreY() - 3, 6, 6);
@@ -2587,6 +2598,7 @@ void Editor::mouseMove (const juce::MouseEvent& e0)
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     const bool h = abRect.contains (e.getPosition());
     if (h != abHover) { abHover = h; repaint (scaler.map (abRect.expanded (8))); }
+    { const int u = undoR.contains (e.getPosition()) ? 0 : redoR.contains (e.getPosition()) ? 1 : -1; if (u != undoHover) { undoHover = u; repaint (scaler.map (undoR.getUnion (redoR).expanded (6))); } }
     setMouseCursor (h || presetRect.contains (e.getPosition()) || prevRect.contains (e.getPosition()) || nextRect.contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 void Editor::mouseDown (const juce::MouseEvent& e0)
@@ -2597,6 +2609,11 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     if (! proc.easy() && juce::Rectangle<int> (1150, 20, 110, 26).contains (e.getPosition())) { proc.uiTheme = skin::nextIn (proc.uiTheme.load(), { 1, 2, 9, 10 }); neoBg = {}; repaint(); return; }
     if (! proc.easy()) for (int d = 0; d < 4; ++d) if (dthR[d].contains (e.getPosition())) { auto* p = P ("dither"); p->setValueNotifyingHost (p->convertTo0to1 ((float) d)); repaint(); return; }
     if (! proc.easy()) for (int t = 0; t < kNumTargets; ++t) if (tgtR[t].contains (e.getPosition())) { auto* p = P ("target"); p->setValueNotifyingHost (p->convertTo0to1 ((float) t)); repaint(); return; }
+    if (undoR.contains (e.getPosition()) || redoR.contains (e.getPosition()))
+    {
+        if (undoR.contains (e.getPosition()) ? proc.undo() : proc.redo()) { if (proc.easy() != lastEasy) applyMode(); for (auto* c : getChildren()) c->repaint(); }
+        repaint(); return;
+    }
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); repaint(); }
     else if (proc.easy() && (balRect.contains (e.getPosition()) || refRect.contains (e.getPosition()))) return;
     else if (balRect.contains (e.getPosition())) { advView = 0; select (TOOL_BAL); }
@@ -2622,6 +2639,16 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
 
 void Editor::timerCallback()
 {
+    {   // ANNULLA / RIFAI: un passo per ogni gesto finito (bottone del mouse rilasciato); le mosse dell'automazione non entrano
+        const bool down = juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown();
+        if (down) lastUserMs = juce::Time::getMillisecondCounterHiRes();
+        if (! down && tick % 4 == 0)
+        {
+            const bool acted = juce::Time::getMillisecondCounterHiRes() - lastUserMs < 1500.0;
+            const auto before = proc.undoStack.size(); proc.undoTrack (acted);
+            if (proc.undoStack.size() != before) repaint (scaler.map (undoR.getUnion (redoR).expanded (6)));
+        }
+    }
     if (proc.easy() != lastEasy) applyMode();
     if (proc.easy())
     {

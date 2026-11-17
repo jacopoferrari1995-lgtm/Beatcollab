@@ -128,7 +128,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "ds_delta", 1 }, "DeEss Delta", false));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_lo", 1 }, "DeEss From", NormalisableRange<float> (1500, 14000, 0, 0.5f), 5000, AudioParameterFloatAttributes().withLabel ("Hz")));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_hi", 1 }, "DeEss To", NormalisableRange<float> (3000, 20000, 0, 0.5f), 20000, AudioParameterFloatAttributes().withLabel ("Hz")));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_thr", 1 }, "DeEss Threshold", NormalisableRange<float> (-30, 6, 0.1f), 6, AudioParameterFloatAttributes().withLabel ("dB")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_thr", 1 }, "DeEss Threshold", NormalisableRange<float> (-40, 6, 0.1f), 6, AudioParameterFloatAttributes().withLabel ("dB")));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_amt", 1 }, "DeEss Amount", NormalisableRange<float> (0, 1), 0.4f));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "ds_soft", 1 }, "DeEss Softness", NormalisableRange<float> (0, 1), 0.6f));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "ds_ch", 1 }, "DeEss Channel", StringArray { "STEREO", "MID", "SIDE" }, 0));

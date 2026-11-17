@@ -86,6 +86,21 @@ public:
     void easyToAdv(); void advToEasy(); juce::String sigEasy() const; juce::String sigAdv() const; void syncSnap();
     juce::String snapEasy, snapAdv; int lastMode = -1;
     void loadModPreset (int i);
+    // ANNULLA / RIFAI: istantanee dei parametri prese dopo ogni gesto dell'utente (non durante l'automazione)
+    std::vector<float> snapParams() const { std::vector<float> v; for (auto* q : getParameters()) v.push_back (q->getValue()); return v; }
+    void applyParams (const std::vector<float>& v) { auto ps = getParameters(); for (int i = 0; i < juce::jmin (ps.size(), (int) v.size()); ++i) if (std::abs (ps[i]->getValue() - v[(size_t) i]) > 1e-7f) ps[i]->setValueNotifyingHost (v[(size_t) i]); rackFromOn(); syncSnap(); }
+    std::vector<std::vector<float>> undoStack, redoStack; std::vector<float> lastSnap; double lastSnapT = 0;
+    void undoTrack (bool userActed)
+    {
+        auto cur = snapParams();
+        if (lastSnap.empty()) { lastSnap = cur; return; }
+        bool diff = false; for (size_t i = 0; i < cur.size() && ! diff; ++i) diff = std::abs (cur[i] - lastSnap[i]) > 1e-7f;
+        if (! diff) return;
+        if (userActed) { undoStack.push_back (lastSnap); if (undoStack.size() > 60) undoStack.erase (undoStack.begin()); redoStack.clear(); }
+        lastSnap = cur;
+    }
+    bool undo() { if (undoStack.empty()) return false; redoStack.push_back (snapParams()); auto v = undoStack.back(); undoStack.pop_back(); applyParams (v); lastSnap = v; return true; }
+    bool redo() { if (redoStack.empty()) return false; undoStack.push_back (snapParams()); auto v = redoStack.back(); redoStack.pop_back(); applyParams (v); lastSnap = v; return true; }
     float value (const char* id) const { const auto it = pcache.find (std::string_view (id)); return it != pcache.end() ? it->second->load() : apvts.getRawParameterValue (id)->load(); }
     double sampleRate() const { return sr; }
 

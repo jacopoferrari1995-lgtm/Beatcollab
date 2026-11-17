@@ -22,7 +22,9 @@ public:
         const bool open = S.hi >= 19000;
         if (std::abs (S.lo - lastLo) > 1) { lastLo = S.lo; x1.setCutoffFrequency (S.lo); }
         if (! open && std::abs (S.hi - lastHi) > 1) { lastHi = S.hi; x2.setCutoffFrequency (S.hi); apLo.setCutoffFrequency (S.hi); }
-        const float ratio = 1.0f + S.amount * 5.0f, maxRed = 2.0f + S.amount * 8.0f, knee = 2.0f + S.soft * 10.0f;
+        // piu' deciso di prima: fino a 8:1 e 16 dB di riduzione (prima 6:1 e 10 dB, con QUANTITA' al 40% solo 5 dB); soglia a +6 = spento davvero
+        const float ratio = 1.5f + S.amount * 6.5f, maxRed = 3.0f + S.amount * 13.0f, knee = 1.0f + S.soft * 7.0f;
+        const bool off = S.thr > 5.9f;
         const float ak = (float) std::exp (-1.0 / ((0.0005 + 0.002 * S.soft) * sr)), rk = (float) std::exp (-1.0 / ((0.04 + 0.16 * S.soft) * sr));
         const float bk = (float) std::exp (-1.0 / (0.004 * sr));
         float grMaxB = 0, relMax = -60;
@@ -43,7 +45,7 @@ public:
             const float f = eF (af);
             const float rel = gToDb (bm + 1e-7f) - gToDb (f + 1e-6f);
             relMax = juce::jmax (relMax, rel);
-            float gr = gToDb (bm) < -60 ? 0.0f : juce::jmax (-maxRed, downGain (rel, S.thr, ratio, knee));
+            float gr = (off || gToDb (bm) < -60) ? 0.0f : juce::jmax (-maxRed, downGain (rel, S.thr, ratio, knee));
             grSm = gr < grSm ? ak * grSm + (1 - ak) * gr : rk * grSm + (1 - rk) * gr;
             grMaxB = juce::jmin (grMaxB, grSm);
             const float g = dbToG (grSm);

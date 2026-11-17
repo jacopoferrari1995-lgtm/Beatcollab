@@ -226,6 +226,36 @@ int main (int argc, char** argv)
         std::printf ("preset con problemi: %d\n", bad);
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "deess")
+    {   // beat + "s" (rumore 5-9 kHz, 80 ms ogni 0,75 s): quanto toglie al variare di soglia e quantita'
+        Biquad bp; bp.set (Biquad::BPASS, 7000, 0, 1.5, sr);
+        for (float sl : { 0.3f, 1.0f })
+        for (float thr : { 6.0f, -6.0f, -12.0f, -20.0f, -30.0f })
+            for (float amt : { 0.4f, 1.0f })
+            {
+                auto p = blank(); setP (*p, "mode", 1); setP (*p, "engine", 1); setP (*p, "ds_on", 1); setP (*p, "ds_thr", thr); setP (*p, "ds_amt", amt); p->rackFromOn();
+                std::vector<float> a, b; float grMax = 0; juce::Random r3 (2);
+                juce::AudioBuffer<float> buf (2, 512); juce::MidiBuffer mb; double eIn = 0, eOut = 0;
+                for (int blk = 0; blk < 300; ++blk)
+                {
+                    std::vector<float> sib (512);
+                    for (int i = 0; i < 512; ++i) { const int k = blk * 512 + i; float l, r; beat (k, l, r); const double ts = std::fmod (k / sr, 0.75); const float s2 = ts < 0.08 ? bp ((r3.nextFloat() * 2 - 1)) * sl : bp (0.0f); sib[(size_t) i] = s2; buf.setSample (0, i, l * 0.6f + s2); buf.setSample (1, i, r * 0.6f + s2); }
+                    p->processBlock (buf, mb); grMax = std::max (grMax, p->dsGr.load());
+                }
+                std::printf ("s %.1f  soglia %+5.0f  quantita' %.1f : riduzione max %.1f dB  (livello relativo misurato %.1f dB)\n", sl, thr, amt, grMax, p->dsRel.load());
+            }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "undo")
+    {
+        auto p = blank(); p->undoTrack (false);
+        setP (*p, "e_loud", 5); p->undoTrack (true); setP (*p, "e_low", 2); p->undoTrack (true); setP (*p, "e_low", 1); p->undoTrack (false);
+        std::printf ("passi %d  loud %.1f low %.1f\n", (int) p->undoStack.size(), p->value ("e_loud"), p->value ("e_low"));
+        p->undo(); std::printf ("annulla: loud %.1f low %.1f\n", p->value ("e_loud"), p->value ("e_low"));
+        p->undo(); std::printf ("annulla: loud %.1f low %.1f\n", p->value ("e_loud"), p->value ("e_low"));
+        p->redo(); std::printf ("rifai:   loud %.1f low %.1f\n", p->value ("e_loud"), p->value ("e_low"));
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "cpu")
     {
         for (int i = 0; i < (int) presets().size(); i += 3)
