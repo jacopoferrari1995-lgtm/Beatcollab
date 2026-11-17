@@ -4,6 +4,7 @@
 #include "TapeProcessor.h"
 #include "Skin.h"
 #include "Neo.h"
+#include "PresetBrowser.h"
 #include <set>
 
 namespace jt
@@ -14,6 +15,12 @@ namespace K
     const juce::Colour bg { 0xff06070c }, win { 0xff0f1119 }, p1 { 0xff1a1d28 }, p2 { 0xff12141d }, p3 { 0xff262a36 };
     const juce::Colour hair { 0x16ffffff }, hair2 { 0x26ffffff }, ink { 0xffe9edf3 }, dim { 0xff8c95a9 }, faint { 0xff4f576b };
     const juce::Colour brand1 { 0xffff3f8e }, brand2 { 0xff38e8d8 }, amber { 0xffffb84a }, lcd1 { 0xff0b161a }, lcd2 { 0xff050a0d };
+    // testi sui pannelli: seguono il tema (sui temi chiari diventano scuri); ink/dim restano per gli schermi e le celle scure
+    inline juce::Colour pInk { 0xffe9edf3 }, pDim { 0xff8c95a9 }, pFaint { 0xff4f576b };
+    inline void sync()
+    {
+        pInk = neo::K::ink; pDim = pInk.withAlpha (0.62f); pFaint = pInk.withAlpha (0.36f);   // dall'inchiostro del tema attivo (CYBER, RETRO, CBRPNK, ...)
+    }
 }
 juce::Font tf (float size, int weight = 0, bool mono = false);   // weight 0 normale, 1 semi, 2 bold
 
@@ -189,6 +196,10 @@ public:
     std::unique_ptr<Seg> modeSeg, qSeg, barsSeg, resSeg, genSeg;
     std::unique_ptr<Toggle> seqTog;
     std::unique_ptr<TextBtn> pPrev, pNext, pName, bpmPill, clearBtn, styleBtn, genBtn, abBtn, undoBtn, redoBtn;
+    jbrowse::Browser browser;
+    std::function<void()> showName;
+    void setupBrowser();
+    void askPresetName();
     // annulla / rifai: stato dei parametri + coreografia
     struct Snap { juce::ValueTree st; juce::String seq; };
     std::vector<Snap> undoS, redoS;

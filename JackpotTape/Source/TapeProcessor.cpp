@@ -87,6 +87,15 @@ static juce::StringArray tableLabels (int t)
 }
 static const Step* table (int t) { return t == 1 ? kDur : t == 2 ? kSize : kRate; }
 
+// ---- antiderivate per l'ADAA
+static inline double lcosh (double a) { a = std::abs (a); return a + std::log1p (std::exp (-2.0 * a)) - 0.6931471805599453; }
+static inline double Fclip (double x, double k) { const double a = std::abs (x); return a * k <= 1.0 ? 0.5 * k * x * x : a - 0.5 / k; }
+template <typename Fn, typename Fd> static inline float adaa (double x, double& x1, double& F1, Fn F, Fd f)
+{
+    const double Fx = F (x), d = x - x1; const double y = std::abs (d) > 1e-6 ? (Fx - F1) / d : f (0.5 * (x + x1));
+    x1 = x; F1 = Fx; return (float) y;
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
 {
     using namespace juce;
@@ -139,17 +148,16 @@ float Processor::fxValue (int fx, const char* p) const
     return 0.0f;
 }
 
-void Processor::prepareToPlay (double s, int)
+void Processor::prepareToPlay (double s, int blk)
 {
     sr = s;
     HL = 1 << 21; while (HL < sr * 30.0) HL <<= 1; HM = HL - 1;
     hist.setSize (2, HL); hist.clear();
     T = 0; R = 0; live = true; xf.on = false;
     for (auto& f : F) f = FxState();
-    juce::dsp::ProcessSpec spec { sr, 4096, 1 };
-    bumpL.prepare (spec); bumpR.prepare (spec);
+    rng.setSeed (20241117); smInit = true; trPh = afPh = 0; rngHiss.setSeed (777); freeAnchorBeat = 0; freeBf = -1; freeAnchorT = 0; for (auto& a : satAd) a = AdS();   // stesso suono a ogni apertura (fruscio, dropout e glitch ripetibili)
     eBuf.setSize (2, (int) (sr * 4.5) + 8); eBuf.clear(); eW = 0; eSend = eCut = 0; eTime = 0;
-    verb.setSampleRate (sr); verb.reset(); vPre.setSize (2, (int) (sr * 0.25) + 8); vPre.clear(); vW = 0; vSend = vCut = 0;
+    verb.setSampleRate (sr); verb.reset(); vPre.setSize (2, (int) (sr * 0.25) + 8); vPre.clear(); vW = 0; vSend = vCut = 0; vPreS = -1;
     rBuf.setSize (2, 8192); rBuf.clear(); rW = 0; rPh = 0; rFade = 0;
     rotBuf.setSize (2, 4096); rotBuf.clear(); rotW = 0; for (auto& m : modFade) m = 0; rotSp = 0;
     {   // Hilbert IIR (due catene di allpass in quadratura)
@@ -157,6 +165,17 @@ void Processor::prepareToPlay (double s, int)
         for (int c = 0; c < 2; ++c) for (int k = 0; k < 4; ++k) { hA[c][k] = {}; hB[c][k] = {}; hA[c][k].c = ca[k] * ca[k]; hB[c][k].c = cb[k] * cb[k]; }
     }
     swFade = 0; for (auto& a : swIc) a[0] = a[1] = 0;
+    for (auto* a : { &crAd[0], &crAd[1], &dsAd[0], &dsAd[1], &rtAd, &fsAd[0], &fsAd[1] }) *a = Ad();
+    // nastro: la testina "dal vivo" sta sempre D0 campioni indietro, il wow/flutter oscilla attorno a quel punto (ritardo fisso, dichiarato)
+    D0 = 4 + (int) std::ceil (0.00625 * sr); curDelay = D0;
+    os = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+    os->initProcessing ((size_t) kMax); os->reset();
+    osLat = juce::jmax (1, (int) std::round (os->getLatencyInSamples()));
+    for (int c = 0; c < 2; ++c) { ring[c].assign ((size_t) osLat, 0.0f); dryT[c].assign ((size_t) kMax, 0.0f); }
+    spdArr.assign ((size_t) juce::jmax (blk, 8192), 1.0f); dgArr.assign ((size_t) kMax, 1.0f);
+    rw = 0; warm = 0; gm = 0; running = false; eIn = eOut = 1e-6; agS = 1; dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0;
+    for (auto& b : bump) b = Bq(); lastBumpD = -1; dS = -1; cutoffSm = 20000; outSm = -1; spdSm = 1; lpIcL[0] = lpIcL[1] = lpIcR[0] = lpIcR[1] = 0; cnt = 0;
+    setLatencySamples (D0 + osLat);
 }
 
 float Processor::rd (double pos, int ch) const
@@ -173,9 +192,9 @@ static inline float shape (float x, float c) { x = juce::jlimit (0.0f, 1.0f, x);
 void Processor::activate (int fx, double bf, double beatAtT, juce::int64 t)
 {
     auto& X = F[fx]; X.t0 = t; X.k = 0; X.op = -1; for (auto& d : X.d) d = 0;
-    const double rNow = live ? (double) (t - 3) : R;
+    const double rNow = live ? (double) t - curDelay : R;
     const double beatR = beatAtT - ((double) t - rNow) / bf;
-    if (fx == START && ! live) { xf = { true, R, 1.0, 0, juce::jmax (32, (int) (0.008 * sr)), false }; R = (double) (t - 3); }
+    if (fx == START && ! live) { xf = { true, R, 1.0, 0, juce::jmax (32, (int) (0.008 * sr)), false }; R = (double) t - curDelay; }
     if (fx == STUT)
     {
         const double g = juce::jmin (fxValue (STUT, "size"), 0.25f);
@@ -192,12 +211,156 @@ void Processor::activate (int fx, double bf, double beatAtT, juce::int64 t)
     if (fx == STUT) { stLp[0] = stLp[1] = 0; }
 }
 
+// stacco: morbida -> dura -> ripiegata, la stessa curva di crushShape ma con antiderivata (meno aliasing)
+float Processor::crushAd (int c, float xf, float drive, float ch)
+{
+    const double g = 1.0 + drive * drive * 40.0 + drive * 3.0, k = 1.2 * g, nrm = 0.3 / std::tanh (0.3 * g);
+    const double a = ch < 0.5f ? ch * 2.0 : (ch - 0.5) * 2.0; const bool lo = ch < 0.5f;
+    const double kf = 2.0 / (juce::MathConstants<double>::pi * g);
+    auto F = [=] (double x)
+    {
+        const double fs = lcosh (g * x) / g, fh = Fclip (x, k), ff = -kf * std::cos (juce::jlimit (-6.0, 6.0, g * x) * juce::MathConstants<double>::halfPi);
+        return lo ? fs + (fh - fs) * a : fh + (ff - fh) * a;
+    };
+    auto f = [=] (double x)
+    {
+        const double ys = std::tanh (g * x), yh = juce::jlimit (-1.0, 1.0, k * x), yf = std::sin (juce::jlimit (-6.0, 6.0, g * x) * juce::MathConstants<double>::halfPi);
+        return lo ? ys + (yh - ys) * a : yh + (yf - yh) * a;
+    };
+    auto& A = crAd[c];
+    const int kind = juce::roundToInt (drive * 1000) * 2000 + juce::roundToInt (ch * 1000);
+    if (kind != A.kind) { A.kind = kind; A.F1 = F (A.x1); }   // curva cambiata: niente salto nella differenza
+    return (float) (adaa (xf, A.x1, A.F1, F, f) * nrm);
+}
+float Processor::distAd (int c, float xf, float type)
+{
+    const int t = type < 0.34f ? 0 : type < 0.67f ? 1 : 2;
+    const double t15 = std::tanh (0.15);
+    auto F = [=] (double x)
+    {
+        if (t == 0) return lcosh (x + 0.15) - x * t15;
+        if (t == 1) return 0.8 * Fclip (x, 1.3) + 0.2 * lcosh (x);
+        return x > 0 ? lcosh (1.5 * x) / 1.5 : -(0.7 / 0.9) * lcosh (0.9 * x);
+    };
+    auto f = [=] (double x)
+    {
+        if (t == 0) return std::tanh (x + 0.15) - t15;
+        if (t == 1) return juce::jlimit (-1.0, 1.0, x * 1.3) * 0.8 + std::tanh (x) * 0.2;
+        return x > 0 ? std::tanh (1.5 * x) : 0.7 * std::tanh (-0.9 * x);
+    };
+    auto& A = dsAd[c];
+    if (t != A.kind) { A.kind = t; A.F1 = F (A.x1); }
+    return adaa (xf, A.x1, A.F1, F, f);
+}
+
+// nastro dopo gli effetti: bump, saturazione a 4x con guadagno automatico, fruscio, passa basso che segue la velocita del nastro
+void Processor::tapeStage (float* L, float* R, int n, float drive, float tone, float hiss, float outG)
+{
+    const float kS = (float) (1.0 - std::exp (-1.0 / (0.02 * sr))), kSpd = (float) (1.0 - std::exp (-1.0 / (0.03 * sr))), kCut = (float) (1.0 - std::exp (-1.0 / (0.01 * sr)));
+    const double kE = 1.0 - std::exp (-1.0 / (0.3 * sr)); const float kAg = (float) (1.0 - std::exp (-1.0 / (0.05 * sr)));
+    const float dcR = (float) (1.0 - juce::MathConstants<double>::twoPi * 5.0 / sr);
+    if (dS < 0) dS = drive; if (outSm < 0) outSm = outG;
+    const float base = 700.0f * std::pow (20000.0f / 700.0f, tone);   // tono: da 700 Hz (scurissimo) a aperto
+    float* io[2] = { L, R };
+    for (int off = 0; off < n; off += kMax)
+    {
+        const int m = juce::jmin (kMax, n - off);
+        float* x[2] = { L + off, R + off };
+        // 1) bump e quanto spingere, campione per campione
+        for (int i = 0; i < m; ++i, ++cnt)
+        {
+            dS += (drive - dS) * kS; if (std::abs (drive - dS) < 1e-6f) dS = drive;
+            spdSm += (juce::jlimit (0.02f, 1.2f, spdArr[(size_t) (off + i)]) - spdSm) * kSpd;
+            spdArr[(size_t) (off + i)] = spdSm;   // la velocita smussata di questo campione serve anche al passa basso (sotto)
+            if ((cnt & 31) == 0 && std::abs (dS - lastBumpD) > 1e-6f)
+            {
+                lastBumpD = dS;
+                const double A = std::pow (10.0, dS * 2.5 / 40.0), w = juce::MathConstants<double>::twoPi * 85.0 / sr, al = std::sin (w) / (2 * 0.9), cs = std::cos (w), a0 = 1 + al / A;
+                for (auto& b : bump) { b.b0 = (1 + al * A) / a0; b.b1 = -2 * cs / a0; b.b2 = (1 - al * A) / a0; b.a1 = -2 * cs / a0; b.a2 = (1 - al / A) / a0; }
+            }
+            if (lastBumpD > 0.0f) { x[0][i] = bump[0].run (x[0][i]); x[1][i] = bump[1].run (x[1][i]); }
+            else { for (auto& b : bump) b.z1 = b.z2 = 0; }
+            dgArr[(size_t) i] = 1.0f + dS * dS * 30.0f + dS * 4.0f + dS * 6.0f * (1.0f - juce::jmin (1.0f, spdSm));
+        }
+        // 2) saturazione a 4x: spenta = solo un ritardo uguale alla latenza (neutro al bit); accesa si scalda e poi entra con una dissolvenza
+        const bool act = dS > 0.0f;
+        if (act && ! running) { running = true; warm = osLat + 64; gm = 0; os->reset(); eIn = eOut = 1e-6; agS = 1; dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0; for (auto& a : satAd) a = AdS(); }
+        if (running)
+        {
+            for (int c = 0; c < 2; ++c) std::copy (x[c], x[c] + m, dryT[c].begin());
+            juce::dsp::AudioBlock<float> blk (x, 2, (size_t) m);
+            auto up = os->processSamplesUp (blk);
+            for (int c = 0; c < 2; ++c)
+            {
+                float* u = up.getChannelPointer ((size_t) c); const int nu = (int) up.getNumSamples();
+                for (int j = 0; j < nu; ++j)
+                {
+                    const float dg = dgArr[(size_t) (j >> 2)], bias = juce::jmin (0.35f, (dg - 1.0f) * 0.012f);
+                    auto& A = satAd[c]; const double tb = std::tanh ((double) bias);
+                    auto F = [dg, bias, tb] (double v) { return lcosh (dg * v + bias) / dg - v * tb; };
+                    if (dg != A.dg) { A.dg = dg; A.bias = bias; A.F1 = F (A.x1); }
+                    u[j] = adaa (u[j], A.x1, A.F1, F, [dg, bias, tb] (double v) { return std::tanh (dg * v + bias) - tb; }) * (0.25f / std::tanh (0.25f * dg));
+                }
+            }
+            os->processSamplesDown (blk);
+        }
+        const float step = 1.0f / 1024.0f;
+        for (int i = 0; i < m; ++i)
+        {
+            if (warm > 0) --warm; else if (running) gm = act ? juce::jmin (1.0f, gm + step) : juce::jmax (0.0f, gm - step);
+            float d[2];
+            for (int c = 0; c < 2; ++c) { const float in = running ? dryT[c][(size_t) i] : x[c][i]; d[c] = ring[c][(size_t) rw]; ring[c][(size_t) rw] = in; }
+            if (++rw >= osLat) rw = 0;
+            if (running)
+            {
+                // guadagno automatico lento (300 ms): la saturazione cambia il colore, non il volume
+                if (warm == 0)
+                {
+                    const double ei = 0.5 * ((double) d[0] * d[0] + (double) d[1] * d[1]), eo = 0.5 * ((double) x[0][i] * x[0][i] + (double) x[1][i] * x[1][i]);
+                    eIn += (ei - eIn) * kE; eOut += (eo - eOut) * kE;
+                }
+                const float agT = eIn > 1e-9 && eOut > 1e-9 ? (float) juce::jlimit (0.25, 4.0, std::sqrt (eIn / eOut)) : agS;
+                agS += (agT - agS) * kAg;
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float diff = x[c][i] * agS - d[c];
+                    dcY[c] = diff - dcX[c] + dcR * dcY[c]; dcX[c] = diff;   // via la continua della saturazione asimmetrica
+                    x[c][i] = d[c] + dcY[c] * gm;
+                }
+            }
+            else { x[0][i] = d[0]; x[1][i] = d[1]; }
+        }
+        if (! act && gm <= 0.0f && warm == 0) running = false;
+        // 3) fruscio, passa basso (si chiude quando il nastro rallenta), uscita
+        for (int i = 0; i < m; ++i)
+        {
+            hissLp = hissLp * 0.6f + (rngHiss.nextFloat() * 2 - 1) * 0.4f; const float hs = hiss * 0.0035f * hissLp;
+            float l = x[0][i] + hs, r = x[1][i] + hs * 0.9f;
+            const float sc = juce::jmin (1.0f, spdArr[(size_t) (off + i)]);
+            const float cutT = juce::jlimit (150.0f, 20000.0f, base * std::pow (sc, 1.6f * (0.3f + tone)));
+            cutoffSm += (cutT - cutoffSm) * kCut; if (std::abs (cutT - cutoffSm) < 0.01f) cutoffSm = cutT;
+            // il passa basso gira sempre (lo stato e' gia' "caldo" quando si chiude); sopra 19 kHz sfuma verso il segnale intatto
+            if (cutoffSm != lastCut) { lastCut = cutoffSm; lpGc = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) cutoffSm, sr * 0.45) / sr); }
+            const float lpG = lpGc, lpK = 1.0f / 0.6f;
+            auto svf = [lpG, lpK] (float v, float* ic) { const float v3 = v - ic[1], v1 = (ic[0] + lpG * v3) / (1 + lpG * (lpG + lpK)), v2 = ic[1] + lpG * v1; ic[0] = 2 * v1 - ic[0]; ic[1] = 2 * v2 - ic[1]; return v2; };
+            const float fl = svf (l, lpIcL), fr = svf (r, lpIcR);
+            const float bl = juce::jlimit (0.0f, 1.0f, (cutoffSm - 18500.0f) / 1400.0f);   // 1 = intatto (sopra 19.9 kHz)
+            if (bl < 1.0f) { l = fl + (l - fl) * bl; r = fr + (r - fr) * bl; }
+            outSm += (outG - outSm) * kS; if (std::abs (outG - outSm) < 1e-6f) outSm = outG;
+            x[0][i] = l * outSm; x[1][i] = r * outSm;
+        }
+    }
+    (void) io;
+    uiSpeed = spdSm;
+}
+
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals nd;
     const int N = buffer.getNumSamples();
     if (buffer.getNumChannels() < 2) return;
     float* io[2] = { buffer.getWritePointer (0), buffer.getWritePointer (1) };
+    if ((int) spdArr.size() < N) spdArr.resize ((size_t) N, 1.0f);
 
     double bpm = value ("bpm"); bool hostPlaying = false; double ppq = 0;
     const bool sync = value ("sync") > 0.5f;
@@ -210,7 +373,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         }
     bpm = juce::jlimit (30.0, 300.0, bpm);
     const double bf = 60.0 / bpm * sr;
-    const double beat0 = hostPlaying ? ppq : freeBeat;
+    // orologio interno a host fermo: contato dai campioni, non sommando i blocchi (uguale con qualsiasi buffer)
+    if (freeBf != bf) { freeAnchorBeat = freeBf > 0 ? freeAnchorBeat + (double) (T - freeAnchorT) / freeBf : freeBeat + D0 / bf; freeAnchorT = T; freeBf = bf; }   // a host fermo si parte dalla battuta 1 esatta
+    const double beatH = hostPlaying ? ppq : freeAnchorBeat + (double) (T - freeAnchorT) / bf;
+    // il suono esce D0 + osLat campioni dopo (latenza compensata dalla DAW): gli eventi si allineano a quello che si sente
+    const double beat0 = beatH - D0 / bf;
     const juce::int64 T0 = T;
     uiBpm = bpm; uiHost = sync && hostPlaying;
 
@@ -227,7 +394,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     const float loopXf = fxValue (LOOP, "xf"), gDens = fxValue (GLITCH, "dens"), gChaos = fxValue (GLITCH, "chaos"), gSize = fxValue (GLITCH, "size");
     const float gateRate = fxValue (GATE, "rate"), gateDepth = fxValue (GATE, "depth"), gateDuty = fxValue (GATE, "duty");
     const float stutDecay = fxValue (STUT, "decay"), stutFilt = fxValue (STUT, "filt");
-    float fxVol[kNumFx], fxMix[kNumFx]; for (int f = 0; f < kNumFx; ++f) { fxVol[f] = juce::Decibels::decibelsToGain (fxValue (f, "vol")); fxMix[f] = fxValue (f, "mix"); }
+    float fxVolT[kNumFx], fxMixT[kNumFx]; for (int f = 0; f < kNumFx; ++f) { fxVolT[f] = juce::Decibels::decibelsToGain (fxValue (f, "vol")); fxMixT[f] = fxValue (f, "mix"); }
+    float* fxVol = volS; float* fxMix = mixS;
     const float crDrive = fxValue (CRUSH, "drive"), crChar = fxValue (CRUSH, "char"), crBits = fxValue (CRUSH, "bits"), crTone = fxValue (CRUSH, "tone");
     const int crRate = juce::jmax (1, juce::roundToInt (fxValue (CRUSH, "rate")));
     const float crA = (float) std::exp (-juce::MathConstants<double>::twoPi * (900.0 * std::pow (20000.0 / 900.0, (double) crTone)) / sr);
@@ -247,7 +415,10 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     const float eLpA = (float) std::exp (-juce::MathConstants<double>::twoPi * (1200.0 * std::pow (12.0, (double) eTone)) / sr), eHpA = (float) std::exp (-juce::MathConstants<double>::twoPi * 120.0 / sr);
     const float vHpA = (float) std::exp (-juce::MathConstants<double>::twoPi * 180.0 / sr);
     if (eTime <= 0) eTime = eTimeT;
-    const float wow = value ("wow"), flut = value ("flut"), tone = value ("tone"), drive = value ("drive"), hiss = value ("hiss"), drop = value ("drop"), mix = value ("mix");
+    const float wowT = value ("wow"), flutT = value ("flut"), tone = value ("tone"), drive = value ("drive"), hiss = value ("hiss"), drop = value ("drop"), mixT = value ("mix");
+    if (smInit) { for (int f = 0; f < kNumFx; ++f) { volS[f] = fxVolT[f]; mixS[f] = fxMixT[f]; } wowS = wowT; flutS = flutT; gMixS = mixT; crDrS = crDrive; crChS = crChar; smInit = false; }
+    const float kSm = (float) (1.0 - std::exp (-1.0 / (0.03 * sr))), kWow = (float) (1.0 - std::exp (-1.0 / (0.15 * sr)));
+    auto snapTo = [] (float& v, float t, float k) { v += (t - v) * k; if (std::abs (t - v) < 1e-6f) v = t; };
     const float outG = juce::Decibels::decibelsToGain (value ("out"));
     const double dt = 1.0 / sr;
 
@@ -265,24 +436,6 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         X.prevParam = down;
     }
 
-    // catena del nastro: coefficienti per blocco
-    {
-        const float s = speedN > 0 ? speedAcc / speedN : 1.0f; speedAcc = 0; speedN = 0;
-        const float sc = juce::jlimit (0.02f, 1.2f, s);
-        const float base = 700.0f * std::pow (20000.0f / 700.0f, tone);   // tono: da 700 Hz (scurissimo) a aperto
-        const float cutT = juce::jlimit (150.0f, 20000.0f, base * std::pow (juce::jmin (1.0f, sc), 1.6f * (0.3f + tone)));
-        cutoffSm += (cutT - cutoffSm) * 0.35f;
-        // drive: curva progressiva, fino a ~+30 dB di spinta sul nastro
-        const float dg = 1.0f + drive * drive * 30.0f + drive * 4.0f + drive * 6.0f * (1.0f - juce::jmin (1.0f, sc));
-        dgSm += (dg - dgSm) * 0.3f; outSm += (outG - outSm) * 0.3f;
-        auto c = juce::dsp::IIR::Coefficients<float>::makePeakFilter (sr, 85.0f, 0.9f, juce::Decibels::decibelsToGain (drive * 2.5f));
-        *bumpL.coefficients = *c; *bumpR.coefficients = *c;
-        uiSpeed = s;
-    }
-    const float lpG = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) cutoffSm, sr * 0.45) / sr), lpK = 1.0f / 0.6f;
-    // compensazione di loudness: un segnale a -7.5 dB esce allo stesso livello qualunque sia il drive
-    const float postG = 0.42f / std::tanh (0.42f * dgSm), bias = juce::jmin (0.35f, (dgSm - 1.0f) * 0.012f), biasC = std::tanh (bias);
-
     float pkL = 0, pkR = 0; int mask = 0;
     for (int i = 0; i < N; ++i)
     {
@@ -290,6 +443,9 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         hist.setSample (0, (int) (T & HM), inL); hist.setSample (1, (int) (T & HM), inR);
         const juce::int64 t = T;
         const double beat = beat0 + i / bf;
+        for (int f = 0; f < kNumFx; ++f) { snapTo (volS[f], fxVolT[f], kSm); snapTo (mixS[f], fxMixT[f], kSm); }
+        snapTo (wowS, wowT, kWow); snapTo (flutS, flutT, kWow); snapTo (gMixS, mixT, kSm); snapTo (crDrS, crDrive, kSm); snapTo (crChS, crChar, kSm);
+        const float wow = wowS, flut = flutS, mix = gMixS;
 
         // pad in attesa della quantizzazione
         for (int f = 0; f < kNumFx; ++f)
@@ -318,7 +474,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         for (int f = 0; f < kNumFx; ++f)
         {
             auto& X = F[f]; const bool want = (X.pad || X.seqOn || t < X.shot) && onPtr[f]->load() > 0.5f;
-            if (want && ! X.on) { X.on = true; activate (f, bf, beat, t); changed = true; }
+            if (want && ! X.on) { X.on = true; activate (f, bf, beat + D0 / bf, t); changed = true; }
             else if (! want && X.on) { X.on = false; changed = true; }
             if (X.on) { mask |= 1 << f; if (! isOverlay (f)) anyMover = true; }
         }
@@ -335,16 +491,18 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         if (rng.nextFloat() < dt * 3) dtgt = rng.nextFloat() * 2 - 1;
         drift += (dtgt - drift) * dt * 2;
         const double mod = 1.0 + (wow * 0.010 * std::sin (juce::MathConstants<double>::twoPi * ph1) + wow * 0.004 * drift + flut * 0.0035 * std::sin (juce::MathConstants<double>::twoPi * ph2)) * slow;
-        const double liveDelay = 3.0 + (wow * 0.004 * sr) * (1.0 + std::sin (juce::MathConstants<double>::twoPi * ph1)) + wow * 0.002 * sr * (1.0 + drift) + flut * 0.00025 * sr * (1.0 + std::sin (juce::MathConstants<double>::twoPi * ph2));
-        const bool tapeMod = wow > 0.001f || flut > 0.001f;
+        const double liveDelay = (double) D0 + (wow * 0.004 * sr) * std::sin (juce::MathConstants<double>::twoPi * ph1) + wow * 0.002 * sr * drift + flut * 0.00025 * sr * std::sin (juce::MathConstants<double>::twoPi * ph2);
+        const bool tapeMod = wow > 0.0f || flut > 0.0f;
+        curDelay = liveDelay;
+        const float dryL = hist.getSample (0, (int) ((t - D0) & HM)), dryR = hist.getSample (1, (int) ((t - D0) & HM));   // l'originale, allineato alla latenza
 
         if (changed && ! anyMover && ! live) { xf = { true, R, juce::jlimit (-2.0, 2.0, v), 0, juce::jmax (32, (int) (0.014 * sr)), false }; live = true; }
-        if (anyMover && live) { R = (double) t - (tapeMod ? liveDelay : 3.0); live = false; }
+        if (anyMover && live) { R = (double) t - liveDelay; live = false; }
 
         float l, r, amp = 1.0f; double vv = v;
         if (live)
         {
-            if (tapeMod) { l = rd ((double) t - liveDelay, 0); r = rd ((double) t - liveDelay, 1); } else { l = inL; r = inR; }
+            if (tapeMod) { l = rd ((double) t - liveDelay, 0); r = rd ((double) t - liveDelay, 1); } else { l = dryL; r = dryR; }
             vv = 1.0;
         }
         else
@@ -421,7 +579,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         { float vt = 1.0f, mt = 0.0f; int nm = 0; for (int f = 0; f < kNumFx; ++f) if (F[f].on && f != CRUSH && f < SWEEP) { vt *= fxVol[f]; if (f != GATE) { mt += fxMix[f]; ++nm; } }
           volSm += (vt - volSm) * 0.002f; mixSm += ((nm > 0 ? mt / nm : 1.0f) - mixSm) * 0.003f; }
         float wL = l * amp * volSm, wR = r * amp * volSm;
-        if (mixSm < 0.999f) { wL = wL * mixSm + inL * (1 - mixSm); wR = wR * mixSm + inR * (1 - mixSm); }
+        if (mixSm < 0.999f) { wL = wL * mixSm + dryL * (1 - mixSm); wR = wR * mixSm + dryR * (1 - mixSm); }
         const float gg = 1.0f - fxMix[GATE] * (1.0f - (float) gateG);
         wL *= dropG * gg; wR *= dropG * gg;
         // crush dello stacco: entra e esce con una dissolvenza breve
@@ -432,7 +590,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             float cv[2];
             for (int c = 0; c < 2; ++c)
             {
-                float y = crushBits (crushShape (crHold[c], crDrive, crChar), crBits);
+                float y = crushBits (crushAd (c, crHold[c], crDrS, crChS), crBits);
                 crLp[c] = (1 - crA) * y + crA * crLp[c]; if (crTone < 0.99f) y = crLp[c];
                 cv[c] = y * fxVol[CRUSH];
             }
@@ -446,7 +604,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             auto blend = [&] (int fx, int k, float yl, float yr) { const float m = modFade[k] * fxMix[fx]; wL += (yl * fxVol[fx] - wL) * m; wR += (yr * fxVol[fx] - wR) * m; };
             if (fadeTo (0, TREM))
             {   // tremolo a tempo; STEREO sfasa i lati fino a rimbalzare
-                const double ph = ((double) t - F[TREM].t0) / (trRate * bf);
+                if (t == F[TREM].t0) trPh = 0; const double ph = trPh; trPh += 1.0 / (trRate * bf);   // fase che avanza: cambiare il rate non la fa saltare
                 auto lfo = [&] (double p) { const float s = (float) std::cos (twoPi * p); const float k = 1 + trShape * 12; return 0.5f + 0.5f * std::tanh (s * k) / std::tanh (k); };
                 const float gl = 1.0f - trDepth * (1.0f - lfo (ph)), gr = 1.0f - trDepth * (1.0f - lfo (ph + 0.5 * trStereo));
                 blend (TREM, 0, wL * gl, wR * gr);
@@ -456,7 +614,9 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 const float tgtH = 0.8f + rtSpeed * 5.9f;
                 rotSp += (tgtH - rotSp) * (float) (dt * (rtSpeed > 0.5f ? 1.2 : 0.7));
                 rotH += rotSp * dt; rotD += rotSp * 0.86 * dt; rotH -= std::floor (rotH); rotD -= std::floor (rotD);
-                const float m = 0.5f * (wL + wR), d = rtDrive > 0.01f ? std::tanh (m * (1 + rtDrive * 6)) / (1 + rtDrive * 2) : m;
+                const float m = 0.5f * (wL + wR); const double rk = 1.0 + rtDrive * 6.0;
+                const float d = rtDrive > 0.01f ? adaa (m, rtAd.x1, rtAd.F1, [rk] (double v) { return lcosh (rk * v) / rk; }, [rk] (double v) { return std::tanh (rk * v); }) / (1 + rtDrive * 2) : m;
+                if (rtDrive <= 0.01f) { rtAd.x1 = m; rtAd.F1 = lcosh (rk * m) / rk; }
                 rotXo[0] += (d - rotXo[0]) * (float) (1.0 - std::exp (-twoPi * 800.0 / sr)); const float lo = rotXo[0], hi = d - lo;
                 const int RL = rotBuf.getNumSamples(); float* rb = rotBuf.getWritePointer (0); rb[rotW] = hi;
                 const float sH = (float) std::sin (twoPi * rotH), cH = (float) std::cos (twoPi * rotH), sD = (float) std::sin (twoPi * rotD);
@@ -469,7 +629,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             else { rotSp = 0.8f; }
             if (fadeTo (2, AUTOFILT))
             {   // passa basso risonante che si muove a tempo
-                const double ph = ((double) t - F[AUTOFILT].t0) / (afRate * bf);
+                if (t == F[AUTOFILT].t0) afPh = 0; const double ph = afPh; afPh += 1.0 / (afRate * bf);
                 const float lf = 0.5f - 0.5f * (float) std::cos (twoPi * ph);
                 const float fc = juce::jlimit (60.0f, (float) sr * 0.42f, (float) (150.0 * std::pow (40.0, (double) afFreq)) * std::pow (2.0f, (lf - 0.5f) * afDepth * 6.0f));
                 const float gg = (float) std::tan (juce::MathConstants<double>::pi * fc / sr), kk = 2.0f - 1.9f * afReso;
@@ -496,7 +656,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                     float a = y[k] + fsFb[k] * fsFbAmt, b = a; for (auto& h : hA[k]) a = h.run (a); for (auto& h : hB[k]) b = h.run (b);
                     const float re = a, im = hBd[k]; hBd[k] = b;
                     const float o = re * co - im * (k ? -si : si) * 1.0f;
-                    fsFb[k] = std::tanh (o); y[k] = o;
+                    fsFb[k] = adaa (o, fsAd[k].x1, fsAd[k].F1, [] (double v) { const double a = std::abs (v); return a <= 1.0 ? 0.5 * v * v : 0.5 + (a - 1.0) + lcosh (a - 1.0); },
+                                     [] (double v) { const double a = std::abs (v); return a <= 1.0 ? v : (v > 0 ? 1.0 : -1.0) * (1.0 + std::tanh (a - 1.0)); }); y[k] = o;
                 }
                 blend (FSHIFT, 4, y[0], y[1]);
             }
@@ -508,10 +669,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 for (int k = 0; k < 2; ++k)
                 {
                     dsHp[k] = (1 - aHp) * y[k] + aHp * dsHp[k]; float x = (y[k] - dsHp[k]) * g;
-                    float o;
-                    if (dsType < 0.34f) o = std::tanh (x + 0.15f) - std::tanh (0.15f);                                      // crunch asimmetrico
-                    else if (dsType < 0.67f) o = juce::jlimit (-1.0f, 1.0f, x * 1.3f) * 0.8f + std::tanh (x) * 0.2f;          // distorsione dura
-                    else { const float r = x > 0 ? x : -0.6f * x; o = std::tanh (r * 1.5f) * (x > 0 ? 1.0f : 0.7f); }         // fuzz rettificato
+                    const float o = distAd (k, x, dsType);   // crunch asimmetrico / distorsione dura / fuzz rettificato
                     dsLp[k] = (1 - aLp) * o + aLp * dsLp[k];
                     y[k] = dsLp[k] * 0.18f;
                 }
@@ -594,24 +752,18 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             float sL = wL * vSend, sR = wR * vSend;
             vHp[0] = (1 - vHpA) * sL + vHpA * vHp[0]; vHp[1] = (1 - vHpA) * sR + vHpA * vHp[1];
             p0[vW] = sL - vHp[0]; p1[vW] = sR - vHp[1];
-            int rp = vW - (int) vPreN; while (rp < 0) rp += VL;
-            float vl = p0[rp], vr = p1[rp];
+            if (vPreS < 0) vPreS = vPreN; vPreS += (vPreN - vPreS) * (float) (1.0 - std::exp (-1.0 / (0.08 * sr)));
+            double rpd = vW - (double) vPreS; while (rpd < 0) rpd += VL;
+            const int r0 = (int) rpd, r1 = (r0 + 1) % VL; const float rf = (float) (rpd - r0);
+            float vl = p0[r0] + (p0[r1] - p0[r0]) * rf, vr = p1[r0] + (p1[r1] - p1[r0]) * rf;
             if (++vW >= VL) vW = 0;
             if (vSend > 1e-5f || vIdle < (int) sr * 12) { verb.processStereo (&vl, &vr, 1); vIdle = vSend > 1e-5f ? 0 : vIdle + 1; } else { vl = vr = 0; }
             const float ret = fxMix[THROW] * fxVol[THROW] * 1.0f;
             wL = wL * (1.0f - vCut) + vl * ret; wR = wR * (1.0f - vCut) + vr * ret;
         }
-        float oL = wL * mix + inL * (1 - mix), oR = wR * mix + inR * (1 - mix);
-        // nastro: bump, saturazione (asimmetrica quando spinta), passa basso, uscita
-        oL = bumpL.processSample (oL); oR = bumpR.processSample (oR);
-        if (drive > 0.001f || dgSm > 1.001f) { oL = (std::tanh (oL * dgSm + bias) - biasC) * postG; oR = (std::tanh (oR * dgSm + bias) - biasC) * postG; }   // drive a zero: pulito
-        { hissLp = hissLp * 0.6f + (rng.nextFloat() * 2 - 1) * 0.4f; const float hs = hiss * 0.0035f * hissLp; oL += hs; oR += hs * 0.9f; }
-        auto svf = [lpG, lpK] (float x, float* ic) { const float v3 = x - ic[1], v1 = (ic[0] + lpG * v3) / (1 + lpG * (lpG + lpK)), v2 = ic[1] + lpG * v1; ic[0] = 2 * v1 - ic[0]; ic[1] = 2 * v2 - ic[1]; return v2; };
-        if (cutoffSm < 19500.0f) { oL = svf (oL, lpIcL); oR = svf (oR, lpIcR); }
-        oL *= outSm; oR *= outSm;
+        const float oL = wL * mix + dryL * (1 - mix), oR = wR * mix + dryR * (1 - mix);
         io[0][i] = oL; io[1][i] = oR;
-        pkL = juce::jmax (pkL, std::abs (oL)); pkR = juce::jmax (pkR, std::abs (oR));
-        speedAcc += (float) std::abs (vv); ++speedN;
+        spdArr[(size_t) i] = (float) std::abs (vv);
         // traccia per il display
         {
             double b = std::fmod (beat, loopBeats); if (b < 0) b += loopBeats;
@@ -622,7 +774,10 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         }
         ++T;
     }
-    freeBeat = beat0 + N / bf;
+    tapeStage (io[0], io[1], N, drive, tone, hiss, outG);
+    for (int i = 0; i < N; ++i) { pkL = juce::jmax (pkL, std::abs (io[0][i])); pkR = juce::jmax (pkR, std::abs (io[1][i])); }
+    freeBeat = beatH + N / bf;
+    if (hostPlaying) { freeAnchorBeat = freeBeat; freeAnchorT = T; }
     activeMask = mask; uiBeat = freeBeat;
     meterL = juce::jmax (pkL, meterL.load() * 0.85f); meterR = juce::jmax (pkR, meterR.load() * 0.85f);
 }
@@ -698,6 +853,15 @@ static const std::vector<Preset>& presets()
     return P;
 }
 int Processor::getNumPrograms() { return (int) presets().size(); }
+juce::String Processor::presetNote (int i) const
+{
+    const auto& P = presets()[(size_t) juce::jlimit (0, (int) presets().size() - 1, i)];
+    juce::StringArray fx; for (auto& [f, st] : P.seq) if (! fx.contains (kFx[f].name)) fx.add (kFx[f].name);
+    juce::String n = fx.isEmpty() ? juce::String ("Niente coreografia: solo il colore del nastro") : fx.joinIntoString (" + ") + juce::String::fromUTF8 (" \xc2\xb7 coreografia di ") + juce::String (P.bars) + (P.bars == 1 ? " battuta" : " battute");
+    if (P.age > 0) n << juce::String::fromUTF8 (" \xc2\xb7 nastro invecchiato ") << juce::roundToInt (P.age * 100) << "%";
+    for (auto& [id, v] : P.p) if (juce::String (id) == "drive") n << juce::String::fromUTF8 (" \xc2\xb7 drive ") << juce::roundToInt (v * 100) << "%";
+    return n;
+}
 void Processor::setCurrentProgram (int i) { if (i >= 0 && i < getNumPrograms()) loadPreset (i); }
 const juce::String Processor::getProgramName (int i)
 {
@@ -727,7 +891,7 @@ void Processor::applyAge (float a)
 
 void Processor::loadPreset (int i)
 {
-    presetIndex = juce::jlimit (0, getNumPrograms() - 1, i);
+    presetIndex = juce::jlimit (0, getNumPrograms() - 1, i); userName = {};
     const auto& P = presets()[(size_t) presetIndex];
     for (int k = 0; k < kNumParams; ++k) { auto* pr = apvts.getParameter (kParams[k].id); pr->setValueNotifyingHost (pr->getDefaultValue()); }
     for (auto id : { "age", "mix", "out", "wow", "flut", "tone", "drive", "hiss", "drop" }) { auto* pr = apvts.getParameter (id); pr->setValueNotifyingHost (pr->getDefaultValue()); }
@@ -854,10 +1018,28 @@ void Processor::setSeqString (const juce::String& str)
     auto rows = juce::StringArray::fromTokens (str, ";", "");
     for (int f = 0; f < kNumFx; ++f) for (int k = 0; k < kMaxSteps; ++k) seq[f][k] = f < rows.size() && k < rows[f].length() && rows[f][k] == '1';
 }
+bool Processor::saveUser (const juce::File& f)
+{
+    auto st = apvts.copyState(); st.setProperty ("seq", seqString(), nullptr);
+    auto x = st.createXml(); if (! x) return false;
+    const bool ok = x->writeTo (f); if (ok) userName = f.getFileNameWithoutExtension(); return ok;
+}
+bool Processor::loadUser (const juce::File& f)
+{
+    auto x = juce::XmlDocument::parse (f); if (! x) return false;
+    auto t = juce::ValueTree::fromXml (*x); if (! t.isValid()) return false;
+    for (auto* pp : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (pp))
+    {
+        if (rp->paramID.startsWith ("pad")) continue;
+        for (int i = 0; i < t.getNumChildren(); ++i) { auto c = t.getChild (i); if (c.getProperty ("id").toString() == rp->paramID) { rp->setValueNotifyingHost (rp->convertTo0to1 ((float) (double) c.getProperty ("value"))); break; } }
+    }
+    setSeqString (t.getProperty ("seq").toString());
+    userName = f.getFileNameWithoutExtension(); return true;
+}
 void Processor::getStateInformation (juce::MemoryBlock& dest)
 {
     auto st = apvts.copyState();
-    st.setProperty ("seq", seqString(), nullptr); st.setProperty ("preset", presetIndex, nullptr);
+    st.setProperty ("seq", seqString(), nullptr); st.setProperty ("preset", presetIndex, nullptr); st.setProperty ("user", userName, nullptr);
     if (auto x = st.createXml()) copyXmlToBinary (*x, dest);
 }
 void Processor::setStateInformation (const void* data, int size)
@@ -866,7 +1048,7 @@ void Processor::setStateInformation (const void* data, int size)
     auto st = juce::ValueTree::fromXml (*x); if (! st.isValid()) return;
     apvts.replaceState (st);
     setSeqString (st.getProperty ("seq").toString());
-    presetIndex = st.getProperty ("preset", 0);
+    presetIndex = st.getProperty ("preset", 0); userName = st.getProperty ("user", "").toString();
 }
 
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }

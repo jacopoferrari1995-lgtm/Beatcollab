@@ -2,6 +2,8 @@
 #include "MotionProcessor.h"
 #include "Skin.h"
 #include "JackpotScale.h"
+#include "HwLook.h"
+#include "PresetBrowser.h"
 
 namespace jmo
 {
@@ -50,7 +52,7 @@ public:
     void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
     juce::RangedAudioParameter* param; juce::Colour col; juce::String label;
     std::function<juce::String()> text; int steps = 0;   // steps > 0: parametro a scatti (divisioni)
-    bool big = false, bipolar = false, enabled = true; float activity = 0, shown = -1;
+    bool big = false, bipolar = false, enabled = true; int style = 2; float activity = 0, shown = -1;
 private:
     float start = 0; bool drag = false, hover = false;
 };
@@ -119,6 +121,7 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void tickForTest() { for (int i = 0; i < 12; ++i) timerCallback(); }
+    jbrowse::Browser browser;
     static constexpr int W = 1200, H = 830;
     jlook::LnF lnf;
     Processor& proc;
@@ -135,6 +138,12 @@ public:
     PanView panView { *this };
 private:
     void timerCallback() override;
+    juce::String staticKey();
+    void paintStatic (juce::Graphics&);
+    void setupBrowser();
+    void askPresetName();
+    void afterPreset();
+    jlook::StaticLayer bg;
     std::unique_ptr<Knob> kRate, kDiv, kDepth, kChar, kFb, kFreq, kStereo, kMix, kTone, kWidth, kBass, kOut, kPanRate, kPanDiv, kPanDepth, kDry;
     std::unique_ptr<Knob> kVoice[4], kLevel[4];
     std::unique_ptr<Segs> sShape, sPanShape, sKey, sScale;

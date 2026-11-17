@@ -66,6 +66,11 @@ public:
     std::atomic<bool> uiPad[kNumFx];           // pad tenuti dall'interfaccia o dalla tastiera
     int presetIndex = 0;
     void loadPreset (int i);
+    static juce::File presetFolder() { auto f = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Tape Preset"); f.createDirectory(); return f; }
+    juce::String presetNote (int i) const;   // riassunto per il menu: effetti nella coreografia, battute, nastro
+    bool saveUser (const juce::File&);
+    bool loadUser (const juce::File&);
+    juce::String userName;   // preset tuo caricato (vuoto = preset di fabbrica)
     void applyAge (float a);
     void generate();   // coreografia generata a regole
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
@@ -98,10 +103,23 @@ private:
     double halfF = 1, ph1 = 0, ph2 = 0, drift = 0, dtgt = 0, gateG = 1, dropG = 1; int dropT = 0;
     int lastStep = -1, lastCol = -1;
     juce::Random rng;
-    // catena del nastro
-    juce::dsp::IIR::Filter<float> bumpL, bumpR;
-    float lpIcL[2] = {}, lpIcR[2] = {}, lpZL = 0, lpZR = 0, cutoffSm = 20000, dgSm = 1, outSm = 1;
-    float speedAcc = 0; int speedN = 0; float volSm = 1, hissLp = 0, stLp[2] = {};
+    // catena del nastro (dopo gli effetti): bump, saturazione a 4x (FIR a fase lineare, sempre in linea: spenta = solo ritardo), fruscio, passa basso
+    struct Bq { double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0; inline float run (float x) { const double y = b0 * x + z1; z1 = b1 * x - a1 * y + z2; z2 = b2 * x - a2 * y; return (float) y; } };
+    Bq bump[2];
+    float lpIcL[2] = {}, lpIcR[2] = {}, cutoffSm = 20000, dS = 0, outSm = 1, spdSm = 1, lastBumpD = -1;
+    float volSm = 1, hissLp = 0, stLp[2] = {};
+    std::unique_ptr<juce::dsp::Oversampling<float>> os;
+    static constexpr int kMax = 1024;
+    std::vector<float> spdArr, dryT[2], ring[2], dgArr;
+    int D0 = 300, osLat = 0, rw = 0, warm = 0; float gm = 0; bool running = false;
+    double eIn = 1e-6, eOut = 1e-6; float agS = 1, dcX[2] = {}, dcY[2] = {};
+    juce::uint32 cnt = 0; double curDelay = 300;
+    juce::Random rngHiss;                       // il fruscio ha il suo generatore: il suono non dipende dalla grandezza dei blocchi
+    double freeAnchorBeat = 0, freeBf = -1; juce::int64 freeAnchorT = 0;
+    struct AdS { double x1 = 0, F1 = 0; float dg = -1, bias = 0; } satAd[2];
+    void tapeStage (float* L, float* R, int n, float drive, float tone, float hiss, float outG);
+    float crushAd (int c, float x, float drive, float ch);
+    float distAd (int c, float x, float type);
     float mixSm = 1, crFade = 0, crHold[2] = {}, crLp[2] = {}; int crCnt = 0;
     // sweep, eco, lancio di riverbero, riser
     float swFade = 0, swIc[2][2] = {}, swCut = 1000; double swProg = 0;
@@ -114,6 +132,14 @@ private:
     struct HAp { float c = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0; float run (float x) { const float y = c * (x + y2) - x2; x2 = x1; x1 = x; y2 = y1; y1 = y; return y; } };
     HAp hA[2][4], hB[2][4]; float hBd[2] = {};
 
+    // saturazioni con antiderivata (ADAA di primo ordine): stacco, distorsione, drive del rotary, limite del feedback
+    struct Ad { double x1 = 0, F1 = 0; int kind = -1; };
+    Ad crAd[2], dsAd[2], rtAd, fsAd[2];
+    float vPreS = -1;
+    // valori che scivolano campione per campione (niente scatti girando le manopole mentre l'effetto suona)
+    float lastCut = -1, lpGc = 1;
+    float volS[kNumFx] {}, mixS[kNumFx] {}, wowS = -1, flutS = 0, gMixS = 1, crDrS = 0, crChS = 0; bool smInit = true;
+    double trPh = 0, afPh = 0;
     float rd (double pos, int ch) const;
     void activate (int fx, double bf, double beatAtT, juce::int64 t);
     double beatOf (juce::int64 t, juce::int64 t0, double beat0, double bf) const { return beat0 + (double) (t - t0) / bf; }

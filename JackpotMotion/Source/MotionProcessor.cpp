@@ -124,7 +124,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 void Processor::loadPreset (int i)
 {
     if (! juce::isPositiveAndBelow (i, (int) presets().size())) return;
-    preset = i;
+    preset = i; userName = {};
     for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) if (rp->paramID != "out") rp->setValueNotifyingHost (rp->getDefaultValue());
     for (auto& [id, v] : presets()[(size_t) i].v)
     {
@@ -132,14 +132,30 @@ void Processor::loadPreset (int i)
         else jassertfalse;
     }
 }
+bool Processor::saveUser (const juce::File& f)
+{
+    auto x = apvts.copyState().createXml(); if (! x) return false;
+    const bool ok = x->writeTo (f); if (ok) userName = f.getFileNameWithoutExtension(); return ok;
+}
+bool Processor::loadUser (const juce::File& f)
+{
+    auto x = juce::XmlDocument::parse (f); if (! x) return false;
+    auto t = juce::ValueTree::fromXml (*x); if (! t.isValid()) return false;
+    for (auto* pp : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (pp))
+    {
+        if (rp->paramID == "out") continue;
+        for (int i = 0; i < t.getNumChildren(); ++i) { auto c = t.getChild (i); if (c.getProperty ("id").toString() == rp->paramID) { rp->setValueNotifyingHost (rp->convertTo0to1 ((float) (double) c.getProperty ("value"))); break; } }
+    }
+    userName = f.getFileNameWithoutExtension(); return true;
+}
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
-    auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr); s.setProperty ("sel", uiSel, nullptr);
+    auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr); s.setProperty ("sel", uiSel, nullptr); s.setProperty ("user", userName, nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
-    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); uiSel = juce::jlimit (0, kNumFx - 1, (int) t.getProperty ("sel", (int) CHORUS)); apvts.replaceState (t); } }
+    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); userName = t.getProperty ("user", "").toString(); uiSel = juce::jlimit (0, kNumFx - 1, (int) t.getProperty ("sel", (int) CHORUS)); apvts.replaceState (t); } }
 }
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
 

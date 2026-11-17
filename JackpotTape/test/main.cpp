@@ -1,10 +1,41 @@
 #include "../Source/TapeProcessor.h"
 #include "../Source/TapeEditor.h"
 #include <cstdlib>
+#include "TestLab.h"
 using namespace jt;
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String (argv[1]) == "blk")
+    {   // primo campione diverso tra blocchi da 512 e blocchi irregolari
+        const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "3").getIntValue(); const int mb = juce::SystemStats::getEnvironmentVariable ("JBLK", "64").getIntValue();
+        auto mk = [&] (int blk) { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, 48000, blk); p->prepareToPlay (48000, blk); p->loadPreset (pr);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = p->apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+            return p; };
+        juce::Random rr (9); std::vector<float> in (48000 * 3); for (auto& x : in) x = 0.02f * (rr.nextFloat() * 2 - 1);
+        auto a = mk (512); auto b = mk (mb);
+        auto o1 = testlab::render (*a, (int) in.size(), [&] (int k) { return in[(size_t) k]; });
+        auto o2 = testlab::render (*b, (int) in.size(), [&] (int k) { return in[(size_t) k]; }, mb, true);
+        for (size_t i = 0; i < o1.size(); ++i) if (std::abs (o1[i] - o2[i]) > 1e-7f) { std::printf ("primo diverso a %d (%.4f s): %.6f vs %.6f\n", (int) i, i / 48000.0, o1[i], o2[i]); break; }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {
+        const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "1").getIntValue();
+        { Processor q; std::printf ("preset: %s\n", q.getProgramName (pr).toRawUTF8()); }
+        testlab::run ([&] (double rate, int blk) -> std::unique_ptr<juce::AudioProcessor>
+        {
+            auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk); p->loadPreset (pr);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = p->apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+            return p;
+        }, std::getenv ("JNOCLICK") == nullptr, [] (juce::AudioProcessorParameter* q)
+        {
+            auto* r = dynamic_cast<juce::RangedAudioParameter*> (q); if (r == nullptr) return true;
+            if (auto* only = std::getenv ("JONLY")) return ! r->paramID.contains (only);
+            return false;
+        });
+        return 0;
+    }
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
         if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
@@ -13,6 +44,7 @@ int main (int argc, char** argv)
         std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
         if (auto* e = dynamic_cast<Editor*> (ed.get())) e->select (juce::SystemStats::getEnvironmentVariable ("JFX", "9").getIntValue());
         ed->setSize (Editor::W, Editor::H);
+        if (std::getenv ("JBROWSE")) if (auto* e = dynamic_cast<Editor*> (ed.get())) e->browser.open();
         if (std::getenv ("JPERF"))
         {   // tempo di un ridisegno completo e dei soli elementi animati
             juce::Image im (juce::Image::RGB, Editor::W * 2, Editor::H * 2, true);

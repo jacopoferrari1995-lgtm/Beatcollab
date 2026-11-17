@@ -240,6 +240,39 @@ struct Settings
     bool panOn = false, panSync = false; float panHz = 1, panDepth = 0.7f; int panDiv = 6, panShape = SINE;
 };
 
+// ---------------------------------------------------------------- valori che scivolano (per campione: stesso suono con qualsiasi buffer)
+struct Sm
+{
+    float v = 0, a = 0.999f;
+    void time (double sec, double sr) { a = (float) std::exp (-1.0 / (sec * sr)); }
+    inline float next (float t) { v = t + a * (v - t); if (std::abs (t - v) <= 1e-6f * (1.0f + std::abs (t))) v = t; return v; }
+};
+// passa basso TPT a 2 poli (per pre-filtri e crossover modulabili)
+struct Svf2
+{
+    float s1 = 0, s2 = 0, g = 0.5f, k = 1.4142f;
+    void set (float hz, double sr, float q = 0.7071f) { g = (float) std::tan (juce::MathConstants<double>::pi * juce::jlimit (10.0, sr * 0.49, (double) hz) / sr); k = 1.0f / q; }
+    inline float lp (float x) { const float hp = (x - (k + g) * s1 - s2) / (1 + g * (k + g)), bp = g * hp + s1; s1 = g * hp + bp; const float l = g * bp + s2; s2 = g * bp + l; return l; }
+    void reset() { s1 = s2 = 0; }
+};
+
+// limitatore morbido per i feedback: lineare fino a 1, poi ginocchio a tanh (con antiderivata, ADAA di primo ordine):
+// i livelli normali passano puliti, i picchi di risonanza si fermano senza ripiegare armoniche nell'udibile
+struct AdTanh
+{
+    double x1 = 0, F1 = 0;
+    static inline double lc (double a) { return a + std::log1p (std::exp (-2.0 * a)) - 0.6931471805599453; }   // log cosh, a >= 0
+    static inline double F (double x) { const double a = std::abs (x); return a <= 1.0 ? 0.5 * x * x : 0.5 + (a - 1.0) + lc (a - 1.0); }
+    static inline double f (double x) { const double a = std::abs (x); return a <= 1.0 ? x : (x > 0 ? 1.0 : -1.0) * (1.0 + std::tanh (a - 1.0)); }
+    inline float run (float xf)
+    {
+        const double x = xf, Fx = F (x), d = x - x1;
+        const double y = std::abs (d) > 1e-5 ? (Fx - F1) / d : f (0.5 * (x + x1));
+        x1 = x; F1 = Fx; return (float) y;
+    }
+    void reset() { x1 = 0; F1 = 0; }
+};
+
 // ---------------------------------------------------------------- un effetto della catena
 class Unit
 {
@@ -253,65 +286,82 @@ public:
         sr = s;
         for (auto& c : dl) c.prepare ((int) (sr * 0.12));
         for (auto& m : ms) m.prepare (sr, type == OMNIVOX ? 0.03f : 0.035f);
-        pd.prepare (sr); reset();
+        pd.prepare (sr); xWarm = 0;
+        for (auto* m : { &sDepth, &sFb, &sFreq, &sMix, &sDry, &sRate, &sChar, &sGain[0], &sGain[1], &sGain[2], &sGain[3] }) m->time (0.02, sr);
+        sStereo.time (0.06, sr); sCharSlow.time (0.25, sr); if (type == FLANGER) sFreq.time (0.15, sr);
+        reset(); first = true;
     }
     void reset()
     {
-        for (auto& c : dl) c.clear(); for (auto& m : ms) m.clear();
-        for (auto& c : ch) { for (auto& a : c.ap) a = 0; c.fbS = 0; c.flFb = 0; c.s1 = c.s2 = 0; c.car = 0; }
+        // le linee di ritardo restano piene anche da spento (vedi warm): all'accensione l'effetto entra gia "a regime"
+        for (auto& m : ms) m.ph = 0;
+        for (auto& c : ch) { for (auto& a : c.ap) a = 0; c.fbS = 0; c.flFb = 0; c.s1 = c.s2 = 0; c.car = 0; c.pre[0].reset(); c.pre[1].reset(); c.sat.reset(); }
         for (auto& t : wetLp) t.reset(); for (auto& t : wetHp) t.reset(); for (auto& h : hil) h.reset();
         lfo = Lfo(); for (int i = 0; i < 12; ++i) { vl[i] = Lfo(); vl[i].rng.setSeed (100 + i * 37); vl[i].ph = i / 12.0; }
-        dimPh = 0; shPh = 0; fsFb = 0; rotH = rotD = 0; rotSpH = rotSpD = -1; xLp = 0;
-        for (auto& r : hRatio) r = 1; lastNote = -1;
+        dimPh = 0; shPh = 0; fsFb = 0; rotH = rotD = 0; rotSpH = rotSpD = -1; xLp = xWarm;
+        for (auto& r : hRatio) r = 1; lastNote = -1; slA = slB = 0; for (auto& a : slV) for (auto& b : a) b = 0; slInit = true;
+        cnt = 0; dip = 1; dipping = false;
     }
 
     void process (float* L, float* R, int n, const FxSet& S, double ppq, double bpm)
     {
         const float tgt = S.on ? 1.0f : 0.0f;
-        if (fade <= 0.0f && ! S.on) { noteNow = -1; return; }
-        if (fade <= 0.0f && S.on) reset();
-        const float fStep = 1.0f / (float) (0.02 * sr);
-        const double rate = S.sync ? bpm / 60.0 / divBeats (S.div) : S.rateHz;
-        if (ppq >= 0 && S.sync) lfo.setPhase (ppq / divBeats (S.div));
-        const double inc = rate / sr;
-        const float stOff = S.stereo / 360.0f, mix = S.mix;
-        const float dryG = std::cos (mix * juce::MathConstants<float>::halfPi), wetG = std::sin (mix * juce::MathConstants<float>::halfPi);
-        const int stages = 2 + 2 * juce::jlimit (0, 5, (int) (S.character * 5.99f));
-        if (type == DIMENSION) { wetLp[0].setLp (S.freq, sr); wetLp[1].setLp (S.freq, sr); }
-        else if (type == DOUBLER || type == TRIVOX) { wetLp[0].setLp (9500.0f, sr); wetLp[1].setLp (9500.0f, sr); wetHp[0].setLp (140.0f, sr); wetHp[1].setLp (140.0f, sr); }
-        else { wetLp[0].setLp (15000.0f, sr); wetLp[1].setLp (15000.0f, sr); }
-        // armonizzatore: rapporti delle voci dalla nota riconosciuta
-        float hGain[4] {}, hPan[4] {};
-        if (type == OMNIVOX)
+        if (fade <= 0.0f && ! S.on) { noteNow = -1; first = true; warm (L, R, n); return; }
+        if (fade <= 0.0f && S.on) { reset(); first = true; }
+        // controlli a scatti (forma, sync, divisione, stadi, voci, modo, verso, tipo): cambiano dentro un breve buco del solo effetto
+        const int key = stepKey (S);
+        if (first) { A = S; aKey = key; dip = 1; dipping = false; }
+        else if (key != aKey) dipping = true;
+        const float fStep = 1.0f / (float) (0.02 * sr), dStep = 1.0f / (float) (0.006 * sr);
+        const double rateT = A.sync ? bpm / 60.0 / divBeats (A.div) : S.rateHz;
+        if (ppq >= 0 && A.sync && ! dipping) lfo.setPhase (ppq / divBeats (A.div));
+        // obiettivi dei valori continui
+        float hGainT[4] {};
+        static const float pans[4] = { -1.0f, 1.0f, -0.5f, 0.5f };
+        if (type == OMNIVOX) for (int v = 0; v < 4; ++v) hGainT[v] = S.deg[v] == 0 ? 0.0f : juce::Decibels::decibelsToGain (S.lvlDb[v], -40.0f);
+        const float dryT = juce::Decibels::decibelsToGain (S.dryDb, -60.0f);
+        if (first)
         {
-            static const float pans[4] = { -1.0f, 1.0f, -0.5f, 0.5f };
-            for (int v = 0; v < 4; ++v) { hGain[v] = S.deg[v] == 0 ? 0.0f : juce::Decibels::decibelsToGain (S.lvlDb[v], -40.0f); hPan[v] = pans[v] * S.character; }
+            sDepth.v = S.depth; sFb.v = S.fb; sFreq.v = S.freq; sMix.v = S.mix; sDry.v = dryT; sRate.v = (float) rateT; sChar.v = sCharSlow.v = S.character; sStereo.v = S.stereo;
+            for (int v = 0; v < 4; ++v) sGain[v].v = hGainT[v];
+            first = false;
         }
         const float glide = (float) (1.0 - std::exp (-1.0 / (0.015 * sr)));
-        const float dryLin = juce::Decibels::decibelsToGain (S.dryDb, -60.0f);
-        for (int i = 0; i < n; ++i)
+        const float slK = (A.shape == SH || A.shape == SQUARE) ? (float) (1.0 - std::exp (-1.0 / (0.003 * sr))) : 1.0f;   // gli scalini dell'LFO diventano rampe di 3 ms
+        for (int i = 0; i < n; ++i, ++cnt)
         {
+            // buco per i controlli a scatti: scende in 6 ms, cambia, risale
+            if (dipping) { dip -= dStep; if (dip <= 0) { dip = 0; dipping = false; A = S; aKey = key; resetStepState(); } }
+            else if (dip < 1) dip = juce::jmin (1.0f, dip + dStep);
+            const float depth = sDepth.next (S.depth), fb = sFb.next (S.fb), freq = sFreq.next (S.freq), mix = sMix.next (S.mix), dryLin = sDry.next (dryT);
+            const float chr = sChar.next (S.character), chrSlow = sCharSlow.next (S.character), stereo = sStereo.next (S.stereo);
+            const double rate = sRate.next ((float) rateT), inc = rate / sr;
+            const float stOff = stereo / 360.0f;
+            const bool chunk = (cnt & 31) == 0;
+            if (chunk) updateFilters (freq);
             const float xl = L[i], xr = R[i];
             float wl = xl, wr = xr; bool full = false;   // full: l'effetto contiene gia il dry -> crossfade lineare
-            const float lA = lfo.at (lfo.ph, S.shape, type == TREMOLO ? S.character : 0), lB = lfo.at (lfo.ph + stOff, S.shape, type == TREMOLO ? S.character : 0);
+            float lA = lfo.at (lfo.ph, A.shape, type == TREMOLO ? chr : 0), lB = lfo.at (lfo.ph + stOff, A.shape, type == TREMOLO ? chr : 0);
+            if (slInit) { slA = lA; slB = lB; slInit = false; }
+            slA += (lA - slA) * slK; slB += (lB - slB) * slK; lA = slA; lB = slB;
             switch (type)
             {
                 case TREMOLO:
                 {
-                    wl = xl * (1.0f - S.depth * (0.5f - 0.5f * lA)); wr = xr * (1.0f - S.depth * (0.5f - 0.5f * lB)); full = true; break;
+                    wl = xl * (1.0f - depth * (0.5f - 0.5f * lA)); wr = xr * (1.0f - depth * (0.5f - 0.5f * lB)); full = true; break;
                 }
                 case PHASER:
                 {
+                    const int stages = 2 + 2 * juce::jlimit (0, 5, (int) (A.character * 5.99f));
                     for (int c = 0; c < 2; ++c)
                     {
                         auto& C = ch[c]; const float m = c ? lB : lA;
-                        if ((i & 7) == 0)
-                        {
-                            const float f = juce::jlimit (30.0f, (float) sr * 0.45f, S.freq * std::pow (2.0f, m * (0.4f + 3.1f * S.depth) * 0.5f));
+                        {   // coefficiente a ogni campione: aggiornarlo a scatti crea immagini a fs/8
+                            const float f = juce::jlimit (30.0f, (float) sr * 0.45f, freq * std::pow (2.0f, m * (0.4f + 3.1f * depth) * 0.5f));
                             const float t = std::tan (juce::MathConstants<float>::pi * f / (float) sr);
                             C.apA = (t - 1) / (t + 1);
                         }
-                        float y = (c ? xr : xl) + C.fbS * S.fb;
+                        float y = (c ? xr : xl) + C.fbS * fb;
                         for (int k = 0; k < stages; ++k) { const float v = C.apA * y + C.ap[k]; C.ap[k] = y - C.apA * v; y = v; }
                         C.fbS = y;
                         (c ? wr : wl) = 0.5f * ((c ? xr : xl) + y) * 1.4f;
@@ -321,29 +371,30 @@ public:
                 case FLANGER:
                 {
                     // FREQUENZA = primo picco del pettine (ritardo = 1/f), ESCURSIONE fino a due ottave sotto
-                    const float base = 1.0f / juce::jmax (50.0f, S.freq);
+                    const float base = 1.0f / juce::jmax (50.0f, freq);
                     for (int c = 0; c < 2; ++c)
                     {
                         auto& C = ch[c]; const float m = 0.5f + 0.5f * (c ? lB : lA);
-                        const float t = juce::jlimit (1.5f, (float) (0.025 * sr), (float) (base * (1.0f + S.depth * 3.0f * m) * sr));
+                        const float t = juce::jlimit (1.5f, (float) (0.025 * sr), (float) (base * (1.0f + depth * 3.0f * m) * sr));
                         const float x = c ? xr : xl;
-                        dl[c].push (x + C.flFb * S.fb);
-                        const float y = dl[c].read (t); C.flFb = std::tanh (y);
+                        dl[c].push (x + C.flFb * fb);
+                        const float y = dl[c].read (t); C.flFb = C.sat.run (y);
                         (c ? wr : wl) = 0.5f * (x + y) * 1.3f;
                     }
                     full = true; break;
                 }
                 case CHORUS:
                 {
-                    const int voices = 1 + juce::jlimit (0, 3, (int) (S.character * 3.99f));
-                    const float base = 0.012f + 0.004f * voices, sw = 0.0045f * S.depth;
+                    const int voices = 1 + juce::jlimit (0, 3, (int) (A.character * 3.99f));
+                    const float base = 0.012f + 0.004f * voices, sw = 0.0045f * depth;
                     for (int c = 0; c < 2; ++c)
                     {
                         dl[c].push (c ? xr : xl);
                         float y = 0;
                         for (int v = 0; v < voices; ++v)
                         {
-                            const float m = lfo.at (lfo.ph + (c ? stOff : 0) + v / (float) voices, S.shape);
+                            float m = lfo.at (lfo.ph + (c ? stOff : 0) + v / (float) voices, A.shape);
+                            slV[c][v] += (m - slV[c][v]) * slK; m = slV[c][v];
                             y += dl[c].read ((float) ((base + v * 0.0027f + sw * (0.5f + 0.5f * m)) * sr));
                         }
                         (c ? wr : wl) = wetLp[c].lp (y / std::sqrt ((float) voices));
@@ -353,12 +404,12 @@ public:
                 case DIMENSION:
                 {
                     static const float dep[4] = { 0.0006f, 0.0011f, 0.0016f, 0.0024f };
-                    const int md = juce::jlimit (0, 3, (int) (S.character * 3.99f));
+                    const int md = juce::jlimit (0, 3, (int) (A.character * 3.99f));
                     const float tri = lfo.at (lfo.ph, TRI);
                     const float mono = 0.5f * (xl + xr);
                     dl[0].push (mono);
-                    const float d1 = dl[0].read ((float) ((0.0065f + dep[md] * tri * (0.5f + S.depth)) * sr));
-                    const float d2 = dl[0].read ((float) ((0.0065f - dep[md] * tri * (0.5f + S.depth)) * sr));
+                    const float d1 = dl[0].read ((float) ((0.0065f + dep[md] * tri * (0.5f + depth)) * sr));
+                    const float d2 = dl[0].read ((float) ((0.0065f - dep[md] * tri * (0.5f + depth)) * sr));
                     const float a = wetLp[0].lp (d1), b = wetLp[1].lp (d2);
                     wl = (xl + 0.7f * a - 0.25f * b) * 0.8f; wr = (xr + 0.7f * b - 0.25f * a) * 0.8f; full = true;
                     break;
@@ -367,14 +418,14 @@ public:
                 {
                     for (int c = 0; c < 2; ++c) dl[c].push (c ? xr : xl);
                     float yl = 0, yr = 0;
-                    const float spread = 0.010f + 0.026f * S.character;
+                    const float spread = 0.010f + 0.026f * chrSlow;
                     // sei voci per lato con ritardi sfalsati e velocita non multiple tra loro: i battimenti si diluiscono, niente "pompaggio"
                     for (int v = 0; v < 12; ++v)
                     {
                         auto& V = vl[v]; V.advance (inc * (0.55 + 0.071 * v + 0.013 * (v % 5)));
                         const float o = std::fmod (v * 0.618034f, 1.0f);
                         const float m = V.at (V.ph, RANDOM) * 0.5f + std::sin (kTwoPi * (float) (V.ph * 1.7 + o)) * 0.5f;
-                        const float t = (float) ((0.007f + spread * o + 0.0016f * (0.3f + S.depth) * m) * sr);
+                        const float t = (float) ((0.007f + spread * o + 0.0016f * (0.3f + depth) * m) * sr);
                         const int side = v & 1;
                         const float s = dl[side].read (t) * ((v >> 1) % 3 == 1 ? -1.0f : 1.0f);
                         if (side) yr += s; else yl += s;
@@ -386,7 +437,7 @@ public:
                 {
                     const float mono = 0.5f * (xl + xr);
                     pd.push (mono);
-                    if ((i & 63) == 0)
+                    if ((cnt & 63) == 0)
                     {
                         if (pd.voiced && pd.hz > 40)
                         {
@@ -410,9 +461,11 @@ public:
                     for (int v = 0; v < 4; ++v)
                     {
                         hRatio[v] += (tRatio[v] - hRatio[v]) * glide;
-                        if (hGain[v] <= 0) continue;
-                        const float y = ms[v].process (mono, hRatio[v], 2.0f) * hGain[v];
-                        yl += y * std::sqrt (0.5f * (1 - hPan[v])); yr += y * std::sqrt (0.5f * (1 + hPan[v]));
+                        const float gv = sGain[v].next (hGainT[v]);
+                        if (gv <= 0) continue;
+                        const float pn = pans[v] * chr;
+                        const float y = ms[v].process (mono, hRatio[v], 2.0f) * gv;
+                        yl += y * std::sqrt (0.5f * (1 - pn)); yr += y * std::sqrt (0.5f * (1 + pn));
                     }
                     wl = yl * 0.8f; wr = yr * 0.8f;
                     break;
@@ -421,9 +474,9 @@ public:
                 {
                     const float mono = 0.5f * (xl + xr);
                     dl[0].push (mono);
-                    const float base = 0.010f + 0.045f * S.character;
+                    const float base = 0.010f + 0.045f * chrSlow;
                     vl[0].advance (inc * 0.9); vl[1].advance (inc * 1.13);
-                    const float cents = 3.0f + 20.0f * S.depth;
+                    const float cents = 3.0f + 20.0f * depth;
                     const float amp = (float) juce::jmin (0.008 * sr, (cents / 1731.0) * sr / (kTwoPi * juce::jmax (0.1, rate)));
                     const float dA = (float) (base * sr) + amp * (1.0f + vl[0].at (vl[0].ph, RANDOM));
                     const float dB = (float) (base * 1.37f * sr) + amp * (1.0f + vl[1].at (vl[1].ph, RANDOM));
@@ -439,10 +492,10 @@ public:
                     const float mono = 0.5f * (xl + xr);
                     // finestre agganciate al periodo della nota: le due prese restano in fase, niente "flanger" nei cambi
                     pd.push (mono);
-                    if ((i & 127) == 0 && pd.voiced && pd.hz > 50) { ms[0].syncTo ((float) (sr / pd.hz), sr); ms[1].syncTo ((float) (sr / pd.hz), sr); }
-                    const float cents = 3.0f + 27.0f * S.depth;
+                    if ((cnt & 127) == 0 && pd.voiced && pd.hz > 50) { ms[0].syncTo ((float) (sr / pd.hz), sr); ms[1].syncTo ((float) (sr / pd.hz), sr); }
+                    const float cents = 3.0f + 27.0f * depth;
                     const float up = std::pow (2.0f, cents / 1200.0f), dn = 1.0f / up;
-                    const float d = (float) (S.character * 0.03 * sr);
+                    const float d = (float) (chrSlow * 0.03 * sr);
                     const float a = ms[0].process (mono, dn, d + 2), b = ms[1].process (mono, up, d * 1.3f + 2);
                     const float ya = wetLp[0].lp (a), yb = wetLp[1].lp (b);
                     wl = ya - wetHp[0].lp (ya) * 0.6f; wr = yb - wetHp[1].lp (yb) * 0.6f;
@@ -450,7 +503,7 @@ public:
                 }
                 case VIBRATO:
                 {
-                    const float sw = 0.0055f * S.depth;
+                    const float sw = 0.0055f * depth;
                     for (int c = 0; c < 2; ++c)
                     {
                         dl[c].push (c ? xr : xl);
@@ -462,43 +515,58 @@ public:
                 }
                 case RINGMOD:
                 {
+                    // portante a banda limitata (armoniche dispari sotto ~0.22 fs, quelle in cima sfumano) e ingresso filtrato:
+                    // il prodotto non supera Nyquist, niente aliasing
+                    if (chunk) ringWeights (chr, freq * std::pow (2.0f, 2.0f * depth));
                     for (int c = 0; c < 2; ++c)
                     {
                         auto& C = ch[c]; const float m = c ? lB : lA;
-                        const float f = juce::jlimit (1.0f, (float) sr * 0.4f, S.freq * std::pow (2.0f, S.depth * 2.0f * m));
+                        const float f = juce::jlimit (1.0f, (float) sr * 0.4f, freq * std::pow (2.0f, depth * 2.0f * m));
                         C.car += f / (float) sr; C.car -= std::floor (C.car);
-                        float s = std::sin (kTwoPi * (C.car + (c ? stOff * 0.0f : 0.0f)));
-                        if (S.character > 0.01f) s = std::tanh (s * (1 + S.character * 12)) / std::tanh (1 + S.character * 12);
-                        (c ? wr : wl) = (c ? xr : xl) * s;
+                        const float s1 = std::sin (kTwoPi * (float) C.car);
+                        float s = s1;
+                        if (nW > 1)
+                        {
+                            const float c2 = 2.0f * (1.0f - 2.0f * s1 * s1), lim = (float) (0.22 * sr), soft = (float) (0.04 * sr);
+                            float sk = s1, skm = -s1, acc = s1;
+                            for (int k = 1; k < nW; ++k)
+                            {
+                                const float nx = c2 * sk - skm; skm = sk; sk = nx;
+                                const float hf = (float) (2 * k + 1) * f; if (hf >= lim) break;
+                                acc += rw[k] * juce::jmin (1.0f, (lim - hf) / soft) * sk;
+                            }
+                            s = acc * rNorm;
+                        }
+                        const float x = C.pre[1].lp (C.pre[0].lp (c ? xr : xl));
+                        (c ? wr : wl) = x * s;
                     }
                     full = true; break;
                 }
                 case FSHIFT:
                 {
-                    const float sh = S.freq * (1.0f + S.depth * lA);
+                    const float sh = freq * (1.0f + depth * lA);
                     shPh += sh / sr; shPh -= std::floor (shPh);
                     const float cs = std::cos (kTwoPi * (float) shPh), sn = std::sin (kTwoPi * (float) shPh);
-                    const int dir = S.character < 0.34f ? 0 : S.character < 0.67f ? 1 : 2;   // su, giu, stereo
+                    const int dir = A.character < 0.34f ? 0 : A.character < 0.67f ? 1 : 2;   // su, giu, stereo
                     for (int c = 0; c < 2; ++c)
                     {
-                        float re, im; hil[c].run ((c ? xr : xl) + ch[c].fbS * S.fb, re, im);
+                        float re, im; hil[c].run ((c ? xr : xl) + ch[c].fbS * fb, re, im);
                         const bool down = dir == 1 || (dir == 2 && c == 1);
                         const float y = down ? re * cs - im * sn : re * cs + im * sn;
-                        ch[c].fbS = std::tanh (y);
+                        ch[c].fbS = ch[c].sat.run (y);
                         (c ? wr : wl) = y;
                     }
                     break;
                 }
                 case AUTOFILT:
                 {
-                    const int ft = S.character < 0.34f ? 0 : S.character < 0.67f ? 1 : 2;
-                    const float k = 2.0f - 1.9f * juce::jlimit (0.0f, 1.0f, S.fb);
+                    const int ft = A.character < 0.34f ? 0 : A.character < 0.67f ? 1 : 2;
+                    const float k = 2.0f - 1.9f * juce::jlimit (0.0f, 1.0f, fb);
                     for (int c = 0; c < 2; ++c)
                     {
                         auto& C = ch[c]; const float m = c ? lB : lA;
-                        if ((i & 3) == 0)
-                        {
-                            const float f = juce::jlimit (25.0f, (float) sr * 0.42f, S.freq * std::pow (2.0f, m * S.depth * 3.0f));
+                        {   // coefficiente a ogni campione (a scatti creava immagini a fs/4)
+                            const float f = juce::jlimit (25.0f, (float) sr * 0.42f, freq * std::pow (2.0f, m * depth * 3.0f));
                             C.g = std::tan (juce::MathConstants<float>::pi * f / (float) sr);
                         }
                         const float x = c ? xr : xl, g = C.g;
@@ -506,7 +574,7 @@ public:
                         const float bp = g * hp + C.s1; C.s1 = g * hp + bp;
                         const float lp = g * bp + C.s2; C.s2 = g * bp + lp;
                         float y = ft == 0 ? lp : ft == 1 ? bp * k : hp;
-                        (c ? wr : wl) = std::tanh (y * 0.9f) / 0.9f;
+                        (c ? wr : wl) = C.sat.run (y * 0.9f) / 0.9f;
                     }
                     full = true; break;
                 }
@@ -518,15 +586,14 @@ public:
                     rotSpH += (tH - rotSpH) * (float) (1.0 / (0.7 * sr)); rotSpD += (tD - rotSpD) * (float) (1.0 / (2.5 * sr));
                     rotH += rotSpH / sr; rotH -= std::floor (rotH); rotD += rotSpD / sr; rotD -= std::floor (rotD);
                     const float mono = 0.5f * (xl + xr);
-                    const float a = (float) std::exp (-kTwoPi * juce::jlimit (100.0f, 4000.0f, S.freq) / sr);
-                    xLp = mono + a * (xLp - mono);
+                    xLp = mono + rotA * (xLp - mono);
                     const float lo = xLp, hi = mono - xLp;
                     const float sH = std::sin (kTwoPi * (float) rotH), cH = std::cos (kTwoPi * (float) rotH), sD = std::sin (kTwoPi * (float) rotD);
                     dl[0].push (hi);
-                    const float hd = dl[0].read ((float) ((0.0018 + 0.0011 * S.depth * (1 + sH)) * sr));
-                    const float hAm = 1.0f - 0.4f * S.depth * (0.5f - 0.5f * cH), dAm = 1.0f - 0.25f * S.depth * (0.5f - 0.5f * sD);
-                    const float hL = hd * hAm * (1.0f + 0.7f * S.depth * sH), hR = hd * hAm * (1.0f - 0.7f * S.depth * sH);
-                    const float dL = lo * dAm * (1.0f + 0.25f * S.depth * sD), dR = lo * dAm * (1.0f - 0.25f * S.depth * sD);
+                    const float hd = dl[0].read ((float) ((0.0018 + 0.0011 * depth * (1 + sH)) * sr));
+                    const float hAm = 1.0f - 0.4f * depth * (0.5f - 0.5f * cH), dAm = 1.0f - 0.25f * depth * (0.5f - 0.5f * sD);
+                    const float hL = hd * hAm * (1.0f + 0.7f * depth * sH), hR = hd * hAm * (1.0f - 0.7f * depth * sH);
+                    const float dL = lo * dAm * (1.0f + 0.25f * depth * sD), dR = lo * dAm * (1.0f - 0.25f * depth * sD);
                     wl = (hL + dL) * 0.95f; wr = (hR + dR) * 0.95f; full = true;
                     break;
                 }
@@ -536,22 +603,84 @@ public:
             float ol, orr;
             if (isVoiceFx (type)) { ol = xl * dryLin + wl * mix; orr = xr * dryLin + wr * mix; }
             else if (full) { ol = xl + (wl - xl) * mix; orr = xr + (wr - xr) * mix; }
-            else { ol = xl * dryG + wl * wetG; orr = xr * dryG + wr * wetG; }
+            else { const float dryG = std::cos (mix * juce::MathConstants<float>::halfPi), wetG = std::sin (mix * juce::MathConstants<float>::halfPi); ol = xl * dryG + wl * wetG; orr = xr * dryG + wr * wetG; }
             // accensione e spegnimento senza click
-            fade = juce::jlimit (0.0f, 1.0f, fade + (tgt > fade ? fStep : -fStep));
-            L[i] = xl + (ol - xl) * fade; R[i] = xr + (orr - xr) * fade;
+            if (tgt > fade) fade = juce::jmin (1.0f, fade + fStep); else if (tgt < fade) fade = juce::jmax (0.0f, fade - fStep);   // fermo a 1: niente tremolio di un campione
+            const float k = fade * dip;
+            L[i] = xl + (ol - xl) * k; R[i] = xr + (orr - xr) * k;
         }
-        lfoNow = lfo.at (lfo.ph, S.shape); lfoPh = (float) lfo.ph;
+        lfoNow = lfo.at (lfo.ph, A.shape); lfoPh = (float) lfo.ph;
         for (int v = 0; v < 6; ++v) voicePh[v] = (float) vl[v].at (vl[v].ph, RANDOM);
         angle = (float) rotH;
-        if (! S.on && fade <= 0) noteNow = -1;
+        if (! S.on && fade <= 0) { noteNow = -1; first = true; }
     }
 private:
-    struct Ch { float ap[12] {}; float apA = 0, fbS = 0, flFb = 0, s1 = 0, s2 = 0, g = 0.1f; double car = 0; };
-    double sr = 44100, dimPh = 0, shPh = 0, rotH = 0, rotD = 0; float fsFb = 0, rotSpH = -1, rotSpD = -1, xLp = 0;
+    // da spento si scrivono solo le linee di ritardo (costo minimo): accendere non parte da un buffer vuoto
+    void warm (const float* L, const float* R, int n)
+    {
+        switch (type)
+        {
+            case FLANGER: case CHORUS: case VIBRATO: case ENSEMBLE: for (int i = 0; i < n; ++i) { dl[0].push (L[i]); dl[1].push (R[i]); } break;
+            case DIMENSION: case DOUBLER: for (int i = 0; i < n; ++i) dl[0].push (0.5f * (L[i] + R[i])); break;
+            case ROTARY: for (int i = 0; i < n; ++i) { const float m = 0.5f * (L[i] + R[i]); xWarm = m + rotA * (xWarm - m); dl[0].push (m - xWarm); } break;
+            case TRIVOX: for (int i = 0; i < n; ++i) { const float m = 0.5f * (L[i] + R[i]); ms[0].dl.push (m); ms[1].dl.push (m); } break;
+            case OMNIVOX: for (int i = 0; i < n; ++i) { const float m = 0.5f * (L[i] + R[i]); for (auto& v : ms) v.dl.push (m); } break;
+            default: break;
+        }
+    }
+    int stepKey (const FxSet& S) const
+    {
+        int st = 0;
+        switch (type)
+        {
+            case PHASER: st = juce::jlimit (0, 5, (int) (S.character * 5.99f)); break;
+            case CHORUS: case DIMENSION: st = juce::jlimit (0, 3, (int) (S.character * 3.99f)); break;
+            case FSHIFT: case AUTOFILT: st = S.character < 0.34f ? 0 : S.character < 0.67f ? 1 : 2; break;
+            default: break;
+        }
+        const bool usesLfo = (fxInfo (type).ctl & C_SHAPE) != 0;
+        return st | (usesLfo ? S.shape << 4 : 0) | ((fxInfo (type).ctl & C_RATE) ? ((S.sync ? 1 : 0) << 8) | ((S.sync ? S.div : 0) << 9) : 0);
+    }
+    void resetStepState()
+    {
+        for (auto& c : ch) { for (auto& a : c.ap) a = 0; c.fbS = 0; c.s1 = c.s2 = 0; c.sat.reset(); }
+        slInit = true;
+    }
+    void updateFilters (float freq)
+    {
+        if (type == DIMENSION) { wetLp[0].setLp (freq, sr); wetLp[1].setLp (freq, sr); }
+        else if (type == DOUBLER || type == TRIVOX) { wetLp[0].setLp (9500.0f, sr); wetLp[1].setLp (9500.0f, sr); wetHp[0].setLp (140.0f, sr); wetHp[1].setLp (140.0f, sr); }
+        else { wetLp[0].setLp (15000.0f, sr); wetLp[1].setLp (15000.0f, sr); }
+        if (type == ROTARY) rotA = (float) std::exp (-kTwoPi * juce::jlimit (100.0f, 4000.0f, freq) / sr);
+    }
+    // pesi delle armoniche dispari della portante: da sinusoide (0) a quadra (1), con i fattori di Lanczos
+    void ringWeights (float c, float fMax)
+    {
+        nW = c < 0.01f ? 1 : 24;
+        const float g = std::sqrt (juce::jlimit (0.0f, 1.0f, c));
+        rw[0] = 1; float norm = 1;
+        for (int k = 1; k < nW; ++k)
+        {
+            const int h = 2 * k + 1; const float x = juce::MathConstants<float>::pi * (float) h / (2.0f * nW + 2.0f);
+            rw[k] = std::pow (g, (float) k) / (float) h * std::sin (x) / x;
+            norm += rw[k] * ((k & 1) ? -1.0f : 1.0f);
+        }
+        rNorm = 1.0f / juce::jmax (0.3f, norm);
+        // ingresso filtrato: la somma ingresso + armonica piu alta resta sotto Nyquist
+        const float top = juce::jmax (juce::jmin (fMax, (float) sr * 0.4f), nW > 1 ? (float) (0.22 * sr) : 0.0f);
+        const float fc = juce::jlimit (2000.0f, 20000.0f, (float) (0.46 * sr) - top);
+        for (auto& C : ch) { C.pre[0].set (fc, sr, 0.541f); C.pre[1].set (fc, sr, 1.307f); }
+    }
+    struct Ch { float ap[12] {}; float apA = 0, fbS = 0, flFb = 0, s1 = 0, s2 = 0, g = 0.1f; double car = 0; Svf2 pre[2]; AdTanh sat; };
+    double sr = 44100, dimPh = 0, shPh = 0, rotH = 0, rotD = 0; float fsFb = 0, rotSpH = -1, rotSpD = -1, xLp = 0, rotA = 0.9f, xWarm = 0;
     Delay dl[2]; MicroShift ms[4]; Ch ch[2]; OnePole wetLp[2], wetHp[2]; Hilbert hil[2]; PitchDet pd;
     Lfo lfo, vl[12];
     float hRatio[4] { 1, 1, 1, 1 }, tRatio[4] { 1, 1, 1, 1 }, lastNote = -1;
+    Sm sDepth, sFb, sFreq, sMix, sDry, sRate, sChar, sCharSlow, sStereo, sGain[4];
+    FxSet A; int aKey = 0; float dip = 1; bool dipping = false, first = true, slInit = true;
+    float slA = 0, slB = 0, slV[2][4] {};
+    juce::uint32 cnt = 0;
+    float rw[24] {}, rNorm = 1; int nW = 1;
 };
 
 // ---------------------------------------------------------------- motore: catena + uscita
@@ -562,8 +691,10 @@ public:
     void prepare (double s, int)
     {
         sr = s; for (auto& u : units) { u.prepare (s); u.fade = 0; }
-        panLfo = Lfo(); for (auto& s2 : sideHp[0].z) s2[0] = s2[1] = 0; toneLp[0].reset(); toneLp[1].reset();
+        panLfo = Lfo(); for (auto& s2 : sideHp.z) s2[0] = s2[1] = 0; sideHp.last = -1; toneLp[0].reset(); toneLp[1].reset();
         dryL.assign (4096, 0.0f); dryR.assign (4096, 0.0f);
+        for (auto* m : { &sTone, &sWidth, &sBass, &sOut, &sPan }) m->time (0.02, sr);
+        first = true; cnt = 0; panSl = 0;
     }
     void process (float* L, float* R, int n, const Settings& S, double ppq, double bpm)
     {
@@ -583,35 +714,45 @@ private:
         const double pRate = S.panSync ? bpm / 60.0 / divBeats (S.panDiv) : S.panHz;
         if (ppq >= 0 && S.panSync) panLfo.setPhase (ppq / divBeats (S.panDiv));
         const double pInc = pRate / sr;
-        toneLp[0].setLp (S.tone, sr); toneLp[1].setLp (S.tone, sr);
-        sideHp[0].set (S.bassMono, sr);
-        const float outG = juce::Decibels::decibelsToGain (S.outDb);
-        const bool toneOn = S.tone < 19900.0f;
-        for (int i = 0; i < n; ++i)
+        const float outT = juce::Decibels::decibelsToGain (S.outDb), panT = S.panOn ? S.panDepth : 0.0f;
+        if (first) { sTone.v = S.tone; sWidth.v = S.width; sBass.v = S.bassMono; sOut.v = outT; sPan.v = panT; first = false; }
+        const float panK = (float) (1.0 - std::exp (-1.0 / (0.002 * sr)));
+        for (int i = 0; i < n; ++i, ++cnt)
         {
+            const float tone = sTone.next (S.tone), width = sWidth.next (S.width), bass = sBass.next (S.bassMono), outG = sOut.next (outT), pa = sPan.next (panT);
+            if ((cnt & 31) == 0) { toneLp[0].setLp (tone, sr); toneLp[1].setLp (tone, sr); if (bass > 20.5f) sideHp.set (bass, sr); }
             float ol = L[i], orr = R[i];
-            // tono: scurisce solo la parte aggiunta dagli effetti
-            if (toneOn) { ol = dryL[(size_t) i] + toneLp[0].lp (ol - dryL[(size_t) i]); orr = dryR[(size_t) i] + toneLp[1].lp (orr - dryR[(size_t) i]); }
-            if (S.width != 1.0f || S.bassMono > 21.0f)
+            // tono: scurisce solo la parte aggiunta dagli effetti; il filtro gira sempre e sopra 18.5 kHz sfuma verso il suono intatto
             {
-                const float mid = 0.5f * (ol + orr); float side = 0.5f * (ol - orr) * S.width;
-                if (S.bassMono > 21.0f) side = sideHp[0].run (side);
+                const float dl = ol - dryL[(size_t) i], dr = orr - dryR[(size_t) i];
+                const float fl = toneLp[0].lp (dl), fr = toneLp[1].lp (dr);
+                const float b = juce::jlimit (0.0f, 1.0f, (tone - 18500.0f) / 1400.0f);
+                if (b < 1.0f) { ol = dryL[(size_t) i] + fl + (dl - fl) * b; orr = dryR[(size_t) i] + fr + (dr - fr) * b; }
+            }
+            if (width != 1.0f || bass > 20.5f)
+            {
+                const float mid = 0.5f * (ol + orr); float side = 0.5f * (ol - orr) * width;
+                if (bass > 20.5f) side = sideHp.run (side);
                 ol = mid + side; orr = mid - side;
             }
-            if (S.panOn)
+            if (pa > 0.0f)
             {
-                const float pp = panLfo.at (panLfo.ph, S.panShape) * S.panDepth;
+                panSl += (panLfo.at (panLfo.ph, S.panShape) - panSl) * panK;   // gli scalini (S&H, quadra) diventano rampe di 2 ms
+                const float pp = panSl * pa;
                 const float gl = std::cos ((pp + 1) * juce::MathConstants<float>::pi * 0.25f) * 1.41421356f, gr = std::sin ((pp + 1) * juce::MathConstants<float>::pi * 0.25f) * 1.41421356f;
                 ol *= gl; orr *= gr; panNow = pp;
             }
+            else panSl = panLfo.at (panLfo.ph, S.panShape);
             panLfo.advance (pInc);
-            L[i] = ol * outG; R[i] = orr * outG;
+            if (outG != 1.0f) { ol *= outG; orr *= outG; }
+            L[i] = ol; R[i] = orr;
         }
         panPh = (float) panLfo.ph;
-        if (! S.panOn) panNow = 0;
+        if (! S.panOn && sPan.v <= 0.0f) panNow = 0;
     }
     double sr = 44100;
-    Hp1 sideHp[1]; OnePole toneLp[2]; Lfo panLfo;
+    Hp1 sideHp; OnePole toneLp[2]; Lfo panLfo;
     std::vector<float> dryL, dryR;
+    Sm sTone, sWidth, sBass, sOut, sPan; bool first = true; juce::uint32 cnt = 0; float panSl = 0;
 };
 }

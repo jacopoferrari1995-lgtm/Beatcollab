@@ -2,6 +2,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include "../Source/MotionProcessor.h"
 #include "../Source/MotionEditor.h"
+#include "TestLab.h"
 using namespace jmo;
 
 static void setP (Processor& p, const char* id, float v) { auto* rp = p.apvts.getParameter (id); rp->setValueNotifyingHost (rp->convertTo0to1 (v)); }
@@ -35,6 +36,47 @@ int main (int argc, char** argv)
     auto fresh = [&] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); return p; };
     juce::Random rnd (3);
     auto music = [&] (int i, float& l, float& r) { const double t = i / sr; l = (float) (0.3 * std::sin (6.2831853 * 220 * t) + 0.2 * std::sin (6.2831853 * 330 * t) + 0.05 * (rnd.nextFloat() - 0.5f)); r = l * 0.9f + 0.05f * (float) std::sin (6.2831853 * 554 * t); };
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {
+        const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "1").getIntValue();
+        std::printf ("preset: %s\n", presets()[(size_t) pr].name);
+        testlab::run ([&] (double rate, int blk) -> std::unique_ptr<juce::AudioProcessor>
+        {
+            auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk); p->loadPreset (pr);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) setP (*p, kv.upToFirstOccurrenceOf ("=", false, false).toRawUTF8(), kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+            return p;
+        }, std::getenv ("JNOCLICK") == nullptr, [] (juce::AudioProcessorParameter* q)
+        {   // salta i parametri degli effetti spenti nel preset (non suonano)
+            auto* r = dynamic_cast<juce::RangedAudioParameter*> (q); if (r == nullptr) return true;
+            const auto id = r->paramID; if (std::getenv ("JALL")) return false;
+            if (auto* only = std::getenv ("JONLY")) return ! id.contains (only);
+            if (id.contains ("_") && ! id.startsWith ("omni_v") && ! id.startsWith ("omni_l") && ! id.startsWith ("omni_k") && ! id.startsWith ("omni_s")) return false;
+            return false;
+        });
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "ring")
+    {   // ring mod a 2500 Hz su un 10 kHz: tutte le righe giuste sono multipli di 2500 Hz, il resto e aliasing
+        for (float chv : { 0.0f, 0.5f, 1.0f })
+        {
+            auto p = fresh(); setP (*p, "ring_on", 1); setP (*p, "ring_mix", 1); setP (*p, "ring_freq", 2500); setP (*p, "ring_char", chv);
+            std::vector<float> L, R; run (*p, [&] (int i, float& l, float& r) { l = r = 0.5f * (float) std::sin (6.283185307179586 * 10000.0 * i / sr); }, 48000 * 2, L, R);
+            const int N = 32768; juce::dsp::FFT f (15); std::vector<float> d ((size_t) 2 * N, 0);
+            for (int i = 0; i < N; ++i) d[(size_t) i] = L[(size_t) (48000 + i)] * (0.5f - 0.5f * std::cos (6.2831853f * i / N));
+            f.performFrequencyOnlyForwardTransform (d.data());
+            float good = 0, bad = 0; double bf = 0;
+            for (int k = 10; k < N / 2; ++k) { const double fq = k * sr / N; const double m = std::fmod (fq, 2500.0); const bool ok = m < 30 || m > 2470; if (ok) good = std::max (good, d[(size_t) k]); else if (d[(size_t) k] > bad) { bad = d[(size_t) k]; bf = fq; } }
+            std::printf ("ring forma %.1f: aliasing %.1f dB (a %.0f Hz)\n", chv, juce::Decibels::gainToDecibels (bad / good), bf);
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "dbg")
+    {
+        auto p = fresh(); p->loadPreset (12); std::vector<float> L, R; run (*p, [&] (int, float& l, float& r) { l = r = 0.5f; }, 48000, L, R);
+        for (int i = 30000; i < 30012; ++i) std::printf ("%.9f\n", L[(size_t) i]);
+        double alt = 0; for (int i = 30000; i < 40000; ++i) alt += (i & 1 ? -1.0 : 1.0) * L[(size_t) i]; std::printf ("alt %.3g\n", alt / 10000);
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "voci")
     {   // nota "vocale" (fondamentale 196 Hz con armoniche): le copie non devono pulsare (pettine nei cambi di presa)
         auto voice = [&] (int i, float& l, float& r) { const double t = i / sr; double s = 0; for (int h = 1; h < 14; ++h) s += std::sin (6.2831853 * 196 * h * t + h * 0.7) / (h * 1.3); l = r = (float) (0.15 * s); };
@@ -56,6 +98,19 @@ int main (int argc, char** argv)
         std::vector<float> L, R; run (*p, music, (int) sr * 2, L, R);
         Editor ed (*p); if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
         ed.tickForTest();
+        if (std::getenv ("JBROWSE")) ed.browser.open();
+        if (std::getenv ("JPERF"))
+        {
+            for (int t : { 3, 4, 8, 9, 10, 1, 2 })
+            {
+                skin::cur() = t; neo::K::theme = -1; skin::apply(); ed.repaint();
+                auto t0 = juce::Time::getMillisecondCounterHiRes(); auto im = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f); const double full = juce::Time::getMillisecondCounterHiRes() - t0;
+                t0 = juce::Time::getMillisecondCounterHiRes();
+                for (int i = 0; i < 30; ++i) { ed.tickForTest(); ed.view.createComponentSnapshot (ed.view.getLocalBounds(), true, 1.0f); ed.panView.createComponentSnapshot (ed.panView.getLocalBounds(), true, 1.0f); ed.createComponentSnapshot ({ 1120, 580, 60, 210 }, false, 1.0f); }
+                std::printf ("tema %2d: primo disegno %.1f ms, fotogramma %.2f ms\n", t, full, (juce::Time::getMillisecondCounterHiRes() - t0) / 30.0);
+                juce::File f ("/tmp/mo_tema" + juce::String (t) + ".png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (im, os);
+            }
+        }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

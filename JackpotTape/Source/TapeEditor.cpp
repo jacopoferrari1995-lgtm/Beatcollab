@@ -61,7 +61,7 @@ static void scan (juce::Graphics& g, juce::Rectangle<float> r)
 {
     juce::ignoreUnused (g, r);   // le righe di scansione ora sono nel fondo in cache (neo::crt)
 }
-static void caps (juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r, juce::Colour c = K::dim, juce::Justification j = juce::Justification::centredLeft, float size = 9.5f)
+static void caps (juce::Graphics& g, const juce::String& t, juce::Rectangle<int> r, juce::Colour c = K::pDim, juce::Justification j = juce::Justification::centredLeft, float size = 9.5f)
 {
     g.setColour (c); g.setFont (neo::cap (size * 0.9f)); g.drawText (t.toUpperCase(), r, j);
 }
@@ -85,8 +85,8 @@ void Knob::paint (juce::Graphics& g)
     { const float r0 = kr * 0.3f, r1 = kr * 0.88f, sn = std::sin (av), cs = std::cos (av);
       juce::Path pl; pl.startNewSubPath (cx + sn * r0, cy - cs * r0); pl.lineTo (cx + sn * r1, cy - cs * r1);
       g.setColour (col); g.strokePath (pl, juce::PathStrokeType (big ? 2.6f : 2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
-    g.setColour (hover ? K::ink : K::dim); g.setFont (neo::cap (big ? 9.5f : 8.0f)); g.drawFittedText (lab.toUpperCase(), juce::Rectangle<int> (0, (int) size + 2, getWidth(), 12), juce::Justification::centred, 1, 0.7f);
-    g.setFont (neo::num (big ? 11.0f : 9.5f)); g.setColour (drag ? col : K::ink.withAlpha (0.9f));
+    g.setColour (hover ? K::pInk : K::pDim); g.setFont (neo::cap (big ? 9.5f : 8.0f)); g.drawFittedText (lab.toUpperCase(), juce::Rectangle<int> (0, (int) size + 2, getWidth(), 12), juce::Justification::centred, 1, 0.7f);
+    g.setFont (neo::num (big ? 11.0f : 9.5f)); g.setColour (drag ? col : K::pInk.withAlpha (0.9f));
     g.drawFittedText (fmtFn ? fmtFn (param->convertFrom0to1 (v)) : param->getCurrentValueAsText(), juce::Rectangle<int> (0, (int) size + 14, getWidth(), 13), juce::Justification::centred, 1, 0.7f);
 }
 void Knob::setNorm (float v)
@@ -146,11 +146,11 @@ void TextBtn::paint (juce::Graphics& g)
     auto b = getLocalBounds().toFloat().reduced (1);
     if (round)
     {
-        g.setColour (hover ? K::ink : K::amber); g.setFont (tf (20.0f, 2)); g.drawText (text, b, juce::Justification::centred);
+        g.setColour (hover ? K::pInk : K::amber); g.setFont (tf (20.0f, 2)); g.drawText (text, b, juce::Justification::centred);
         return;
     }
     skin::useTheme (skin::cur()); neo::key (g, b.reduced (2, 1), accent, K::brand1, hover);
-    g.setColour (accent || hover ? K::ink : K::ink.withAlpha (0.8f)); g.setFont (neo::cap (9.5f)); g.drawFittedText (text.toUpperCase(), b.reduced (accent ? 10 : 6, 0).toNearestInt(), juce::Justification::centred, 1, 0.7f);
+    g.setColour (accent || hover ? K::pInk : K::pInk.withAlpha (0.8f)); g.setFont (neo::cap (9.5f)); g.drawFittedText (text.toUpperCase(), b.reduced (accent ? 10 : 6, 0).toNearestInt(), juce::Justification::centred, 1, 0.7f);
 }
 
 // ======================= Lista effetti =======================
@@ -158,7 +158,7 @@ void FxList::paint (juce::Graphics& g)
 {
     const int am = ed.proc.activeMask.load();
     caps (g, "Effetti", { 6, 0, 100, 20 });
-    g.setFont (tf (9.0f, 0, true)); g.setColour (K::faint); g.drawText ("clic = modifica", juce::Rectangle<int> (0, 0, getWidth() - 6, 20), juce::Justification::centredRight);
+    g.setFont (tf (9.0f, 0, true)); g.setColour (K::pDim); g.drawText ("clic = modifica", juce::Rectangle<int> (0, 0, getWidth() - 6, 20), juce::Justification::centredRight);
     for (int f = 0; f < kNumFx; ++f)
     {
         auto r = juce::Rectangle<float> (0, 24.0f + f * kRowH, (float) getWidth(), kRowH - 2);
@@ -168,10 +168,10 @@ void FxList::paint (juce::Graphics& g)
         const float dx = r.getX() + 16, dy = r.getCentreY();
         if (on) { g.setColour (c.withAlpha (0.3f)); g.fillRect (dx - 6, dy - 6, 12.0f, 12.0f); }
         g.setColour (on ? c : c.withAlpha (0.25f)); g.fillRect (dx - 4, dy - 4, 8.0f, 8.0f);
-        if (s || on) glow (g, juce::String (kFx[f].name).toUpperCase(), r.withTrimmedLeft (30), on ? c : K::ink, tf (10.0f, 2), juce::Justification::centredLeft);
-        else { g.setColour (en ? K::dim : K::faint); g.setFont (tf (10.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase() + (en ? "" : "  OFF"), r.withTrimmedLeft (30).toNearestInt(), juce::Justification::centredLeft); }
+        if (s || on) glow (g, juce::String (kFx[f].name).toUpperCase(), r.withTrimmedLeft (30), on ? c : K::pInk, tf (10.0f, 2), juce::Justification::centredLeft);
+        else { g.setColour (en ? K::pDim : K::pFaint); g.setFont (tf (10.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase() + (en ? "" : "  OFF"), r.withTrimmedLeft (30).toNearestInt(), juce::Justification::centredLeft); }
         auto kk = juce::Rectangle<float> (r.getRight() - 24, dy - 7, 14, 14);
-        g.setColour (K::faint); g.drawRoundedRectangle (kk, 3, 1); g.setFont (tf (9.5f, 2, true)); g.drawText (juce::String::charToString (kFx[f].key), kk.toNearestInt(), juce::Justification::centred);
+        g.setColour (K::pDim); g.drawRoundedRectangle (kk, 3, 1); g.setFont (tf (9.5f, 2, true)); g.drawText (juce::String::charToString (kFx[f].key), kk.toNearestInt(), juce::Justification::centred);
     }
 }
 void FxList::mouseDown (const juce::MouseEvent& e) { const int f = (int) ((e.position.y - 24) / kRowH); if (f >= 0 && f < kNumFx) ed.select (f); }
@@ -187,9 +187,11 @@ void Display::paint (juce::Graphics& g)
     auto hdr = b.removeFromTop (30).reduced (12, 0);
     const double beat = P.uiBeat.load(); const double pb = std::fmod (beat, beats);
     juce::String pos; pos << "BAR " << ((int) (pb / 4) + 1) << "." << ((int) std::fmod (pb, 4.0) + 1);
-    g.setFont (jlook::mono (13.0f)); g.setColour (K::amber); g.drawText (pos, hdr, juce::Justification::centredLeft);
+    const bool lightScr = neo::light();   // schermo chiaro (RETRO ecc.): scritte scurite
+    auto sc = [lightScr] (juce::Colour c) { return lightScr ? c.darker (1.3f) : c; };
+    g.setFont (jlook::mono (13.0f)); g.setColour (sc (K::amber)); g.drawText (pos, hdr, juce::Justification::centredLeft);
     const float spd = P.uiSpeed.load();
-    g.setFont (jlook::mono (11.0f)); g.setColour (K::brand2); g.drawText ("SPEED " + juce::String (spd, 2) + juce::String::fromUTF8 ("\xc3\x97") + "   " + juce::String (P.uiBpm.load(), 1) + " BPM" + (P.uiHost.load() ? "  HOST" : ""), hdr, juce::Justification::centredRight);
+    g.setFont (jlook::mono (11.0f)); g.setColour (sc (K::brand2)); g.drawText ("SPEED " + juce::String (spd, 2) + juce::String::fromUTF8 ("\xc3\x97") + "   " + juce::String (P.uiBpm.load(), 1) + " BPM" + (P.uiHost.load() ? "  HOST" : ""), hdr, juce::Justification::centredRight);
     // bobine 3D
     reelA += spd * 0.12f;
     for (int k = 0; k < 2; ++k)
@@ -295,10 +297,10 @@ void FxEditor::paint (juce::Graphics& g)
     const auto c = en ? fxCol (ed.sel) : K::faint;
     base.draw (g, getLocalBounds().toFloat(), ((int) c.getARGB()) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { panel (bg, getLocalBounds().toFloat().reduced (1), 12, c); });
     g.setColour (c.withAlpha (0.3f)); g.fillRect (14.0f, 13.0f, 14.0f, 14.0f); g.setColour (c.brighter (0.3f)); g.fillRect (17.0f, 16.0f, 8.0f, 8.0f);
-    g.setFont (tf (15.0f, 2)); g.setColour (K::ink); g.drawText (juce::String (kFx[ed.sel].name).toUpperCase(), juce::Rectangle<float> (36, 8, 220, 24), juce::Justification::centredLeft);
+    g.setFont (tf (15.0f, 2)); g.setColour (K::pInk); g.drawText (juce::String (kFx[ed.sel].name).toUpperCase(), juce::Rectangle<float> (36, 8, 220, 24), juce::Justification::centredLeft);
     const float nw = juce::GlyphArrangement::getStringWidth (tf (15.0f, 2), juce::String (kFx[ed.sel].name).toUpperCase());
-    g.setColour (K::dim); g.setFont (tf (11.0f)); g.drawText (kFx[ed.sel].desc, (int) (48 + nw), 9, 400, 24, juce::Justification::centredLeft);
-    caps (g, en ? "Attivo" : "Spento", { getWidth() - 130, 9, 68, 24 }, en ? c : K::dim, juce::Justification::centredRight);
+    g.setColour (K::pDim); g.setFont (tf (11.0f)); g.drawText (kFx[ed.sel].desc, (int) (48 + nw), 9, 400, 24, juce::Justification::centredLeft);
+    caps (g, en ? "Attivo" : "Spento", { getWidth() - 130, 9, 68, 24 }, en ? c : K::pDim, juce::Justification::centredRight);
     g.setColour (c); g.fillRoundedRectangle (14.0f, 36.0f, getWidth() - 28.0f, 2.0f, 1.0f);
     auto ca = curveArea().toFloat().withTrimmedTop (6);
     inset (g, ca, 6);
@@ -555,36 +557,36 @@ void Root::paint (juce::Graphics& g)
     // tutto lo sfondo sta in un'immagine: prima veniva ridisegnato (grana, ombre sfocate, gradienti) dietro a ogni elemento che si aggiornava, 30 volte al secondo
     const int W = Editor::W, H = Editor::H;
     base.draw (g, { 0, 0, (float) W, (float) H }, (3) + 1000 * neo::K::theme, [this] (juce::Graphics& bg) { paintStatic (bg); });
-    g.setColour (K::faint); g.setFont (neo::num (8.5f));
+    g.setColour (K::dim); g.setFont (neo::num (8.5f));
     g.drawText (ed.proc.uiHost.load() ? "BPM SINCRONIZZATI CON L'HOST" : (ed.proc.value ("sync") > 0.5f ? "IN ATTESA DEL PLAY DELL'HOST" : "BPM MANUALI"), juce::Rectangle<int> (W - 500, H - 30, 410, 30), juce::Justification::centredRight);
 }
 void Root::paintStatic (juce::Graphics& g)
 {
     const int W = Editor::W, H = Editor::H; const float Wf = (float) W, Hf = (float) H;
-    skin::useTheme (skin::cur());
+    skin::useTheme (skin::cur()); K::sync();
     neo::cyberBackdrop (g, Wf, Hf, 0.6f);
     neo::cyberHeader (g, Wf, 58, "TPE-9", "TAPE MOTION // STOP  SPIN  STUTTER  COREOGRAFIA");
     neo::plate (g, ed.sidePanel.toFloat().reduced (6, 8), K::brand2);
     neo::plate (g, ed.rightPanel.toFloat().reduced (6, 8), K::amber);
     auto right = ed.rightPanel;
-    caps (g, "Macro", { right.getX() + 22, 72, 120, 16 }, K::ink);
+    caps (g, "Macro", { right.getX() + 22, 72, 120, 16 }, K::pInk);
     g.setColour (K::amber); g.fillRoundedRectangle ((float) right.getX() + 18, 90, (float) right.getWidth() - 36, 2.0f, 1.0f);
     g.setColour (juce::Colours::white.withAlpha (0.08f)); g.drawHorizontalLine (290, (float) right.getX() + 18, (float) right.getRight() - 18); g.drawHorizontalLine (458, (float) right.getX() + 18, (float) right.getRight() - 18);
     caps (g, "Nastro", { right.getX() + 18, 296, 120, 16 }, K::amber);
     caps (g, "Uscita", { right.getX() + 18, 464, 120, 16 }, K::amber);
     // riga sotto il display
-    caps (g, "Pad", { 226, 264, 40, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
-    caps (g, "Quantizza", { 404, 264, 80, 28 }, K::dim, juce::Justification::centredLeft, 10.0f);
-    g.setColour (K::faint); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-0 e Q-P \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 264, 366, 28), juce::Justification::centredRight);
+    caps (g, "Pad", { 226, 264, 40, 28 }, K::pDim, juce::Justification::centredLeft, 10.0f);
+    caps (g, "Quantizza", { 404, 264, 80, 28 }, K::pDim, juce::Justification::centredLeft, 10.0f);
+    g.setColour (K::pDim); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-0 e Q-P \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 264, 366, 28), juce::Justification::centredRight);
     // coreografia
     neo::plate (g, juce::Rectangle<float> (8, 552, Wf - 16, Hf - 32 - 558), K::brand1);
-    caps (g, "Coreografia", { 24, 560, 110, 30 }, K::ink);
-    caps (g, "Battute", { 172, 560, 60, 30 }, K::dim, juce::Justification::centredLeft, 9.5f);
-    caps (g, "Griglia", { 432, 560, 50, 30 }, K::dim, juce::Justification::centredLeft, 9.5f);
+    caps (g, "Coreografia", { 24, 560, 110, 30 }, K::pInk);
+    caps (g, "Battute", { 172, 560, 60, 30 }, K::pDim, juce::Justification::centredLeft, 9.5f);
+    caps (g, "Griglia", { 432, 560, 50, 30 }, K::pDim, juce::Justification::centredLeft, 9.5f);
     caps (g, "Stile", { 652, 560, 46, 30 }, K::brand1, juce::Justification::centredLeft, 9.5f);
     // piede
     g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawHorizontalLine (H - 30, 0, Wf);
-    g.setColour (K::faint); g.setFont (tf (9.5f, 2, true));
+    g.setColour (K::dim); g.setFont (tf (9.5f, 2, true));
     g.drawText (juce::String::fromUTF8 ("JACKPOT.WAV \xc2\xb7 TAPE MOTION \xc2\xb7 AU"), juce::Rectangle<int> (16, H - 30, 400, 30), juce::Justification::centredLeft);
     g.setFont (tf (9.0f, 1)); g.drawText (juce::String::fromUTF8 ("coreografia: trascina = crea zona \xc2\xb7 trascina la zona = sposta \xc2\xb7 bordi = allunga \xc2\xb7 tasto dx o CANC = cancella \xc2\xb7 cmd+Z annulla"),
                 juce::Rectangle<int> (330, H - 30, W - 660, 30), juce::Justification::centred);
@@ -595,8 +597,8 @@ static juce::String fmtOut (float v) { return juce::String (v, 1) + "dB"; }
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
-    skin::init ("tape", { 0xffd8b98a, 0xffe46a4c, 0xff8fb9b0, 0xffccccc7 }, 0xffffb000); skin::useTheme (skin::cur());
-    themeChip.onChange = [this] { skin::useTheme (skin::cur()); std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* ch : c->getChildren()) all (ch); }; all (this); };
+    skin::init ("tape", { 0xffd8b98a, 0xffe46a4c, 0xff8fb9b0, 0xffccccc7 }, 0xffffb000); skin::useTheme (skin::cur()); K::sync();
+    themeChip.onChange = [this] { skin::useTheme (skin::cur()); K::sync(); std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* ch : c->getChildren()) all (ch); }; all (this); };
     setLookAndFeel (&lnf);
     addAndMakeVisible (root);
     sidePanel = { 0, 59, 210, 489 }; rightPanel = { 1020, 59, 220, 489 };
@@ -626,29 +628,17 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     abBtn->text = "MEMORIA A"; root.addAndMakeVisible (*abBtn);
     for (auto* c : std::initializer_list<juce::Component*> { modeSeg.get(), qSeg.get(), barsSeg.get(), resSeg.get(), seqTog.get(), clearBtn.get(), styleBtn.get(), genSeg.get(), genBtn.get() }) root.addAndMakeVisible (c);
     // preset
-    auto showName = [this] { const auto n = proc.getProgramName (proc.presetIndex); pName->text = n.isEmpty() ? juce::String ("Init") : n; pName->repaint(); };
-    pPrev = std::make_unique<TextBtn> (juce::String::fromUTF8 ("\xe2\x80\xb9"), [this, showName] { pushUndo(); proc.loadPreset ((proc.presetIndex - 1 + proc.getNumPrograms()) % proc.getNumPrograms()); showName(); fxEd.rebuild(); tl.repaint(); });
-    pNext = std::make_unique<TextBtn> (juce::String::fromUTF8 ("\xe2\x80\xba"), [this, showName] { pushUndo(); proc.loadPreset ((proc.presetIndex + 1) % proc.getNumPrograms()); showName(); fxEd.rebuild(); tl.repaint(); });
+    showName = [this] { const auto n = proc.userName.isNotEmpty() ? "I miei - " + proc.userName : proc.getProgramName (proc.presetIndex); pName->text = n.isEmpty() ? juce::String ("Init") : n; pName->repaint(); };
+    pPrev = std::make_unique<TextBtn> (juce::String::fromUTF8 ("\xe2\x80\xb9"), [this] { pushUndo(); proc.loadPreset ((proc.presetIndex - 1 + proc.getNumPrograms()) % proc.getNumPrograms()); showName(); fxEd.rebuild(); tl.repaint(); });
+    pNext = std::make_unique<TextBtn> (juce::String::fromUTF8 ("\xe2\x80\xba"), [this] { pushUndo(); proc.loadPreset ((proc.presetIndex + 1) % proc.getNumPrograms()); showName(); fxEd.rebuild(); tl.repaint(); });
     pPrev->round = pNext->round = true;
-    pName = std::make_unique<TextBtn> ("", [this, showName]
-    {
-        juce::PopupMenu m; std::vector<std::pair<juce::String, juce::PopupMenu>> groups;
-        for (int i = 0; i < proc.getNumPrograms(); ++i)
-        {
-            const auto name = proc.getProgramName (i);
-            if (! name.contains (" - ")) { m.addItem (i + 1, name, true, i == proc.presetIndex); continue; }
-            const auto gname = name.upToFirstOccurrenceOf (" - ", false, false), item = name.fromFirstOccurrenceOf (" - ", false, false);
-            bool found = false; for (auto& gr : groups) if (gr.first == gname) { gr.second.addItem (i + 1, item, true, i == proc.presetIndex); found = true; }
-            if (! found) { juce::PopupMenu pm; pm.addItem (i + 1, item, true, i == proc.presetIndex); groups.push_back ({ gname, pm }); }
-        }
-        for (auto& gr : groups) m.addSubMenu (gr.first, gr.second);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (pName.get()), [this, showName] (int r) { if (r > 0) { pushUndo(); proc.loadPreset (r - 1); showName(); fxEd.rebuild(); tl.repaint(); } });
-    });
+    pName = std::make_unique<TextBtn> ("", [this] { browser.open(); });
     bpmPill = std::make_unique<TextBtn> ("", [this] { auto* pr = proc.apvts.getParameter ("sync"); pr->setValueNotifyingHost (pr->getValue() > 0.5f ? 0.0f : 1.0f); });
     undoBtn = std::make_unique<TextBtn> ("Annulla", [this] { undo(); });
     redoBtn = std::make_unique<TextBtn> ("Rifai", [this] { redo(); });
     for (auto* c : std::initializer_list<juce::Component*> { pPrev.get(), pNext.get(), pName.get(), bpmPill.get(), undoBtn.get(), redoBtn.get() }) root.addAndMakeVisible (c);
     showName();
+    setupBrowser();
     // manopole del nastro
     const auto vio = K::brand1;
     auto add = [this] (const char* id, const char* lab, juce::Colour c, std::function<juce::String (float)> f) { auto* k = tapeKnobs.add (new Knob (proc.apvts.getParameter (id), lab, c, std::move (f))); root.addAndMakeVisible (k); return k; };
@@ -698,6 +688,58 @@ void Editor::refreshAll()
     for (auto* c : std::initializer_list<juce::Component*> { modeSeg.get(), qSeg.get(), barsSeg.get(), resSeg.get(), seqTog.get(), genSeg.get() }) c->repaint();
 }
 
+void Editor::setupBrowser()
+{
+    root.addChildComponent (browser);
+    browser.accent = K::amber; browser.title = "Preset";
+    auto userFiles = [] { auto f = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jtp"); f.sort(); return f; };
+    browser.entries = [this, userFiles]
+    {
+        std::vector<jbrowse::Entry> v;
+        for (int i = 0; i < proc.getNumPrograms(); ++i)
+        {
+            const auto nm = proc.getProgramName (i); jbrowse::Entry e; e.id = i; e.note = proc.presetNote (i);
+            e.group = nm.contains (" - ") ? nm.upToFirstOccurrenceOf (" - ", false, false) : juce::String ("BASE"); e.name = nm.contains (" - ") ? nm.fromFirstOccurrenceOf (" - ", false, false) : nm;
+            v.push_back (e);
+        }
+        const auto fs = userFiles();
+        for (int i = 0; i < fs.size(); ++i) { jbrowse::Entry e; e.id = 100000 + i; e.user = true; e.group = "I MIEI"; e.name = fs[i].getFileNameWithoutExtension(); e.note = "Preset tuo con la coreografia, salvato in Musica / Jackpot / Tape Preset."; v.push_back (e); }
+        return v;
+    };
+    browser.current = [this, userFiles]
+    {
+        if (proc.userName.isNotEmpty()) { const auto fs = userFiles(); for (int i = 0; i < fs.size(); ++i) if (fs[i].getFileNameWithoutExtension() == proc.userName) return 100000 + i; return -1; }
+        return proc.presetIndex;
+    };
+    browser.load = [this] (const jbrowse::Entry& e)
+    {
+        pushUndo();
+        if (e.user) proc.loadUser (Processor::presetFolder().getChildFile (e.name + ".jtp")); else proc.loadPreset (e.id);
+        showName(); fxEd.rebuild(); tl.repaint(); root.repaint();
+    };
+    browser.save = [this] { askPresetName(); };
+    browser.canOverwrite = [this] { return proc.userName.isNotEmpty() && Processor::presetFolder().getChildFile (proc.userName + ".jtp").existsAsFile(); };
+    browser.overwrite = [this] { proc.saveUser (Processor::presetFolder().getChildFile (proc.userName + ".jtp")); showName(); };
+    browser.folder = [] { Processor::presetFolder().startAsProcess(); };
+    browser.remove = [] (const jbrowse::Entry& e) { Processor::presetFolder().getChildFile (e.name + ".jtp").moveToTrash(); };
+    browser.onClose = [this] { root.repaint(); };
+}
+void Editor::askPresetName()
+{
+    auto* w = new juce::AlertWindow ("Salva preset", "Nome del preset (finisce in Musica / Jackpot / Tape Preset):", juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", proc.userName);
+    w->addButton ("SALVA", 1, juce::KeyPress (juce::KeyPress::returnKey)); w->addButton ("ANNULLA", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<Editor> sp (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([sp, w] (int r)
+    {
+        if (sp != nullptr && r == 1)
+        {
+            const auto nm = juce::File::createLegalFileName (w->getTextEditorContents ("name").trim());
+            if (nm.isNotEmpty()) { sp->proc.saveUser (Processor::presetFolder().getChildFile (nm + ".jtp")); sp->browser.refresh(); sp->showName(); }
+        }
+    }), true);
+}
+
 void Editor::resized()
 {
     const float s = scaler.update();
@@ -735,10 +777,12 @@ void Editor::resized()
     genBtn->setBounds (828 + genSeg->preferredWidth() + 8, 561, 100, 28);
     clearBtn->setBounds (W - 104, 561, 84, 28);
     tl.setBounds (18, 598, W - 36, H - 32 - 598 - 12);
+    browser.setBounds (0, 0, W, H);
 }
 
 void Editor::timerCallback()
 {
+    if (browser.isVisible()) return;
     const bool host = proc.uiHost.load(), sync = proc.value ("sync") > 0.5f;
     bpmPill->text = (sync ? (host ? juce::String ("HOST  ") : juce::String ("AUTO  ")) : juce::String ("MAN  ")) + juce::String (proc.uiBpm.load(), 1) + " BPM";
     bpmPill->accent = sync && host;

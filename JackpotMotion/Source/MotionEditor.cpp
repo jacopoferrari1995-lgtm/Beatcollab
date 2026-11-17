@@ -22,6 +22,8 @@ void lcd (juce::Graphics& g, juce::Rectangle<float> r, float rad)
     for (float y = r.getY() + 10; y < r.getBottom(); y += 12) g.drawHorizontalLine ((int) y, r.getX() + 2, r.getRight() - 2);
 }
 static juce::Colour fxCol (int f) { return juce::Colour (fxInfo (f).colour); }
+// inchiostro leggibile sugli schermi: sui temi con lo schermo chiaro il colore si scurisce
+static juce::Colour ink (juce::Colour c) { return C::lcd1.getPerceivedBrightness() > 0.45f ? c.darker (1.4f) : c; }
 static juce::String hzT (float f) { return f >= 1000 ? juce::String (f / 1000.0f, 1) + " kHz" : juce::String (juce::roundToInt (f)) + " Hz"; }
 
 // ======================================================================= controlli
@@ -46,13 +48,10 @@ void Knob::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetail
 }
 void Knob::paint (juce::Graphics& g)
 {
-    const float lh = big ? 32.0f : 27.0f;
-    const float size = juce::jmin ((float) getWidth(), getHeight() - lh);
-    const auto c = enabled ? col : C::faint;
-    jlook::KnobLook kl; kl.big = big; kl.bipolar = bipolar; kl.enabled = enabled; kl.hover = hover ? 1.0f : 0.0f; kl.active = drag ? 1.0f : 0.0f; kl.activity = activity;
-    jlook::drawKnob (g, { (getWidth() - size) * 0.5f, 0, size, size }, param->getValue(), c, kl);
-    g.setColour (C::dim); g.setFont (uf (big ? 11.5f : 9.5f)); g.drawText (label, juce::Rectangle<float> (0, size + 1, (float) getWidth(), 14), juce::Justification::centred);
-    glowText (g, text ? text() : param->getCurrentValueAsText(), juce::Rectangle<float> (0, size + 15, (float) getWidth(), 14), enabled ? (drag ? c.brighter (0.4f) : c) : C::faint, mf (big ? 12.5f : 10.5f), juce::Justification::centred);
+    // manopola da frontale (come FX, Space e Tube Box)
+    hw::KnobSpec k; k.style = style; k.ink = C::text; k.col = enabled ? col : C::faint; k.label = label; k.text = text ? text() : param->getCurrentValueAsText();
+    k.enabled = enabled; k.bipolar = bipolar; k.hover = hover; k.drag = drag; k.big = big;
+    hw::knob (g, getLocalBounds().toFloat(), param->getValue(), k);
 }
 void Segs::paint (juce::Graphics& g)
 {
@@ -62,7 +61,7 @@ void Segs::paint (juce::Graphics& g)
     for (int i = 0; i < n; ++i)
     {
         auto r = juce::Rectangle<float> (3 + i * w, 3, w, b.getHeight() - 6).reduced (1, 0);
-        if (i == cur && enabled) { g.setColour (col.withAlpha (0.18f)); g.fillRoundedRectangle (r, 4); g.setColour (col.withAlpha (0.85f)); g.drawRoundedRectangle (r, 4, 1.0f); glowText (g, items[i], r, col, uf (font), juce::Justification::centred); }
+        if (i == cur && enabled) { g.setColour (col.withAlpha (0.18f)); g.fillRoundedRectangle (r, 4); g.setColour (col.withAlpha (0.85f)); g.drawRoundedRectangle (r, 4, 1.0f); glowText (g, items[i], r, ink (col), uf (font), juce::Justification::centred); }
         else { g.setColour (enabled ? C::dim : C::faint); g.setFont (uf (font)); g.drawText (items[i], r, juce::Justification::centred); }
     }
 }
@@ -100,9 +99,9 @@ void FxGrid::paint (juce::Graphics& g)
         if (on) { g.setColour (c.withAlpha (0.45f)); g.fillEllipse (dot.expanded (4)); }
         g.setColour (on ? c.brighter (0.3f) : juce::Colour (0xff3a3e48)); g.fillEllipse (dot);
         auto tr = r.withTrimmedLeft (38).reduced (2, 3);
-        g.setFont (uf (11.5f)); g.setColour (on ? c.brighter (0.35f) : (s || hov == m ? C::text : C::dim));
+        g.setFont (uf (11.5f)); g.setColour (on ? c.brighter (0.35f) : (s || hov == m ? juce::Colour (0xffe6e9ef) : juce::Colour (0xffa4aab6)));
         g.drawFittedText (fxInfo (m).name, tr.withHeight (tr.getHeight() * 0.55f).toNearestInt(), juce::Justification::bottomLeft, 1, 0.7f);
-        g.setFont (mf (8.5f)); g.setColour (on ? c.withAlpha (0.8f) : C::faint);
+        g.setFont (mf (8.5f)); g.setColour (on ? c.withAlpha (0.8f) : juce::Colour (0xff6d7380));
         g.drawFittedText (fxInfo (m).sub, tr.withTrimmedTop (tr.getHeight() * 0.55f).toNearestInt(), juce::Justification::topLeft, 1, 0.7f);
     }
 }
@@ -393,6 +392,9 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     wPanSync = std::make_unique<Switch> (P ("pansync"), C::magenta, "A TEMPO"); addAndMakeVisible (*wPanSync);
     addAndMakeVisible (grid); addAndMakeVisible (view); addAndMakeVisible (panView);
     addAndMakeVisible (sizeChip);
+    for (auto* k : { kTone.get(), kWidth.get(), kBass.get(), kPanRate.get(), kPanDiv.get(), kPanDepth.get() }) k->style = 0;
+    kOut->style = 1;
+    setupBrowser();
     scaler.setup();
     select (sel);
     startTimerHz (30);
@@ -464,19 +466,30 @@ void Editor::resized()
     kTone->setBounds (732, 600, 86, 86 + 27); kWidth->setBounds (826, 600, 86, 86 + 27); kBass->setBounds (920, 600, 86, 86 + 27);
     layoutControls();
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
+    browser.setBounds (0, 0, W, H);
     jlook::scaleChildren (*this, sc);
 }
 
-void Editor::paint (juce::Graphics& g)
+juce::String Editor::staticKey()
 {
-    skin::apply(); C::sync();
-    g.addTransform (juce::AffineTransform::scale (scaler.s));
+    int nOn = 0; for (int f = 0; f < kNumFx; ++f) if (proc.value (pid (f, "on").toRawUTF8()) > 0.5f) ++nOn;
+    juce::String k; k << skin::cur() << "/" << sel << "/" << proc.preset << "/" << proc.userName << "/" << proc.ab.label() << "/" << (int) abHover << "/" << nOn;
+    return k;
+}
+void Editor::paintStatic (juce::Graphics& g)
+{
     const float Wf = (float) W, Hf = (float) H;
     const int fx = sel; const auto fc = fxCol (fx);
     jlook::backdrop (g, { 0, 0, Wf, Hf }, C::phos, C::magenta);
     jlook::header (g, { 0, 0, Wf, 64 }, "MOTION", C::phos, "JM-2  MODULAZIONE / PAN / CHORUS / DOUBLER", C::magenta, C::phos);
     lcd (g, presetRect.toFloat(), 8); jlook::glass (g, presetRect.toFloat(), 8);
-    glowText (g, proc.getProgramName (proc.preset).toUpperCase(), presetRect.toFloat(), C::amber, mf (12.5f), juce::Justification::centred);
+    {
+        juce::String grp ("BASE"), nm;
+        if (proc.userName.isNotEmpty()) { grp = "I MIEI"; nm = proc.userName; }
+        else { nm = proc.getProgramName (proc.preset); if (nm.contains (" | ")) { grp = nm.upToFirstOccurrenceOf (" | ", false, false); nm = nm.fromFirstOccurrenceOf (" | ", false, false); } }
+        g.setColour (C::dim); g.setFont (uf (7.5f)); g.drawText (grp.toUpperCase(), presetRect.toFloat().withWidth (80).translated (12, 0), juce::Justification::centredLeft);
+        glowText (g, nm.toUpperCase(), presetRect.toFloat().withTrimmedLeft (64).withTrimmedRight (16), ink (C::amber), mf (12.5f), juce::Justification::centred);
+    }
     g.setColour (C::phos); g.setFont (uf (20.0f));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
     jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, abHover, "MEMORIA " + proc.ab.label(), uf (11.5f));
@@ -487,7 +500,7 @@ void Editor::paint (juce::Graphics& g)
         if (sub.isNotEmpty()) { g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText (sub, juce::Rectangle<float> (r.getX() + 16, r.getY() + 8, r.getWidth() - 32, 18), juce::Justification::centredRight); }
     };
     int nOn = 0; for (int f = 0; f < kNumFx; ++f) if (proc.value (pid (f, "on").toRawUTF8()) > 0.5f) ++nOn;
-    card ({ 18, 76, 1164, 128 }, C::phos, "EFFETTI  " + juce::String::fromUTF8 ("\xc2\xb7") + "  " + juce::String (nOn) + " accesi",
+    card ({ 18, 76, 1164, 128 }, C::phos, "EFFETTI  " + juce::String::fromUTF8 ("\xc2\xb7") + "  " + juce::String (nOn) + (nOn == 1 ? " acceso" : " accesi"),
           juce::String::fromUTF8 ("clic = modifica \xc2\xb7 LED o doppio clic = accendi/spegni \xc2\xb7 si sommano in quest'ordine"));
     card ({ 18, 210, 1164, 330 }, fc, fxInfo (fx).name, "");
     g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText (fxInfo (fx).sub, juce::Rectangle<float> (180, 218, 600, 18), juce::Justification::centredLeft);
@@ -501,6 +514,14 @@ void Editor::paint (juce::Graphics& g)
     g.setColour (C::dim); g.setFont (uf (10.0f, false));
     g.drawFittedText ("BASSI MONO tiene al centro le frequenze sotto il valore scelto. TONO scurisce solo la parte aggiunta dagli effetti, il suono originale resta com'e.",
                       juce::Rectangle<int> (732, 760, 380, 44), juce::Justification::topLeft, 3);
+    skin::chipDraw (g, themeRect.toFloat());
+}
+void Editor::paint (juce::Graphics& g)
+{
+    skin::apply(); C::sync();
+    g.addTransform (juce::AffineTransform::scale (scaler.s));
+    bg.draw (g, { 0, 0, W, H }, staticKey(), [this] (juce::Graphics& g2) { paintStatic (g2); });
+    // parti vive: correlazione e meter
     const float co = proc.corr.load();
     auto cb = juce::Rectangle<float> (732, 742, 380, 10);
     g.setColour (C::dim); g.setFont (mf (9.0f)); g.drawText ("CORRELAZIONE  " + juce::String (co, 2) + (co < 0 ? "  (attento al mono)" : ""), juce::Rectangle<float> (732, 726, 380, 14), juce::Justification::centredLeft);
@@ -518,7 +539,6 @@ void Editor::paint (juce::Graphics& g)
     };
     meter ({ 1124, 584, 24, 200 }, proc.inPk[0].load(), proc.inPk[1].load(), "IN");
     meter ({ 1152, 584, 24, 200 }, proc.outPk[0].load(), proc.outPk[1].load(), "OUT");
-    skin::chipDraw (g, themeRect.toFloat());
 }
 
 void Editor::mouseMove (const juce::MouseEvent& e0)
@@ -528,33 +548,75 @@ void Editor::mouseMove (const juce::MouseEvent& e0)
     if (h != abHover) { abHover = h; repaint (scaler.map (abRect.expanded (8))); }
     setMouseCursor (h || presetRect.contains (e.getPosition()) || prevRect.contains (e.getPosition()) || nextRect.contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
+void Editor::afterPreset()
+{
+    int first = -1; for (int f = 0; f < kNumFx; ++f) if (proc.value (pid (f, "on").toRawUTF8()) > 0.5f) { first = f; break; }
+    select (first >= 0 ? first : sel);
+}
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
     { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } }
     const auto e = e0.withNewPosition (e0.position / scaler.s);
     const int n = (int) presets().size();
-    auto after = [this] { int first = -1; for (int f = 0; f < kNumFx; ++f) if (proc.value (pid (f, "on").toRawUTF8()) > 0.5f) { first = f; break; } if (first >= 0) select (first); else select (sel); };
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); select (sel); }
-    else if (prevRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + n - 1) % n); after(); }
-    else if (nextRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + 1) % n); after(); }
-    else if (presetRect.contains (e.getPosition()))
+    else if (prevRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + n - 1) % n); afterPreset(); }
+    else if (nextRect.contains (e.getPosition())) { proc.loadPreset ((proc.preset + 1) % n); afterPreset(); }
+    else if (presetRect.contains (e.getPosition())) browser.open();
+}
+void Editor::setupBrowser()
+{
+    addChildComponent (browser);
+    browser.accent = C::phos; browser.title = "Preset";
+    auto userFiles = [] { auto f = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jmo"); f.sort(); return f; };
+    browser.entries = [userFiles]
     {
-        juce::PopupMenu m; std::vector<std::pair<juce::String, juce::PopupMenu>> groups;
-        for (int i = 0; i < n; ++i)
+        std::vector<jbrowse::Entry> v;
+        for (int i = 0; i < (int) presets().size(); ++i)
         {
-            const juce::String name = presets()[(size_t) i].name;
-            if (! name.contains (" | ")) { m.addItem (i + 1, name, true, i == proc.preset); continue; }
-            const auto gn = name.upToFirstOccurrenceOf (" | ", false, false), it = name.fromFirstOccurrenceOf (" | ", false, false);
-            bool found = false; for (auto& gr : groups) if (gr.first == gn) { gr.second.addItem (i + 1, it, true, i == proc.preset); found = true; }
-            if (! found) { juce::PopupMenu pm; pm.addItem (i + 1, it, true, i == proc.preset); groups.push_back ({ gn, pm }); }
+            const juce::String nm (presets()[(size_t) i].name); jbrowse::Entry e; e.id = i; e.note = presets()[(size_t) i].note;
+            e.group = nm.contains (" | ") ? nm.upToFirstOccurrenceOf (" | ", false, false) : juce::String ("BASE"); e.name = nm.contains (" | ") ? nm.fromFirstOccurrenceOf (" | ", false, false) : nm;
+            v.push_back (e);
         }
-        for (auto& gr : groups) m.addSubMenu (gr.first, gr.second);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (presetRect))), [this, after] (int r) { if (r > 0) { proc.loadPreset (r - 1); after(); } });
-    }
+        const auto fs = userFiles();
+        for (int i = 0; i < fs.size(); ++i) { jbrowse::Entry e; e.id = 100000 + i; e.user = true; e.group = "I MIEI"; e.name = fs[i].getFileNameWithoutExtension(); e.note = "Preset tuo, salvato in Musica / Jackpot / Motion Preset."; v.push_back (e); }
+        return v;
+    };
+    browser.current = [this, userFiles]
+    {
+        if (proc.userName.isNotEmpty()) { const auto fs = userFiles(); for (int i = 0; i < fs.size(); ++i) if (fs[i].getFileNameWithoutExtension() == proc.userName) return 100000 + i; return -1; }
+        return proc.preset;
+    };
+    browser.load = [this] (const jbrowse::Entry& e)
+    {
+        if (e.user) proc.loadUser (Processor::presetFolder().getChildFile (e.name + ".jmo")); else proc.loadPreset (e.id);
+        afterPreset(); repaint();
+    };
+    browser.save = [this] { askPresetName(); };
+    browser.canOverwrite = [this] { return proc.userName.isNotEmpty() && Processor::presetFolder().getChildFile (proc.userName + ".jmo").existsAsFile(); };
+    browser.overwrite = [this] { proc.saveUser (Processor::presetFolder().getChildFile (proc.userName + ".jmo")); repaint(); };
+    browser.folder = [] { Processor::presetFolder().startAsProcess(); };
+    browser.remove = [] (const jbrowse::Entry& e) { Processor::presetFolder().getChildFile (e.name + ".jmo").moveToTrash(); };
+    browser.onClose = [this] { repaint(); };
+}
+void Editor::askPresetName()
+{
+    auto* w = new juce::AlertWindow ("Salva preset", "Nome del preset (finisce in Musica / Jackpot / Motion Preset):", juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", proc.userName);
+    w->addButton ("SALVA", 1, juce::KeyPress (juce::KeyPress::returnKey)); w->addButton ("ANNULLA", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<Editor> sp (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([sp, w] (int r)
+    {
+        if (sp != nullptr && r == 1)
+        {
+            const auto nm = juce::File::createLegalFileName (w->getTextEditorContents ("name").trim());
+            if (nm.isNotEmpty()) { sp->proc.saveUser (Processor::presetFolder().getChildFile (nm + ".jmo")); sp->browser.refresh(); sp->repaint(); }
+        }
+    }), true);
 }
 
 void Editor::timerCallback()
 {
+    if (browser.isVisible()) return;
     const bool psync = proc.value ("pansync") > 0.5f, pan = proc.value ("pan") > 0.5f;
     const bool sync = fv ("sync") > 0.5f;
     if ((fxInfo (sel).ctl & C_RATE) && (kDiv->isVisible() != sync)) { layoutControls(); jlook::scaleChildren (*this, scaler.s); }
@@ -572,7 +634,8 @@ void Editor::timerCallback()
     if (++tick % 4 == 0)
     {
         for (juce::Component* c : std::initializer_list<juce::Component*> { &grid, sShape.get(), sPanShape.get(), wSync.get(), wPan.get(), wPanSync.get(), wOn.get(), sKey.get(), sScale.get() }) c->repaint();
-        repaint (scaler.map ({ 18, 76, 1164, 30 })); repaint (scaler.map ({ 700, 720, 480, 100 }));
+        if (bg.key != staticKey()) repaint();
     }
+    repaint (scaler.map ({ 728, 724, 388, 32 })); repaint (scaler.map ({ 1120, 580, 60, 210 }));
 }
 }

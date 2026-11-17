@@ -40,6 +40,10 @@ public:
     void setStateInformation (const void*, int) override;
 
     void loadPreset (int i);
+    static juce::File presetFolder() { auto f = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Motion Preset"); f.createDirectory(); return f; }
+    bool saveUser (const juce::File&);
+    bool loadUser (const juce::File&);
+    juce::String userName;   // preset tuo caricato (vuoto = preset di fabbrica)
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     Settings settings() const;
     double sampleRate() const { return sr; }
