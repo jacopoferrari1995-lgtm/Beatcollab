@@ -1,3 +1,4 @@
+#include <juce_dsp/juce_dsp.h>
 #include "../Source/FxProcessor.h"
 #include "../Source/FxEditor.h"
 using namespace jfx;
@@ -18,6 +19,63 @@ int main (int argc, char** argv)
             for (int i = 0; i < 512; ++i) out.push_back (b.getSample (0, i));
         }
     };
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {   // per ogni effetto nello slot 1: aliasing con toni acuti, click quando la manopola salta del 30%, NaN agli estremi
+        const char* only = std::getenv ("JONLY");
+        auto spur = [&] (int t, float amt, int bin, float amp, float* harm)
+        {
+            Processor p; p.prepareToPlay (sr, 512); for (int k = 0; k < kSlots; ++k) p.setSlot (k, pfx::OFF, -1); p.setSlot (0, t, amt);
+            if (auto* av = std::getenv ("JADVV")) p.setAdv (0, std::atoi (av), 1.0f);
+            if (auto* az = std::getenv ("JADVZ")) p.setAdv (0, std::atoi (az), 0.0f);
+            const int N = 65536; const double ff = bin * sr / N; std::vector<float> o; juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m;
+            for (int off = 0; off < N * 2; off += 512) { for (int i = 0; i < 512; ++i) { const float x = amp * (float) std::sin (2 * 3.14159265358979 * ff * (off + i) / sr); b.setSample (0, i, x); b.setSample (1, i, x); } p.processBlock (b, m); for (int i = 0; i < 512; ++i) o.push_back (b.getSample (0, i)); }
+            juce::dsp::FFT fft (16); std::vector<float> a ((size_t) 2 * N, 0);
+            for (int i = 0; i < N; ++i) { const double w = 6.283185307179586 * i / N; a[(size_t) i] = o[(size_t) (N + i)] * (float) (0.35875 - 0.48829 * std::cos (w) + 0.14128 * std::cos (2 * w) - 0.01168 * std::cos (3 * w)); }
+            fft.performFrequencyOnlyForwardTransform (a.data()); float ref0 = 1e-9f; for (int k = bin - 5; k <= bin + 5; ++k) ref0 = std::max (ref0, a[(size_t) k]);
+            float worst = 0; double hs = 0;
+            for (int k = 40; k < N / 2; ++k) { bool h = false; for (int mm = 1; mm < 8; ++mm) if (std::abs (k - bin * mm) <= 14) { h = true; if (mm > 1) hs += (double) a[(size_t) k] * a[(size_t) k]; } if (std::abs (k - bin) < bin / 20) h = true; if (! h && a[(size_t) k] > worst) worst = a[(size_t) k]; }
+            if (harm) *harm = juce::Decibels::gainToDecibels ((float) std::sqrt (hs) / ref0, -200.0f);
+            return juce::Decibels::gainToDecibels (worst / ref0, -200.0f);
+        };
+        auto tone1k = [&] (Processor& p, int blocks, std::vector<float>& o, std::function<void (int)> at)
+        {
+            juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m;
+            for (int k = 0; k < blocks; ++k) { at (k); for (int i = 0; i < 512; ++i) { const float x = 0.25f * (float) std::sin (2 * 3.14159265358979 * 999.76 * (k * 512 + i) / sr); b.setSample (0, i, x); b.setSample (1, i, x * 0.9f); } p.processBlock (b, m); for (int i = 0; i < 512; ++i) o.push_back (b.getSample (0, i)); }
+        };
+        for (int t = 1; t < pfx::kNumTypes; ++t)
+        {
+            const auto& I = pfx::info (t); if (only && ! juce::String (I.name).containsIgnoreCase (only)) continue;
+            if (pfx::familyOfMix (t) >= 0) continue;
+            const float amt = I.bipolar ? 0.8f : 0.6f; float h1 = 0;
+            const float s1 = spur (t, amt, 8603, 0.5f, &h1), s2 = spur (t, amt, 13653, 0.5f, nullptr);
+            // click: dal valore neutro +30% (o -30%) a meta' del suono, contro lo stesso valore tenuto da sempre
+            float cdb = -200;
+            if (! I.spring && t != pfx::RISER && t != pfx::DOWNLIFTER && t != pfx::RISERSYN && t != pfx::SNAREROLL && t != pfx::SUBDROP)
+            {
+                const float v0 = juce::jlimit (0.0f, 1.0f, I.neutral + 0.35f), v1 = v0 + 0.3f <= 1 ? v0 + 0.3f : v0 - 0.3f; const int J = 100;
+                Processor pa; pa.prepareToPlay (sr, 512); pa.setSlot (0, t, v0); for (int k = 1; k < kSlots; ++k) pa.setSlot (k, pfx::OFF, -1);
+                Processor pb; pb.prepareToPlay (sr, 512); pb.setSlot (0, t, v1); for (int k = 1; k < kSlots; ++k) pb.setSlot (k, pfx::OFF, -1);
+                std::vector<float> oa, ob; tone1k (pa, J + 20, oa, [&] (int k) { if (k == J) pa.P (amtId (0))->setValueNotifyingHost (v1); }); tone1k (pb, J + 20, ob, [] (int) {});
+                // energia sopra i 5 kHz della differenza nei 50 ms dopo il salto (passa alto semplice a 2 poli)
+                // passa alto ripido (8 poli) a 5 kHz: del tono a 1 kHz non resta niente, resta solo lo scatto
+                const double w0 = 2 * 3.14159265 * 5000 / sr, c0 = std::cos (w0); static const double Qs[4] = { 0.5098, 0.6013, 0.9000, 2.5629 };
+                double st[4][4] {}; float pk = 0;
+                for (int i = (J - 4) * 512; i < (J + 5) * 512; ++i)
+                {
+                    double x = oa[(size_t) i] - ob[(size_t) i];
+                    for (int q = 0; q < 4; ++q)
+                    {
+                        const double al = std::sin (w0) / (2 * Qs[q]), b0 = (1 + c0) / 2 / (1 + al), b1 = -(1 + c0) / (1 + al), a1 = -2 * c0 / (1 + al), a2 = (1 - al) / (1 + al);
+                        const double y = b0 * x + b1 * st[q][0] + b0 * st[q][1] - a1 * st[q][2] - a2 * st[q][3]; st[q][1] = st[q][0]; st[q][0] = x; st[q][3] = st[q][2]; st[q][2] = y; x = y;
+                    }
+                    if (i >= J * 512) pk = std::max (pk, (float) std::abs (x));
+                }
+                cdb = juce::Decibels::gainToDecibels (pk / 0.25f, -200.0f);
+            }
+            std::printf ("%-13s amt %.1f  spur 6,3k %6.1f  10k %6.1f  armoniche %6.1f   click %6.1f %s%s\n", I.name, amt, s1, s2, h1, cdb, (s1 > -60 || s2 > -60) ? "ALIAS" : "", cdb > -35 ? " CLICK" : "");
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "dsp")
     {
         Processor p0; p0.prepareToPlay (sr, 512); std::vector<float> ref; run (p0, 300, ref);
@@ -152,7 +210,7 @@ int main (int argc, char** argv)
         if (auto* pr = std::getenv ("JPR")) p.loadFactory (std::atoi (pr));
         p.P (amtId (2))->setValueNotifyingHost (0.55f); p.P (amtId (0))->setValueNotifyingHost (0.3f);
         std::vector<float> o; run (p, 400, o);
-        Editor ed (p); for (int i = 0; i < 10; ++i) ed.repaint();
+        Editor ed (p); ed.tickForTest();
         if (auto* ss = std::getenv ("JSLOT")) p.setSlot (2, std::atoi (ss), 0.5f);
         if (std::getenv ("JADV")) { p.setAdv (2, 0, 0.3f); ed.advPanel.open (std::atoi (std::getenv ("JADV"))); for (auto* c : ed.cards) c->repaint(); }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);

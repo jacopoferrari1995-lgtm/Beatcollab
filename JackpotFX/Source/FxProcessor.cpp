@@ -8,22 +8,38 @@ using namespace pfx;
 const std::vector<FxPreset>& factoryPresets()
 {
     static const std::vector<FxPreset> P = {
-        { "Init  |  Beatmaker", "Il set di partenza: filtro, volume, spazio e i trucchi da performance.",
+        { "BASE | Init Beatmaker", "Il set di partenza, tutto neutro: filtro, volume, spazio e i trucchi da performance.",
           { FILTER, GAIN, REVERB, DELAY, SCRATCH, TAPESTOP, STUTTER, LOFI }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
-        { "Transizioni", "Per entrare e uscire dai ritornelli: chiudi, riempi di spazio, taglia.",
+        { "BASE | Transizioni", "Per entrare e uscire dai ritornelli: chiudi, riempi di spazio, taglia.",
           { FILTER, REVERB, DELAY, GATE, STUTTER, TAPESTOP, GLITCH, WIDE }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
-        { "Drill Drop", "Il drop prima della strofa: gate, stutter, tape stop e un filo di crush.",
+        { "BASE | Solo spazio", "Riverbero, delay, freeze e larghezza: per far respirare un loop.",
+          { FILTER, REVERB, DELAY, FREEZE, DIMENSION, WIDE, AUTOPAN, GAIN }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
+        { "DRILL | Drill Drop", "Il drop prima della strofa: gate, stutter, tape stop e un filo di crush.",
           { FILTER, GATE, STUTTER, TAPESTOP, REVERB, CRUSH, GLITCH, GAIN }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
-        { "Lo-fi Room", "Nastro e disco gia accesi un poco: alzi per sporcare di piu.",
+        { "DRILL | Sliding 808", "Pitch, sub drop e half speed per i cambi di pattern sulle 808.",
+          { FILTER, PITCH, SUBDROP, HALFSPEED, GATE, SNAREROLL, REVERB, GAIN }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
+        { "DRILL | Build up", "Riser, rullata e pump verso il drop, poi taglia tutto col downlifter.",
+          { FILTER, RISER, RISERSYN, SNAREROLL, PUMP, BEATROLL, DOWNLIFTER, GAIN }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
+        { "LO-FI | Lo-fi Room", "Nastro e disco gia' accesi un poco: alzi per sporcare di piu'.",
           { FILTER, TAPE, VINYL, LOFI, CRUSH, CHORUS, REVERB, GAIN }, { -1, 0.3f, 0.2f, -1, -1, -1, 0.15f, -1 } },
-        { "Dub", "Delay e riverbero da spingere, phaser e autopan per farlo girare.",
+        { "LO-FI | Cassetta", "Nastro con wow, chorus e filtro: un loop che sembra registrato su cassetta.",
+          { TAPE, CHORUS, FILTER, VINYL, LOFI, TREMOLO, DELAY, GAIN }, { 0.4f, 0.15f, -1, -1, -1, -1, -1, -1 } },
+        { "LO-FI | Vinyl DJ", "Come al giradischi: filtro, scratch, disco e frenata.",
+          { FILTER, SCRATCH, VINYL, DELAY, REVERB, TAPESTOP, FLANGER, GAIN }, { -1, -1, 0.15f, -1, -1, -1, -1, -1 } },
+        { "DUB | Dub", "Delay e riverbero da spingere, phaser e autopan per farlo girare.",
           { FILTER, DELAY, REVERB, PHASER, TAPESTOP, AUTOPAN, WIDE, GAIN }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
-        { "Glitch Lab", "Tutto quello che rompe il tempo, in fila.",
+        { "DUB | Echo chamber", "Delay lungo con freeze e reverse: spingi e lascia che si ripeta.",
+          { DELAY, REVERB, FREEZE, REVERSE, FILTER, PHASER, WIDE, GAIN }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
+        { "GLITCH | Glitch Lab", "Tutto quello che rompe il tempo, in fila.",
           { STUTTER, GLITCH, GATE, CRUSH, SCRATCH, FILTER, FLANGER, DELAY }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
-        { "Wide & Air", "Allarga, addolcisce, apre: per intro e pad.",
+        { "GLITCH | Beat repeat", "Ripetizioni e rulli a tempo, con il mix su una seconda manopola.",
+          { BEATREPEAT, BEATROLL, ROLLMIX, STUTTER, STUTMIX, GATE, GATEMIX, FILTER }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
+        { "AMBIENT | Wide & Air", "Allarga, addolcisce, apre: per intro e pad.",
           { WIDE, DIMENSION, CHORUS, REVERB, DELAY, FILTER, TREMOLO, GAIN }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
-        { "Vinyl DJ", "Come al giradischi: filtro, scratch, disco e frenata.",
-          { FILTER, SCRATCH, VINYL, DELAY, REVERB, TAPESTOP, FLANGER, GAIN }, { -1, -1, 0.15f, -1, -1, -1, -1, -1 } } };
+        { "AMBIENT | Movimento", "Flanger, phaser, autopan e tremolo: un pad fermo che si muove.",
+          { FLANGER, PHASER, AUTOPAN, TREMOLO, TREMMIX, CHORUS, REVERB, WIDE }, { -1, -1, -1, -1, -1, -1, -1, -1 } },
+        { "LIVE | Scratch set", "Scratch a mano e automatico, frenata e filtro: per suonarlo dal controller.",
+          { SCRATCHHAND, SCRATCH, TAPESTOP, FILTER, GATE, DELAY, REVERB, GAIN }, { -1, -1, -1, -1, -1, -1, -1, -1 } } };
     return P;
 }
 
@@ -59,7 +75,7 @@ Processor::Processor()
         typeRaw[k] = apvts.getRawParameterValue (typeId (k)); amtRaw[k] = apvts.getRawParameterValue (amtId (k)); onRaw[k] = apvts.getRawParameterValue (onId (k));
         mixRaw[k] = apvts.getRawParameterValue (mixId (k)); for (int i = 0; i < kAdv; ++i) advRaw[k][i] = apvts.getRawParameterValue (advId (k, i));
     }
-    for (int i = 0; i < kHist; ++i) { hIn[i] = -100; hOut[i] = -100; }
+    for (int i = 0; i < kHist; ++i) { hIn[i] = 0; hOut[i] = 0; hPpq[i] = -1; hMask[i] = 0; }
     for (int c = 0; c < 2; ++c) { pkIn[c] = 0; pkOut[c] = 0; }
     presetName = factoryPresets()[0].name;
     startTimerHz (30);
@@ -70,7 +86,7 @@ bool Processor::isBusesLayoutSupported (const BusesLayout& l) const
 }
 void Processor::prepareToPlay (double s, int block)
 {
-    sr = s; eng.prepare (s); dry.setSize (2, juce::jmax (block, 2048)); freeTicks = 0;
+    sr = s; eng.prepare (s); dry.setSize (2, juce::jmax (block, 4096)); freeTicks = 0;
     setLatencySamples (0);
 }
 
@@ -118,39 +134,44 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     uiBpm = bpm; uiPlay = play;
 
     float* L = buffer.getWritePointer (0); float* R = buffer.getWritePointer (juce::jmin (1, buffer.getNumChannels() - 1));
-    if (dry.getNumSamples() < N) dry.setSize (2, N, false, false, true);
+    // a pezzi grandi quanto il buffer preparato: niente memoria nuova mentre suona, anche con i bounce a 8192
+    const int maxN = dry.getNumSamples(); const double qps = bpm / 60.0 / sr;
+    for (int off = 0; off < N; off += maxN) { const int m = juce::jmin (maxN, N - off); processChunk (L + off, R + off, m, bpm, ppq + off * qps, play); }
+}
+void Processor::processChunk (float* L, float* R, int N, double bpm, double ppq, bool play)
+{
     float* dL = dry.getWritePointer (0); float* dR = dry.getWritePointer (1);
     float pi[2] = { 0, 0 };
     for (int i = 0; i < N; ++i) { dL[i] = L[i]; dR[i] = R[i]; pi[0] = juce::jmax (pi[0], std::abs (L[i])); pi[1] = juce::jmax (pi[1], std::abs (R[i])); }
 
     const bool byp = value ("bypass") > 0.5f;
-    if (! byp)
+    int ty[kSlots]; float am[kSlots]; float av[kSlots * kAdv], mx[kSlots]; int mask = 0;
+    for (int k = 0; k < kSlots; ++k)
     {
-        int ty[kSlots]; float am[kSlots];
-        for (int k = 0; k < kSlots; ++k)
-        {
-            ty[k] = onRaw[k]->load() > 0.5f ? juce::roundToInt (typeRaw[k]->load()) : (int) OFF;
-            const float pnd = ccPend[k].load(); am[k] = pnd >= 0 ? pnd : amtRaw[k]->load();
-        }
-        float av[kSlots * kAdv], mx[kSlots];
-        for (int k = 0; k < kSlots; ++k) { mx[k] = mixRaw[k]->load(); for (int i = 0; i < kAdv; ++i) av[k * kAdv + i] = advRaw[k][i]->load(); }
-        eng.process (L, R, N, ty, am, bpm, ppq, play, av, mx);
+        ty[k] = onRaw[k]->load() > 0.5f ? juce::roundToInt (typeRaw[k]->load()) : (int) OFF;
+        const float pnd = ccPend[k].load(); am[k] = pnd >= 0 ? pnd : amtRaw[k]->load();
+        mx[k] = mixRaw[k]->load(); for (int i = 0; i < kAdv; ++i) av[k * kAdv + i] = advRaw[k][i]->load();
+        // slot al lavoro (per le corsie sotto l'onda): acceso, non neutro, mix sopra zero
+        if (! byp && ty[k] != OFF && ty[k] != SCRATCHHAND && pfx::familyOfMix (ty[k]) < 0 && std::abs (am[k] - info (ty[k]).neutral) > 0.02f && mx[k] > 0.01f) mask |= 1 << k;
     }
-    else eng.process (L, R, N, std::array<int, kSlots> {}.data(), std::array<float, kSlots> {}.data(), bpm, ppq, play);   // tiene viva la storia
+    if (! byp) eng.process (L, R, N, ty, am, bpm, ppq, play, av, mx);
+    else { static const int offT[kSlots] {}; static const float zA[kSlots] {}; eng.process (L, R, N, offT, zA, bpm, ppq, play); }   // tiene viva la storia
     if (byp) for (int i = 0; i < N; ++i) { L[i] = dL[i]; R[i] = dR[i]; }
     // mix e uscita
     const float mix = byp ? 1.0f : value ("mix"), og = byp ? 1.0f : juce::Decibels::decibelsToGain (value ("out"));
     float po[2] = { 0, 0 };
+    const int colLen = juce::jmax (1, (int) (sr * kColSec));
     for (int i = 0; i < N; ++i)
     {
         mixS += (mix - mixS) * 0.002f; outS += (og - outS) * 0.002f;
         L[i] = (dL[i] + (L[i] - dL[i]) * mixS) * outS; R[i] = (dR[i] + (R[i] - dR[i]) * mixS) * outS;
         po[0] = juce::jmax (po[0], std::abs (L[i])); po[1] = juce::jmax (po[1], std::abs (R[i]));
-        colIn = juce::jmax (colIn, std::abs (dL[i]) + std::abs (dR[i])); colOut = juce::jmax (colOut, std::abs (L[i]) + std::abs (R[i]));
-        if (++colN >= (int) (sr * 0.01))
-        {
-            const int w = hW.load(); hIn[w] = juce::Decibels::gainToDecibels (colIn * 0.5f, -100.0f); hOut[w] = juce::Decibels::gainToDecibels (colOut * 0.5f, -100.0f);
-            hW = (w + 1) % kHist; colIn = colOut = 0; colN = 0;
+        colIn = juce::jmax (colIn, 0.5f * (std::abs (dL[i]) + std::abs (dR[i]))); colOut = juce::jmax (colOut, 0.5f * (std::abs (L[i]) + std::abs (R[i]))); colMask |= mask;
+        if (++colN >= colLen)
+        {   // una colonna dell'onda ogni 5 ms: picco d'ingresso, picco d'uscita, posizione nel pezzo, slot al lavoro
+            const long t = hTot.load(); const int w = (int) (t % kHist);
+            hIn[w] = colIn; hOut[w] = colOut; hPpq[w] = play ? (float) (ppq + (double) i * bpm / 60.0 / sr) : -1.0f; hMask[w] = colMask;
+            hTot = t + 1; colIn = colOut = 0; colN = 0; colMask = 0;
         }
     }
     for (int c = 0; c < 2; ++c) { pkIn[c] = juce::jmax (pi[c], pkIn[c].load() * 0.9f); pkOut[c] = juce::jmax (po[c], pkOut[c].load() * 0.9f); }

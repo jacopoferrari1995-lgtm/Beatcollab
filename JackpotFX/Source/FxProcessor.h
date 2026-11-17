@@ -32,7 +32,8 @@ public:
     const juce::String getName() const override { return "Jackpot FX"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
-    double getTailLengthSeconds() const override { return 4.0; }
+    double getTailLengthSeconds() const override { return 8.0; }
+    double sampleRate() const { return sr; }
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram (int) override {}
@@ -67,8 +68,9 @@ public:
     std::atomic<int> ccSeen[kSlots];      // per far lampeggiare la manopola quando arriva il CC
 
     // misure per l'interfaccia
-    static constexpr int kHist = 400;     // ~4 s a colonne da 10 ms
-    std::atomic<float> hIn[kHist], hOut[kHist]; std::atomic<int> hW { 0 };
+    static constexpr int kHist = 4800;    // 24 s a colonne da 5 ms (l'onda SCAN del Master)
+    static constexpr double kColSec = 0.005;
+    std::atomic<float> hIn[kHist], hOut[kHist], hPpq[kHist]; std::atomic<int> hMask[kHist]; std::atomic<long> hTot { 0 };
     std::atomic<float> pkIn[2], pkOut[2];
     std::atomic<double> uiBpm { 120 }; std::atomic<bool> uiPlay { false };
 
@@ -80,6 +82,7 @@ private:
     std::atomic<float>* typeRaw[kSlots] {}; std::atomic<float>* amtRaw[kSlots] {}; std::atomic<float>* onRaw[kSlots] {};
     std::atomic<float>* mixRaw[kSlots] {}; std::atomic<float>* advRaw[kSlots][pfx::kAdv] {};
     double sr = 48000, freeTicks = 0; float mixS = 1, outS = 1;
-    float colIn = 0, colOut = 0; int colN = 0;
+    float colIn = 0, colOut = 0; int colN = 0, colMask = 0;
+    void processChunk (float* L, float* R, int N, double bpm, double ppq, bool play);
 };
 }

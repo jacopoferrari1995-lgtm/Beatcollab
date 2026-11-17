@@ -1,156 +1,263 @@
-// JACKPOT FX: stessa grafica del Master. Pannelli arrotondati, manopole sobrie, tema scuro o chiaro.
+// JACKPOT FX: frontale come Dust e Alter. Testata e preset nella pelle comune, piastre per slot, manopole da hardware,
+// onda SCAN del Master con le corsie degli slot.
 #include "FxEditor.h"
 
 namespace jfx
 {
-using namespace neo;
+using namespace pfx;
 static juce::String U (const char* s) { return juce::String::fromUTF8 (s); }
-
-// colore per famiglia di effetti
-static juce::Colour groupCol (int t)
+juce::Font uf (float size, bool bold) { return jlook::ui (size, bold ? 2 : 1); }
+juce::Font mf (float size) { return jlook::mono (size); }
+void glowText (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> r, juce::Colour c, juce::Font f, juce::Justification j)
 {
-    const juce::String g (pfx::info (t).group);
-    if (g == "FILTRI") return K::cyan; if (g == "SPAZIO") return K::violet; if (g == "TEMPO") return K::amber;
-    if (g == "SPORCO") return K::pink; if (g == "MODULAZIONE") return K::mint;
-    if (g == "TRANSIZIONI") return K::red; if (g == "TONO") return K::blue; return K::faint;
+    g.setFont (f);
+    g.setColour (c.withAlpha (0.2f)); g.drawText (t, r.translated (-0.7f, 0.3f), j); g.drawText (t, r.translated (0.7f, 0.3f), j);
+    g.setColour (c); g.drawText (t, r, j);
 }
-// pannello a spigoli tagliati (in alto a sinistra e in basso a destra)
-static juce::Path chamfer (juce::Rectangle<float> r, float c)
-{   // forma dei pannelli e dei bottoni: rettangolo arrotondato
-    juce::Path p; p.addRoundedRectangle (r, juce::jmin (c * 1.2f, r.getHeight() * 0.5f)); return p;
+void lcd (juce::Graphics& g, juce::Rectangle<float> r, float rad)
+{
+    if (jlook::skinHooks().on && jlook::skinHooks().screen) { jlook::skinHooks().screen (g, r, rad, C::cyan); return; }
+    g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillRoundedRectangle (r.expanded (1.5f), rad + 1.5f);
+    juce::ColourGradient cg (C::lcd1, r.getCentreX(), r.getCentreY(), C::lcd2, r.getX(), r.getY(), true); g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);
 }
-static juce::Colour veil (float a) { return K::lo.withAlpha (light() ? a * 0.22f : a); }
-static juce::Colour glass (float a) { return K::hi.withAlpha (light() ? juce::jmin (1.0f, a * 1.3f) : a); }
-static juce::Colour waveCol() { return light() ? juce::Colour (0xff6b3fd6) : juce::Colour (0xffd88cff).interpolatedWith (juce::Colour (0xffff7ab6), 0.35f); }
-static void panel (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour edge, float c = 14, float glow = 1.0f, bool display = false)
-{   // lastra arrotondata come nel Master: ombra corta, fondo sfumato, un filo di luce in alto e un velo del colore del gruppo
-    if (skinned()) { neo::plate (g, r, edge); return; }
-    const float rad = juce::jmin (20.0f, c * 1.3f);
-    g.setColour (K::lo.withAlpha (light() ? 0.10f : 0.35f)); g.fillRoundedRectangle (r.translated (0, 3), rad);
-    juce::ColourGradient bgc (display ? K::disp0 : K::panel0, 0, r.getY(), display ? K::disp1 : K::panel1, 0, r.getBottom(), false); g.setGradientFill (bgc); g.fillRoundedRectangle (r, rad);
-    juce::ColourGradient tint (edge.withAlpha ((light() ? 0.07f : 0.10f) * glow), 0, r.getY(), edge.withAlpha (0.0f), 0, r.getY() + juce::jmin (140.0f, r.getHeight()), false); g.setGradientFill (tint); g.fillRoundedRectangle (r, rad);
-    g.setColour (K::hi.withAlpha (light() ? 0.10f : 0.07f)); g.drawRoundedRectangle (r.reduced (0.5f), rad, 1.0f);
-    juce::ColourGradient hl (K::hi.withAlpha (0.0f), r.getX() + rad, 0, K::hi.withAlpha (0.0f), r.getRight() - rad, 0, false); hl.addColour (0.5, (light() ? juce::Colours::white : K::hi).withAlpha (light() ? 0.8f : 0.10f));
-    g.setGradientFill (hl); g.fillRect (r.getX() + rad, r.getY() + 1, r.getWidth() - 2 * rad, 1.0f);
+juce::Colour groupCol (int t)
+{
+    const juce::String g (info (t).group);
+    if (g == "FILTRI") return C::cyan; if (g == "SPAZIO") return C::violet; if (g == "TEMPO") return C::amber;
+    if (g == "SPORCO") return C::pink; if (g == "MODULAZIONE") return C::mint;
+    if (g == "TRANSIZIONI") return C::red; if (g == "TONO") return C::blue; return C::faint;
+}
+// piastra dello slot: scura, con una punta del colore della famiglia dell'effetto
+static juce::Colour plate1 (int t) { return groupCol (t).interpolatedWith (juce::Colour (0xff202228), 0.84f); }
+static juce::Colour plate2 (int t) { return groupCol (t).interpolatedWith (juce::Colour (0xff0d0e11), 0.9f); }
+
+// ======================================================================= manopola
+void Knob::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.mods.isAltDown() || e.mods.isCommandDown()) { mouseDoubleClick (e); return; }
+    start = param->getValue(); param->beginChangeGesture(); drag = true; repaint();
+}
+void Knob::mouseUp (const juce::MouseEvent&)
+{
+    if (drag) param->endChangeGesture();
+    drag = false; repaint();
+    if (onRelease) onRelease();
+}
+void Knob::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! drag) return;
+    param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 900.0f : 220.0f)));
+}
+void Knob::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
+{
+    param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + (w.deltaY > 0 ? 0.01f : -0.01f)));
+}
+void Knob::paint (juce::Graphics& g)
+{
+    auto s = spec; s.enabled = lit; s.hover = hover; s.drag = drag; s.text = text ? text() : param->getCurrentValueAsText();
+    hw::knob (g, getLocalBounds().toFloat(), param->getValue(), s);
+}
+
+// ======================================================================= onda SCAN
+void Scope::paint (juce::Graphics& g)
+{
+    auto& P = ed.proc; const auto b = getLocalBounds().toFloat();
+    lcd (g, b, 8);
+    const int nl = kSlots; const float laneH = 5.0f, laneGap = 2.0f, lanesH = nl * (laneH + laneGap) + 6;
+    auto area = b.reduced (12, 10).withTrimmedBottom (lanesH + 14);
+    auto lanes = juce::Rectangle<float> (area.getX(), area.getBottom() + 14, area.getWidth(), lanesH - 6);
+    const long tot = P.hTot.load(); if (tot <= 2) return;
+    const int N = Processor::kHist; const long newest = tot - 1;
+    auto ring = [N] (long a) { return (int) (((a % N) + N) % N); };
+    const float lastQ = P.hPpq[ring (newest)].load();
+    const bool beats = lastQ >= 0;
+    // la finestra: 2 battute quando la DAW suona (agganciata alla battuta), 4 secondi da ferma
+    const double winB = 8.0, winCols = beats ? winB * 60.0 / juce::jmax (40.0, P.uiBpm.load()) / Processor::kColSec : 4.0 / Processor::kColSec;
+    const double cursor = beats ? std::fmod ((double) lastQ, winB) / winB : std::fmod ((double) newest, winCols) / winCols;
+    const float cy = area.getCentreY(), hh = area.getHeight() * 0.5f - 2;
+    // griglia: battiti o secondi
+    if (beats) for (int q = 0; q <= 8; ++q) { const float x = area.getX() + area.getWidth() * q / 8.0f; g.setColour (C::text.withAlpha (q % 4 == 0 ? 0.12f : 0.05f)); g.fillRect (x, area.getY(), 1.0f, area.getHeight()); }
+    else for (int s = 0; s <= 4; ++s) { const float x = area.getX() + area.getWidth() * s / 4.0f; g.setColour (C::text.withAlpha (0.06f)); g.fillRect (x, area.getY(), 1.0f, area.getHeight()); }
+    g.setColour (C::text.withAlpha (0.06f)); g.fillRect (area.getX(), cy, area.getWidth(), 1.0f);
+    // colonne: per ogni pixel il picco delle colonne che ci cadono (stessa idea del Master)
+    const int npx = juce::jmax (16, (int) area.getWidth());
+    std::vector<float> pin ((size_t) npx, -1.0f), pout ((size_t) npx, -1.0f); std::vector<int> pm ((size_t) npx, 0);
+    const int back = (int) juce::jmin ((double) N - 2, winCols * 1.02);
+    for (int j = 0; j < back && newest - j >= 0; ++j)
+    {
+        const long a = newest - j; const int r = ring (a);
+        double rel;
+        if (beats) { const float q = P.hPpq[r].load(); if (q < 0 || lastQ - q > winB - 0.02) break; rel = std::fmod ((double) q, winB) / winB; }
+        else { if (j > winCols - 2) break; rel = std::fmod ((double) a, winCols) / winCols; }
+        // subito dopo il cursore un piccolo vuoto: si vede dove sta scrivendo
+        double ahead = rel - cursor; if (ahead < 0) ahead += 1.0;
+        if (j > 0 && ahead > 0.0 && ahead < 0.012) continue;
+        const int x = juce::jlimit (0, npx - 1, (int) (rel * npx));
+        pin[(size_t) x] = juce::jmax (pin[(size_t) x], P.hIn[r].load()); pout[(size_t) x] = juce::jmax (pout[(size_t) x], P.hOut[r].load()); pm[(size_t) x] |= P.hMask[r].load();
+    }
+    // i pixel vuoti fra due colonne (finestra lunga, zoom) prendono il vicino
+    for (int x = 1; x < npx; ++x) if (pin[(size_t) x] < 0 && pin[(size_t) x - 1] >= 0 && x + 1 < npx && pin[(size_t) x + 1] >= 0) { pin[(size_t) x] = pin[(size_t) x - 1]; pout[(size_t) x] = pout[(size_t) x - 1]; pm[(size_t) x] = pm[(size_t) x - 1]; }
+    auto shape = [&] (const std::vector<float>& v)
+    {
+        juce::Path path; int x = 0; const float dx = area.getWidth() / npx;
+        auto lin = [] (float a) { return juce::jlimit (0.0f, 1.05f, a); };
+        while (x < npx)
+        {
+            while (x < npx && v[(size_t) x] < 0) ++x; if (x >= npx) break;
+            const int s0 = x; while (x < npx && v[(size_t) x] >= 0) ++x; const int s1 = x;
+            path.startNewSubPath (area.getX() + s0 * dx, cy);
+            for (int k = s0; k < s1; ++k) path.lineTo (area.getX() + (k + 0.5f) * dx, cy - lin (v[(size_t) k]) * hh);
+            path.lineTo (area.getX() + s1 * dx, cy);
+            for (int k = s1 - 1; k >= s0; --k) path.lineTo (area.getX() + (k + 0.5f) * dx, cy + lin (v[(size_t) k]) * hh);
+            path.closeSubPath();
+        }
+        return path;
+    };
+    const auto wc = C::pink.interpolatedWith (C::violet, 0.35f);
+    const auto po = shape (pout), pi = shape (pin);
+    g.setColour (C::text.withAlpha (0.13f)); g.fillPath (pi);                                    // quello che entra, dietro e scuro
+    g.setColour (wc.withAlpha (0.72f)); g.fillPath (po);                                         // quello che esce dagli effetti, sopra
+    g.setColour (wc.brighter (0.5f).withAlpha (0.9f)); g.strokePath (po, juce::PathStrokeType (1.0f));
+    // cursore
+    { const float x = area.getX() + (float) cursor * area.getWidth(); g.setColour (C::text.withAlpha (0.55f)); g.fillRect (x, area.getY(), 1.0f, area.getHeight()); }
+    // corsie degli slot: dove ogni effetto ha lavorato
+    const float dx = lanes.getWidth() / npx;
+    for (int k = 0; k < nl; ++k)
+    {
+        const float y = lanes.getY() + k * (laneH + laneGap);
+        g.setColour (C::text.withAlpha (0.04f)); g.fillRect (lanes.getX(), y, lanes.getWidth(), laneH);
+        const auto c = groupCol (P.slotType (k));
+        g.setColour (c.withAlpha (0.9f));
+        for (int x = 0; x < npx; )
+        {
+            if (! (pm[(size_t) x] & (1 << k))) { ++x; continue; }
+            const int s0 = x; while (x < npx && (pm[(size_t) x] & (1 << k))) ++x;
+            g.fillRect (lanes.getX() + s0 * dx, y, (x - s0) * dx, laneH);
+        }
+    }
+    g.setFont (mf (8.0f)); g.setColour (C::dim);
+    if (beats) for (int q = 0; q < 2; ++q) g.drawText (juce::String ((int) std::floor (lastQ / 4.0) - ((int) std::floor (std::fmod ((double) lastQ, winB) / 4.0)) + q + 1), juce::Rectangle<float> (area.getX() + area.getWidth() * q / 2.0f + 4, area.getY() + 2, 30, 10), juce::Justification::centredLeft);
 }
 
 // ======================================================================= scheda di uno slot
-SlotCard::SlotCard (Editor& e, int kk) : ed (e), k (kk) { refresh(); }
-
+SlotCard::SlotCard (Editor& e, int kk) : ed (e), k (kk)
+{
+    auto* mp = ed.proc.P (mixId (k));
+    mixK = std::make_unique<Knob> (mp); mixK->spec.label = "MIX"; mixK->spec.style = 1; mixK->defV = 1.0f;
+    mixK->text = [mp] { return juce::String (juce::roundToInt (mp->getValue() * 100)) + "%"; };
+    mixK->setTooltip ("Mix di questo slot: quanto del suo effetto si sente. Doppio clic = 100%.");
+    addAndMakeVisible (*mixK);
+    refresh();
+}
 void SlotCard::refresh()
 {
-    const int t = ed.proc.slotType (k);
-    shownType = t;
-    const auto& I = pfx::info (t); const auto c = groupCol (t);
-    knob = std::make_unique<neo::Knob> (ed.proc.P (amtId (k)), juce::String (I.name), c, c.interpolatedWith (juce::Colours::white, 0.35f));
-    knob->bipolar = I.bipolar;
+    const int t = ed.proc.slotType (k); shownType = t;
+    const auto& I = info (t); const auto c = groupCol (t);
     auto* pr = ed.proc.P (amtId (k));
-    knob->text = [pr, t] { return pfx::valueText (t, pr->getValue()); };
-    if (I.spring) knob->onRelease = [pr, t] { pr->setValueNotifyingHost (pfx::info (t).neutral); };
-    knob->setTooltip (I.tip);
+    knob = std::make_unique<Knob> (pr);
+    knob->spec.label = I.name; knob->spec.col = c; knob->spec.style = 0; knob->spec.big = true; knob->spec.bipolar = I.bipolar;
+    knob->defV = I.neutral;
+    knob->text = [pr, t] { return valueText (t, pr->getValue()); };
+    if (I.spring) knob->onRelease = [pr, t] { pr->setValueNotifyingHost (info (t).neutral); };
+    knob->setTooltip (juce::String (I.tip) + "  Doppio clic = neutro.");
     addAndMakeVisible (*knob);
-    if (mixK == nullptr)
-    {
-        auto* mp = ed.proc.P (mixId (k));
-        mixK = std::make_unique<neo::Knob> (mp, "MIX", K::cyan, K::violet);
-        mixK->text = [mp] { return juce::String (juce::roundToInt (mp->getValue() * 100)) + "%"; };
-        mixK->setTooltip ("Mix di questo slot: quanto del suo effetto si sente. 100% = tutto, 0% = come se non ci fosse. Doppio clic = 100%.");
-        addAndMakeVisible (*mixK);
-    }
+    mixK->spec.col = c;
     resized(); repaint();
 }
 void SlotCard::resized()
 {
     auto b = getLocalBounds().toFloat();
-    headR = b.withHeight (30);
-    powR = { b.getRight() - 30, 8, 18, 18 };
-    nameR = { 10, 36, b.getWidth() - 20, 26 };
-    ccR = { 10, b.getHeight() - 34, b.getWidth() - 20, 22 };
-    if (knob) { const int S = 100, w = S + 16; knob->setBounds (juce::Rectangle<int> ((int) b.getCentreX() - w / 2, 80, w, S + 38).expanded (Knob::pad)); }
-    gearR = { 14, 246, 30, 30 };
-    if (mixK) { const int S = 36, w = S + 18; mixK->setBounds (juce::Rectangle<int> ((int) b.getRight() - 14 - w - 4, 226, w, S + 38).expanded (Knob::pad)); }
+    railR = b.withHeight (32);
+    nameR = { 10, 42, b.getWidth() - 20, 26 };
+    if (knob) knob->setBounds (juce::Rectangle<float> (8, 84, b.getWidth() - 16, 150).toNearestInt());
+    gearR = { 12, 262, 40, 40 };
+    if (mixK) mixK->setBounds (juce::Rectangle<float> (b.getWidth() - 86, 246, 76, 92).toNearestInt());
+    ccR = { 10, b.getHeight() - 40, (b.getWidth() - 26) * 0.5f, 26 };
+    learnR = { ccR.getRight() + 6, ccR.getY(), ccR.getWidth(), 26 };
+}
+juce::String SlotCard::key() const
+{
+    auto& P = ed.proc; juce::String s; s << skin::cur() << "/" << P.slotType (k) << "/" << (int) (P.value (onId (k)) > 0.5f) << "/" << (int) dropHot << "/" << (int) (ed.advPanel.isVisible() && ed.advPanel.k == k);
+    const auto& sp = adv (P.slotType (k)); for (int i = 0; i < sp.n; ++i) s << (std::abs (P.value (advId (k, i)) - sp.def[i]) > 0.003f ? "1" : "0");
+    return s;
 }
 void SlotCard::paint (juce::Graphics& g)
 {
     auto& P = ed.proc; const int t = P.slotType (k); const bool on = P.value (onId (k)) > 0.5f;
-    const auto c = groupCol (t); const auto& I = pfx::info (t);
-    auto b = getLocalBounds().toFloat().reduced (1);
-    panel (g, b, on ? c : K::faint, 12, on ? 1.0f : 0.4f);
-    if (dropHot) { g.setColour (K::cyan.withAlpha (0.12f)); g.fillPath (chamfer (b, 12)); g.setColour (K::cyan); g.strokePath (chamfer (b, 12), juce::PathStrokeType (1.5f)); }
-    // numero e acceso/spento
-    g.setFont (num (16.0f)); g.setColour (on ? K::ink : K::faint); g.drawText (juce::String (k + 1).paddedLeft ('0', 2), juce::Rectangle<float> (14, 6, 40, 22), juce::Justification::centredLeft);
-    g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (U ("\xe2\x87\x84 trascina"), juce::Rectangle<float> (42, 8, 70, 18), juce::Justification::centredLeft);
-    g.setColour (on ? c.withAlpha (0.25f) : veil (0.4f)); g.fillEllipse (powR.expanded (3));
-    g.setColour (on ? c : K::faint); g.drawEllipse (powR, 1.4f);
-    { juce::Path pw; pw.addCentredArc (powR.getCentreX(), powR.getCentreY(), 5, 5, 0, 0.6f, 5.68f, true); g.strokePath (pw, juce::PathStrokeType (1.4f)); g.drawLine (powR.getCentreX(), powR.getCentreY() - 6, powR.getCentreX(), powR.getCentreY() - 1, 1.4f); }
-    // nome dell'effetto: si apre il menu
-    g.setColour (c.withAlpha (on ? 0.16f : 0.06f)); g.fillPath (chamfer (nameR, 6));
-    g.setColour (c.withAlpha (on ? 0.7f : 0.3f)); g.strokePath (chamfer (nameR, 6), juce::PathStrokeType (1.0f));
-    g.setFont (cap (10.0f)); g.setColour (on ? K::ink : K::sub); g.drawText (juce::String (I.name) + U ("  \xe2\x96\xbe"), nameR, juce::Justification::centred);
-    if (I.spring) { g.setFont (cap (6.5f)); g.setColour (K::amber.withAlpha (0.8f)); g.drawText ("TORNA A ZERO", juce::Rectangle<float> (0, 66, b.getWidth(), 10), juce::Justification::centred); }
-    // ingranaggio: parametri avanzati
+    const auto c = groupCol (t); const auto& I = info (t);
+    const auto bnd = getLocalBounds();
+    base.draw (g, bnd, key(), [&] (juce::Graphics& bg)
     {
-        const auto& sp = pfx::adv (t); const bool has = sp.n > 0, open = ed.advPanel.isVisible() && ed.advPanel.k == k;
+        auto b = bnd.toFloat();
+        hw::faceplate (bg, b, plate1 (t), plate2 (t), on ? c : C::faint, 32, 40 + k, 12);
+        bg.setColour (C::text.withAlpha (on ? 1.0f : 0.55f)); bg.setFont (mf (15.0f)); bg.drawText (juce::String (k + 1).paddedLeft ('0', 2), juce::Rectangle<float> (14, 6, 34, 22), juce::Justification::centredLeft);
+        bg.setColour (C::dim); bg.setFont (uf (8.0f, false)); bg.drawText (U ("\xe2\x87\x84 trascina"), juce::Rectangle<float> (44, 8, 70, 18), juce::Justification::centredLeft);
+        hw::jewel (bg, b.getRight() - 22, 19, 5.0f, on, c);
+        // effetto scelto: si apre il menu
+        lcd (bg, nameR, 6);
+        glowText (bg, juce::String (I.name) + U ("  \xe2\x96\xbe"), nameR, on ? c : C::dim, uf (10.5f), juce::Justification::centred);
+        if (I.spring) { bg.setColour (C::amber.withAlpha (0.85f)); bg.setFont (uf (7.5f)); bg.drawText ("TORNA A ZERO", juce::Rectangle<float> (0, 70, b.getWidth(), 12), juce::Justification::centred); }
+        else if (familyOfMix (t) >= 0) { bg.setColour (C::dim); bg.setFont (uf (7.5f)); bg.drawText ("SECONDA MANOPOLA", juce::Rectangle<float> (0, 70, b.getWidth(), 12), juce::Justification::centred); }
+        // ingranaggio: parametri avanzati
+        const auto& sp = adv (t); const bool has = sp.n > 0, open = ed.advPanel.isVisible() && ed.advPanel.k == k;
         bool changed = false; for (int i = 0; i < sp.n; ++i) if (std::abs (P.value (advId (k, i)) - sp.def[i]) > 0.003f) changed = true;
-        const auto gc = has ? (open ? c : K::sub) : K::faint.withAlpha (0.4f);
-        g.setColour (open ? c.withAlpha (0.22f) : glass (has ? 0.05f : 0.02f)); g.fillPath (chamfer (gearR, 5));
-        g.setColour (gc.withAlpha (open ? 1.0f : 0.6f)); g.strokePath (chamfer (gearR, 5), juce::PathStrokeType (1.0f));
+        jlook::button (bg, gearR, c, open, false, {}, uf (8.0f));
+        const auto gc = has ? (open ? c : C::text.withAlpha (0.8f)) : C::faint.withAlpha (0.5f);
         const float cx = gearR.getCentreX(), cy = gearR.getCentreY();
-        juce::Path gp; for (int i = 0; i < 8; ++i) { const float a = i * juce::MathConstants<float>::twoPi / 8; gp.addRectangle (-1.6f, -8.5f, 3.2f, 4.0f); gp.applyTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::twoPi / 8)); juce::ignoreUnused (a); }
-        gp.applyTransform (juce::AffineTransform::translation (cx, cy)); g.setColour (gc); g.fillPath (gp);
-        g.drawEllipse (cx - 5.5f, cy - 5.5f, 11, 11, 2.0f);
-        if (changed) { g.setColour (K::amber); g.fillEllipse (gearR.getRight() - 7, gearR.getY() + 2, 5, 5); }
-        g.setFont (cap (6.5f)); g.setColour (has ? K::faint : K::faint.withAlpha (0.4f)); g.drawText ("AVANZATO", juce::Rectangle<float> (gearR.getX() - 10, gearR.getBottom() + 2, gearR.getWidth() + 20, 10), juce::Justification::centred);
-    }
-    // controller
+        juce::Path gp; for (int i = 0; i < 8; ++i) { gp.addRectangle (-1.6f, -9.0f, 3.2f, 4.0f); gp.applyTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::twoPi / 8)); }
+        gp.applyTransform (juce::AffineTransform::translation (cx, cy)); bg.setColour (gc); bg.fillPath (gp); bg.drawEllipse (cx - 6, cy - 6, 12, 12, 2.0f);
+        if (changed) { bg.setColour (C::amber); bg.fillEllipse (gearR.getRight() - 9, gearR.getY() + 4, 5, 5); }
+        bg.setColour (has ? C::dim : C::faint); bg.setFont (uf (7.5f)); bg.drawText ("AVANZATO", juce::Rectangle<float> (gearR.getX() - 10, gearR.getBottom() + 3, gearR.getWidth() + 20, 10), juce::Justification::centred);
+        if (! on) { bg.setColour (juce::Colours::black.withAlpha (0.32f)); bg.fillRoundedRectangle (b.reduced (5).withTrimmedTop (32).withTrimmedBottom (48), 8); }
+        if (dropHot) { bg.setColour (C::cyan.withAlpha (0.12f)); bg.fillRoundedRectangle (b.reduced (2), 12); bg.setColour (C::cyan); bg.drawRoundedRectangle (b.reduced (2), 12, 1.5f); }
+    });
+    // controller: si ridisegna a parte (lampeggia quando arriva il CC)
     const int cc = P.ccMap[k].load(); const bool learn = P.learnSlot.load() == k;
     const bool blink = learn && (juce::Time::getMillisecondCounter() / 300) % 2 == 0;
-    auto cr = ccR;
-    auto badge = cr.removeFromLeft (cr.getWidth() * 0.5f - 2); cr.removeFromLeft (4);
-    g.setColour (glass (0.04f + 0.25f * flash)); g.fillRoundedRectangle (badge, 4);
-    g.setColour (c.withAlpha (0.25f + 0.6f * flash)); g.drawRoundedRectangle (badge, 4, 1.0f);
-    g.setFont (num (9.5f)); g.setColour (cc >= 0 ? K::ink.withAlpha (0.85f) : K::faint); g.drawText (cc >= 0 ? "CC " + juce::String (cc) : juce::String ("--"), badge, juce::Justification::centred);
-    g.setColour (learn ? K::red.withAlpha (blink ? 0.35f : 0.15f) : glass (0.04f)); g.fillRoundedRectangle (cr, 4);
-    g.setColour (learn ? K::red : glass (0.12f)); g.drawRoundedRectangle (cr, 4, 1.0f);
-    g.setFont (cap (8.0f)); g.setColour (learn ? K::ink : K::sub); g.drawText (learn ? "MUOVI..." : "LEARN", cr, juce::Justification::centred);
-    if (! on) { g.setColour (K::panel1.withAlpha (0.6f)); g.fillRect (b.withTrimmedTop (64).withTrimmedBottom (40)); }
+    lcd (g, ccR, 5);
+    if (flash > 0.02f) { g.setColour (c.withAlpha (0.35f * flash)); g.fillRoundedRectangle (ccR, 5); }
+    glowText (g, cc >= 0 ? "CC " + juce::String (cc) : juce::String ("--"), ccR, cc >= 0 ? c : C::dim, mf (10.0f), juce::Justification::centred);
+    jlook::button (g, learnR, C::red, learn && blink, false, learn ? "MUOVI..." : "LEARN", uf (8.5f));
+}
+void SlotCard::mouseMove (const juce::MouseEvent& e)
+{
+    const bool hand = railR.contains (e.position) || nameR.contains (e.position) || gearR.contains (e.position) || ccR.contains (e.position) || learnR.contains (e.position);
+    setMouseCursor (railR.withTrimmedRight (40).contains (e.position) ? juce::MouseCursor::DraggingHandCursor : hand ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 void SlotCard::mouseDown (const juce::MouseEvent& e)
 {
     auto& P = ed.proc;
-    if (powR.expanded (4).contains (e.position)) { auto* p = P.P (onId (k)); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
-    if (gearR.expanded (3).contains (e.position))
+    if (juce::Rectangle<float> (getWidth() - 40.0f, 0, 40, 34).contains (e.position)) { auto* p = P.P (onId (k)); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
+    if (gearR.contains (e.position))
     {
-        if (pfx::adv (P.slotType (k)).n == 0) return;
+        if (adv (P.slotType (k)).n == 0) return;
         if (ed.advPanel.isVisible() && ed.advPanel.k == k) ed.advPanel.setVisible (false); else ed.advPanel.open (k);
         for (auto* c : ed.cards) c->repaint(); return;
     }
-    if (nameR.contains (e.position) || e.mods.isPopupMenu()) { showMenu(); return; }
-    auto cr = ccR; auto badge = cr.removeFromLeft (cr.getWidth() * 0.5f - 2); cr.removeFromLeft (4);
-    if (cr.contains (e.position)) { P.learnSlot = P.learnSlot.load() == k ? -1 : k; for (auto* c : ed.cards) c->repaint(); return; }
-    if (badge.contains (e.position)) { showMenu(); return; }
-    if (headR.contains (e.position)) { dragging = true; ed.dragFrom = k; }
+    if (nameR.contains (e.position) || e.mods.isPopupMenu() || ccR.contains (e.position)) { showMenu(); return; }
+    if (learnR.contains (e.position)) { P.learnSlot = P.learnSlot.load() == k ? -1 : k; for (auto* c : ed.cards) c->repaint(); return; }
+    if (railR.contains (e.position)) { dragging = true; ed.dragFrom = k; }
 }
 void SlotCard::mouseDrag (const juce::MouseEvent& e)
 {
     if (! dragging) return;
     ed.dragPos = e.getEventRelativeTo (&ed).position / ed.scaler.s;
     for (auto* c : ed.cards) { const bool hot = c != this && c->getBoundsInParent().toFloat().contains (ed.dragPos); if (hot != c->dropHot) { c->dropHot = hot; c->repaint(); } }
-    setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+    ed.repaint();
 }
 void SlotCard::mouseUp (const juce::MouseEvent& e)
 {
-    if (dragging) { dragging = false; setMouseCursor (juce::MouseCursor::NormalCursor); ed.endDrag (e.getEventRelativeTo (&ed).position / ed.scaler.s); }
+    if (dragging) { dragging = false; ed.endDrag (e.getEventRelativeTo (&ed).position / ed.scaler.s); }
 }
 void SlotCard::showMenu()
 {
     auto& P = ed.proc; const int ty = P.slotType (k); const int cc = P.ccMap[k].load();
     juce::PopupMenu m; m.addSectionHeader ("SLOT " + juce::String (k + 1) + (cc >= 0 ? "  -  CC " + juce::String (cc) : juce::String ("  -  nessun CC")));
     std::map<juce::String, juce::PopupMenu> groups; juce::StringArray order;
-    for (int t = 1; t < pfx::kNumTypes; ++t)
+    for (int t = 1; t < kNumTypes; ++t)
     {
-        const juce::String gname (pfx::info (t).group); if (! order.contains (gname)) order.add (gname);
-        groups[gname].addItem (100 + t, juce::String (pfx::info (t).name) + (pfx::info (t).spring ? "   (torna a zero)" : ""), true, t == ty);
+        const juce::String gname (info (t).group); if (! order.contains (gname)) order.add (gname);
+        groups[gname].addItem (100 + t, juce::String (info (t).name) + (info (t).spring ? "   (torna a zero)" : ""), true, t == ty);
     }
     for (auto& gname : order) m.addSubMenu (gname, groups[gname]);
     m.addItem (100, "Vuoto (OFF)", true, ty == 0);
@@ -174,59 +281,13 @@ void SlotCard::tick()
 {
     auto& P = ed.proc;
     if (P.slotType (k) != shownType) refresh();
-    if (knob && knob->animate()) knob->repaint();
-    if (mixK && mixK->animate()) mixK->repaint();
+    const bool on = P.value (onId (k)) > 0.5f;
+    if (knob) knob->refresh (on);
+    mixK->refresh (on);
     const int seen = P.ccSeen[k].load();
     if (seen != lastSeen) { lastSeen = seen; flash = 1.0f; }
-    if (flash > 0.01f || P.learnSlot.load() == k) { flash *= 0.85f; repaint (ccR.expanded (2).toNearestInt()); }
-}
-
-// ======================================================================= display
-void Scope::paint (juce::Graphics& g)
-{
-    auto& P = ed.proc; auto b = getLocalBounds().toFloat();
-    auto p = b.reduced (16, 14).withTrimmedTop (30).withTrimmedBottom (40);
-    // griglia leggera
-    g.setColour (K::hi.withAlpha (0.045f));
-    for (int i = 1; i < 8; ++i) g.fillRect (p.getX() + p.getWidth() * i / 8, p.getY(), 1.0f, p.getHeight());
-    g.fillRect (p.getX(), p.getCentreY(), p.getWidth(), 1.0f);
-    const int Nh = Processor::kHist, w0 = P.hW.load();
-    const float cy = p.getCentreY(), h = p.getHeight() * 0.48f;
-    auto lin = [] (float db) { return juce::jlimit (0.0f, 1.0f, juce::Decibels::decibelsToGain (db)); };
-    auto body = [&] (std::atomic<float>* hist)
-    {
-        juce::Path pt; const int NX = Nh;
-        for (int x = 0; x < NX; ++x) { const float v = lin (hist[(w0 + x) % Nh].load()); const float xx = p.getX() + p.getWidth() * x / (NX - 1); if (x == 0) pt.startNewSubPath (xx, cy - v * h); else pt.lineTo (xx, cy - v * h); }
-        for (int x = NX - 1; x >= 0; --x) { const float v = lin (hist[(w0 + x) % Nh].load()); pt.lineTo (p.getX() + p.getWidth() * x / (NX - 1), cy + v * h); }
-        pt.closeSubPath(); return pt;
-    };
-    const auto pin = body (P.hIn), pout = body (P.hOut);
-    const auto wc = waveCol();
-    g.setColour (wc.withAlpha (light() ? 0.75f : 0.8f)); g.fillPath (pout);
-    g.setColour (K::ink.withAlpha (0.55f)); g.strokePath (pin, juce::PathStrokeType (1.0f));   // contorno: il suono che entra
-    g.setColour (K::ink.withAlpha (0.35f)); g.fillRect (p.getRight() - 1, p.getY(), 1.0f, p.getHeight());
-    // intestazione del display
-    g.setFont (cap (9.0f)); g.setColour (K::sub); g.drawText ("SEGNALE", b.reduced (18, 12).withHeight (16), juce::Justification::centredLeft);
-    g.setFont (f (9.0f)); g.setColour (K::faint);
-    g.drawText (U ("contorno = entra  \xc2\xb7  pieno = esce dagli effetti  \xc2\xb7  ultimi 4 s"), b.reduced (18, 12).withHeight (16).withTrimmedLeft (70), juce::Justification::centredLeft);
-    g.setFont (num (10.0f)); g.setColour (P.uiPlay.load() ? K::mint : K::sub);
-    g.drawText (juce::String (P.uiBpm.load(), 1) + " BPM" + (P.uiPlay.load() ? U ("  \xe2\x96\xb6") : juce::String ("  ||")), b.reduced (18, 12).withHeight (16), juce::Justification::centredRight);
-    // effetti in azione: chip accese per gli slot che stanno lavorando
-    auto row = b.reduced (16, 0).withTrimmedTop (b.getHeight() - 36).withHeight (24);
-    float x = row.getX();
-    for (int k = 0; k < kSlots; ++k)
-    {
-        const int t = P.slotType (k); if (t == pfx::OFF) continue;
-        const float v = P.P (amtId (k))->getValue(), nu = pfx::info (t).neutral;
-        const bool active = P.value (onId (k)) > 0.5f && std::abs (v - nu) > 0.02f && t != pfx::SCRATCHHAND;
-        const juce::String s = juce::String (k + 1) + " " + pfx::info (t).name;
-        const float wch = juce::GlyphArrangement::getStringWidth (cap (8.0f), s) + 18;
-        auto r = juce::Rectangle<float> (x, row.getY(), wch, row.getHeight()); x += wch + 6;
-        const auto c = groupCol (t);
-        g.setColour (active ? c.withAlpha (0.22f) : glass (0.03f)); g.fillPath (chamfer (r, 5));
-        g.setColour (active ? c : glass (0.1f)); g.strokePath (chamfer (r, 5), juce::PathStrokeType (1.0f));
-        g.setFont (cap (8.0f)); g.setColour (active ? K::ink : K::faint); g.drawText (s, r, juce::Justification::centred);
-    }
+    if (flash > 0.01f || P.learnSlot.load() == k) { flash *= 0.85f; repaint (ccR.getUnion (learnR).expanded (2).toNearestInt()); }
+    if (base.key != key()) repaint();
 }
 
 // ======================================================================= pannello avanzato
@@ -234,49 +295,38 @@ void AdvPanel::open (int kk)
 {
     k = kk; shownType = ed.proc.slotType (k); verbZone = -1;
     knobs.clear();
-    const auto& sp = pfx::adv (shownType); const auto c = groupCol (shownType);
+    const auto& sp = adv (shownType); const auto c = groupCol (shownType);
     for (int i = 0; i < sp.n; ++i)
     {
         auto* pr = ed.proc.P (advId (k, i)); const int t = shownType;
-        auto* kn = knobs.add (new neo::Knob (pr, sp.name[i], c, c.interpolatedWith (juce::Colours::white, 0.35f)));
-        kn->text = [pr, t, i] { return pfx::advText (t, i, pr->getValue()); };
-        kn->defV = sp.def[i];
+        auto kn = std::make_unique<Knob> (pr);
+        kn->spec.label = sp.name[i]; kn->spec.col = c; kn->spec.style = 1; kn->defV = sp.def[i];
+        kn->text = [pr, t, i] { return advText (t, i, pr->getValue()); };
         kn->setTooltip ("Doppio clic = valore base dell'effetto. Shift mentre trascini = movimento fine.");
-        addAndMakeVisible (kn);
+        addAndMakeVisible (*kn); knobs.push_back (std::move (kn));
     }
-    resized(); setVisible (true); repaint();
+    resized(); setVisible (true); toFront (false); repaint();
 }
 void AdvPanel::resized()
 {
     auto b = getLocalBounds().toFloat();
-    closeR = { b.getRight() - 46, 14, 30, 24 }; resetR = { b.getRight() - 160, 14, 106, 24 };
-    const int n = knobs.size(); if (n == 0) return;
-    if (n <= 6)
-    {
-        const int S = 76, w = S + 22, gap = 34, tot = n * w + (n - 1) * gap, x0 = (int) b.getCentreX() - tot / 2;
-        for (int i = 0; i < n; ++i) knobs[i]->setBounds (juce::Rectangle<int> (x0 + i * (w + gap), 76, w, S + 38).expanded (Knob::pad));
-        return;
-    }
-    // tanti parametri (riverbero, delay): due file da 5
-    const int per = (n + 1) / 2, S = 46, w = S + 50, gap = 30, tot = per * w + (per - 1) * gap, x0 = (int) b.getCentreX() - tot / 2;
-    for (int i = 0; i < n; ++i)
-    {
-        const int row = i / per, col = i % per;
-        knobs[i]->setBounds (juce::Rectangle<int> (x0 + col * (w + gap), 44 + row * 92, w, S + 38).expanded (Knob::pad));
-    }
+    closeR = { b.getRight() - 52, 6, 36, 22 }; resetR = { b.getRight() - 172, 6, 112, 22 };
+    const int n = (int) knobs.size(); if (n == 0) return;
+    const int per = n <= 6 ? n : (n + 1) / 2, rows = n <= 6 ? 1 : 2;
+    const float kw = n <= 6 ? 120.0f : 96.0f, kh = n <= 6 ? 150.0f : 108.0f, gap = n <= 6 ? 26.0f : 18.0f;
+    const float tot = per * kw + (per - 1) * gap, x0 = b.getCentreX() - tot / 2, y0 = rows == 1 ? 70.0f : 46.0f;
+    for (int i = 0; i < n; ++i) { const int r = i / per, c = i % per; knobs[(size_t) i]->setBounds (juce::Rectangle<float> (x0 + c * (kw + gap), y0 + r * (kh + 6), kw, kh).toNearestInt()); }
 }
 void AdvPanel::paint (juce::Graphics& g)
 {
     if (k < 0) return;
     auto b = getLocalBounds().toFloat(); const int t = ed.proc.slotType (k); const auto c = groupCol (t);
-    panel (g, b, c, 16);
-    g.setFont (cap (9.0f)); g.setColour (c); g.drawText ("AVANZATO", juce::Rectangle<float> (20, 14, 90, 24), juce::Justification::centredLeft);
-    g.setFont (f (14.0f, 1)); g.setColour (K::ink);
-    g.drawText ("SLOT " + juce::String (k + 1) + U ("  \xc2\xb7  ") + pfx::info (t).name, juce::Rectangle<float> (104, 14, 400, 24), juce::Justification::centredLeft);
-    g.setFont (f (9.0f)); g.setColour (K::faint);
-    if (knobs.size() <= 6) g.drawText (U ("solo con il mouse  \xc2\xb7  la manopola del controller resta quella grande  \xc2\xb7  doppio clic = valore base"), juce::Rectangle<float> (20, b.getBottom() - 30, b.getWidth() - 40, 16), juce::Justification::centredLeft);
-    chip (g, resetR, "RIPRISTINA", false, K::amber, 8.0f);
-    chip (g, closeR, U ("\xc3\x97"), false, K::pink, 11.0f);
+    hw::faceplate (g, b, plate1 (t), plate2 (t), c, 32, 60 + k, 14);
+    g.setColour (C::text); g.setFont (uf (12.0f)); g.drawText ("AVANZATO  " + juce::String (k + 1).paddedLeft ('0', 2) + U ("  \xc2\xb7  ") + info (t).name, juce::Rectangle<float> (16, 4, 400, 26), juce::Justification::centredLeft);
+    g.setColour (C::dim); g.setFont (uf (9.0f, false));
+    g.drawText (U ("solo con il mouse  \xc2\xb7  la manopola del controller resta quella grande  \xc2\xb7  doppio clic = valore base"), juce::Rectangle<float> (30, b.getBottom() - 24, b.getWidth() - 60, 16), juce::Justification::centredLeft);
+    jlook::button (g, resetR, C::amber, false, false, "RIPRISTINA", uf (9.0f));
+    jlook::button (g, closeR, C::pink, false, false, U ("\xc3\x97"), uf (13.0f));
 }
 void AdvPanel::mouseDown (const juce::MouseEvent& e)
 {
@@ -286,168 +336,196 @@ void AdvPanel::mouseDown (const juce::MouseEvent& e)
 void AdvPanel::tick()
 {
     if (! isVisible() || k < 0) return;
-    if (ed.proc.slotType (k) != shownType) { if (pfx::adv (ed.proc.slotType (k)).n == 0) setVisible (false); else open (k); return; }
-    if (shownType == pfx::REVERB)
+    if (ed.proc.slotType (k) != shownType) { if (adv (ed.proc.slotType (k)).n == 0) setVisible (false); else open (k); return; }
+    if (shownType == REVERB)
     {   // cambiando TIPO il tempo e il pre-delay vanno a quelli tipici del tipo (poi si regolano a piacere)
-        const int z = pfx::zoneOf (ed.proc.P (advId (k, 0))->getValue(), pfx::Verb::kTypes);
+        const int z = zoneOf (ed.proc.P (advId (k, 0))->getValue(), Verb::kTypes);
         if (verbZone >= 0 && z != verbZone)
         {
-            float dec, pre; pfx::Verb::typeDefaults (z, dec, pre);
+            float dec, pre; Verb::typeDefaults (z, dec, pre);
             ed.proc.setAdv (k, 1, (float) (std::log (dec / 0.2) / std::log (100.0))); ed.proc.setAdv (k, 2, pre / 250.0f);
         }
         verbZone = z;
     }
-    bool any = false; for (auto* kn : knobs) if (kn->animate()) { kn->repaint(); any = true; }
-    if (any && k >= 0) ed.cards[k]->repaint (ed.cards[k]->gearR.expanded (4).toNearestInt());
+    for (auto& kn : knobs) kn->refresh (true);
 }
 
 // ======================================================================= editor
 Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
 {
-    skin::init ("fx", { 0xffe58aa0, 0xffb9a6e0, 0xffe9a260, 0xffa8bea0 }, 0xffff2e88);
-    skin::useTheme (proc.uiTheme.load());
+    skin::init ("fx", { 0xffe58aa0, 0xffb9a6e0, 0xffe9a260, 0xffa8bea0 }, 0xffff2e88); C::sync();
+    setLookAndFeel (&lnf);
     addAndMakeVisible (scope);
-    addChildComponent (advPanel);
     for (int k = 0; k < kSlots; ++k) addAndMakeVisible (cards.add (new SlotCard (*this, k)));
-    mixK = std::make_unique<neo::Knob> (proc.P ("mix"), "MIX", K::cyan, K::violet); mixK->text = [this] { return juce::String (juce::roundToInt (proc.value ("mix") * 100)) + "%"; };
-    mixK->setTooltip ("Quanto degli effetti si sente: 100% tutto, 0% suono pulito.");
-    outK = std::make_unique<neo::Knob> (proc.P ("out"), "OUTPUT", K::mint, K::cyan); outK->bipolar = true; outK->text = [this] { const float v = proc.value ("out"); return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; };
+    addChildComponent (advPanel);
+    mixK = std::make_unique<Knob> (proc.P ("mix")); mixK->spec.label = "MIX"; mixK->spec.style = 1; mixK->spec.col = C::pink; mixK->defV = 1.0f;
+    mixK->text = [this] { return juce::String (juce::roundToInt (proc.value ("mix") * 100)) + "%"; };
+    outK = std::make_unique<Knob> (proc.P ("out")); outK->spec.label = "OUTPUT"; outK->spec.style = 1; outK->spec.col = C::pink; outK->spec.bipolar = true;
+    outK->text = [this] { const float v = proc.value ("out"); return (v > 0.05f ? "+" : "") + juce::String (v, 1) + " dB"; };
     addAndMakeVisible (*mixK); addAndMakeVisible (*outK);
     addAndMakeVisible (sizeChip);
+    setupBrowser();
     scaler.setup();
     startTimerHz (30);
 }
 void Editor::resized()
 {
     const float s = scaler.update();
-    presetR = { 470, 16, 300, 34 }; prevR = { 436, 16, 30, 34 }; nextR = { 774, 16, 30, 34 };
-    themeR = { 330, 18, 88, 30 }; saveR = { 812, 18, 74, 30 }; resetR = { 892, 18, 86, 30 }; bypR = { 984, 18, 92, 30 }; ctrlR = { 1082, 18, 96, 30 }; menuR = presetR;
-    scope.setBounds (24, 80, 872, 252); advPanel.setBounds (24, 80, 872, 252);
-    const int S = 72;
-    mixK->setBounds (juce::Rectangle<int> (934, 110, S + 16, S + 38).expanded (Knob::pad));
-    outK->setBounds (juce::Rectangle<int> (1050, 110, S + 16, S + 38).expanded (Knob::pad));
-    const float cw = (W - 48 - 7 * 8) / (float) kSlots;
-    for (int k = 0; k < kSlots; ++k) cards[k]->setBounds (juce::Rectangle<float> (24 + k * (cw + 8), 350, cw, 344).toNearestInt());
-    sizeChip.setBounds (W - 76, H - 18, 58, 15);
-    bg = {};
+    presetR = { 372, 15, 330, 36 }; prevR = { 334, 15, 36, 36 }; nextR = { 704, 15, 36, 36 };
+    resetR = { 752, 15, 100, 36 }; bypR = { 858, 15, 100, 36 }; ctrlR = { 964, 15, 100, 36 }; themeR = { 1078, 19, 100, 28 };
+    const auto sc = scopeCard(); scope.setBounds (juce::Rectangle<float> (sc.getX() + 16, sc.getY() + 42, sc.getWidth() - 32, sc.getHeight() - 56).toNearestInt());
+    advPanel.setBounds (sc.toNearestInt());
+    const auto oc = outCard();
+    mixK->setBounds (juce::Rectangle<float> (oc.getX() + 24, oc.getY() + 44, 104, 130).toNearestInt());
+    outK->setBounds (juce::Rectangle<float> (oc.getRight() - 128, oc.getY() + 44, 104, 130).toNearestInt());
+    for (int k = 0; k < kSlots; ++k) cards[k]->setBounds (card (k).toNearestInt());
+    sizeChip.setBounds (W - 76, H - 16, 58, 14);
+    browser.setBounds (0, 0, W, H);
     jlook::scaleChildren (*this, s);
+}
+juce::String Editor::staticKey()
+{
+    juce::String k; k << skin::cur() << "/" << proc.presetName << "/" << (int) (proc.value ("bypass") > 0.5f) << "/" << (int) proc.ctrlOn.load() << "/" << hoverBtn;
+    return k;
 }
 void Editor::paintStatic (juce::Graphics& g)
 {
     const float Wf = (float) W, Hf = (float) H;
-    if (skinned()) { neo::cyberBackdrop (g, Wf, Hf); neo::cyberHeader (g, Wf, 64, "FX", juce::String::fromUTF8 ("PERFORMANCE RACK  \xc2\xb7  8 SLOT")); }
-    else
+    jlook::backdrop (g, { 0, 0, Wf, Hf }, C::pink, C::violet);
+    jlook::header (g, { 0, 0, Wf, 64 }, "FX", C::pink, "JFX-8  PERFORMANCE RACK / 8 SLOT / CONTROLLER", C::violet, C::pink);
+    lcd (g, presetR.toFloat(), 8); jlook::glass (g, presetR.toFloat(), 8);
     {
-    juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, Hf, false); g.setGradientFill (base); g.fillAll();
-    juce::Image au (juce::Image::ARGB, W / 8, H / 8, true);
-    { juce::Graphics ag (au); ag.addTransform (juce::AffineTransform::scale (1.0f / 8)); const float la = light() ? 0.35f : 0.6f;
-      auto blob = [&ag] (float x, float y, float rx, float ry, juce::Colour c, float a) { ag.setColour (c.withAlpha (a)); ag.fillEllipse (x - rx, y - ry, rx * 2, ry * 2); };
-      blob (250, 200, 360, 150, K::violet, 0.24f * la); blob (900, 160, 320, 140, K::pink, 0.14f * la); blob (600, 620, 640, 140, K::violet, 0.12f * la); }
-    blur (au, 10, 3); g.drawImage (au, juce::Rectangle<float> (0, 0, Wf, Hf));
-    juce::Random rnd (11); for (int i = 0; i < 9000; ++i) { g.setColour (K::hi.withAlpha (rnd.nextFloat() * 0.025f)); g.fillRect (rnd.nextFloat() * Wf, rnd.nextFloat() * Hf, 1.0f, 1.0f); }
-    // testata: anello del logo come nel Master
-    { juce::Path ring; ring.addCentredArc (38, 32, 12, 12, 0, 0.5f, 6.2832f - 0.2f, true); juce::ColourGradient lg (K::pink, 26, 44, K::cyan, 50, 20, false);
-      g.setGradientFill (lg); g.setOpacity (0.25f); g.strokePath (ring, juce::PathStrokeType (7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); g.setOpacity (1.0f);
-      g.strokePath (ring, juce::PathStrokeType (2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); g.fillEllipse (34, 28, 8, 8); }
-    g.setFont (num (15.0f)); g.setColour (K::ink); g.drawText ("JACKPOT", juce::Rectangle<float> (62, 15, 100, 20), juce::Justification::centredLeft);
-    g.setFont (big (15.0f)); g.setColour (K::sub); g.drawText ("FX", juce::Rectangle<float> (139, 15, 60, 20), juce::Justification::centredLeft);
-    g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (U ("PERFORMANCE RACK  \xc2\xb7  8 SLOT"), juce::Rectangle<float> (62, 35, 260, 12), juce::Justification::centredLeft);
+        const bool grp = proc.presetName.contains (" | ");
+        const auto nm = grp ? proc.presetName.fromFirstOccurrenceOf (" | ", false, false) : proc.presetName;
+        const auto gr = grp ? proc.presetName.upToFirstOccurrenceOf (" | ", false, false) : juce::String ("I MIEI");
+        auto pr = presetR.toFloat();
+        g.setColour (C::dim); g.setFont (uf (7.5f)); g.drawText (gr, pr.withWidth (70).translated (12, 0), juce::Justification::centredLeft);
+        glowText (g, nm.toUpperCase(), pr, C::pink, mf (12.5f), juce::Justification::centred);
     }
-    // pannelli fissi
-    panel (g, { 24, 80, 872, 252 }, waveCol(), 16, 1.0f, true);
-    panel (g, { 912, 80, 264, 252 }, K::violet, 16);
-    g.setFont (cap (9.0f)); g.setColour (K::sub); g.drawText ("USCITA", juce::Rectangle<float> (930, 90, 100, 16), juce::Justification::centredLeft);
-    // frecce della catena fra le schede
-    const float cw = (W - 48 - 7 * 8) / (float) kSlots;
-    for (int k = 0; k < kSlots - 1; ++k)
+    g.setColour (C::pink); g.setFont (uf (20.0f));
+    g.drawText (U ("\xe2\x80\xb9"), prevR, juce::Justification::centred); g.drawText (U ("\xe2\x80\xba"), nextR, juce::Justification::centred);
+    jlook::button (g, resetR.toFloat(), C::amber, false, hoverBtn == 0, "AZZERA", uf (11.0f));
+    jlook::button (g, bypR.toFloat(), C::red, proc.value ("bypass") > 0.5f, hoverBtn == 1, "BYPASS", uf (11.0f));
+    jlook::button (g, ctrlR.toFloat(), C::mint, proc.ctrlOn.load(), hoverBtn == 2, proc.ctrlOn.load() ? "MIDI ON" : "MIDI OFF", uf (11.0f));
+    skin::chipDraw (g, themeR.toFloat(), hoverBtn == 3);
+    // display
     {
-        const float x = 24 + (k + 1) * (cw + 8) - 4, y = 350 + 150;
-        juce::Path a; a.addTriangle (x - 3, y - 5, x - 3, y + 5, x + 4, y); g.setColour (K::sub.withAlpha (0.7f)); g.fillPath (a);
+        const auto sc = scopeCard();
+        hw::faceplate (g, sc, juce::Colour (0xff24222b), juce::Colour (0xff111015), C::pink, 30, 3, 12);
+        g.setColour (C::text); g.setFont (uf (12.0f)); g.drawText ("SEGNALE", juce::Rectangle<float> (sc.getX() + 16, sc.getY() + 4, 100, 24), juce::Justification::centredLeft);
+        g.setColour (C::dim); g.setFont (uf (9.0f, false));
+        g.drawText (U ("scuro = entra  \xc2\xb7  colore = esce dagli effetti  \xc2\xb7  sotto: dove ha lavorato ogni slot"), juce::Rectangle<float> (sc.getX() + 96, sc.getY() + 4, 520, 24), juce::Justification::centredLeft);
+        hw::bezel (g, juce::Rectangle<float> (sc.getX() + 16, sc.getY() + 42, sc.getWidth() - 32, sc.getHeight() - 56), 8);
     }
-    g.setFont (f (9.0f)); g.setColour (K::faint);
-    g.drawText (U ("il suono passa da 1 a 8  \xc2\xb7  trascina una scheda dal numero per cambiare l'ordine  \xc2\xb7  clic sul nome = scegli l'effetto  \xc2\xb7  doppio clic sulla manopola = neutro  \xc2\xb7  ingranaggio = parametri avanzati"),
-                juce::Rectangle<float> (24, 706, 1100, 16), juce::Justification::centredLeft);
+    // uscita
+    {
+        const auto oc = outCard();
+        hw::faceplate (g, oc, juce::Colour (0xff2a2a2e), juce::Colour (0xff121214), C::pink, 30, 23, 12);
+        g.setColour (C::text); g.setFont (uf (12.0f)); g.drawText ("USCITA", juce::Rectangle<float> (oc.getX() + 16, oc.getY() + 4, 150, 24), juce::Justification::centredLeft);
+        for (int i = 0; i < 2; ++i) { auto mr = juce::Rectangle<float> (oc.getX() + 22, oc.getY() + 196 + i * 34.0f, oc.getWidth() - 44, 20); lcd (g, mr, 4); g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText (i ? "OUT" : "IN", mr.translated (0, -11).withHeight (10), juce::Justification::centredLeft); }
+    }
+    g.setColour (C::dim); g.setFont (uf (9.0f, false));
+    g.drawText (U ("il suono passa da 1 a 8  \xc2\xb7  trascina la testata di uno slot per cambiare l'ordine  \xc2\xb7  clic sul nome = scegli l'effetto  \xc2\xb7  doppio clic sulla manopola = neutro  \xc2\xb7  ingranaggio = avanzati"),
+                juce::Rectangle<float> (20, Hf - 26, 1060, 16), juce::Justification::centredLeft);
 }
 void Editor::paint (juce::Graphics& g)
 {
-    skin::useTheme (proc.uiTheme.load());
+    skin::apply(); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
-    const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
-    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgTheme != K::theme)
+    bg.draw (g, { 0, 0, W, H }, staticKey(), [this] (juce::Graphics& g2) { paintStatic (g2); });
+    // misuratori
+    const auto oc = outCard();
+    for (int i = 0; i < 2; ++i)
     {
-        bgScale = sc; bgTheme = K::theme; bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false);
-        juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig);
+        auto mr = juce::Rectangle<float> (oc.getX() + 22, oc.getY() + 196 + i * 34.0f, oc.getWidth() - 44, 20).reduced (4, 4);
+        for (int c = 0; c < 2; ++c)
+        {
+            auto m = mr.withHeight (mr.getHeight() / 2 - 1).translated (0, c * mr.getHeight() / 2);
+            const float v = i ? proc.pkOut[c].load() : proc.pkIn[c].load(), dbv = juce::Decibels::gainToDecibels (v, -100.0f), n = juce::jlimit (0.0f, 1.0f, (dbv + 60) / 63);
+            for (int q = 0; q < 36; ++q) { const float t2 = q / 36.0f; g.setColour (t2 <= n ? (t2 > 0.93f ? C::red : t2 > 0.8f ? C::amber : C::mint) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (m.getX() + q * m.getWidth() / 36, m.getY(), m.getWidth() / 36 - 1.2f, m.getHeight()); }
+        }
     }
-    { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.drawImageAt (bg, 0, 0); g.restoreState(); }
-    // preset
-    chip (g, themeR.toFloat(), skin::label (proc.uiTheme.load()), false, K::sub, 8.5f);
-    { auto pr = presetR.toFloat(); g.setColour (veil (0.3f)); g.fillPath (chamfer (pr, 8)); g.setColour (K::hi.withAlpha (0.1f)); g.strokePath (chamfer (pr, 8), juce::PathStrokeType (1.0f));
-      g.setFont (cap (7.0f)); g.setColour (K::faint); g.drawText ("PRESET", pr.withHeight (12).translated (0, 2), juce::Justification::centred);
-      g.setFont (f (13.0f, 1)); g.setColour (K::ink); g.drawFittedText (proc.presetName, pr.withTrimmedTop (11).toNearestInt(), juce::Justification::centred, 1, 0.7f);
-      g.setFont (f (18.0f)); g.setColour (K::sub); g.drawText (U ("\xe2\x80\xb9"), prevR, juce::Justification::centred); g.drawText (U ("\xe2\x80\xba"), nextR, juce::Justification::centred); }
-    chip (g, saveR.toFloat(), "SALVA", false, K::pink, 8.5f);
-    chip (g, resetR.toFloat(), "AZZERA", false, K::amber, 8.5f);
-    chip (g, bypR.toFloat(), "BYPASS", proc.value ("bypass") > 0.5f, K::red, 8.5f);
-    chip (g, ctrlR.toFloat(), proc.ctrlOn.load() ? "MIDI ON" : "MIDI OFF", proc.ctrlOn.load(), K::mint, 8.5f);
-    // meter d'uscita
-    for (int c = 0; c < 2; ++c)
-    {
-        auto r = juce::Rectangle<float> (934, 262 + c * 14.0f, 222, 6);
-        g.setColour (glass (0.06f)); g.fillRect (r);
-        const float db = juce::Decibels::gainToDecibels (proc.pkOut[c].load(), -48.0f), t = juce::jlimit (0.0f, 1.0f, (db + 48.0f) / 48.0f);
-        g.setColour (db > -0.5f ? K::red : waveCol()); g.fillRoundedRectangle (r.withWidth (r.getWidth() * t), 3);
-        g.setFont (cap (7.0f)); g.setColour (K::faint); g.drawText (c ? "R" : "L", juce::Rectangle<float> (922, r.getY() - 3, 10, 12), juce::Justification::centredLeft);
-    }
-    g.setFont (num (9.0f)); g.setColour (K::sub);
-    g.drawText ("OUT " + juce::String (juce::Decibels::gainToDecibels (juce::jmax (proc.pkOut[0].load(), proc.pkOut[1].load()), -60.0f), 1) + " dB", juce::Rectangle<float> (934, 292, 222, 14), juce::Justification::centredRight);
+    g.setColour (proc.uiPlay.load() ? C::mint : C::dim); g.setFont (mf (9.5f));
+    g.drawText (juce::String (proc.uiBpm.load(), 1) + " BPM" + (proc.uiPlay.load() ? U ("  \xe2\x96\xb6") : juce::String ("  ||")), juce::Rectangle<float> (oc.getX() + 16, oc.getBottom() - 30, oc.getWidth() - 32, 16), juce::Justification::centredRight);
     // scheda trascinata
     if (dragFrom >= 0)
     {
-        auto r = juce::Rectangle<float> (dragPos.x - 50, dragPos.y - 14, 100, 28);
-        g.setColour (K::cyan.withAlpha (0.25f)); g.fillPath (chamfer (r, 6)); g.setColour (K::cyan); g.strokePath (chamfer (r, 6), juce::PathStrokeType (1.2f));
-        g.setFont (cap (9.0f)); g.setColour (K::ink); g.drawText (juce::String (dragFrom + 1) + " " + pfx::info (proc.slotType (dragFrom)).name, r, juce::Justification::centred);
+        auto r = juce::Rectangle<float> (dragPos.x - 60, dragPos.y - 14, 120, 28);
+        lcd (g, r, 6); g.setColour (C::cyan); g.drawRoundedRectangle (r, 6, 1.2f);
+        glowText (g, juce::String (dragFrom + 1) + " " + info (proc.slotType (dragFrom)).name, r, C::cyan, uf (10.0f), juce::Justification::centred);
     }
+}
+void Editor::mouseMove (const juce::MouseEvent& e0)
+{
+    const auto p = (e0.position / scaler.s).toInt();
+    const int h = resetR.contains (p) ? 0 : bypR.contains (p) ? 1 : ctrlR.contains (p) ? 2 : themeR.contains (p) ? 3 : -1;
+    if (h != hoverBtn) { hoverBtn = h; repaint(); }
+    setMouseCursor (h >= 0 || presetR.contains (p) || prevR.contains (p) || nextR.contains (p) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
-    const auto p = e0.position / scaler.s;
+    const auto p = (e0.position / scaler.s).toInt();
     const int n = (int) factoryPresets().size();
     auto curF = [this, n] { for (int i = 0; i < n; ++i) if (proc.presetName == factoryPresets()[(size_t) i].name) return i; return -1; };
-    if (prevR.toFloat().contains (p)) { proc.loadFactory ((curF() + n - 1) % n); for (auto* c : cards) c->refresh(); repaint(); return; }
-    if (nextR.toFloat().contains (p)) { proc.loadFactory ((curF() + 1) % n); for (auto* c : cards) c->refresh(); repaint(); return; }
-    if (presetR.toFloat().contains (p)) { presetMenu(); return; }
-    if (themeR.toFloat().contains (p)) { proc.uiTheme = skin::nextIn (proc.uiTheme.load(), { 1, 2, 9, 10 }); bg = {}; for (auto* c : cards) c->repaint(); advPanel.repaint(); repaint(); return; }
-    if (resetR.toFloat().contains (p)) { proc.resetAmounts(); repaint(); return; }
-    if (ctrlR.toFloat().contains (p)) { proc.ctrlOn = ! proc.ctrlOn.load(); repaint(); return; }
-    if (bypR.toFloat().contains (p)) { auto* b = proc.P ("bypass"); b->setValueNotifyingHost (b->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
-    if (saveR.toFloat().contains (p))
-    {
-        chooser = std::make_unique<juce::FileChooser> ("Salva il preset", Processor::presetFolder().getChildFile (proc.presetName + ".jfx"), "*.jfx");
-        juce::Component::SafePointer<Editor> sp (this);
-        chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting, [sp] (const juce::FileChooser& c)
-        { if (sp == nullptr) return; auto f = c.getResult(); if (f != juce::File()) { sp->proc.savePreset (f.withFileExtension ("jfx")); sp->repaint(); } });
-    }
+    if (themeR.contains (p)) { skin::cycle(); C::sync(); for (auto* c : cards) c->repaint(); advPanel.repaint(); repaint(); return; }
+    if (prevR.contains (p)) { proc.loadFactory ((juce::jmax (0, curF()) + n - 1) % n); refreshCards(); repaint(); return; }
+    if (nextR.contains (p)) { proc.loadFactory ((curF() + 1) % n); refreshCards(); repaint(); return; }
+    if (presetR.contains (p)) { browser.open(); return; }
+    if (resetR.contains (p)) { proc.resetAmounts(); repaint(); return; }
+    if (ctrlR.contains (p)) { proc.ctrlOn = ! proc.ctrlOn.load(); repaint(); return; }
+    if (bypR.contains (p)) { auto* b = proc.P ("bypass"); b->setValueNotifyingHost (b->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
 }
-void Editor::presetMenu()
+void Editor::setupBrowser()
 {
-    juce::PopupMenu m, fac, mine; const auto& fp = factoryPresets();
-    for (int i = 0; i < (int) fp.size(); ++i) fac.addItem (1 + i, fp[(size_t) i].name, true, proc.presetName == fp[(size_t) i].name);
-    m.addSectionHeader ("PRESET");
-    m.addSubMenu ("Di fabbrica", fac);
-    auto files = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jfx");
-    files.sort();
-    for (int i = 0; i < files.size(); ++i) mine.addItem (1000 + i, files[i].getFileNameWithoutExtension(), true, proc.presetName == files[i].getFileNameWithoutExtension());
-    m.addSubMenu ("I miei", mine, files.size() > 0);
-    m.addSeparator(); m.addItem (2000, "Apri la cartella dei preset");
-    juce::Component::SafePointer<Editor> sp (this);
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (presetR))), [sp, files] (int r)
+    addChildComponent (browser);
+    browser.accent = C::pink; browser.title = "Preset";
+    auto userFiles = [] { auto f = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jfx"); f.sort(); return f; };
+    browser.entries = [userFiles]
     {
-        if (sp == nullptr || r <= 0) return;
-        if (r < 1000) sp->proc.loadFactory (r - 1);
-        else if (r < 2000) sp->proc.loadPreset (files[r - 1000]);
-        else Processor::presetFolder().revealToUser();
-        for (auto* c : sp->cards) c->refresh(); sp->repaint();
-    });
+        std::vector<jbrowse::Entry> v;
+        for (int i = 0; i < (int) factoryPresets().size(); ++i)
+        {
+            const juce::String nm (factoryPresets()[(size_t) i].name);
+            jbrowse::Entry e; e.id = i; e.note = factoryPresets()[(size_t) i].note;
+            e.group = nm.upToFirstOccurrenceOf (" | ", false, false); e.name = nm.fromFirstOccurrenceOf (" | ", false, false);
+            v.push_back (e);
+        }
+        const auto fs = userFiles();
+        for (int i = 0; i < fs.size(); ++i) { jbrowse::Entry e; e.id = 100000 + i; e.user = true; e.group = "I MIEI"; e.name = fs[i].getFileNameWithoutExtension(); e.note = "Preset tuo, salvato in Musica / Jackpot / FX Preset."; v.push_back (e); }
+        return v;
+    };
+    browser.current = [this, userFiles]
+    {
+        for (int i = 0; i < (int) factoryPresets().size(); ++i) if (proc.presetName == factoryPresets()[(size_t) i].name) return i;
+        const auto fs = userFiles(); for (int i = 0; i < fs.size(); ++i) if (fs[i].getFileNameWithoutExtension() == proc.presetName) return 100000 + i;
+        return -1;
+    };
+    browser.load = [this] (const jbrowse::Entry& e)
+    {
+        if (e.user) proc.loadPreset (Processor::presetFolder().getChildFile (e.name + ".jfx")); else proc.loadFactory (e.id);
+        refreshCards(); repaint();
+    };
+    browser.save = [this] { askPresetName(); };
+    browser.canOverwrite = [this] { return Processor::presetFolder().getChildFile (proc.presetName + ".jfx").existsAsFile(); };
+    browser.overwrite = [this] { proc.savePreset (Processor::presetFolder().getChildFile (proc.presetName + ".jfx")); repaint(); };
+    browser.folder = [] { Processor::presetFolder().startAsProcess(); };
+    browser.remove = [this] (const jbrowse::Entry& e) { Processor::presetFolder().getChildFile (e.name + ".jfx").moveToTrash(); repaint(); };
+    browser.onClose = [this] { repaint(); };
+}
+void Editor::askPresetName()
+{
+    auto* w = new juce::AlertWindow ("Salva preset", "Nome del preset (finisce in Musica / Jackpot / FX Preset):", juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", proc.presetName.replace (" | ", " - "));
+    w->addButton ("SALVA", 1, juce::KeyPress (juce::KeyPress::returnKey)); w->addButton ("ANNULLA", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<Editor> sp (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([sp, w] (int r)
+    {
+        if (sp != nullptr && r == 1)
+        {
+            const auto nm = juce::File::createLegalFileName (w->getTextEditorContents ("name").trim());
+            if (nm.isNotEmpty()) { sp->proc.savePreset (Processor::presetFolder().getChildFile (nm + ".jfx")); sp->browser.refresh(); sp->repaint(); }
+        }
+    }), true);
 }
 void Editor::endDrag (juce::Point<float> pos)
 {
@@ -458,12 +536,13 @@ void Editor::endDrag (juce::Point<float> pos)
 }
 void Editor::timerCallback()
 {
+    if (browser.isVisible()) return;
     if (! advPanel.isVisible()) scope.repaint();
     advPanel.tick();
     for (auto* c : cards) c->tick();
-    for (auto* k : { mixK.get(), outK.get() }) if (k->animate()) k->repaint();
-    repaint (scaler.map ({ 912, 250, 264, 70 }));
-    repaint (scaler.map ({ 430, 10, 760, 46 }));
+    mixK->refresh (true); outK->refresh (true);
+    if (bg.key != staticKey()) repaint();
+    repaint (scaler.map (outCard().toNearestInt().withTrimmedTop (180)));
     if (dragFrom >= 0) repaint();
 }
 }

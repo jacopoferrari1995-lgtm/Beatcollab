@@ -2,6 +2,7 @@
 // Effetti da performance: 8 slot, in ogni slot un effetto a scelta, una manopola sola (0..1).
 // Lo stesso codice serve al Sampler e servira' al plugin Jackpot FX: e' il "motore" degli effetti.
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_dsp/juce_dsp.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <cmath>
 #include "FxSamplesData.h"
@@ -174,6 +175,25 @@ inline juce::String advText (int t, int i, float v)
     }
 }
 
+// tanh con antiderivata (ADAA di primo ordine): stessa curva, molto meno sporco ripiegato a 1x
+struct AdTanh
+{
+    double x1 = 0; bool init = false;
+    static double lc (double v) { const double a = std::abs (v); return a + std::log1p (std::exp (-2.0 * a)) - 0.6931471805599453; }
+    float run (float x)
+    {
+        if (! init) { init = true; x1 = x; return std::tanh (x); }
+        const double d = (double) x - x1; float y;
+        y = std::abs (d) > 1e-5 ? (float) ((lc (x) - lc (x1)) / d) : std::tanh ((float) (0.5 * (x + x1)));
+        x1 = x; return y;
+    }
+};
+// le manopole degli effetti continui scivolano (circa 10 ms): niente click quando un CC o l'automazione salta
+inline bool smoothAmt (int t)
+{
+    switch (t) { case CRUSH: case LOFI: case TAPE: case VINYL: case FLANGER: case PHASER: case CHORUS: case DIMENSION: case PITCH: case PUMP: case AUTOPAN: case WIDE: return true; default: return false; }
+}
+
 // ritardo modulabile, piccolo (fino a ~60 ms)
 struct ModDelay
 {
@@ -199,6 +219,7 @@ public:
         dly.setSize (2, (int) (sr * 2)); dly.clear(); dw = 0;
         md.prepare (sr);
         verb.prepare (sr);
+        for (auto* o : { &os4, &os4L }) { *o = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false); (*o)->initProcessing ((size_t) kChunk); }
         reset();
     }
     void reset()
@@ -206,7 +227,8 @@ public:
         stOn = stuOn = scOn = false; stX = stuX = scX = 0; stSpeed = 1; scV = -1; glX = 0;
         for (int c = 0; c < 2; ++c) { ic1[c] = ic2[c] = ic3[c] = ic4[c] = rvLc[c] = rvHc[c] = 0; lfHold[c] = lfLp[c] = 0; tLp[c] = 0; vLp[c] = 0; for (auto& a : ap[c]) a = 0; dlLp[c] = 0; phFb[c] = 0; }
         dlHp[0] = dlHp[1] = 0; wdLp = vnLp = vnHp = crEnv = crLp = 0; wowPh = fltPh = 0; verb.reset();
-        djMode = 0; fxG = 1; amtS = -1; phLfo = 0; free = 0;
+        if (os4) { os4->reset(); os4L->reset(); }
+        djMode = 0; fxG = 1; amtS = -1; amtC = -1; phLfo = 0; free = 0; tOnS = 0; for (int c = 0; c < 2; ++c) { adL[c] = {}; adT[c] = {}; adF[c] = {}; adD[c] = {}; }
         stuWait = brOn = rvOn = hsOn = frOn = plOn = plDone = false; plG = 0; brX = rvX = hsX = frX = 0; faderS = 1; psPh = 0; rsI1 = rsI2 = rsF = 0; lastPh = brLastPh = 1;
     }
     void setType (int t) { if (t != type) { type = t; reset(); } }
@@ -214,6 +236,19 @@ public:
     float a[kAdv] { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f };   // parametri avanzati (li mette l'Engine)
     // amt: valore della manopola (0..1). bpm, ppq e playing: per gli effetti a tempo
     void process (float* L, float* R, int N, float amt, double bpm, double ppq, bool playing, const float* fam = nullptr)
+    {
+        if (type == OFF || ! smoothAmt (type)) { amtC = amt; processRaw (L, R, N, amt, bpm, ppq, playing, fam); return; }
+        if (amtC < 0) amtC = amt;
+        if (std::abs (amt - amtC) < 1e-5f) { amtC = amt; processRaw (L, R, N, amt, bpm, ppq, playing, fam); return; }
+        const float k = 1.0f - std::exp (-32.0f / (0.010f * (float) sr)); const double qps = juce::jmax (40.0, bpm) / 60.0 / sr;
+        for (int off = 0; off < N; off += 32)
+        {
+            const int m = juce::jmin (32, N - off);
+            amtC += (amt - amtC) * k; if (std::abs (amt - amtC) < 1e-4f) amtC = amt;
+            processRaw (L + off, R + off, m, amtC, bpm, ppq + (playing ? off * qps : 0.0), playing, fam);
+        }
+    }
+    void processRaw (float* L, float* R, int N, float amt, double bpm, double ppq, bool playing, const float* fam)
     {
         auto mixOf = [fam] (int f) { return fam ? fam[f] : 1.0f; };
         // storia per gli effetti che rileggono il passato (sempre scritta, cosi' entrano senza buchi)
@@ -260,10 +295,22 @@ public:
         }
     }
 private:
-    double sr = 48000, free = 0;
+    double sr = 48000, free = 0; float amtC = -1, tOnS = 0; AdTanh adL[2], adT[2], adF[2], adD[2];
     juce::AudioBuffer<float> hist, dly; int hw = 0, dw = 0;
     ModDelay md; juce::Random rnd { 7 };
     static constexpr int kChunk = 512; float wl[kChunk] {}, wr[kChunk] {}, phFb[2] {};
+    std::unique_ptr<juce::dsp::Oversampling<float>> os4, os4L; float tdl[kChunk] {}, tdr[kChunk] {};   // uno per il nastro, uno per il recupero di volume
+    // saturazione a 4x (filtri IIR: niente latenza da dichiarare) con antiderivata: tanh (x * g) / k
+    void satOs (juce::dsp::Oversampling<float>& os, float* l, float* r, int n, float g, float k, AdTanh* ad)
+    {
+        for (int off = 0; off < n; off += kChunk)
+        {
+            const int m = juce::jmin (kChunk, n - off); float* io[2] = { l + off, r + off };
+            juce::dsp::AudioBlock<float> blk (io, 2, (size_t) m); auto up = os.processSamplesUp (blk);
+            for (int c = 0; c < 2; ++c) { float* x = up.getChannelPointer ((size_t) c); for (size_t i = 0; i < up.getNumSamples(); ++i) x[i] = ad[c].run (x[i] * g) / k; }
+            os.processSamplesDown (blk);
+        }
+    }
     // stati
     bool stOn = false, stuOn = false, scOn = false; float stX = 0, stuX = 0, scX = 0, stSpeed = 1; double stR = 0, stuStart = 0, stuPos = 0, scAnchor = 0; int stuLen = 0, scIdle = 0; float scV = -1, scGrab = 0;
     float ic1[2] {}, ic2[2] {}, djMode = 0, djFc = 1000, fxG = 1, amtS = -1; float lfHold[2] {}, lfLp[2] {}; int lfCnt = 0;
@@ -307,7 +354,7 @@ private:
             float* io[2] = { L + i, R + i };
             for (int c = 0; c < 2; ++c)
             {
-                float v0 = *io[c]; if (a[2] > 0.01f) v0 = std::tanh (v0 * drv) / std::sqrt (drv);
+                float v0 = *io[c]; if (a[2] > 0.01f) v0 = adF[c].run (v0 * drv) / std::sqrt (drv);
                 const float v3 = v0 - ic2[c], v1 = a1 * ic1[c] + a2 * v3, v2 = ic2[c] + a2 * ic1[c] + a3 * v3;
                 ic1[c] = 2 * v1 - ic1[c]; ic2[c] = 2 * v2 - ic2[c];
                 float y = mode < 0 ? v2 : v0 - k * v1 - v2;
@@ -361,7 +408,7 @@ private:
             {
                 dlLp[c] = f2[c] + lpA * (dlLp[c] - f2[c]); float v = dlLp[c];
                 if (hpA >= 0) { dlHp[c] = v + hpA * (dlHp[c] - v); v -= dlHp[c]; }
-                if (drv > 0.01f || age > 0.01f) v = std::tanh (v * sd) / sd * (1.0f + 0.25f * drv);
+                if (drv > 0.01f || age > 0.01f) v = adD[c].run (v * sd) / sd * (1.0f + 0.25f * drv);
                 if (age > 0.01f) v += (rnd.nextFloat() * 2 - 1) * 0.0015f * age;
                 f2[c] = v;
             }
@@ -734,22 +781,35 @@ private:
     {
         if (amt <= 0.01f) return;
         const float g = juce::Decibels::decibelsToGain (4.5f * amt * liftK), d = 1.0f + 0.8f * amt;
-        for (int i = 0; i < N; ++i) { L[i] = std::tanh (L[i] * g * d) / d; R[i] = std::tanh (R[i] * g * d) / d; }
+        satOs (*os4L, L, R, N, g * d, d, adL);
     }
     void tape (float* L, float* R, int N, float amt)
-    {
-        if (amt <= 0.01f) { for (int i = 0; i < N; ++i) md.push (L[i], R[i]); return; }
-        const float drive = 1.0f + amt * 8.0f * a[0], mk = 1.0f / drive, wk = a[1] * 2.0f;
+    {   // il pulito della miscela esce dallo stesso ritardo del nastro (senza il wow): niente pettine fra asciutto e nastro.
+        // Il ritardo fisso di 4,5 ms entra e esce con una dissolvenza di 20 ms quando il nastro si accende o si spegne
+        const bool on = amt > 0.01f;
+        if (! on && tOnS <= 0.0f) { for (int i = 0; i < N; ++i) md.push (L[i], R[i]); return; }
+        const float drive = 1.0f + amt * 8.0f * a[0], wk = a[1] * 2.0f;
         const float cf = (float) std::exp (-juce::MathConstants<double>::twoPi * (18000.0 - 9000.0 * amt) / sr);
-        for (int i = 0; i < N; ++i)
+        const float d0 = (float) (0.0045 * sr), ok = 1.0f / (float) (0.02 * sr), mixT = juce::jmin (1.0f, amt * 2.0f);
+        for (int off = 0; off < N; off += kChunk)
         {
-            md.push (L[i], R[i]);
-            phLfo += 1.0 / sr;
-            const float wow = (float) (std::sin (phLfo * juce::MathConstants<double>::twoPi * 0.6) * 0.0018 + std::sin (phLfo * juce::MathConstants<double>::twoPi * 7.3) * 0.00025) * amt * wk;
-            const float d = (float) (0.004 * sr) + wow * (float) sr;
-            float o[2] = { md.read (0, d), md.read (1, d) };
-            for (int c = 0; c < 2; ++c) { const float s = std::tanh (o[c] * drive) * mk; tLp[c] = s + cf * (tLp[c] - s); o[c] = tLp[c]; }
-            L[i] += (o[0] - L[i]) * juce::jmin (1.0f, amt * 2.0f); R[i] += (o[1] - R[i]) * juce::jmin (1.0f, amt * 2.0f);
+            const int m = juce::jmin (kChunk, N - off); float* l = L + off; float* r = R + off;
+            for (int i = 0; i < m; ++i)
+            {
+                md.push (l[i], r[i]);
+                phLfo += 1.0 / sr;
+                const float wow = (float) (std::sin (phLfo * juce::MathConstants<double>::twoPi * 0.6) * 0.0018 + std::sin (phLfo * juce::MathConstants<double>::twoPi * 7.3) * 0.00025) * amt * wk;
+                const float d = d0 + wow * (float) sr;
+                wl[i] = md.read (0, d); wr[i] = md.read (1, d); tdl[i] = md.read (0, d0); tdr[i] = md.read (1, d0);
+            }
+            satOs (*os4, wl, wr, m, drive, drive, adT);   // tanh (x * drive) / drive  (il vecchio * mk)
+            for (int i = 0; i < m; ++i)
+            {
+                tLp[0] = wl[i] + cf * (tLp[0] - wl[i]); tLp[1] = wr[i] + cf * (tLp[1] - wr[i]);
+                const float o0 = tdl[i] + (tLp[0] - tdl[i]) * mixT, o1 = tdr[i] + (tLp[1] - tdr[i]) * mixT;
+                tOnS = juce::jlimit (0.0f, 1.0f, tOnS + (on ? ok : -ok));
+                l[i] += (o0 - l[i]) * tOnS; r[i] += (o1 - r[i]) * tOnS;
+            }
         }
         liftK = a[2]; lift (L, R, N, amt); liftK = 1;
     }
