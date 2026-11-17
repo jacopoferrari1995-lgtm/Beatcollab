@@ -9,7 +9,7 @@ int main (int argc, char** argv)
         if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
         juce::ScopedJuceInitialiser_GUI gui3;
         jb::Processor p; p.prepareToPlay (48000, 480);
-        const char* pn = std::getenv ("JPRESET") ? std::getenv ("JPRESET") : "Punch Moderno";
+        const char* pn = std::getenv ("JPRESET") ? std::getenv ("JPRESET") : "Punch moderno";
         for (int i = 0; i < p.getNumPrograms(); ++i) if (p.getProgramName (i).contains (pn)) p.setCurrentProgram (i);
         jb::Editor ed (p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
@@ -41,6 +41,7 @@ int main (int argc, char** argv)
             auto t2 = juce::Time::getMillisecondCounterHiRes();
             std::printf ("ridisegno completo (retina) %.1f ms   fotogramma animato %.1f ms\n", (t1 - t0) / 10, (t2 - t1) / 10);
         }
+        if (std::getenv ("JBROWSE")) ed.browser.open();
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;
@@ -68,9 +69,36 @@ int main (int argc, char** argv)
     }
     juce::ScopedJuceInitialiser_GUI gui;
     {   // appena caricato: neutro
-        Processor q; q.prepareToPlay (44100, 512); juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mm; double e = 0; juce::Random r (2);
-        for (int k = 0; k < 100; ++k) { juce::AudioBuffer<float> in (2, 512); for (int i = 0; i < 512; ++i) { const float x = r.nextFloat() - 0.5f; in.setSample (0, i, x); in.setSample (1, i, x * 0.7f); } b.makeCopyOf (in); q.processBlock (b, mm); for (int c = 0; c < 2; ++c) for (int i = 0; i < 512; ++i) e += std::pow (b.getSample (c, i) - in.getSample (c, i), 2.0); }
-        std::printf ("neutro: differenza %.1f dB\n", 10 * std::log10 (e / 102400 + 1e-30));
+        Processor q; q.prepareToPlay (44100, 512); juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mm; double e = 0, ee = 0; juce::Random r (2);
+        const int L = q.getLatencySamples(); std::vector<float> hist;
+        for (int k = 0; k < 100; ++k) { for (int i = 0; i < 512; ++i) { static double ph0 = 0; ph0 += 0.1424; const float x = 0.4f * (float) (std::sin (ph0) + 0.5 * std::sin (ph0 * 3.7)) + 0.0f * r.nextFloat(); hist.push_back (x); b.setSample (0, i, x); b.setSample (1, i, x * 0.7f); } q.processBlock (b, mm);
+            if (k > 4) for (int i = 0; i < 512; ++i) { const float ref = hist[(size_t) (k * 512 + i - L)]; e += std::pow (b.getSample (0, i) - ref, 2.0) + std::pow (b.getSample (1, i) - ref * 0.7f, 2.0); ee += ref * ref; } }
+        std::printf ("neutro: differenza %.1f dB (latenza %d)\n", 10 * std::log10 (e / ee + 1e-30), L);
+        if (std::getenv ("JLAG")) { Processor q2; q2.prepareToPlay (44100, 512); std::vector<float> o2, in2; juce::Random r2 (3);
+            for (int k = 0; k < 20; ++k) { for (int i = 0; i < 512; ++i) { const float x = k == 2 && i == 0 ? 1.0f : 0.0f; in2.push_back (x); b.setSample (0, i, x); b.setSample (1, i, x); } q2.processBlock (b, mm); for (int i = 0; i < 512; ++i) o2.push_back (b.getSample (0, i)); }
+            int bi = 0; for (int i = 0; i < (int) o2.size(); ++i) if (std::abs (o2[(size_t) i]) > std::abs (o2[(size_t) bi])) bi = i;
+            std::printf ("impulso: picco a %d (atteso %d) valore %.3f; somma %.3f\n", bi - 1024, L, o2[(size_t) bi], [&]{ float t = 0; for (auto v : o2) t += v; return t; }()); }
+    }
+    {   // aliasing: sinusoide 7 kHz a 44.1k con SAT fuzz e CLIP a fondo: energia fuori dalle armoniche
+        Processor q; q.prepareToPlay (44100, 512); auto set = [&q] (const char* id, float v) { auto* r = q.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
+        set ("u_sAmt", std::getenv ("JA") ? (float) std::atof (std::getenv ("JA")) : 0.8f); set ("u_sType", std::getenv ("JT") ? (float) std::atoi (std::getenv ("JT")) : 8); set ("u_mAmt", std::getenv ("JM") ? (float) std::atof (std::getenv ("JM")) : 0.8f);
+        const int NN = 16384; std::vector<float> out; juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mm; double ph = 0; const double f0 = std::getenv ("JF") ? std::atof (std::getenv ("JF")) : 7000;
+        for (int k = 0; k < 60; ++k) { for (int i = 0; i < 512; ++i) { const float x = 0.5f * (float) std::sin (ph); ph += 2 * juce::MathConstants<double>::pi * f0 / 44100; b.setSample (0, i, x); b.setSample (1, i, x); } q.processBlock (b, mm); if (k >= 20) for (int i = 0; i < 512; ++i) out.push_back (b.getSample (0, i)); }
+        double eh = 0, ea = 0;
+        for (int bin = 1; bin < 2000; ++bin)
+        {   const double f = bin * 11.025; double re = 0, im = 0;
+            for (int n = 0; n < NN; ++n) { const double w = 0.5 - 0.5 * std::cos (2 * juce::MathConstants<double>::pi * n / NN); re += out[(size_t) n] * w * std::cos (2 * juce::MathConstants<double>::pi * f * n / 44100); im += out[(size_t) n] * w * std::sin (2 * juce::MathConstants<double>::pi * f * n / 44100); }
+            const double pw = re * re + im * im; double fr = std::fmod (f, f0); fr = std::min (fr, f0 - fr);
+            if (fr < 60) eh += pw; else ea += pw; }
+        std::printf ("aliasing sat fuzz + clip: %.1f dB sotto le armoniche\n", 10 * std::log10 (eh / (ea + 1e-30)));
+    }
+    {   // cpu: preset pesante, 10 s a 48k
+        Processor q; q.prepareToPlay (48000, 512); for (int i = 0; i < q.getNumPrograms(); ++i) if (q.getProgramName (i).contains (std::getenv ("JCPU") ? std::getenv ("JCPU") : "Fuzz phonk")) { q.loadPreset (i); break; }
+        if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = q.apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+        juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mm; juce::Random r (1);
+        const auto t0 = juce::Time::getMillisecondCounterHiRes();
+        for (int k = 0; k < 940; ++k) { for (int i = 0; i < 512; ++i) { const float x = (r.nextFloat() - 0.5f) * 0.5f; b.setSample (0, i, x); b.setSample (1, i, x); } q.processBlock (b, mm); }
+        std::printf ("cpu Fuzz phonk: %.1f%% di un core\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 100.0);
     }
     {   // formante: sinusoide + rumore, pitch 0 e formante +7: niente NaN, energia simile
         Processor q; q.prepareToPlay (44100, 512); auto set = [&q] (const char* id, float v) { auto* r = q.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
@@ -93,7 +121,7 @@ int main (int argc, char** argv)
             p.processBlock (blk, m);
             for (int c = 0; c < 2; ++c) for (int i = 0; i < 512; ++i) { const float x = blk.getSample (c, i); if (! std::isfinite (x)) nan = true; pk = std::max (pk, std::abs (x)); }
         }
-        std::printf ("%-26s picco %.2f (in %.2f) nan %d\n", p.getProgramName (pr).toRawUTF8(), pk, inpk, (int) nan);
+        std::printf ("%-44s picco %.2f (in %.2f) nan %d\n", p.getProgramName (pr).toRawUTF8(), pk, inpk, (int) nan);
     }
     for (int rr = 0; rr < 30; ++rr)
     {

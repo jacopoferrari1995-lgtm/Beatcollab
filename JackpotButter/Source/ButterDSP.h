@@ -2,6 +2,9 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "ButterAnalog.h"
+#include <juce_dsp/juce_dsp.h>
+#include <unordered_map>
+#include <string_view>
 
 // BURRO BUS: catena di effetti per batteria ispirata alla logica dei bus multi-modulo
 // Ordine: BOOM/NOISE -> SHIFT -> COMPRESS -> SATURATE -> SPACE -> CLIP -> MASTER, con MAGNITUDE dry/wet globale.
@@ -43,11 +46,46 @@ private:
 struct BurroPreset { const char* name; std::vector<std::pair<const char*, float>> p; };
 const std::vector<BurroPreset>& burroPresets();
 
+struct Ramp { float a = 0, b = 0, n = 1; inline float at (int i) const { return a + (b - a) * (float) (i + 1) / n; } inline float atF (float t) const { return a + (b - a) * t; } };
+struct Hist
+{
+    std::vector<float> b; int w = 0;
+    void prepare (int n) { b.assign ((size_t) juce::jmax (8, n), 0.0f); w = 0; }
+    inline void push (float x) { b[(size_t) w] = x; if (++w >= (int) b.size()) w = 0; }
+    inline float read (int lag, int i, int N) const { int k = w - N + i - lag; const int n = (int) b.size(); k %= n; if (k < 0) k += n; return b[(size_t) k]; }
+};
+
+// porta di un modulo a 8x: quando e' spento passa solo un ritardo pari alla latenza (neutro al bit, niente CPU);
+// quando si accende riparte pulito e entra con una dissolvenza
+struct OsGate
+{
+    std::vector<float> ring[2], tmp[2]; int w = 0, L = 1, warm = 0; float m = 0; bool running = false;
+    void prepare (int lat, int maxBlock) { L = juce::jmax (1, lat); for (int c = 0; c < 2; ++c) { ring[c].assign ((size_t) L, 0.0f); tmp[c].assign ((size_t) maxBlock, 0.0f); } w = 0; m = 0; warm = 0; running = false; }
+    void mix (float* const* ch, int N, bool act)
+    {
+        const float step = 1.0f / 1024.0f;
+        for (int i = 0; i < N; ++i)
+        {
+            if (warm > 0) --warm; else m = act ? juce::jmin (1.0f, m + step) : juce::jmax (0.0f, m - step);
+            for (int c = 0; c < 2; ++c)
+            {
+                const float in = running ? tmp[c][(size_t) i] : ch[c][i], d = ring[c][(size_t) w]; ring[c][(size_t) w] = in;
+                ch[c][i] = running ? d + (ch[c][i] - d) * m : d;
+            }
+            if (++w >= L) w = 0;
+        }
+        if (! act && m <= 0.0f && warm == 0) running = false;
+    }
+};
+
 class Burro
 {
 public:
+    static constexpr int kOs = 8;
+    int latency() const { return osLat; }
     static void addParams (juce::AudioProcessorValueTreeState::ParameterLayout& l);
     void prepare (double sampleRate, int maxBlock);
+    void bind (juce::AudioProcessorValueTreeState&);   // tabella dei parametri (una volta, fuori dal thread audio)
     void process (float* L, float* R, int N, juce::AudioProcessorValueTreeState& s);
     static void applyPreset (juce::AudioProcessorValueTreeState& s, int index);
 
@@ -58,6 +96,9 @@ public:
     float anIn[AN] = {}, anOut[AN] = {}, anL[AN] = {}, anR[AN] = {}; std::atomic<int> anW { 0 };
     std::atomic<float> corr { 1 }; double cLL = 0, cRR = 0, cLR = 0;
 private:
+    std::unique_ptr<juce::dsp::Oversampling<float>> osSat, osClip; OsGate gSat, gClip; int latSat = 0, latClip = 0, osLat = 0;
+    Hist dryDl[2], trDl; float rampLast[16] {}; float fLo4[2][2] {}, fHi4[2][2] {};
+    std::vector<std::string> pkeys; std::unordered_map<std::string_view, std::atomic<float>*> pcache;
     double sr = 44100;
     std::vector<float> dryL, dryR, trW;
     // rilevatore transienti condiviso

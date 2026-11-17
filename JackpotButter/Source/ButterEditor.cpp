@@ -1,3 +1,4 @@
+#include <map>
 #include "ButterEditor.h"
 
 namespace jb
@@ -15,39 +16,53 @@ static void glow (juce::Graphics& g, const juce::String& t, juce::Rectangle<floa
 {
     g.setFont (f); g.setColour (c); g.drawFittedText (t, r.toNearestInt(), j, 1, 0.8f);
 }
+// schermo incassato (come Dust e Studio Comp)
 static void inset (juce::Graphics& g, juce::Rectangle<float> r, float rad)
 {
-    auto p = neo::chamfer (r, juce::jmin (7.0f, rad + 1.0f), 2.0f);
-    g.setColour (BC::lcd2); g.fillPath (p);
-    g.setColour (BC::phos.withAlpha (0.12f)); g.strokePath (p, juce::PathStrokeType (1.0f));
+    rad = juce::jmin (rad, 7.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillRoundedRectangle (r.expanded (1.5f), rad + 1.5f);
+    juce::ColourGradient cg (BC::lcd1, r.getCentreX(), r.getCentreY(), BC::lcd2, r.getX(), r.getY(), true); g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);
+    g.setColour (juce::Colours::white.withAlpha (0.05f)); g.drawRoundedRectangle (r.reduced (0.5f), rad, 1.0f);
 }
-static void scan (juce::Graphics& g, juce::Rectangle<float> r)
+// frontali: ogni modulo e' una macchina diversa (pannello, scritte, manopole)
+struct Face { juce::uint32 p1, p2, ink; int knob; const char* sub; };
+static const Face& face (int m)
 {
-    g.setColour (juce::Colours::black.withAlpha (0.18f)); for (float y = r.getY(); y < r.getBottom(); y += 3) g.fillRect (r.getX(), y, r.getWidth(), 1.0f);
+    static const Face F[10] = {
+        { 0xff3a2418, 0xff1d120c, 0xfff1dcc4, 0, "sub, boom, rumore" },
+        { 0xff2a2340, 0xff15111f, 0xffe6e0f4, 2, "pitch e formante" },
+        { 0xff3a3d44, 0xff1d1f24, 0xffe9e2cf, 1, "6 caratteri + OTT" },
+        { 0xff4d1716, 0xff2a0c0b, 0xfff1dcc4, 0, "9 macchine, a 8x" },
+        { 0xff15363e, 0xff0b1e23, 0xffdff4f4, 1, "room, hall, plate, molla" },
+        { 0xff202228, 0xff0f1013, 0xffe6e8ec, 1, "a stadi, a 8x" },
+        { 0xff3b1838, 0xff1e0b1c, 0xfff4dff0, 2, "delay, bitcrush, wobble" },
+        { 0xff1c1e24, 0xff0d0e11, 0xffe6e8ec, 1, "" },     // EQ
+        { 0xff4b402c, 0xff2c251a, 0xfff0e4c8, 0, "" },     // Pultec
+        { 0xff17262c, 0xff0b1418, 0xffdff4f4, 1, "" } };   // Imager
+    return F[juce::jlimit (0, 9, m)];
 }
+static void panel (juce::Graphics& g, juce::Rectangle<float> b, int f, juce::Colour acc, bool on, int seed)
+{
+    const auto& F = face (f);
+    hw::faceplate (g, b, juce::Colour (F.p1), juce::Colour (F.p2), on ? acc : BC::faint, 34, seed, 12);
+}
+static void scan (juce::Graphics&, juce::Rectangle<float>) {}
 
-// ======================= manopola 3D con anello LED =======================
+// ======================= manopola hardware (la stessa di Studio Comp e Dust) =======================
+bool PKnob::changed()
+{
+    const float v = param->getValue(); if (dynLabel) label = dynLabel();
+    const auto t = (fmt ? fmt (param->convertFrom0to1 (v)) : param->getCurrentValueAsText()) + label; const bool l = lit ? lit() : true;
+    if (v == lastV && t == lastTxt && l == lastLit) return false;
+    lastV = v; lastTxt = t; lastLit = l; return true;
+}
 void PKnob::paint (juce::Graphics& g)
 {
-    const float lh = isBig ? 30.0f : 27.0f;
-    const float size = juce::jmin ((float) getWidth(), getHeight() - lh);
-    const float v = param->getValue();
-    actSm += ((activity ? juce::jlimit (0.0f, 1.0f, activity()) : 0.0f) - actSm) * 0.35f;
-    skin::useTheme (skin::cur());
-    // manopola CYBER: anello di LED a segmenti (si accende col segnale), disco nero, lancetta colorata
-    const float cx = getWidth() * 0.5f, cy = size * 0.5f, R = size * 0.5f - 3.0f, kr = R * (isBig ? 0.72f : 0.7f), av = -2.356f + 4.712f * v;
-    if (actSm > 0.02f) { g.setColour (col.withAlpha (0.12f * actSm)); g.fillEllipse (cx - R - 3, cy - R - 3, R * 2 + 6, R * 2 + 6); }
-    neo::ledRing (g, cx, cy, R, v, bipolar, hover || active ? col.brighter (0.2f) : col, isBig ? 3.4f : 2.4f, isBig ? 33 : 23);
-    g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillEllipse (cx - kr, cy - kr + 2, kr * 2, kr * 2);
-    juce::ColourGradient bgc (juce::Colour (0xff2a2e3a), cx, cy - kr, juce::Colour (0xff111319), cx, cy + kr, false); g.setGradientFill (bgc); g.fillEllipse (cx - kr, cy - kr, kr * 2, kr * 2);
-    g.setColour (juce::Colours::white.withAlpha (0.08f)); g.drawEllipse (cx - kr + 0.5f, cy - kr + 0.5f, kr * 2 - 1, kr * 2 - 1, 1.0f);
-    { const float r0 = kr * 0.3f, r1 = kr * 0.88f, sn = std::sin (av), cs = std::cos (av);
-      juce::Path pl; pl.startNewSubPath (cx + sn * r0, cy - cs * r0); pl.lineTo (cx + sn * r1, cy - cs * r1);
-      g.setColour (col); g.strokePath (pl, juce::PathStrokeType (isBig ? 3.0f : 2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
     if (dynLabel) label = dynLabel();
-    g.setColour (hover ? BC::text : BC::dim); g.setFont (neo::cap (isBig ? 9.5f : 8.0f)); g.drawFittedText (label, juce::Rectangle<int> (0, (int) size + 2, getWidth(), 12), juce::Justification::centred, 1, 0.7f);
-    g.setFont (neo::num (isBig ? 11.0f : 9.5f)); g.setColour (active ? col : BC::text.withAlpha (0.9f));
-    g.drawFittedText (fmt ? fmt (param->convertFrom0to1 (v)) : param->getCurrentValueAsText(), juce::Rectangle<int> (0, (int) size + 14, getWidth(), 13), juce::Justification::centred, 1, 0.7f);
+    hw::KnobSpec k; k.style = style; k.col = col; k.ink = ink; k.cap = col; k.label = label; k.big = isBig; k.bipolar = bipolar; k.hover = hover; k.drag = active;
+    k.enabled = lit ? lit() : true;
+    k.text = fmt ? fmt (param->convertFrom0to1 (param->getValue())) : param->getCurrentValueAsText();
+    hw::knob (g, getLocalBounds().toFloat(), param->getValue(), k);
 }
 
 void Pill::paint (juce::Graphics& g)
@@ -95,10 +110,8 @@ void Target::paint (juce::Graphics& g)
 void Switch::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat(); const bool on = param->getValue() > 0.5f;
-    auto led = b.removeFromLeft (b.getHeight()).reduced (3);
-    g.setColour (juce::Colours::black.withAlpha (0.7f)); g.fillRect (led.expanded (1.5f));
-    if (on) { g.setColour (col.withAlpha (0.3f)); g.fillRect (led.expanded (3)); }
-    g.setColour (on ? col : juce::Colour (0xff30333b)); g.fillRect (led);
+    auto led = b.removeFromLeft (b.getHeight());
+    hw::jewel (g, led.getCentreX(), led.getCentreY(), juce::jmin (6.0f, led.getHeight() * 0.3f), on, col);
     if (label.isNotEmpty()) { g.setColour (on ? BC::text : BC::dim); g.setFont (bf (10.0f, true)); g.drawText (label, b.withTrimmedLeft (5), juce::Justification::centredLeft); }
 }
 
@@ -203,6 +216,8 @@ Module::Module (Editor& e, int m) : ed (e), mod (m)
     }
     for (juce::Component* comp : std::initializer_list<juce::Component*> { power.get(), big.get(), type.get(), focus.get(), target.get(), extra.get(), extraPill.get() })
         if (comp) addAndMakeVisible (comp);
+    {   auto setK = [this] (PKnob* k) { k->style = face (mod).knob; k->ink = juce::Colour (face (mod).ink); k->lit = [this] { return power->param->getValue() > 0.5f; }; };
+        setK (big.get()); for (auto* k : smalls) setK (k); }
     // la manopola principale "respira" con il lavoro che il modulo sta facendo
     big->activity = [this]
     {
@@ -386,27 +401,27 @@ void Module::paint (juce::Graphics& g)
         smalls[0]->label = t == 0 ? "TIME" : t == 1 ? "BITS" : "RATE";
         smalls[1]->label = t == 0 ? "FEEDBACK" : t == 1 ? "RATE" : "DEPTH";
     }
-    // scheda: ombra morbida, bordo che sfuma dall'accento
-    // scheda in cache (prima: grana e gradienti rifatti 30 volte al secondo per ogni modulo)
-    base.draw (g, getLocalBounds().toFloat(), ((on ? 1 : 0) + (dragging ? 2 : 0)) + 1000 * neo::K::theme, [&] (juce::Graphics& bg)
+    const bool lk = ed.proc.locked[mod].load();
+    // frontale in cache: si rifa' solo se cambia acceso/spento, trascinamento, lucchetto o tema
+    base.draw (g, getLocalBounds().toFloat(), ((on ? 1 : 0) + (dragging ? 2 : 0) + (lk ? 4 : 0)) + 1000 * neo::K::theme, [&] (juce::Graphics& bg)
     {
-        skin::useTheme (skin::cur()); neo::plate (bg, b, on ? c : BC::faint, 12.0f);
-        bg.setColour (c.withAlpha (on ? 0.85f : 0.25f)); bg.fillRect (b.getX() + 10, b.getY() + 35, b.getWidth() - 20, 1.0f);
-        if (dragging) neo::brackets (bg, b.reduced (2), c, 12.0f, 1.6f);
+        skin::useTheme (skin::cur()); panel (bg, b, mod, c, on, 11 + mod);
+        bg.setColour (juce::Colour (face (mod).ink).withAlpha (on ? 1.0f : 0.6f)); bg.setFont (bf (12.0f, true));
+        bg.drawText (kModNames[mod], juce::Rectangle<float> (34, 6, b.getWidth() - 70, 24), juce::Justification::centredLeft);
+        if (dragging) hw::cyberFrame (bg, b.reduced (2), c, 16);
+        // lucchetto
+        auto lr = lockRect().toFloat();
+        bg.setColour (lk ? BC::amber : juce::Colour (face (mod).ink).withAlpha (0.45f));
+        if (lk) bg.fillRoundedRectangle (lr.getX() + 3, lr.getY() + 8, 12, 9, 2); else bg.drawRoundedRectangle (lr.getX() + 3, lr.getY() + 8, 12, 9, 2, 1.5f);
+        juce::Path arc; arc.addCentredArc (lr.getCentreX(), lr.getY() + 8, 4, 5, 0, -juce::MathConstants<float>::halfPi, lk ? juce::MathConstants<float>::halfPi : 0.3f, true);
+        bg.strokePath (arc, juce::PathStrokeType (1.5f));
+        // maniglia per spostare
+        if ((mod >= 1 && mod <= 4) || mod == 6) { bg.setColour (juce::Colour (face (mod).ink).withAlpha (0.35f)); for (int k = 0; k < 3; ++k) bg.fillRoundedRectangle (b.getRight() - 46, b.getY() + 12 + k * 4.0f, 10, 2, 1); }
+        hw::bezel (bg, displayRect().expanded (3), 8);
+        if (! on) { bg.setColour (juce::Colours::black.withAlpha (0.32f)); bg.fillRoundedRectangle (b.reduced (4).withTrimmedTop (34), 8); }
     });
-    // barra di segnale nella testata
-    { const float act = big ? big->actSm : 0.0f; if (on) { g.setColour (c.withAlpha (0.18f + 0.5f * act)); g.fillRect (b.getX() + 10, b.getY() + 33, (b.getWidth() - 20) * (0.15f + 0.85f * act), 2.0f); } }
-    glow (g, kModNames[mod], juce::Rectangle<float> (32, 6, b.getWidth() - 62, 24), on ? BC::text : BC::dim, bf (11.5f, true), juce::Justification::centredLeft);
-    // lucchetto
-    const bool lk = ed.proc.locked[mod].load(); auto lr = lockRect().toFloat();
-    g.setColour (lk ? BC::amber : BC::dim.withAlpha (0.6f));
-    if (lk) g.fillRoundedRectangle (lr.getX() + 3, lr.getY() + 8, 12, 9, 2); else g.drawRoundedRectangle (lr.getX() + 3, lr.getY() + 8, 12, 9, 2, 1.5f);
-    juce::Path arc; arc.addCentredArc (lr.getCentreX(), lr.getY() + 8, 4, 5, 0, -juce::MathConstants<float>::halfPi, lk ? juce::MathConstants<float>::halfPi : 0.3f, true);
-    g.strokePath (arc, juce::PathStrokeType (1.5f));
-    // maniglia per spostare
-    if ((mod >= 1 && mod <= 4) || mod == 6) { g.setColour (BC::dim.withAlpha (0.5f)); for (int k = 0; k < 3; ++k) g.fillRoundedRectangle (b.getRight() - 46, b.getY() + 12 + k * 4.0f, 10, 2, 1); }
     drawDisplay (g, displayRect());
-    if (! on) { g.setColour (BC::panel2.withAlpha (0.55f)); g.fillRect (b.withTrimmedTop (38).reduced (2, 0).withTrimmedBottom (14)); }
+    if (! on) { g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillRoundedRectangle (displayRect(), 6); }
 }
 
 void Module::mouseDown (const juce::MouseEvent& e)
@@ -435,7 +450,7 @@ EqPanel::EqPanel (Editor& e) : ed (e)
 {
     fftBuf.assign (4096, 0.0f); specIn.assign (1024, -100.0f); specOut.assign (1024, -100.0f);
     auto& A = ed.proc.apvts;
-    on = std::make_unique<Switch> (A.getParameter ("u_eqOn"), "EQ", BC::phos); addAndMakeVisible (*on);
+    on = std::make_unique<Switch> (A.getParameter ("u_eqOn"), "", BC::magenta); addAndMakeVisible (*on);
     for (int k = 0; k < 4; ++k)
     {
         const juce::String id = "u_ae" + juce::String (k + 1);
@@ -454,7 +469,7 @@ EqPanel::EqPanel (Editor& e) : ed (e)
     q->fmt = [this] (float v) { const int m = juce::roundToInt (ed.proc.apvts.getRawParameterValue ("u_aeModel")->load());
         if (m == AE_NEVE84) return juce::String (v > 0.5f ? "ON" : "OFF"); if (m == AE_PE1C) return juce::String (v < 0.33f ? "LARGA" : v < 0.66f ? "MEDIA" : "STRETTA");
         if (m == AE_SSL) return juce::String (0.5f + v * 2.5f, 1); if (m == AE_LIND81) return juce::String (0.6f + v * 1.6f, 1); return juce::String ("-"); };
-    for (auto* k : knobs) addAndMakeVisible (k);
+    for (auto* k : knobs) { k->style = 2; k->ink = juce::Colour (face (7).ink); k->lit = [this] { return on->param->getValue() > 0.5f; }; addAndMakeVisible (k); }
 }
 void EqPanel::resized()
 {
@@ -489,12 +504,13 @@ void EqPanel::updateSpectrum()
 void EqPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
-    base.draw (g, b, (1) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { skin::useTheme (skin::cur()); neo::plate (bg, b.reduced (1), BC::phos, 12.0f); });
+    const bool eon = ed.proc.apvts.getRawParameterValue ("u_eqOn")->load() > 0.5f;
+    base.draw (g, b, (eon ? 1 : 0) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { skin::useTheme (skin::cur()); panel (bg, b.reduced (1), 7, BC::magenta, eon, 31); hw::bezel (bg, plot().expanded (3), 9); });
     const auto S = aeNow (ed.proc.apvts); const auto& I = aeInfo (S.model);
-    glow (g, "EQ ANALOGICO", juce::Rectangle<float> (84, 6, 140, 20), BC::text, bf (11.0f, true));
+    glow (g, "EQ ANALOGICO", juce::Rectangle<float> (40, 6, 140, 20), BC::text, bf (11.0f, true));
     g.setFont (bf (9.0f, false, true)); g.setColour (BC::dim);
-    g.drawFittedText (I.desc, juce::Rectangle<int> (190, 6, getWidth() - 390, 20), juce::Justification::centredLeft, 1, 0.8f);
-    { auto mr = modelRect().toFloat(); skin::useTheme (skin::cur()); neo::key (g, mr, true, BC::amber); g.setColour (BC::text); g.setFont (neo::cap (9.5f)); g.drawFittedText (juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), mr.toNearestInt().reduced (10, 0), juce::Justification::centred, 1, 0.7f); }
+    g.drawFittedText (I.desc, juce::Rectangle<int> (160, 6, getWidth() - 360, 20), juce::Justification::centredLeft, 1, 0.8f);
+    jlook::button (g, modelRect().toFloat(), BC::amber, true, false, juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), bf (10.0f, true));
     auto r = plot(); inset (g, r, 8); auto p = r.reduced (4);
     const double sr = ed.proc.getSampleRate() > 0 ? ed.proc.getSampleRate() : 44100.0;
     for (float f : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
@@ -554,7 +570,7 @@ PultecPanel::PultecPanel (Editor& e) : ed (e)
                       { "u_pAS", "ATT SEL", [] (float v) { static const char* n[] = { "5k", "10k", "20k" }; return juce::String (n[juce::jlimit (0, 2, juce::roundToInt (v))]); } },
                       { "u_pHF", "HF FREQ", [] (float v) { static const char* n[] = { "3k", "4k", "5k", "8k", "10k", "12k", "16k" }; return juce::String (n[juce::jlimit (0, 6, juce::roundToInt (v))]); } },
                       { "u_pHB", "BOOST", ten }, { "u_pBW", "BANDA", [] (float v) { return v < 3.3f ? juce::String ("STRETTA") : v < 6.6f ? juce::String ("MEDIA") : juce::String ("LARGA"); } }, { "u_pHA", "ATTEN", ten } };
-    for (auto& k : ks) { auto* pk = knobs.add (new PKnob (A.getParameter (k.id), k.l, c, false, k.f)); addAndMakeVisible (pk); }
+    for (auto& k : ks) { auto* pk = knobs.add (new PKnob (A.getParameter (k.id), k.l, c, false, k.f)); pk->style = 0; pk->ink = juce::Colour (face (8).ink); pk->lit = [this] { return on->param->getValue() > 0.5f; }; addAndMakeVisible (pk); }
 }
 void PultecPanel::resized()
 {
@@ -565,7 +581,7 @@ void PultecPanel::resized()
 void PultecPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1); const bool o = on->param->getValue() > 0.5f;
-    base.draw (g, getLocalBounds().toFloat(), (o ? 1 : 0) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { skin::useTheme (skin::cur()); neo::plate (bg, b, o ? BC::amber : BC::faint, 12.0f); });
+    base.draw (g, getLocalBounds().toFloat(), (o ? 1 : 0) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { skin::useTheme (skin::cur()); panel (bg, b, 8, BC::amber, o, 32); hw::bezel (bg, juce::Rectangle<float> (12, 34, b.getWidth() - 22, 66).expanded (3), 9); });
     glow (g, "PULTEC EQP-1A", { 38, 6, 160, 24 }, o ? BC::text : BC::dim, bf (11.5f, true));
     g.setColour (BC::dim); g.setFont (bf (8.5f, false, true)); g.drawText ("boost e atten insieme = il trucco", juce::Rectangle<float> (b.getRight() - 190, 8, 180, 20), juce::Justification::centredRight);
     auto d = juce::Rectangle<float> (12, 34, b.getWidth() - 22, 66); inset (g, d, 6);
@@ -595,6 +611,7 @@ ImagerPanel::ImagerPanel (Editor& e) : ed (e)
     width = std::make_unique<PKnob> (A.getParameter ("u_iWidth"), "WIDTH", c, false, [] (float v) { return juce::String (juce::roundToInt (v * 100)) + "%"; });
     width->bipolar = true;
     mono = std::make_unique<PKnob> (A.getParameter ("u_iMono"), "MONO BASSI", c, false, [] (float v) { return v < 21 ? juce::String ("OFF") : "< " + juce::String (juce::roundToInt (v)) + " Hz"; });
+    for (auto* k : { width.get(), mono.get() }) { k->style = 1; k->ink = juce::Colour (face (9).ink); k->lit = [this] { return on->param->getValue() > 0.5f; }; }
     for (juce::Component* k : std::initializer_list<juce::Component*> { on.get(), width.get(), mono.get() }) addAndMakeVisible (k);
 }
 void ImagerPanel::resized()
@@ -606,7 +623,7 @@ void ImagerPanel::resized()
 void ImagerPanel::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat().reduced (1); const bool o = on->param->getValue() > 0.5f;
-    base.draw (g, getLocalBounds().toFloat(), (o ? 1 : 0) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { skin::useTheme (skin::cur()); neo::plate (bg, b, o ? BC::phos : BC::faint, 12.0f); });
+    base.draw (g, getLocalBounds().toFloat(), (o ? 1 : 0) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { skin::useTheme (skin::cur()); panel (bg, b, 9, BC::phos, o, 33); hw::bezel (bg, juce::Rectangle<float> (12, 38, b.getWidth() - 22, 82).expanded (3), 9); });
     glow (g, "IMAGER", { 38, 6, 80, 24 }, o ? BC::text : BC::dim, bf (11.5f, true));
     auto& D = ed.proc.dsp;
     auto d = juce::Rectangle<float> (12, 38, b.getWidth() - 22, 82); inset (g, d, 6);
@@ -647,7 +664,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     pultec = std::make_unique<PultecPanel> (*this); addAndMakeVisible (*pultec);
     imager = std::make_unique<ImagerPanel> (*this); addAndMakeVisible (*imager);
     auto& A = proc.apvts; const auto mc = BC::amber;
-    auto add = [this] (juce::RangedAudioParameter* pr, const char* l, juce::Colour c, bool big, std::function<juce::String (float)> f, bool bp = false) { auto* k = master.add (new PKnob (pr, l, c, big, std::move (f))); k->bipolar = bp; addAndMakeVisible (k); };
+    auto add = [this] (juce::RangedAudioParameter* pr, const char* l, juce::Colour c, bool big, std::function<juce::String (float)> f, bool bp = false) { auto* k = master.add (new PKnob (pr, l, c, big, std::move (f))); k->bipolar = bp; k->style = big ? 0 : 1; k->ink = juce::Colour (0xffe9e2cf); addAndMakeVisible (k); };
     add (A.getParameter ("u_tone"), "TONE", mc, false, bip, true);
     add (A.getParameter ("u_air"), "AIR", mc, false, pct);
     add (A.getParameter ("u_att"), "ATTACK", mc, false, bip, true);
@@ -658,6 +675,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     clip = std::make_unique<Switch> (A.getParameter ("u_clip"), "LIMITE", BC::magenta); addAndMakeVisible (*clip);
     limType = std::make_unique<Pill> (dynamic_cast<juce::AudioParameterChoice*> (A.getParameter ("u_limType")), BC::magenta); addAndMakeVisible (*limType);
     addAndMakeVisible (sizeChip); addAndMakeVisible (themeChip);
+    setupBrowser();
     scaler.setup();
     startTimerHz (30);
 }
@@ -678,8 +696,9 @@ void Editor::resized()
     clip->setBounds (mx + 18, 318, 100, 22); limType->setBounds (mx + 122, 317, 96, 24);
     master[4]->setBounds (mx + 39, 352, 160, 186);
     master[5]->setBounds (mx + 18, 560, 96, 94); master[6]->setBounds (mx + 122, 560, 96, 94);
-    presetRect = { 500, 15, 340, 36 }; prevRect = { 462, 15, 36, 36 }; nextRect = { 842, 15, 36, 36 }; randRect = { 896, 15, 120, 36 }; abRect = { 1026, 15, 100, 36 };
+    presetRect = { 470, 14, 380, 36 }; prevRect = { 432, 14, 36, 36 }; nextRect = { 852, 14, 36, 36 }; randRect = { 900, 14, 110, 36 }; abRect = { 1018, 14, 112, 36 };
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
+    browser.setBounds (0, 0, W, H);
     themeChip.setBounds (1140, 19, 96, 30);
     jlook::scaleChildren (*this, sc);
 }
@@ -698,43 +717,45 @@ void Editor::moduleDropped (Module& m)
 void Editor::paint (juce::Graphics& g)
 {
     g.addTransform (juce::AffineTransform::scale (scaler.s));
-    // fondo, testata, piastre e scritte fisse in cache: prima tutto veniva rifatto dietro a ogni display che si muoveva
-    base.draw (g, { 0, 0, (float) W, (float) H }, (3) + 1000 * neo::K::theme, [this] (juce::Graphics& bg) { paintStatic (bg); });
+    // fondo, testata, piastre e scritte fisse in cache
+    base.draw (g, { 0, 0, (float) W, (float) H }, (4) + 1000 * neo::K::theme, [this] (juce::Graphics& bg) { paintStatic (bg); });
     skin::useTheme (skin::cur());
     // preset
-    inset (g, presetRect.toFloat(), 8);
-    g.setFont (neo::num (12.0f)); g.setColour (BC::amber); g.drawFittedText (proc.getProgramName (proc.preset).toUpperCase(), presetRect.reduced (8, 0), juce::Justification::centred, 1, 0.7f);
-    neo::key (g, randRect.toFloat(), true, BC::magenta, randHover); g.setColour (BC::text); g.setFont (neo::cap (10.0f)); g.drawText ("RANDOM", randRect.toFloat(), juce::Justification::centred);
-    neo::key (g, abRect.toFloat(), proc.ab.cur == 1, BC::phos, abHover); g.setColour (BC::text); g.setFont (neo::cap (9.5f)); g.drawFittedText ("MEMORIA " + proc.ab.label(), abRect.reduced (8, 0), juce::Justification::centred, 1, 0.7f);
-    g.setColour (BC::amber); g.setFont (bf (20.0f, true));
+    inset (g, presetRect.toFloat(), 8); jlook::glass (g, presetRect.toFloat(), 8);
+    g.setFont (bf (12.5f, false, true)); g.setColour (BC::amber);
+    g.drawFittedText ((proc.userName.isNotEmpty() ? juce::String::fromUTF8 ("\xe2\x98\x85 ") : juce::String()) + proc.currentName().replace (" | ", "  /  ").toUpperCase(), presetRect.reduced (10, 0), juce::Justification::centred, 1, 0.7f);
+    g.setFont (bf (20.0f, true));
     g.drawText (juce::String::fromUTF8 ("\xe2\x80\xb9"), prevRect, juce::Justification::centred); g.drawText (juce::String::fromUTF8 ("\xe2\x80\xba"), nextRect, juce::Justification::centred);
+    jlook::button (g, randRect.toFloat(), BC::magenta, false, randHover, "RANDOM", bf (11.0f, true));
+    jlook::button (g, abRect.toFloat(), BC::amber, proc.ab.cur == 1, abHover, "MEMORIA " + proc.ab.label(), bf (11.0f, true));
     // meter verticali in/out
     auto meter = [&] (juce::Rectangle<float> r, float l, float rr2, const char* t)
     {
-        g.setColour (BC::dim); g.setFont (bf (8.5f, true, true)); g.drawText (t, r.removeFromBottom (12), juce::Justification::centred);
+        g.setColour (juce::Colour (0xffe9e2cf).withAlpha (0.7f)); g.setFont (bf (8.5f, true, true)); g.drawText (t, r.removeFromBottom (12), juce::Justification::centred);
+        inset (g, r.expanded (3), 4);
         for (int c = 0; c < 2; ++c)
         {
             auto b = r.removeFromLeft (r.getWidth() / (2 - c)).reduced (1.5f, 0);
             const float db = juce::Decibels::gainToDecibels (c ? rr2 : l, -48.0f), n = juce::jlimit (0.0f, 1.0f, (db + 48) / 51);
-            for (int k = 0; k < 24; ++k) { const float t2 = k / 24.0f; g.setColour (t2 <= n ? (t2 > 0.9f ? BC::magenta : t2 > 0.75f ? BC::amber : BC::phos) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (b.getX(), b.getBottom() - (k + 1) * b.getHeight() / 24 + 1, b.getWidth(), b.getHeight() / 24 - 1.5f); }
+            for (int k = 0; k < 24; ++k) { const float t2 = k / 24.0f; g.setColour (t2 <= n ? (t2 > 0.9f ? juce::Colour (0xffff3b30) : t2 > 0.75f ? BC::amber : juce::Colour (0xffb5c94a)) : juce::Colours::white.withAlpha (0.05f)); g.fillRect (b.getX(), b.getBottom() - (k + 1) * b.getHeight() / 24 + 1, b.getWidth(), b.getHeight() / 24 - 1.5f); }
         }
     };
-    meter ({ MX + 18.0f, 668, 40, 128 }, proc.inL.load(), proc.inR.load(), "IN");
-    meter ({ MX + 176.0f, 668, 40, 128 }, proc.outL.load(), proc.outR.load(), "OUT");
-    g.setColour (BC::dim); g.setFont (bf (9.0f));
-    g.drawFittedText ("lucchetto = blocca il modulo nei preset\ntrascina la testata per riordinare", juce::Rectangle<int> (MX + 66, 680, 104, 90), juce::Justification::centred, 6);
+    meter ({ MX + 22.0f, 672, 36, 120 }, proc.inL.load(), proc.inR.load(), "IN");
+    meter ({ MX + 180.0f, 672, 36, 120 }, proc.outL.load(), proc.outR.load(), "OUT");
 }
 void Editor::paintStatic (juce::Graphics& g)
 {
     const float Wf = (float) W, Hf = (float) H;
     skin::useTheme (skin::cur());
-    neo::cyberBackdrop (g, Wf, Hf, 0.5f);
-    neo::cyberHeader (g, Wf, 64, "BTR-7", "BUTTER RACK // DRUM BUS");
-    for (int s = 0; s < 6; ++s) { const float x = (float) slotRect (s).getRight() + 4; juce::Path ar; ar.addArrow ({ x - 2, 96.0f, x + 6, 96.0f }, 1.5f, 6, 6); g.setColour (BC::phos.withAlpha (0.6f)); g.fillPath (ar); }
+    jlook::backdrop (g, { 0, 0, Wf, Hf }, BC::amber, BC::magenta);
+    jlook::header (g, { 0, 0, Wf, 64 }, "BUTTER", BC::amber, "BTR-7  FORMA / PESO / SPAZIO", BC::magenta, BC::amber);
+    for (int s = 0; s < 6; ++s) { const float x = (float) slotRect (s).getRight() + 4; juce::Path ar; ar.addArrow ({ x - 2, 96.0f, x + 6, 96.0f }, 1.5f, 6, 6); g.setColour (BC::amber.withAlpha (0.6f)); g.fillPath (ar); }
     auto mr = juce::Rectangle<float> ((float) MX, 78, 238, 726);
-    neo::plate (g, mr, BC::magenta, 14.0f);
-    g.setFont (neo::cap (10.0f)); g.setColour (BC::text); g.drawText ("MASTER", mr.withHeight (34), juce::Justification::centred);
-    g.setColour (BC::magenta); g.fillRect (mr.getX() + 14, mr.getY() + 33, mr.getWidth() - 28, 1.0f);
+    hw::faceplate (g, mr, juce::Colour (0xff2a2a2e), juce::Colour (0xff121214), BC::amber, 34, 23, 14);
+    g.setFont (bf (12.0f, true)); g.setColour (juce::Colour (0xffe9e2cf)); g.drawText ("MASTER", juce::Rectangle<float> (mr.getX() + 16, mr.getY() + 6, 150, 24), juce::Justification::centredLeft);
+    g.setColour (juce::Colour (0xffe9e2cf).withAlpha (0.6f)); g.setFont (bf (9.0f));
+    g.drawFittedText ("lucchetto = il modulo resta com'e' quando cambi preset\ntrascina la testata per riordinare\nlatenza " + juce::String (proc.getLatencySamples()) + " campioni, compensata",
+                      juce::Rectangle<int> (MX + 64, 680, 110, 104), juce::Justification::centred, 8);
 }
 
 void Editor::mouseMove (const juce::MouseEvent& e0)
@@ -750,9 +771,10 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     const int n = proc.getNumPrograms();
     if (abRect.contains (e.getPosition())) { proc.ab.toggle (proc); resized(); repaint(); }
     else if (randRect.contains (e.getPosition())) proc.randomize();
-    else if (prevRect.contains (e.getPosition())) proc.loadPreset ((proc.preset - 1 + n) % n);
-    else if (nextRect.contains (e.getPosition())) proc.loadPreset ((proc.preset + 1) % n);
-    else if (presetRect.contains (e.getPosition()))
+    else if (prevRect.contains (e.getPosition())) proc.loadPreset ((juce::jmax (0, proc.preset) - 1 + n) % n);
+    else if (nextRect.contains (e.getPosition())) proc.loadPreset ((juce::jmax (0, proc.preset) + 1) % n);
+    else if (presetRect.contains (e.getPosition())) browser.open();
+    else if (false)
     {
         juce::PopupMenu m; std::vector<std::pair<juce::String, juce::PopupMenu>> groups;
         for (int i = 0; i < n; ++i)
@@ -768,22 +790,165 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     repaint();
 }
 
+static juce::String presetNote (const juce::String& full)
+{
+    static const std::map<juce::String, juce::String> N = {
+        { juce::String::fromUTF8 ("Init"), juce::String::fromUTF8 ("Tutto spento: il suono passa com'e'.") },
+        { juce::String::fromUTF8 ("808 | Sub pieno e mono"), juce::String::fromUTF8 ("Nastro solo sui bassi e Pultec sui 60 Hz: sub piu' pieno, tenuto al centro.") },
+        { juce::String::fromUTF8 ("808 | Si sente sul telefono"), juce::String::fromUTF8 ("Valvola sui medi e 73 che spinge le armoniche: l'808 si sente anche dalle casse piccole.") },
+        { juce::String::fromUTF8 ("808 | Distorto trap"), juce::String::fromUTF8 ("Distorsore e clip a due stadi, poi MAXX: l'808 sporco e forte della trap.") },
+        { juce::String::fromUTF8 ("808 | Drill scivolato"), juce::String::fromUTF8 ("Overdrive e Neve sui bassi, compressione SMACK: per gli 808 che scivolano.") },
+        { juce::String::fromUTF8 ("808 | Boom rinforzato"), juce::String::fromUTF8 ("Aggiunge un sub sintonizzato a 45 Hz sotto l'808 e lo incolla.") },
+        { juce::String::fromUTF8 ("808 | Punch sull'attacco"), juce::String::fromUTF8 ("Piu' botta sul click iniziale, saturazione solo sui transienti.") },
+        { juce::String::fromUTF8 ("808 | Fuzz phonk"), juce::String::fromUTF8 ("Fuzz, clip e 73 spinto: l'808 rotto e saturo del phonk.") },
+        { juce::String::fromUTF8 ("808 | Pulito per la cassa sopra"), juce::String::fromUTF8 ("Taglia un po' di coda e alleggerisce i 30 Hz: lascia spazio alla cassa.") },
+        { juce::String::fromUTF8 ("808 | CHICCA Acid che urla"), juce::String::fromUTF8 ("Il boom diventa un filtro risonante: l'808 fischia come una 303.") },
+        { juce::String::fromUTF8 ("808 | CHICCA Ottava sopra per i telefoni"), juce::String::fromUTF8 ("Aggiunge un'ottava sopra solo sui medi: l'808 resta sotto ma si sente ovunque.") },
+        { juce::String::fromUTF8 ("Basso analog | Moog rotondo"), juce::String::fromUTF8 ("Nastro, compressione calda e Neve sui bassi: il basso Moog morbido e grosso.") },
+        { juce::String::fromUTF8 ("Basso analog | Mini con morso"), juce::String::fromUTF8 ("Valvola e Pultec sotto e sopra: corpo e presenza da Minimoog.") },
+        { juce::String::fromUTF8 ("Basso analog | Reese largo"), juce::String::fromUTF8 ("Overdrive, colla e un filo di stanza sopra i 400 Hz: Reese largo ma mono sotto.") },
+        { juce::String::fromUTF8 ("Basso analog | Funk compresso"), juce::String::fromUTF8 ("SMACK con attacco in avanti e SSL sui medi: il basso funk che schiocca.") },
+        { juce::String::fromUTF8 ("Basso analog | Sub sinusoide caldo"), juce::String::fromUTF8 ("Per i bassi sinusoidali: nastro sui bassi e Pultec, nient'altro.") },
+        { juce::String::fromUTF8 ("Basso analog | CHICCA Formante che parla"), juce::String::fromUTF8 ("Formante giu' di 4 semitoni sui medi: il basso sembra dire 'uo'.") },
+        { juce::String::fromUTF8 ("Basso digitale | FM pulito e deciso"), juce::String::fromUTF8 ("Compressione PUNCH e aria del Maag: FM chiaro senza saturare.") },
+        { juce::String::fromUTF8 ("Basso digitale | Wavetable aggressivo"), juce::String::fromUTF8 ("Distorsore, OTT pieno e clip: il wavetable che sfonda.") },
+        { juce::String::fromUTF8 ("Basso digitale | Growl"), juce::String::fromUTF8 ("Fuzz sui medi e OTT: growl largo sopra, sub pulito sotto.") },
+        { juce::String::fromUTF8 ("Basso digitale | Bitcrush ma il sub resta"), juce::String::fromUTF8 ("Bitcrush solo sopra i 200 Hz: il sub non si rompe.") },
+        { juce::String::fromUTF8 ("Basso digitale | Pluck con delay"), juce::String::fromUTF8 ("Delay a 1/8 sopra i 300 Hz e compressione PUNCH: pluck che rimbalza.") },
+        { juce::String::fromUTF8 ("Basso digitale | CHICCA Wobble cassetta"), juce::String::fromUTF8 ("Il pitch ondeggia lento come una cassetta storta, sopra i 150 Hz.") },
+        { juce::String::fromUTF8 ("Voce | Rap davanti"), juce::String::fromUTF8 ("PUNCH, console, aria e un plate corto: la voce rap in faccia.") },
+        { juce::String::fromUTF8 ("Voce | Trap melodica"), juce::String::fromUTF8 ("OTT leggero, nastro, aria, delay a 1/8T e plate: voce trap con autotune.") },
+        { juce::String::fromUTF8 ("Voce | Drill scura"), juce::String::fromUTF8 ("SMACK, valvola sui medi e tono scuro: la voce drill cupa.") },
+        { juce::String::fromUTF8 ("Voce | Ritornello largo"), juce::String::fromUTF8 ("Colla, delay a 1/4, hall e allargamento: il ritornello che si apre.") },
+        { juce::String::fromUTF8 ("Voce | Intima asciutta"), juce::String::fromUTF8 ("Compressione morbida e una stanza piccolissima: voce vicina, quasi parlata.") },
+        { juce::String::fromUTF8 ("Voce | Pultec aria e corpo"), juce::String::fromUTF8 ("Il trucco del Pultec: 100 Hz e 12k insieme, corpo e aria senza durezza.") },
+        { juce::String::fromUTF8 ("Voce | Adlib filtrati"), juce::String::fromUTF8 ("Voce da radio con delay e allargamento: per adlib e doppie.") },
+        { juce::String::fromUTF8 ("Voce | Plate anni 80"), juce::String::fromUTF8 ("Plate lungo con predelay di 40 ms: la voce resta davanti, la coda dietro.") },
+        { juce::String::fromUTF8 ("Voce | Slap delay"), juce::String::fromUTF8 ("Eco corto unico (slap) e un plate: voce rock'n'roll o rap anni 90.") },
+        { juce::String::fromUTF8 ("Voce | CHICCA Coro all'ottava sulle code"), juce::String::fromUTF8 ("Un'ottava sopra solo sulle code delle frasi, con hall: coro fantasma.") },
+        { juce::String::fromUTF8 ("Voce | CHICCA Mostro all'ottava sotto"), juce::String::fromUTF8 ("Ottava sotto con formante spostata: la voce del mostro.") },
+        { juce::String::fromUTF8 ("Voce | CHICCA Telefono dal futuro"), juce::String::fromUTF8 ("Mono, digitale, filtrata e con eco: una chiamata da un altro pianeta.") },
+        { juce::String::fromUTF8 ("Voce | CHICCA Molla dub"), juce::String::fromUTF8 ("Molla e delay lunghi con taglio dei bassi: voce dub da sound system.") },
+        { juce::String::fromUTF8 ("Master | Bus pronto (MAXX)"), juce::String::fromUTF8 ("Colla, console, Pultec, SSL e MAXX: il bus pronto da far sentire.") },
+        { juce::String::fromUTF8 ("Master | Trap moderna"), juce::String::fromUTF8 ("Boom e punch sotto, aria del Maag, mono sui bassi, MAXX.") },
+        { juce::String::fromUTF8 ("Master | Boom bap pieno"), juce::String::fromUTF8 ("Compressione calda, 4 track e 73: il beat boom bap grosso.") },
+        { juce::String::fromUTF8 ("Master | Pultec e colla"), juce::String::fromUTF8 ("Solo Pultec e un filo di colla: il master classico da studio.") },
+        { juce::String::fromUTF8 ("Master | Neve calda"), juce::String::fromUTF8 ("Neve sotto e sui medi, colla leggera: calore senza perdere aria.") },
+        { juce::String::fromUTF8 ("Master | Loud e pulito"), juce::String::fromUTF8 ("Colla e clip leggero prima del MAXX: forte senza sporcare.") },
+        { juce::String::fromUTF8 ("Master | Drill scuro"), juce::String::fromUTF8 ("Tono scuro, SMACK leggero, valvola: il master drill cupo.") },
+        { juce::String::fromUTF8 ("Master | CHICCA Largo sopra, mono sotto"), juce::String::fromUTF8 ("Allarga i medi e gli alti, mono sotto i 140 Hz: grande ma sicuro in club.") },
+        { juce::String::fromUTF8 ("Master | CHICCA Solo i transienti in avanti"), juce::String::fromUTF8 ("Piu' attacco, meno coda, saturazione solo sui colpi: il beat respira.") },
+        { juce::String::fromUTF8 ("Batteria | Trap knock"), juce::String::fromUTF8 ("Boom a 50 Hz, PUNCH e clip: la cassa trap che bussa.") },
+        { juce::String::fromUTF8 ("Batteria | Drill crunch"), juce::String::fromUTF8 ("SMACK, digitale e clip a tre stadi: la batteria drill croccante.") },
+        { juce::String::fromUTF8 ("Batteria | Glue leggera"), juce::String::fromUTF8 ("Colla, nastro e un po' d'aria: incolla il bus senza cambiarlo.") },
+        { juce::String::fromUTF8 ("Batteria | OTT sparkle"), juce::String::fromUTF8 ("OTT su tutte le bande con aria: hat e rullante che brillano.") },
+        { juce::String::fromUTF8 ("Batteria | Parallel smack"), juce::String::fromUTF8 ("SMACK a fondo, mescolato a meta' col dritto: il parallelo classico.") },
+        { juce::String::fromUTF8 ("Batteria | Punch moderno"), juce::String::fromUTF8 ("PUNCH, valvola, attacco in avanti e un filo di boom.") },
+        { juce::String::fromUTF8 ("Batteria | Pultec completa"), juce::String::fromUTF8 ("Pultec sotto e sopra, colla e nastro: batteria piena e aperta.") },
+        { juce::String::fromUTF8 ("Batteria | Cassa che sfonda"), juce::String::fromUTF8 ("Boom a 48 Hz corto con punch, PUNCH e MAXX: cassa singola.") },
+        { juce::String::fromUTF8 ("Batteria | Rullante crack"), juce::String::fromUTF8 ("SMACK, console solo sui transienti e aria: lo schiocco del rullante.") },
+        { juce::String::fromUTF8 ("Batteria | Rullante grosso (formante giu)"), juce::String::fromUTF8 ("Formante giu' di 5 semitoni sui medi: il rullante sembra piu' grande.") },
+        { juce::String::fromUTF8 ("Batteria | Hat corti e secchi"), juce::String::fromUTF8 ("Toglie coda, aggiunge attacco e brillantezza: hat stretti.") },
+        { juce::String::fromUTF8 ("Batteria | CHICCA Riverbero solo sulle code"), juce::String::fromUTF8 ("Il plate si abbassa mentre suona la batteria e torna nelle pause.") },
+        { juce::String::fromUTF8 ("EQ | Maag aria sul bus"), juce::String::fromUTF8 ("Solo il Maag: aria a 20k e un filo di sotto.") },
+        { juce::String::fromUTF8 ("EQ | 73 in faccia"), juce::String::fromUTF8 ("Il 73 spinto: bassi, medi e presenza col colore del trasformatore.") },
+        { juce::String::fromUTF8 ("EQ | Lindell 81 scolpito"), juce::String::fromUTF8 ("Scava i medi bassi e apre sopra, stile 81.") },
+        { juce::String::fromUTF8 ("Chitarra | Elettrica crunch"), juce::String::fromUTF8 ("Valvola spinta, compressione calda e stanza.") },
+        { juce::String::fromUTF8 ("Chitarra | Clean con delay"), juce::String::fromUTF8 ("Delay a 1/4, hall e compressione morbida per chitarre pulite.") },
+    };
+    const auto it = N.find (full); return it != N.end() ? it->second : juce::String();
+}
+// note dei gruppi nella scheda preset
+static juce::String groupNote (const juce::String& g, const juce::String& name)
+{
+    juce::String n;
+    if (g == "808") n = "Per 808 e sub: il mono sotto tiene i bassi al centro, la saturazione li fa sentire anche sulle casse piccole.";
+    else if (g == "Basso analog") n = "Bassi da synth analogico (Moog, Mini, Reese): calore, morso e corpo senza perdere il sub.";
+    else if (g == "Basso digitale") n = "Bassi FM e wavetable: OTT, distorsione e crush lasciando il sub pulito.";
+    else if (g == "Voce") n = "Catene per voce rap, trap e drill: compressione, aria, plate e delay a tempo.";
+    else if (g == "Master") n = "Sul bus master o sul beat intero: colla, Pultec, EQ analogico e limitatore.";
+    else if (g == "Batteria") n = "Bus batteria e singoli pezzi: knock, crack, transienti e code.";
+    else if (g == "EQ") n = "Solo l'EQ analogico, per partire da un colore.";
+    else if (g == "Chitarra") n = "Per chitarre e strumenti suonati.";
+    else n = "Tutto spento: il suono passa com'e'.";
+    if (name.startsWith ("CHICCA")) n = "Chicca: un trucco da studio. " + n;
+    return n;
+}
+void Editor::setupBrowser()
+{
+    addChildComponent (browser);
+    browser.accent = BC::amber;
+    auto userFiles = [] { auto f = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jbutter"); f.sort(); return f; };
+    browser.entries = [userFiles]
+    {
+        std::vector<jbrowse::Entry> v; const auto& P = burroPresets();
+        for (int i = 0; i < (int) P.size(); ++i)
+        {
+            const juce::String n (P[(size_t) i].name);
+            jbrowse::Entry e; e.id = i;
+            e.group = n.contains (" | ") ? n.upToFirstOccurrenceOf (" | ", false, false) : juce::String ("BASE");
+            e.name = n.contains (" | ") ? n.fromFirstOccurrenceOf (" | ", false, false) : n;
+            e.note = presetNote (n); if (e.note.isEmpty()) e.note = groupNote (e.group, e.name); else if (e.name.startsWith ("CHICCA")) e.note = "Chicca. " + e.note;
+            v.push_back (e);
+        }
+        const auto fs = userFiles();
+        for (int i = 0; i < fs.size(); ++i) { jbrowse::Entry e; e.id = 100000 + i; e.user = true; e.group = "I MIEI"; e.name = fs[i].getFileNameWithoutExtension(); e.note = "Preset tuo, salvato in Musica / Jackpot / Butter Preset."; v.push_back (e); }
+        return v;
+    };
+    browser.current = [this, userFiles]
+    {
+        if (proc.userName.isEmpty()) return proc.preset;
+        const auto fs = userFiles(); for (int i = 0; i < fs.size(); ++i) if (fs[i].getFileNameWithoutExtension() == proc.userName) return 100000 + i;
+        return -1;
+    };
+    browser.load = [this] (const jbrowse::Entry& e)
+    {
+        if (e.user) proc.loadUserPreset (Processor::presetFolder().getChildFile (e.name + ".jbutter")); else proc.loadPreset (e.id);
+        layoutModules(); repaint();
+    };
+    browser.save = [this] { askPresetName(); };
+    browser.canOverwrite = [this] { return proc.userName.isNotEmpty(); };
+    browser.overwrite = [this] { proc.saveUserPreset (proc.userName); repaint(); };
+    browser.folder = [] { Processor::presetFolder().startAsProcess(); };
+    browser.remove = [this] (const jbrowse::Entry& e) { Processor::presetFolder().getChildFile (e.name + ".jbutter").moveToTrash(); if (proc.userName == e.name) proc.userName = {}; repaint(); };
+    browser.onClose = [this] { repaint(); };
+}
+void Editor::askPresetName()
+{
+    auto* w = new juce::AlertWindow ("Salva preset", "Nome del preset (finisce in Musica / Jackpot / Butter Preset):", juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", proc.userName.isNotEmpty() ? proc.userName : proc.currentName().replace (" | ", " - "));
+    w->addButton ("SALVA", 1, juce::KeyPress (juce::KeyPress::returnKey)); w->addButton ("ANNULLA", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<Editor> sp (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([sp, w] (int r)
+    {
+        if (sp != nullptr && r == 1) { const auto n = w->getTextEditorContents ("name").trim(); if (n.isNotEmpty()) { sp->proc.saveUserPreset (n); sp->browser.refresh(); sp->repaint(); } }
+    }), true);
+}
+
 void Editor::timerCallback()
 {
-    // si ridisegna solo cio che si muove: display dei moduli, manopole cambiate, analizzatori
+    // si ridisegna solo cio' che cambia: display dei moduli accesi, manopole mosse, analizzatori, meter
     static int tick = 0; ++tick;
-    auto knobDirty = [] (PKnob* k) { const float v = k->param->getValue(); if (v != k->lastV || k->activity) { k->lastV = v; k->repaint(); } };
-    if (tick % 2 == 0) { eq->updateSpectrum(); eq->repaint (eq->plot().toNearestInt().expanded (2)); }
-    if (tick % 3 == 0) imager->repaint();
+    if (browser.isVisible()) return;
+    auto knobDirty = [] (PKnob* k) { if (k->changed()) k->repaint(); };
+    if (tick % 2 == 0 && proc.apvts.getRawParameterValue ("u_eqOn")->load() > 0.5f) { eq->updateSpectrum(); eq->repaint (eq->plot().toNearestInt().expanded (2)); }
+    if (tick % 3 == 0 && imager->on->param->getValue() > 0.5f) imager->repaint (juce::Rectangle<int> (12, 38, imager->getWidth() - 22, 82));
     for (auto* m : modules)
     {
-        m->repaint (m->displayRect().toNearestInt().expanded (2)); m->repaint (0, 0, m->getWidth(), 40);
+        const bool on = m->power->param->getValue() > 0.5f;
+        if (on) m->repaint (m->displayRect().toNearestInt().expanded (2));
+        if (on != m->lastOn) { m->lastOn = on; m->repaint(); }
         if (m->big) knobDirty (m->big.get()); for (auto* k : m->smalls) knobDirty (k);
+        for (juce::Component* c : std::initializer_list<juce::Component*> { m->type.get(), m->extraPill.get(), m->focus.get(), m->target.get(), m->extra.get(), m->power.get() }) if (c) c->repaint();
     }
     for (auto* k : master) knobDirty (k);
-    for (auto* k : eq->knobs) { const float v = k->param->getValue(); if (v != k->lastV) { k->lastV = v; k->repaint(); eq->repaint(); } }
-    for (auto* k : pultec->knobs) { const float v = k->param->getValue(); if (v != k->lastV) { k->lastV = v; k->repaint(); pultec->repaint(); } }
-    clip->repaint(); limType->repaint();
-    repaint (scaler.map ({ MX, 660, 238, 140 })); repaint (scaler.map (presetRect));
+    { bool any = false; for (auto* k : eq->knobs) if (k->changed()) { k->repaint(); any = true; } const float mo = proc.apvts.getRawParameterValue ("u_aeModel")->load() + 10 * proc.apvts.getRawParameterValue ("u_eqOn")->load(); if (mo != eq->lastModel) { eq->lastModel = mo; any = true; for (auto* k : eq->knobs) k->repaint(); } if (any) eq->repaint(); }
+    { bool any = false; for (auto* k : pultec->knobs) if (k->changed()) { k->repaint(); any = true; } if (any || pultec->on->param->getValue() != pultec->lastOn) { pultec->lastOn = pultec->on->param->getValue(); pultec->repaint(); } }
+    for (auto* k : { imager->width.get(), imager->mono.get() }) knobDirty (k);
+    if (imager->on->param->getValue() != imager->lastOn) { imager->lastOn = imager->on->param->getValue(); imager->repaint(); }
+    { const float c = clip->param->getValue(), l = (float) limType->param->getIndex(); if (c != lastClip || l != lastLim) { lastClip = c; lastLim = l; clip->repaint(); limType->repaint(); } }
+    const auto pt = proc.currentName() + juce::String (proc.ab.cur);
+    if (pt != lastPresetTxt) { lastPresetTxt = pt; repaint (scaler.map (presetRect.getUnion (abRect).expanded (4))); layoutModules(); }
+    repaint (scaler.map ({ MX + 16, 664, 48, 136 })); repaint (scaler.map ({ MX + 174, 664, 48, 136 }));
 }
 }

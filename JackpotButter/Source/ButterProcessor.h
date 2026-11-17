@@ -9,7 +9,7 @@ class Processor : public juce::AudioProcessor
 {
 public:
     Processor();
-    void prepareToPlay (double sr, int block) override { dsp.prepare (sr, block); }
+    void prepareToPlay (double sr, int block) override { maxBlock = juce::jmax (64, block); dsp.prepare (sr, maxBlock); setLatencySamples (dsp.latency()); gIn.reset (sr, 0.02); gOut.reset (sr, 0.02); }
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& l) const override
     { return l.getMainOutputChannelSet() == juce::AudioChannelSet::stereo() && l.getMainInputChannelSet() == juce::AudioChannelSet::stereo(); }
@@ -21,7 +21,7 @@ public:
     bool producesMidi() const override { return false; }
     double getTailLengthSeconds() const override { return 3.0; }
     int getNumPrograms() override { return (int) burroPresets().size(); }
-    int getCurrentProgram() override { return preset; }
+    int getCurrentProgram() override { return juce::jmax (0, preset); }
     void setCurrentProgram (int i) override { loadPreset (i); }
     const juce::String getProgramName (int i) override { return burroPresets()[(size_t) juce::jlimit (0, getNumPrograms() - 1, i)].name; }
     void changeProgramName (int, const juce::String&) override {}
@@ -35,7 +35,14 @@ public:
     Burro dsp;
     std::atomic<bool> locked[7];
     void randomize();
-    int preset = 0;
+    int preset = 0, maxBlock = 512;
+    juce::SmoothedValue<float> gIn { 1.0f }, gOut { 1.0f };
+    std::atomic<float>* pIn = nullptr; std::atomic<float>* pOut = nullptr;
+    juce::String userName;
+    juce::String currentName() { return userName.isNotEmpty() ? userName : getProgramName (preset); }
+    static juce::File presetFolder();
+    bool saveUserPreset (const juce::String&);
+    bool loadUserPreset (const juce::File&);
     std::atomic<float> inL { 0 }, inR { 0 }, outL { 0 }, outR { 0 };
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();

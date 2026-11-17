@@ -16,6 +16,7 @@ Processor::Processor()
       apvts (*this, nullptr, "PARAMS", layout())
 {
     for (auto& l : locked) l = false;
+    dsp.bind (apvts); pIn = apvts.getRawParameterValue ("u_in"); pOut = apvts.getRawParameterValue ("u_out");
 }
 
 juce::StringArray Processor::moduleParams (int m)
@@ -35,7 +36,7 @@ juce::StringArray Processor::moduleParams (int m)
 void Processor::loadPreset (int i)
 {
     const auto& all = burroPresets(); if (i < 0 || i >= (int) all.size()) return;
-    preset = i;
+    preset = i; userName = {};
     juce::StringArray keep; for (int m = 0; m < 7; ++m) if (locked[m]) keep.addArray (moduleParams (m));
     for (auto* p : getParameters())
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
@@ -49,29 +50,63 @@ void Processor::processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&)
     juce::ScopedNoDenormals nd;
     const int N = b.getNumSamples(); if (b.getNumChannels() < 2) return;
     float* L = b.getWritePointer (0); float* R = b.getWritePointer (1);
-    const float gi = juce::Decibels::decibelsToGain (apvts.getRawParameterValue ("u_in")->load()), go = juce::Decibels::decibelsToGain (apvts.getRawParameterValue ("u_out")->load());
-    float p0 = 0, p1 = 0;
-    for (int i = 0; i < N; ++i) { L[i] *= gi; R[i] *= gi; p0 = juce::jmax (p0, std::abs (L[i])); p1 = juce::jmax (p1, std::abs (R[i])); }
-    inL = juce::jmax (p0, inL.load() * 0.85f); inR = juce::jmax (p1, inR.load() * 0.85f);
+    gIn.setTargetValue (juce::Decibels::decibelsToGain (pIn->load())); gOut.setTargetValue (juce::Decibels::decibelsToGain (pOut->load()));
     if (auto* ph = getPlayHead()) if (auto pos = ph->getPosition()) if (auto bp = pos->getBpm()) dsp.bpm = *bp;
-    dsp.process (L, R, N, apvts);
-    p0 = p1 = 0;
-    for (int i = 0; i < N; ++i) { L[i] *= go; R[i] *= go; p0 = juce::jmax (p0, std::abs (L[i])); p1 = juce::jmax (p1, std::abs (R[i])); }
-    outL = juce::jmax (p0, outL.load() * 0.85f); outR = juce::jmax (p1, outR.load() * 0.85f);
+    // a pezzi grandi al massimo quanto preparato: nessun buffer da ingrandire mentre suona
+    for (int o = 0; o < N; o += maxBlock)
+    {
+        const int n = juce::jmin (maxBlock, N - o); float* l = L + o; float* r = R + o;
+        float p0 = 0, p1 = 0;
+        for (int i = 0; i < n; ++i) { const float g = gIn.getNextValue(); l[i] *= g; r[i] *= g; p0 = juce::jmax (p0, std::abs (l[i])); p1 = juce::jmax (p1, std::abs (r[i])); }
+        inL = juce::jmax (p0, inL.load() * 0.85f); inR = juce::jmax (p1, inR.load() * 0.85f);
+        dsp.process (l, r, n, apvts);
+        p0 = p1 = 0;
+        for (int i = 0; i < n; ++i) { const float g = gOut.getNextValue(); l[i] *= g; r[i] *= g; p0 = juce::jmax (p0, std::abs (l[i])); p1 = juce::jmax (p1, std::abs (r[i])); }
+        outL = juce::jmax (p0, outL.load() * 0.85f); outR = juce::jmax (p1, outR.load() * 0.85f);
+    }
+}
+
+juce::File Processor::presetFolder()
+{
+    auto f = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Butter Preset");
+    f.createDirectory(); return f;
+}
+bool Processor::saveUserPreset (const juce::String& name)
+{
+    juce::MemoryBlock mb; getStateInformation (mb);
+    auto x = getXmlFromBinary (mb.getData(), (int) mb.getSize()); if (! x) return false;
+    const auto f = presetFolder().getChildFile (juce::File::createLegalFileName (name) + ".jbutter");
+    if (! x->writeTo (f)) return false;
+    userName = f.getFileNameWithoutExtension(); preset = -1; return true;
+}
+bool Processor::loadUserPreset (const juce::File& f)
+{
+    auto x = juce::XmlDocument::parse (f); if (! x) return false;
+    juce::MemoryBlock mb; copyXmlToBinary (*x, mb); setStateInformation (mb.getData(), (int) mb.getSize());
+    userName = f.getFileNameWithoutExtension(); preset = -1; return true;
 }
 
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
     auto st = apvts.copyState();
     juce::String ord, lk; for (auto& o : dsp.order) ord << o.load() << ","; for (auto& l : locked) lk << (l.load() ? "1" : "0");
-    st.setProperty ("order", ord, nullptr); st.setProperty ("locks", lk, nullptr); st.setProperty ("preset", preset, nullptr);
+    st.setProperty ("order", ord, nullptr); st.setProperty ("locks", lk, nullptr); st.setProperty ("preset", preset, nullptr); st.setProperty ("bv", 2, nullptr); st.setProperty ("uname", userName, nullptr);
     if (auto x = st.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
     auto x = getXmlFromBinary (data, size); if (x == nullptr) return;
     auto st = juce::ValueTree::fromXml (*x); if (! st.isValid()) return;
+    const bool old = (int) st.getProperty ("bv", 1) < 2;
     apvts.replaceState (st);
+    if (old)
+        if (auto* nt = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter ("u_nType")))
+        {   // vinile e nastro non ci sono piu' (stanno in Dust): diventano pink; metallo e sabbia scalano di due posti
+            static const int map[6] = { 0, 1, 1, 1, 2, 3 };
+            const int i = (int) st.getChildWithProperty ("id", "u_nType").getProperty ("value", 1.0f);
+            nt->setValueNotifyingHost (nt->convertTo0to1 ((float) map[juce::jlimit (0, 5, i)]));
+        }
+    userName = st.getProperty ("uname", "").toString();
     auto o = juce::StringArray::fromTokens (st.getProperty ("order").toString(), ",", "");
     if (o.size() >= 4)
     {
@@ -94,6 +129,7 @@ namespace jb
 // Randomizzatore "musicale": accende 3-5 moduli con quantita sensate, rispetta i lucchetti
 void Processor::randomize()
 {
+    userName = {};
     juce::Random r;
     auto set = [this] (const char* id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
     auto rng = [&r] (float a, float b) { return a + r.nextFloat() * (b - a); };
@@ -106,7 +142,7 @@ void Processor::randomize()
         if (on) ++active;
         switch (m)
         {
-            case 0: set ("u_bOn", 1); set ("u_boom", on ? rng (0.15f, 0.6f) : 0); set ("u_bTone", rng (40, 75)); set ("u_acid", r.nextFloat() < 0.2f ? 1.0f : 0.0f); set ("u_noise", r.nextFloat() < 0.3f ? rng (0, 0.25f) : 0); set ("u_nType", (float) r.nextInt (5)); break;
+            case 0: set ("u_bOn", 1); set ("u_boom", on ? rng (0.15f, 0.6f) : 0); set ("u_bTone", rng (40, 75)); set ("u_acid", r.nextFloat() < 0.2f ? 1.0f : 0.0f); set ("u_noise", r.nextFloat() < 0.2f ? rng (0, 0.2f) : 0); set ("u_nType", (float) r.nextInt (4)); break;
             case 1: set ("u_shOn", 1); set ("u_shAmt", on ? rng (0.2f, 0.7f) : 0); { const float iv[] = { -12, -7, -5, 0, 5, 7, 12 }; set ("u_shPitch", iv[r.nextInt (7)]); }; set ("u_shTgt", rng (0.2f, 1)); set ("u_shFoc", (float) r.nextInt (4)); break;
             case 2: set ("u_cOn", 1); set ("u_cType", (float) r.nextInt (6)); set ("u_cAmt", on ? rng (0.2f, 0.65f) : 0); set ("u_cBands", rng (0, 0.8f)); break;
             case 3: set ("u_sOn", 1); set ("u_sType", (float) r.nextInt (6)); set ("u_sAmt", on ? rng (0.15f, 0.6f) : 0); set ("u_sStyle", rng (0.2f, 0.8f)); set ("u_sTgt", rng (-0.5f, 0.6f)); set ("u_sFoc", (float) r.nextInt (4)); break;

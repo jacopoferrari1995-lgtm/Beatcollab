@@ -4,6 +4,8 @@
 #include "ButterProcessor.h"
 #include "Skin.h"
 #include "Neo.h"
+#include "HwLook.h"
+#include "PresetBrowser.h"
 #include <juce_dsp/juce_dsp.h>
 
 namespace jb
@@ -34,6 +36,8 @@ public:
     juce::RangedAudioParameter* param; juce::String label; juce::Colour col; bool isBig; std::function<juce::String (float)> fmt; float start = 0; bool active = false, hover = false; bool bipolar = false;
     std::function<float()> activity; float actSm = 0; float lastV = -9;
     std::function<juce::String()> dynLabel;   // etichetta che dipende dal modello
+    int style = 0; juce::Colour ink { 0xffe8e4d8 }, cap { 0xff8b8f96 }; std::function<bool()> lit; juce::String lastTxt; bool lastLit = true;
+    bool changed();   // valore, testo o stato acceso cambiati dall'ultimo disegno
 };
 
 class Pill : public juce::Component
@@ -85,7 +89,7 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void drawDisplay (juce::Graphics&, juce::Rectangle<float>);
-    Editor& ed; int mod; bool dragging = false; int dragX = 0; neo::Cache base;
+    Editor& ed; int mod; bool dragging = false, lastOn = true; int dragX = 0; neo::Cache base;
     std::unique_ptr<PKnob> big; juce::OwnedArray<PKnob> smalls; std::unique_ptr<Pill> type, extraPill; std::unique_ptr<Segs> focus; std::unique_ptr<Target> target;
     std::unique_ptr<Switch> power, extra;
     juce::Rectangle<int> lockRect() const { return { getWidth() - 28, 9, 18, 18 }; }
@@ -99,7 +103,7 @@ public:
     explicit PultecPanel (Editor& e);
     void paint (juce::Graphics&) override;
     void resized() override;
-    Editor& ed; std::unique_ptr<Switch> on; juce::OwnedArray<PKnob> knobs; neo::Cache base;
+    Editor& ed; std::unique_ptr<Switch> on; juce::OwnedArray<PKnob> knobs; neo::Cache base; float lastOn = -1;
 };
 class ImagerPanel : public juce::Component
 {
@@ -107,7 +111,7 @@ public:
     explicit ImagerPanel (Editor& e);
     void paint (juce::Graphics&) override;
     void resized() override;
-    Editor& ed; std::unique_ptr<Switch> on; std::unique_ptr<PKnob> width, mono; neo::Cache base;
+    Editor& ed; std::unique_ptr<Switch> on; std::unique_ptr<PKnob> width, mono; neo::Cache base; float lastOn = -1;
 };
 
 // EQ analogico: modelli MAAG / SSL / NEVE / LINDELL 81 / 73 / PE 1C, con analizzatore
@@ -121,7 +125,7 @@ public:
     void updateSpectrum();
     juce::Rectangle<float> plot() const { return { 14, 30, (float) getWidth() - 28, 92 }; }
     juce::Rectangle<int> modelRect() const { return { getWidth() - 190, 4, 176, 22 }; }
-    Editor& ed; neo::Cache base;
+    Editor& ed; neo::Cache base; float lastModel = -1;
     juce::dsp::FFT fft { 11 };
     std::vector<float> fftBuf, specIn, specOut;
     std::unique_ptr<Switch> on; juce::OwnedArray<PKnob> knobs;   // 4 x (gain, freq), drive, q
@@ -154,6 +158,8 @@ public:
     std::unique_ptr<EqPanel> eq;
     std::unique_ptr<PultecPanel> pultec; std::unique_ptr<ImagerPanel> imager; std::unique_ptr<Pill> limType;
     juce::Rectangle<int> presetRect, prevRect, nextRect, randRect, abRect; bool randHover = false, abHover = false;
+    jbrowse::Browser browser; void setupBrowser(); void askPresetName();
+    juce::String lastPresetTxt; int lastAb = -1; float lastClip = -1, lastLim = -1;
     void mouseMove (const juce::MouseEvent&) override;
 private:
     void timerCallback() override;
