@@ -101,9 +101,12 @@ public:
     void setPadValue (int p, int i, float v);
     std::atomic<int> eqSoloPad { -1 }, eqSoloBand { -1 };   // ascolto di una sola banda dell'EQ di un pad   // dall'interfaccia: aggiorna anche il parametro di Ableton
     SamplePtr getSample (int p) const { const juce::SpinLock::ScopedLockType l (sLock); return smp[p]; }
-    void setSample (int p, SamplePtr s) { const juce::SpinLock::ScopedLockType l (sLock); smp[p] = std::move (s); }
+    void setSample (int p, SamplePtr s) { SamplePtr old; { const juce::SpinLock::ScopedLockType l (sLock); old = std::move (smp[p]); smp[p] = std::move (s); } toTrash (std::move (old)); }
     SamplePtr getLayer (int p) const { const juce::SpinLock::ScopedLockType l (sLock); return smp2[p]; }
-    void setLayer (int p, SamplePtr s) { const juce::SpinLock::ScopedLockType l (sLock); smp2[p] = std::move (s); }
+    void setLayer (int p, SamplePtr s) { SamplePtr old; { const juce::SpinLock::ScopedLockType l (sLock); old = std::move (smp2[p]); smp2[p] = std::move (s); } toTrash (std::move (old)); }
+    // un campione tolto da un pad puo' ancora suonare in una voce: lo tengo qui finche' nessuna voce lo usa,
+    // cosi' la memoria si libera dal timer e mai dal thread audio (era una possibile causa di scatti)
+    std::vector<SamplePtr> trash; void toTrash (SamplePtr s) { if (s) trash.push_back (std::move (s)); }
     bool loadLayerFile (const juce::File&, int p);
     bool loadFile (const juce::File&, int p, bool analyse = true);
     void detectKey (int p, bool audio = true);    // tonalita del campione (nome, poi ascolto)
@@ -114,7 +117,8 @@ public:
     void applyKeyLockAll();
     int kitEffectiveKey (int except = -1) const;  // tonalita in cui suonano le parti tonali ora            // porta il campione nella tonalita scelta (stretch se e un loop)
     // ascolto di prova dalla banca, senza caricarlo sul pad
-    void preview (SamplePtr s) { { const juce::SpinLock::ScopedLockType l (sLock); prevNext = std::move (s); } prevReq = prevReq.load() + 1; }
+    void preview (SamplePtr s) { prevKeep = s; { const juce::SpinLock::ScopedLockType l (sLock); prevNext = std::move (s); } prevReq = prevReq.load() + 1; }
+    SamplePtr prevKeep;   // l'ultimo ascolto resta vivo qui: il thread audio non e' mai l'ultimo a lasciarlo
     // annulla / ripeti: istantanee dei pad prese dall'editor quando cambia qualcosa
     struct Snap { float v[kPads][kNumPadParams]; int col[kPads]; SamplePtr s[kPads], s2[kPads]; juce::String kit; };
     Snap capture() const;
@@ -159,6 +163,7 @@ public:
     static juce::File baseFolder();
     juce::Array<juce::File> userKits() const;
     void loadFactoryKit (int i);
+    void neutralMasterFx();
     bool saveKit (const juce::File&, const juce::String& name);
     bool loadKit (const juce::File&);
     std::unique_ptr<juce::XmlElement> padsToXml() const;
@@ -257,7 +262,7 @@ private:
     std::vector<Pend> pend; juce::int64 absSample = 0; juce::int64 padDelay[kPads] = {};
     int heldVel[kPads] = {}; double nrStart[kPads] = {}; double nrPhase[kPads] = {};
     struct Trig { int off, pad, vel; bool on; };
-    std::vector<Trig> trigs;
+    std::vector<Trig> trigs; juce::MidiBuffer midiOut; float gainSm[kPads][4] {}; float outSm = -1;
     juce::AudioBuffer<float> padBuf;
     std::vector<float> revL, revR, dlyInL, dlyInR;
     juce::AudioBuffer<float> dlyBuf; int dlyW = 0; float dlyLpL = 0, dlyLpR = 0;

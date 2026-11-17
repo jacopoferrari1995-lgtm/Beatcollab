@@ -212,6 +212,7 @@ Processor::Processor()
       apvts (*this, nullptr, "PARAMS", layout())
 {
     formats.registerBasicFormats();
+    for (int k = 0; k < 8; ++k) { fxTypeRaw[k] = apvts.getRawParameterValue ("fx" + juce::String (k + 1) + "type"); fxAmtRaw[k] = apvts.getRawParameterValue ("fx" + juce::String (k + 1)); }
     for (int i = 0; i < kPads; ++i) { padGlow[i] = 0; padMeter[i] = 0; padGr[i] = 0; lastVel[i] = 0; hits[i] = 0; pad[i].colour = i; }
     for (int i = 0; i < kScope; ++i) { scPk[i] = 0; scHit[i] = 0; scVel[i] = 0; }
     for (int i = 0; i < kPads; ++i) padPos[i] = -1.0f;
@@ -245,6 +246,7 @@ void Processor::touch (juce::RangedAudioParameter* pp, float norm)
 }
 void Processor::timerCallback()
 {
+    trash.erase (std::remove_if (trash.begin(), trash.end(), [] (const SamplePtr& x) { return x.use_count() <= 1; }), trash.end());
     if (pendingRandom && ++startTicks >= 3)
     {
         pendingRandom = false;
@@ -287,8 +289,11 @@ void Processor::prepareToPlay (double s, int block)
     for (int k = 0; k < 8; ++k) { fxTypeRaw[k] = apvts.getRawParameterValue ("fx" + juce::String (k + 1) + "type"); fxAmtRaw[k] = apvts.getRawParameterValue ("fx" + juce::String (k + 1)); }
     kw1.set (2, sr, 1681, 4.0, 0.707); kw2.set (4, sr, 38, 0, 0.5); kw1.reset(); kw2.reset(); lufsAcc = 0; lufsN = 0; for (auto& b : lufsBins) b = 0;
     for (auto& v : voices) { v.active = false; v.s.reset(); }
-    padBuf.setSize (kPads * 2, juce::jmax (block, 2048)); padBuf.clear();
-    revL.assign ((size_t) juce::jmax (block, 2048), 0); revR = revL; dlyInL = revL; dlyInR = revL;
+    // buffer grandi da subito (anche se la DAW manda blocchi piu' lunghi del previsto non serve memoria nuova mentre suona)
+    padBuf.setSize (kPads * 2, juce::jmax (block, 8192)); padBuf.clear();
+    revL.assign ((size_t) juce::jmax (block, 8192), 0); revR = revL; dlyInL = revL; dlyInR = revL;
+    trigs.reserve (2048); pend.reserve (600); midiOut.ensureSize (8192);
+    for (auto& g : gainSm) g[0] = -1; outSm = -1;
     dlyBuf.setSize (2, (int) (sr * 4.5)); dlyBuf.clear(); dlyW = 0;
     reverb.setSampleRate (sr); reverb.reset();
     preBuf.assign ((size_t) (2 * ((int) (sr * 0.15) + 8)), 0.0f); preW = 0; rvLp.reset();
@@ -357,7 +362,11 @@ void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, 
     const bool loop = P.get (LOOP) > 0.5f;
     Voice* v = nullptr;
     for (auto& x : voices) if (! x.active) { v = &x; break; }
-    if (v == nullptr) { int oldest = -1; for (auto& x : voices) if (x.age > oldest) { oldest = x.age; v = &x; } }
+    if (v == nullptr)
+    {   // tutte occupate: prima una voce che sta gia' sfumando (choke / rilascio), poi la piu' vecchia
+        int oldest = -1; for (auto& x : voices) if ((x.choking || x.rel) && x.age > oldest) { oldest = x.age; v = &x; }
+        if (v == nullptr) for (auto& x : voices) if (x.age > oldest) { oldest = x.age; v = &x; }
+    }
     const float vv = velCurve (vel);
     const int n = s->buf.getNumSamples();
     double a0 = (layer ? 0.0 : (r0 >= 0 ? r0 : P.get (START))) * n, a1 = (layer ? 1.0 : (r1 >= 0 ? r1 : P.get (END))) * n; if (a1 - a0 < 32) a1 = juce::jmin ((double) n, a0 + 32);
@@ -387,6 +396,8 @@ void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, 
     v->gain = gmul * 0.708f * juce::Decibels::decibelsToGain ((layer ? P.get (LGAIN) : P.get (GAIN)) - (1.0f - vv) * 18.0f * P.get (VLEVEL));   // -3 dB di margine
     const float atk = P.get (ATTACK);
     v->env = atk < 0.5f ? 1.0f : 0.0f; v->atkDone = atk < 0.5f; v->atkInc = atk < 0.5f ? 1.0f : (float) (1.0 / (atk * 0.001 * sr));
+    // partenza a meta' campione (START spostato, velocity start, retro, fette): 1 ms di entrata, altrimenti click
+    if (atk < 0.5f && (v->pos > 4 || v->dir < 0)) { v->env = 0.0f; v->atkDone = false; v->atkInc = (float) (1.0 / (0.001 * sr)); }
     const float dec = P.get (DECAY); v->hold = dec >= 3990 || loop;
     v->decCoef = (float) std::exp (-1.0 / (dec * 0.001 * sr / 4.6));
     v->relCoef = (float) std::exp (-1.0 / (P.get (RELEASE) * 0.001 * sr / 4.6));
@@ -583,7 +594,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 
     const int root = rootNote();
     const bool swMidi = par ("swMidi") > 0.5f && par ("swing") > 50.05f && running;
-    juce::MidiBuffer out;
+    juce::MidiBuffer& out = midiOut; out.clear(); out.ensureSize (8192);   // dopo il primo giro la memoria c'e' gia'
     // interfaccia: suona subito e manda le note in uscita (VST3: registrabili in Ableton)
     {
         int s1, n1, s2, n2; fifo.prepareToRead (fifo.getNumReady(), s1, n1, s2, n2);
@@ -610,7 +621,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             if (k >= 0 && k < kFx)
             {
                 float v = msg.getControllerValue() / 127.0f;
-                { const int ty = juce::roundToInt (apvts.getRawParameterValue ("fx" + juce::String (k + 1) + "type")->load()); if (pfx::info (ty).bipolar && ty != pfx::SCRATCHHAND && std::abs (msg.getControllerValue() - 64) <= 8) v = 0.5f; }   // centro largo, facile da ritrovare   // filtro: zona morta al centro
+                { const int ty = juce::roundToInt (fxTypeRaw[k]->load()); if (pfx::info (ty).bipolar && ty != pfx::SCRATCHHAND && std::abs (msg.getControllerValue() - 64) <= 8) v = 0.5f; }   // centro largo, facile da ritrovare   // filtro: zona morta al centro
                 ccPend[k] = v;
             }
             continue;
@@ -629,7 +640,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         if (delay <= 0) trigs.push_back ({ m.samplePosition, p, msg.isNoteOn() ? (int) msg.getVelocity() : 0, msg.isNoteOn() });
         else if (pend.size() < 500) pend.push_back ({ absSample + m.samplePosition + delay, p, msg.isNoteOn() ? (int) msg.getVelocity() : 0, msg.isNoteOn() });
     }
-    midi.swapWith (out);
+    midi.swapWith (out);   // out (midiOut) ora contiene il MIDI d'ingresso: si svuota al prossimo blocco
     // note con swing in attesa
     for (size_t k = 0; k < pend.size();)
     {
@@ -682,7 +693,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 }
             }
     }
-    std::stable_sort (trigs.begin(), trigs.end(), [] (const Trig& a, const Trig& b) { return a.off < b.off; });
+    // ordine per posizione nel blocco (insertion sort stabile: niente memoria temporanea come std::stable_sort)
+    for (size_t a = 1; a < trigs.size(); ++a) { const Trig t = trigs[a]; size_t b = a; while (b > 0 && trigs[b - 1].off > t.off) { trigs[b] = trigs[b - 1]; --b; } trigs[b] = t; }
     if (! hostPlay && intPlay.load()) intTick += N * tps;
     uiTick = running ? t1 : 0.0;
 
@@ -838,14 +850,19 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         const float lv = audible ? P.get (LEVEL) : 0.0f, pan = P.get (PAN);
         const float gl = lv * std::cos ((pan + 1) * juce::MathConstants<float>::pi * 0.25f) * 1.41421f, gr2 = lv * std::sin ((pan + 1) * juce::MathConstants<float>::pi * 0.25f) * 1.41421f;
         const float sRev = P.get (SREV), sDly = P.get (SDLY);
+        // volume, pan e mandate in rampa lungo il blocco: muovere un fader o un'automazione non fa click
+        float* gs = gainSm[p]; if (gs[0] < 0) { gs[0] = gl; gs[1] = gr2; gs[2] = sRev; gs[3] = sDly; }
+        const float d0 = (gl - gs[0]) / N, d1 = (gr2 - gs[1]) / N, d2 = (sRev - gs[2]) / N, d3 = (sDly - gs[3]) / N;
         float mpk = 0;
         for (int i = 0; i < N; ++i)
         {
-            const float l = L[i] * gl, r = R[i] * gr2;
+            gs[0] += d0; gs[1] += d1; gs[2] += d2; gs[3] += d3;
+            const float l = L[i] * gs[0], r = R[i] * gs[1];
             cl[i] += l; cr[i] += r; mpk = juce::jmax (mpk, juce::jmax (std::abs (l), std::abs (r)));
-            if (sRev > 0) { revL[(size_t) i] += l * sRev; revR[(size_t) i] += r * sRev; }
-            if (sDly > 0) { dlyInL[(size_t) i] += l * sDly; dlyInR[(size_t) i] += r * sDly; }
+            if (gs[2] > 0) { revL[(size_t) i] += l * gs[2]; revR[(size_t) i] += r * gs[2]; }
+            if (gs[3] > 0) { dlyInL[(size_t) i] += l * gs[3]; dlyInR[(size_t) i] += r * gs[3]; }
         }
+        gs[0] = gl; gs[1] = gr2; gs[2] = sRev; gs[3] = sDly;
         padMeter[p] = juce::jmax (mpk, padMeter[p].load() * 0.8f);
     }
     // 3) master: delay, riverbero, bus comp, saturazione, clip, uscita
@@ -957,10 +974,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             }
         }
         const bool clip = par ("clip") > 0.5f; const float og = juce::Decibels::decibelsToGain (par ("out"));
+        if (outSm < 0) outSm = og; const float dOg = (og - outSm) / N;
         float pk[2] = { 0, 0 };
         for (int i = 0; i < N; ++i)
         {
-            float l = cl[i] * og, r = cr[i] * og;
+            outSm += dOg; float l = cl[i] * outSm, r = cr[i] * outSm;
             if (clip) { auto sc = [] (float x) { const float a = std::abs (x); return a > 0.85f ? std::copysign (0.85f + 0.15f * std::tanh ((a - 0.85f) / 0.15f), x) : x; }; l = sc (l); r = sc (r); }
             cl[i] = l; cr[i] = r; pk[0] = juce::jmax (pk[0], std::abs (l)); pk[1] = juce::jmax (pk[1], std::abs (r));
             { const float kl = kw2.run (kw1.run (l, 0), 0), kr = kw2.run (kw1.run (r, 1), 1); lufsAcc += (double) kl * kl + (double) kr * kr; }
@@ -977,6 +995,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 colPk = 0; colN = 0; colHits = 0; colVel = 0;
             }
         }
+        outSm = og;
         meterL = juce::jmax (pk[0], meterL.load() * 0.85f); meterR = juce::jmax (pk[1], meterR.load() * 0.85f);
         peakHold = juce::jmax (peakHold.load(), juce::jmax (pk[0], pk[1]));
     }
@@ -1314,10 +1333,16 @@ void Processor::loadFactoryKit (int k)
         }
         else { setSample (p, nullptr); padCat[p] = {}; }
     }
-    if (K.pads.empty())   // kit vuoto: anche la sezione master torna ai valori di partenza
-        for (auto id : { "revSize", "revDamp", "revRet", "revLo", "revHi", "revPre", "dlyDiv", "dlyMs", "dlyFb", "dlyLo", "dlyHi", "dlyRet", "busMode", "busAmt", "clip", "out", "revKit", "dlyKit", "satAmt" })
-            if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->getDefaultValue());
+    neutralMasterFx();   // i kit di fabbrica non hanno un master loro: si parte puliti
     kitName = K.name; kitFile = juce::File();
+}
+// master ai valori di partenza e le 8 manopole FX in posizione neutra (il tipo scelto per ogni manopola resta)
+void Processor::neutralMasterFx()
+{
+    for (auto id : { "revSize", "revDamp", "revRet", "revLo", "revHi", "revPre", "dlyDiv", "dlyMs", "dlyFb", "dlyLo", "dlyHi", "dlyRet", "busMode", "busAmt", "clip", "out", "revKit", "dlyKit", "satAmt" })
+        if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->getDefaultValue());
+    for (int k = 0; k < kFx; ++k)
+        if (auto* rp = apvts.getParameter (kFxIds[k])) { const int ty = juce::roundToInt (fxTypeRaw[k] ? fxTypeRaw[k]->load() : 0.0f); rp->setValueNotifyingHost (rp->convertTo0to1 (pfx::info (ty).neutral)); ccPend[k] = -1.0f; }
 }
 bool Processor::saveKit (const juce::File& f, const juce::String& name)
 {

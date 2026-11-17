@@ -5,6 +5,7 @@
 #include "PadProcessor.h"
 #include "Skin.h"
 #include "Library.h"
+#include "PresetBrowser.h"
 #include <set>
 #include <map>
 
@@ -310,6 +311,7 @@ public:
     static constexpr int W = 1400, H = 830, HL = 520;   // HL: altezza della vista LIVE (solo pad, manopole FX e sequencer)
     bool live = false; int curH() const { return live ? HL : H; }
     void toggleLive();
+    void tickForTest() { timerCallback(); }
 
     neo::KeepFonts keepFonts; jlook::LnF lnf;
     Processor& proc;
@@ -345,7 +347,8 @@ public:
     ChopView chop { *this };
     void openChop (int pad) { chop.open (pad); }
     PatternView pattern { *this };
-    KitBrowser kitBrowser { *this };
+    jbrowse::Browser kitBrowser;   // scheda dei kit come quella dei preset di Master (gruppi, descrizioni, salva / sovrascrivi / cartella)
+    void setupKitBrowser();
     DragMidi drag { *this };
     juce::OwnedArray<PadComp> pads;
     juce::OwnedArray<Knob> qlinks, globalKnobs;

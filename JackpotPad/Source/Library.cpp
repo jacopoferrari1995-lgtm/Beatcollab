@@ -202,6 +202,7 @@ static bool reallyLong (const SampleData& s, float minSec)
 void randomKit (Processor& P, int mode)
 {
     P.progSrc = -1;
+    P.neutralMasterFx();   // un kit casuale parte con master e FX a zero
     juce::Random r;
     // pad 1-8: 70% classico, 15% variato (tom/perc e piatto diventano altri one shot), 15% sperimentale
     // pad 9-16: 70% almeno 4 campioni (uno e sempre 808/basso) + altri one shot, 30% inventato

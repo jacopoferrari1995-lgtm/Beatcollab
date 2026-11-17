@@ -18,6 +18,7 @@ public:
     std::function<bool()> canOverwrite;
     std::function<void()> onClose;
     juce::Colour accent { 0xffa66bff };
+    juce::String title { "Preset" };
 
     void open()
     {
@@ -38,7 +39,7 @@ public:
         g.setColour (K::lo.withAlpha (0.4f)); g.fillRoundedRectangle (bx.translated (0, 6), 20);
         juce::ColourGradient bg (K::panel0, 0, bx.getY(), K::panel1, 0, bx.getBottom(), false); g.setGradientFill (bg); g.fillRoundedRectangle (bx, 20);
         g.setColour (K::hi.withAlpha (0.08f)); g.drawRoundedRectangle (bx.reduced (0.5f), 20, 1.0f);
-        g.setFont (big (20.0f)); g.setColour (K::ink); g.drawText ("Preset", juce::Rectangle<float> (bx.getX() + 22, bx.getY() + 14, 200, 32), juce::Justification::centredLeft);
+        g.setFont (big (20.0f)); g.setColour (K::ink); g.drawText (title, juce::Rectangle<float> (bx.getX() + 22, bx.getY() + 14, 200, 32), juce::Justification::centredLeft);
         g.setFont (f (10.5f)); g.setColour (K::sub); g.drawText (juce::String::fromUTF8 ("clic per caricare  \xc2\xb7  clic fuori per chiudere"), juce::Rectangle<float> (bx.getX() + 130, bx.getY() + 14, 300, 32), juce::Justification::centredLeft);
         const char* bl[3] = { "SALVA NUOVO", "SOVRASCRIVI", "CARTELLA" };
         for (int i = 0; i < 3; ++i) { if (i == 1 && ! (canOverwrite && canOverwrite())) continue; chip (g, btn (i), bl[i], false, accent, 9.5f, hovB == i); }

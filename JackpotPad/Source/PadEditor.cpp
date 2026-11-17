@@ -171,6 +171,8 @@ void PadComp::mouseDown (const juce::MouseEvent& e)
 {
     ed.selectPad (pad);
     if (e.mods.isPopupMenu()) { ed.padMenu (pad); return; }
+    // clic su un pad: si torna alla vista principale del pad (KIT, dove c'e' il campione). Nei SUONI si resta: li' il pad sceglie dove caricare
+    if (ed.page != PG_KIT && ed.page != PG_BROWSE) ed.setPage (PG_KIT);
     auto b = body();
     // velocity: in alto forte, in basso piano; curva quadratica per avere più controllo sui colpi deboli
     const float y = juce::jlimit (0.0f, 1.0f, (e.position.y - b.getY()) / b.getHeight());
@@ -645,7 +647,11 @@ void KitMonitor::mouseDown (const juce::MouseEvent& e) { if (e.position.x > getW
 void PlayheadView::tick()
 {
     const float pos = ed.proc.padPos[ed.sel].load();
-    if (std::abs (pos - last) > 0.0005f) { last = pos; repaint(); }
+    if (std::abs (pos - last) > 0.0005f)
+    {   // si ridisegnano solo le due strisce (dov'era e dov'e' ora), non tutta l'onda che sta sotto
+        auto strip = [this] (float v) { if (v < 0) return; const int x = (int) (getWidth() * juce::jlimit (0.0f, 1.0f, v)); repaint (x - 5, 0, 10, getHeight()); };
+        strip (last); last = pos; strip (last);
+    }
 }
 void PlayheadView::paint (juce::Graphics& g)
 {
@@ -2351,6 +2357,7 @@ Knob* Editor::paramKnob (const char* id, const juce::String& label, juce::Colour
 
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    setupKitBrowser();
     skin::init ("sampler", { 0xffe58aa0, 0xff9fc3e0, 0xffe8cf86, 0xffccccc7 }, 0xff19e3ff);
     setLookAndFeel (&lnf);
     addAndMakeVisible (root);
@@ -2711,6 +2718,47 @@ void Editor::addToLibraryDialog()
                           });
 }
 
+void Editor::setupKitBrowser()
+{
+    kitBrowser.accent = neo::K::accent; kitBrowser.title = "Kit";
+    auto users = [] { auto f = Processor::kitFolder().findChildFiles (juce::File::findFiles, false, "*.jpkit"); f.sort(); return f; };
+    kitBrowser.entries = [users]
+    {
+        std::vector<jbrowse::Entry> v;
+        auto add = [&v] (int id, const juce::String& g, const juce::String& n, const juce::String& note, bool user = false) { jbrowse::Entry e; e.id = id; e.group = g; e.name = n; e.note = note; e.user = user; v.push_back (e); };
+        add (-2, "BASE", "Kit casuale", "Pesca dalla banca: pad 1-8 batteria, 9-16 808, melodie, loop e voci nella stessa tonalita'. Master e FX partono a zero.");
+        const auto& F = factoryKits();
+        for (int i = 0; i < (int) F.size(); ++i)
+        {
+            const juce::String nm (F[(size_t) i].name), st (F[(size_t) i].style);
+            add (i, F[(size_t) i].pads.empty() ? juce::String ("BASE") : juce::String ("FABBRICA"), nm, F[(size_t) i].pads.empty() ? juce::String ("Tutti i pad vuoti, parametri, master e FX di partenza.") : "Kit sintetizzato: " + st + ".");
+        }
+        add (-4, "BASE", "Apri da file...", "Carica un kit .jpkit da qualsiasi cartella.");
+        const auto fs = users();
+        for (int i = 0; i < fs.size(); ++i) add (100000 + i, "I MIEI", fs[i].getFileNameWithoutExtension(), "Kit tuo, salvato in Musica / Jackpot Sampler / Kits (" + fs[i].getLastModificationTime().formatted ("%d/%m/%y") + ").", true);
+        return v;
+    };
+    kitBrowser.current = [this, users]
+    {
+        if (proc.kitFile.existsAsFile()) { const auto fs = users(); for (int i = 0; i < fs.size(); ++i) if (fs[i] == proc.kitFile) return 100000 + i; return -1; }
+        const auto& F = factoryKits(); for (int i = 0; i < (int) F.size(); ++i) if (proc.kitName == F[(size_t) i].name) return i;
+        return proc.kitName.startsWith ("Random") ? -2 : -1;
+    };
+    kitBrowser.load = [this, users] (const jbrowse::Entry& e)
+    {
+        if (e.id == -2) { randomKit (proc, screen.randMode); kitChanged(); playPad (0, 100); }
+        else if (e.id == -4) { kitBrowser.setVisible (false); loadKitDialog(); return; }
+        else if (e.user) { const auto fs = users(); const int k = e.id - 100000; if (k >= 0 && k < fs.size() && proc.loadKit (fs[k])) kitChanged(); }
+        else if (e.id >= 0) { proc.loadFactoryKit (e.id); kitChanged(); playPad (0, 100); }
+        root.repaint();
+    };
+    kitBrowser.save = [this] { saveKit (true); };
+    kitBrowser.canOverwrite = [this] { return proc.kitFile.existsAsFile(); };
+    kitBrowser.overwrite = [this] { saveKit (false); };
+    kitBrowser.folder = [] { Processor::kitFolder().startAsProcess(); };
+    kitBrowser.remove = [this, users] (const jbrowse::Entry& e) { const auto fs = users(); const int k = e.id - 100000; if (k >= 0 && k < fs.size()) { if (fs[k] == proc.kitFile) proc.kitFile = juce::File(); fs[k].moveToTrash(); } root.repaint(); };
+    kitBrowser.onClose = [this] { root.repaint(); };
+}
 void Editor::saveKit (bool askName)
 {
     if (! askName && proc.kitFile.existsAsFile()) { proc.saveKit (proc.kitFile, proc.kitName); kitChanged(); return; }
@@ -2722,7 +2770,7 @@ void Editor::saveKit (bool askName)
         if (r != 1) return;
         const auto nm = w->getTextEditorContents ("name").trim(); if (nm.isEmpty()) return;
         const auto f = Processor::kitFolder().getChildFile (juce::File::createLegalFileName (nm) + ".jpkit");
-        proc.saveKit (f, nm); kitChanged();
+        proc.saveKit (f, nm); kitChanged(); kitBrowser.refresh();
     }), true);
 }
 void Editor::loadKitDialog()
@@ -2783,7 +2831,7 @@ void Editor::timerCallback()
         auto mix = [&h] (float v) { juce::uint32 u; std::memcpy (&u, &v, 4); h = (h ^ u) * 1099511628211ull; };
         for (int i = 0; i < kNumPadParams; ++i) mix (proc.pad[sel].get (i));
         mix ((float) (juce::pointer_sized_int) proc.getSample (sel).get()); mix ((float) proc.kitName.hashCode());
-        for (auto id : { "revSize", "revDamp", "revRet", "dlyTime", "dlyFb", "dlyTone", "dlyRet", "busMode", "busAmt", "clip", "out", "revKit", "dlyKit", "satAmt", "curve" }) mix (proc.apvts.getRawParameterValue (id)->load());
+        for (auto id : { "revSize", "revDamp", "revRet", "revLo", "revHi", "revPre", "dlyDiv", "dlyMs", "dlyFb", "dlyLo", "dlyHi", "dlyRet", "busMode", "busAmt", "clip", "out", "revKit", "dlyKit", "satAmt", "curve" }) if (auto* rp = proc.apvts.getRawParameterValue (id)) mix (rp->load());
         if (page != PG_KIT && kitMon.isVisible()) kitMon.setVisible (false);
         if (kitMon.isVisible()) kitMon.tick();
         if (playhead.isVisible()) playhead.tick();

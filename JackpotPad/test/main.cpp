@@ -9,6 +9,35 @@
 using namespace jp;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "rndneutral")
+    {
+        juce::ScopedJuceInitialiser_GUI gui0; Processor p; p.prepareToPlay (48000, 512);
+        auto set = [&p] (const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
+        set ("revKit", 0.6f); set ("satAmt", 0.5f); set ("busMode", 2); set ("fx1", 0.9f); set ("fx3", 0.8f);
+        randomKit (p, 0);
+        std::printf ("dopo random: revKit %.2f sat %.2f bus %.0f fx1 %.2f fx3 %.2f  kit %s\n", p.apvts.getRawParameterValue ("revKit")->load(), p.apvts.getRawParameterValue ("satAmt")->load(), p.apvts.getRawParameterValue ("busMode")->load(), p.apvts.getRawParameterValue ("fx1")->load(), p.apvts.getRawParameterValue ("fx3")->load(), p.kitName.toRawUTF8());
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "clicks")
+    {   // kit di fabbrica, note fitte su tutti i pad; volume/pan dei pad e uscita che saltano a ogni blocco.
+        // Misura: seconda differenza massima (gli scatti la fanno esplodere) con e senza salti
+        juce::ScopedJuceInitialiser_GUI gui0;
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            Processor p; p.prepareToPlay (48000, 256); p.loadFactoryKit (3);
+            if (mode == 2) for (int q = 0; q < kPads; ++q) p.pad[q].v[START] = 0.07f;
+            juce::AudioBuffer<float> blk (2, 256); float worst = 0, pk = 0; float y1 = 0, y2 = 0; juce::Random r (1); bool nan = false;
+            for (int b = 0; b < 1500; ++b)
+            {
+                juce::MidiBuffer m; if (b % 9 == 0) m.addEvent (juce::MidiMessage::noteOn (1, p.rootNote() + (b / 9) % 16, (juce::uint8) 100), 17);
+                if (mode == 1) { for (int q = 0; q < kPads; ++q) { p.pad[q].v[LEVEL] = (b % 2) ? 0.3f : 1.0f; p.pad[q].v[PAN] = (b % 3) ? -0.8f : 0.8f; } auto* o = p.apvts.getParameter ("out"); o->setValueNotifyingHost (o->convertTo0to1 ((b % 2) ? -12.0f : 0.0f)); }
+                blk.clear(); p.processBlock (blk, m);
+                for (int i = 0; i < 256; ++i) { const float x = blk.getSample (0, i); if (! std::isfinite (x)) nan = true; worst = std::max (worst, std::abs (x - 2 * y1 + y2)); pk = std::max (pk, std::abs (x)); y2 = y1; y1 = x; }
+            }
+            std::printf ("%s: picco %.2f  seconda differenza max %.3f  (rapporto %.3f) nan %d\n", mode == 0 ? "fermo         " : mode == 1 ? "salti a blocchi" : "START al 7%   ", pk, worst, worst / std::max (1e-6f, pk), (int) nan);
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "verb2")
     {   // FX riverbero nel Sampler vero: picco con la manopola a 0, a 0.5, a 1
         juce::ScopedJuceInitialiser_GUI gui0;
@@ -413,6 +442,7 @@ int main (int argc, char** argv)
               std::printf ("  16 pad accesi   %6.2f ms\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 20); juce::ignoreUnused (r); }
             return 0;
         }
+        if (std::getenv ("JTICK")) { for (int i = 0; i < 20; ++i) ed.tickForTest(); std::printf ("timer ok\n"); }
         if (std::getenv ("JKITS")) ed.kitBrowser.open();
         if (std::getenv ("JLIVE")) { ed.toggleLive(); for (int i = 0; i < 3; ++i) ed.screen.repaint(); }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
