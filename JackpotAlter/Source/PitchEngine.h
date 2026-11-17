@@ -37,6 +37,13 @@ public:
     int latency() const { return N; }
     int hop() const { return H; }
     void markFresh() { fresh = true; std::fill (prevPh.begin(), prevPh.end(), 0.0f); }
+    // stato identico a un altro canale (stesse dimensioni: nessuna memoria nuova)
+    void copyFrom (const PhaseVocoder& o)
+    {
+        auto cp = [] (std::vector<float>& d, const std::vector<float>& s) { std::copy (s.begin(), s.end(), d.begin()); };
+        cp (inBuf, o.inBuf); cp (outAcc, o.outAcc); cp (prevPh, o.prevPh); cp (acc2, o.acc2);
+        inPos = o.inPos; outPos = o.outPos; fresh = o.fresh;
+    }
 
     // un campione dentro, uno fuori (la cornice si calcola in frame())
     inline float push (float x)
@@ -145,7 +152,7 @@ public:
     {
         sr = sampleRate; dec = juce::jmax (1, (int) std::round (sr / 11025.0)); dsr = sr / dec;
         len = juce::jmax (256, frameLen / dec);
-        buf.assign ((size_t) len, 0); d.assign ((size_t) len, 0); pos = 0; accN = 0; accV = 0;
+        buf.assign ((size_t) len, 0); d.assign ((size_t) len, 0); scratch.assign ((size_t) len, 0); pos = 0; accN = 0; accV = 0;
         lp1 = lp2 = 0; f0 = 0; conf = 0;
     }
     inline void push (float x)
@@ -160,7 +167,7 @@ public:
     {
         const int tauMin = juce::jmax (2, (int) (dsr / 1000.0)), tauMax = juce::jmin (len / 2, (int) (dsr / 55.0));
         const int W = len - tauMax;
-        std::vector<float>& x = scratch; x.resize ((size_t) len);
+        std::vector<float>& x = scratch;   // dimensionato in prepare: niente memoria nuova mentre suona
         double e = 0; for (int i = 0; i < len; ++i) { x[(size_t) i] = buf[(size_t) ((pos + i) % len)]; e += x[(size_t) i] * x[(size_t) i]; }
         if (e / len < 1.0e-7) { conf = 0; return f0 = 0; }
         d[0] = 1; double run = 0;
