@@ -70,29 +70,41 @@ void Knob::paint (juce::Graphics& g)
     g.setFont (neo::num (big ? 12.5f : 10.5f)); g.setColour (C::text.withAlpha (0.92f));
     g.drawText (text ? text() : param->getCurrentValueAsText(), juce::Rectangle<float> (-10, size + 15, (float) getWidth() + 20, 14), juce::Justification::centred);
 }
+// segmenti su una o piu' righe (rows): ogni riga e' una pillola a se'
+juce::Rectangle<float> Segs::cell (int i) const
+{
+    const int n = juce::jmax (1, items.size()), R = juce::jlimit (1, n, rows), per = (n + R - 1) / R, row = i / per, col = i % per;
+    const float rh = (float) getHeight() / R, w = (getWidth() - 6.0f) / per;
+    return { 3 + col * w, row * rh + 3, w, rh - 6 };
+}
 void Segs::paint (juce::Graphics& g)
 {
-    auto b = getLocalBounds().toFloat(); const auto col = neo::acc (this->col);
-    const float rr = b.getHeight() * 0.5f;
-    g.setColour (veil (0.38f)); g.fillRoundedRectangle (b, rr);
-    g.setColour (glass (0.05f)); g.drawRoundedRectangle (b.reduced (0.5f), rr, 1.0f);
-    const int n = juce::jmax (1, items.size()), cur = juce::roundToInt (param->convertFrom0to1 (param->getValue()));
-    const float w = (b.getWidth() - 6) / n;
+    const auto col = neo::acc (this->col);
+    const int n = juce::jmax (1, items.size()), cur = juce::roundToInt (param->convertFrom0to1 (param->getValue())), R = juce::jlimit (1, n, rows);
+    for (int r = 0; r < R; ++r)
+    {
+        auto b = getLocalBounds().toFloat().withHeight ((float) getHeight() / R).translated (0, (float) getHeight() / R * r).reduced (0, R > 1 ? 1.5f : 0.0f);
+        const float rr = b.getHeight() * 0.5f;
+        g.setColour (veil (0.38f)); g.fillRoundedRectangle (b, rr);
+        g.setColour (glass (0.05f)); g.drawRoundedRectangle (b.reduced (0.5f), rr, 1.0f);
+    }
     for (int i = 0; i < n; ++i)
     {
-        auto r = juce::Rectangle<float> (3 + i * w, 3, w, b.getHeight() - 6).reduced (1, 0);
+        auto r = cell (i).reduced (1, R > 1 ? 1.5f : 0.0f);
         if (i == cur)
         {
             g.setColour (col.withAlpha (0.25f)); g.fillRoundedRectangle (r.expanded (1, 2), r.getHeight() * 0.5f + 2);
             juce::ColourGradient pg (col.brighter (0.25f), r.getX(), r.getY(), col.darker (0.35f), r.getX(), r.getBottom(), false); g.setGradientFill (pg); g.fillRoundedRectangle (r, r.getHeight() * 0.5f);
-            g.setColour (juce::Colours::white); g.setFont (neo::cap (font * 0.8f)); g.drawText (items[i], r, juce::Justification::centred);
+            g.setColour (juce::Colours::white); g.setFont (neo::cap (font * 0.8f)); g.drawFittedText (items[i], r.toNearestInt(), juce::Justification::centred, 1, 0.8f);
         }
-        else { g.setColour (C::dim); g.setFont (neo::cap (font * 0.8f)); g.drawText (items[i], r, juce::Justification::centred); }
+        else { g.setColour (C::dim); g.setFont (neo::cap (font * 0.8f)); g.drawFittedText (items[i], r.toNearestInt(), juce::Justification::centred, 1, 0.8f); }
     }
 }
 void Segs::mouseDown (const juce::MouseEvent& e)
 {
-    const int n = juce::jmax (1, items.size()); const int k = juce::jlimit (0, n - 1, (int) ((e.position.x - 3) / ((getWidth() - 6) / (float) n)));
+    const int n = juce::jmax (1, items.size()); int k = -1;
+    for (int i = 0; i < n; ++i) if (cell (i).expanded (1, 3).contains (e.position)) k = i;
+    if (k < 0) return;
     param->setValueNotifyingHost (param->convertTo0to1 ((float) k)); repaint();
 }
 void Switch::paint (juce::Graphics& g)
@@ -1781,10 +1793,13 @@ NewModPage::NewModPage (Editor& e, int m) : ModPage (e, m, m == IMPACT ? "ip_on"
     {
         knob ("sp_res", c, "RISONANZE", pct ("sp_res")); knob ("sp_sens", c.interpolatedWith (C::text, 0.3f), "SENSIBILITA'", pct ("sp_sens"));
         knob ("sp_clar", C::green, "CLARITY", pct ("sp_clar")); knob ("sp_lo", C::amber, "DA", hz ("sp_lo")); knob ("sp_hi", C::amber, "A", hz ("sp_hi"));
+        fv = std::make_unique<FreqView> (e, m); addAndMakeVisible (*fv);
     }
     else
     {
         knob ("st_amt", c, "QUANTITA'", pct ("st_amt")); knob ("st_speed", C::amber, "VELOCITA'", pct ("st_speed"));
+        knob ("st_lo", C::amber, "DA", hz ("st_lo")); knob ("st_hi", C::amber, "A", hz ("st_hi"));
+        fv = std::make_unique<FreqView> (e, m); addAndMakeVisible (*fv);
         juce::StringArray gn; for (int g = 0; g < kGenres; ++g) gn.add (jms::genre (g).name);
         genre = std::make_unique<Segs> (ed.P ("st_genre"), c, gn); genre->font = 8.5f; genre->rows = 2; addAndMakeVisible (*genre);
     }
@@ -1795,19 +1810,21 @@ void NewModPage::resized()
     const int S = 74, n = knobs.size(); const float y = (float) getHeight() - 200;
     for (int k = 0; k < n; ++k)
     {
-        const float cx = mod == STABIL ? 90.0f + k * 130.0f : getWidth() * (k + 0.5f) / n;
+        const float cx = mod == STABIL ? 70.0f + k * 108.0f : getWidth() * (k + 0.5f) / n;
         knobs[k]->setBounds (juce::Rectangle<float> (cx - (S + 26) * 0.5f, y, (float) S + 26, (float) S + 27).toNearestInt());
     }
-    if (genre) genre->setBounds (300, (int) y + 20, getWidth() - 320, 64);
+    if (genre) genre->setBounds (468, (int) y + 20, getWidth() - 488, 64);
+    if (fv) fv->setBounds (viewRect().toNearestInt());
 }
 void NewModPage::paint (juce::Graphics& g)
 {
     static const char* help[3] = {
         "IMPACT: in ogni banda confronta l'attacco con il corpo del suono. Positivo = il colpo esce di piu' (cassa, rullante), negativo = piu' morbido (piatti che pungono). VELOCITA' alta = lavora sui transienti piu' corti.",
-        "SPETTRALE: 28 bande guardano le vicine. RISONANZE abbassa solo le frequenze che sporgono oltre la SENSIBILITA' e solo mentre sporgono; CLARITY alza piano le zone coperte. DA / A limitano dove lavora.",
-        "STABILIZER: misura lo spettro medio degli ultimi secondi e lo avvicina piano alla curva del genere, al massimo 4 dB per zona. Segue la canzone, non il singolo colpo." };
+        "SPETTRALE: 28 bande guardano le vicine. RISONANZE abbassa solo le frequenze che sporgono oltre la SENSIBILITA' e solo mentre sporgono (rosso nel grafico); CLARITY alza piano le zone coperte (verde). Trascina i bordi nel grafico (o DA / A) per scegliere dove lavora.",
+        "STABILIZER: la linea chiara e' il tuo pezzo in media negli ultimi secondi, la tratteggiata la curva del genere. Avvicina piano le zone alla curva (al massimo 4 dB): verde alza, rosso abbassa. Trascina i bordi nel grafico (o DA / A) per farlo lavorare solo li'." };
     paintHeader (g, help[mod == IMPACT ? 0 : mod == SPECTRAL ? 1 : 2]);
     auto& P = ed.proc; const auto c = neo::acc (juce::Colour (modInfo (mod).colour));
+    if (fv) { if (genre) { g.setFont (neo::cap (7.5f)); g.setColour (C::dim); g.drawText ("CURVA DEL GENERE", juce::Rectangle<float> (468, (float) getHeight() - 194, 200, 12), juce::Justification::centredLeft); } return; }   // disegna FreqView
     auto v = juce::Rectangle<float> (16, 48, (float) getWidth() - 32, (float) getHeight() - 272); lcd (g, v, 8);
     auto in = v.reduced (24, 22); const float mid = in.getCentreY(), sc = in.getHeight() * 0.5f;
     g.setColour (C::dim.withAlpha (0.4f)); g.fillRect (in.getX(), mid, in.getWidth(), 1.0f);
@@ -1852,6 +1869,182 @@ void NewModPage::paint (juce::Graphics& g)
         g.setFont (neo::cap (7.5f)); g.setColour (C::dim); g.drawText ("GENERE", juce::Rectangle<float> (300, (float) getHeight() - 194, 200, 12), juce::Justification::centredLeft);
     }
 }
+
+
+// ======================================================================= FREQUENZE (SPETTRALE / STABILIZER)
+FreqView::FreqView (Editor& e, int m) : ed (e), mod (m)
+{
+    win.resize (4096); buf.resize (8192);
+    for (int i = 0; i < 4096; ++i) win[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * i / 4095.0f);
+    vb = std::make_unique<juce::VBlankAttachment> (this, [this]
+    {
+        if (! isShowing()) return;
+        const double now = juce::Time::getMillisecondCounterHiRes(); if (now - lastFrame < 30.0) return;
+        const float dt = (float) juce::jlimit (1.0, 100.0, now - lastFrame); lastFrame = now;
+        specFrame (dt); repaint();
+    });
+}
+const char* FreqView::loId() const { return mod == SPECTRAL ? "sp_lo" : "st_lo"; }
+const char* FreqView::hiId() const { return mod == SPECTRAL ? "sp_hi" : "st_hi"; }
+float FreqView::xOf (float f) const { auto p = plot(); return p.getX() + p.getWidth() * std::log (juce::jlimit (20.0f, 20000.0f, f) / 20.0f) / std::log (1000.0f); }
+float FreqView::fOf (float x) const { auto p = plot(); return 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, (x - p.getX()) / p.getWidth())); }
+void FreqView::specFrame (float dtMs)
+{
+    auto p = plot(); const int W = juce::jmax (2, (int) (p.getWidth() / 2)); const double sr = juce::jmax (8000.0, ed.proc.sampleRate());
+    if ((int) pxIn.size() != W) { pxIn.assign ((size_t) W, -120.0f); pxOut.assign ((size_t) W, -120.0f); }
+    const float fall = 1.0f - std::exp (-dtMs / 300.0f);
+    auto run = [&] (const StereoRing& r, std::vector<float>& px)
+    {
+        r.read (rl.data(), rr.data(), 4096);
+        for (int i = 0; i < 4096; ++i) buf[(size_t) i] = 0.5f * (rl[(size_t) i] + rr[(size_t) i]) * win[(size_t) i];
+        std::fill (buf.begin() + 4096, buf.end(), 0.0f); fft.performFrequencyOnlyForwardTransform (buf.data());
+        for (int x = 0; x < W; ++x)
+        {
+            const float f0 = fOf (p.getX() + x * 2.0f), f1 = fOf (p.getX() + x * 2.0f + 2.0f);
+            const int b0 = juce::jlimit (1, 2047, (int) (f0 / sr * 4096)), b1 = juce::jlimit (b0, 2047, (int) (f1 / sr * 4096));
+            float m = 0; for (int b = b0; b <= b1; ++b) m = juce::jmax (m, buf[(size_t) b]);
+            const float db = juce::Decibels::gainToDecibels (m / 1024.0f, -120.0f) + 4.5f * std::log2 (juce::jmax (0.05f, 0.5f * (f0 + f1) / 1000.0f));
+            auto& v = px[(size_t) x]; v = db > v ? v + (db - v) * 0.6f : v + (db - v) * fall;
+        }
+    };
+    run (ed.proc.ringIn, pxIn); run (ed.proc.ringOut, pxOut);
+}
+void FreqView::paint (juce::Graphics& g)
+{
+    auto& P = ed.proc; auto b = getLocalBounds().toFloat(); auto p = plot();
+    const double sr = juce::jmax (8000.0, P.sampleRate());
+    const auto mc = neo::acc (juce::Colour (modInfo (mod).colour));
+    const bool on = P.value (mod == SPECTRAL ? "sp_on" : "st_on") > 0.5f;
+    const float lo = P.value (loId()), hi = P.value (hiId()), xl = xOf (lo), xh = xOf (hi);
+    const float mid = p.getCentreY(), dbSc = p.getHeight() * 0.5f / 12.0f;   // correzione: +/- 12 dB su tutta l'altezza
+    // fondo e griglia fermi in cache
+    grid.draw (g, b, neo::K::theme * 10 + mod, [&] (juce::Graphics& gg)
+    {
+        lcd (gg, b, 8);
+        gg.setFont (neo::num (8.0f));
+        for (float f : { 30.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f, 20000.0f })
+        {
+            const float x = xOf (f); gg.setColour (C::dim.withAlpha (0.13f)); gg.fillRect (x, p.getY(), 1.0f, p.getHeight());
+            gg.setColour (C::dim); gg.drawText (f >= 1000 ? juce::String ((int) (f / 1000)) + "k" : juce::String ((int) f), juce::Rectangle<float> (x - 20, p.getBottom() + 2, 40, 12), juce::Justification::centred);
+        }
+        for (int d : { -12, -6, 6, 12 })
+        {
+            const float y = mid - d * dbSc; gg.setColour (C::dim.withAlpha (0.12f)); gg.fillRect (p.getX(), y, p.getWidth(), 1.0f);
+            gg.setColour (C::dim); gg.drawText ((d > 0 ? "+" : "") + juce::String (d), juce::Rectangle<float> (b.getX() + 2, y - 6, 26, 12), juce::Justification::centredLeft);
+        }
+        gg.setColour (C::dim.withAlpha (0.4f)); gg.fillRect (p.getX(), mid, p.getWidth(), 1.0f);
+    });
+    // spettro vero: prima (pieno, scuro) e dopo (linea)
+    auto specY = [&] (float db) { return p.getBottom() - juce::jlimit (0.0f, 1.0f, (db + 84.0f) / 78.0f) * p.getHeight(); };
+    if (! pxIn.empty())
+    {
+        juce::Path fin, lout; const int W = (int) pxIn.size();
+        fin.startNewSubPath (p.getX(), p.getBottom());
+        for (int x = 0; x < W; ++x) { const float xx = p.getX() + x * 2.0f + 1.0f; fin.lineTo (xx, specY (pxIn[(size_t) x])); if (x == 0) lout.startNewSubPath (xx, specY (pxOut[(size_t) x])); else lout.lineTo (xx, specY (pxOut[(size_t) x])); }
+        fin.lineTo (p.getRight(), p.getBottom()); fin.closeSubPath();
+        g.setColour (C::text.withAlpha (0.07f)); g.fillPath (fin);
+        g.setColour (C::text.withAlpha (0.35f)); g.strokePath (lout, juce::PathStrokeType (1.0f));
+    }
+    // cosa fa il modulo: curva di correzione (verde alza, rosso abbassa)
+    const int NP = 160; float cv[NP + 1];
+    if (mod == SPECTRAL)
+    {
+        Biquad bq[Spectral::kB]; bool act[Spectral::kB];
+        for (int k = 0; k < Spectral::kB; ++k) { const float fc = 60.0f * std::pow (2.0f, k / 3.0f * 1.02f), gdb = P.spUi[k].load() * 0.6f; act[k] = std::abs (gdb) > 0.02f && fc < sr * 0.45; if (act[k]) bq[k].set (Biquad::BELL, fc, gdb, 4.3, sr); }
+        for (int i = 0; i <= NP; ++i) { const float f = fOf (p.getX() + p.getWidth() * i / NP); double d = 0; for (int k = 0; k < Spectral::kB; ++k) if (act[k]) d += bq[k].magDb (f, sr); cv[i] = (float) d; }
+    }
+    else
+    {
+        static const float fr[kRegions] = { 45, 120, 450, 1400, 3900, 9000 };
+        Biquad bq[kRegions]; for (int r = 0; r < kRegions; ++r) bq[r].set (r == 0 ? Biquad::LSHELF : r == kRegions - 1 ? Biquad::HSHELF : Biquad::BELL, fr[r], P.stUi[r].load(), r == 0 || r == kRegions - 1 ? 0.6 : 0.8, sr);
+        for (int i = 0; i <= NP; ++i) { const float f = fOf (p.getX() + p.getWidth() * i / NP); double d = 0; for (auto& q : bq) d += q.magDb (f, sr); cv[i] = (float) d; }
+        // il pezzo in media (linea chiara) e la curva del genere (tratteggiata), sulla stessa scala della correzione
+        const auto& G = jms::genre (juce::roundToInt (P.value ("st_genre")));
+        juce::Path tg; for (int i = 0; i <= NP; ++i) { const float x = p.getX() + p.getWidth() * i / NP; const float y = mid - juce::jlimit (-12.0f, 12.0f, targetAt (G.off, fOf (x))) * dbSc; if (i == 0) tg.startNewSubPath (x, y); else tg.lineTo (x, y); }
+        { juce::Path d; const float dl[2] = { 6, 4 }; juce::PathStrokeType (1.6f).createDashedStroke (d, tg, dl, 2); g.setColour (C::amber.withAlpha (0.85f)); g.fillPath (d); }
+        if (P.stThOk.load())
+        {
+            juce::Path me; bool st = false;
+            for (int k = 0; k < kThirds; ++k)
+            {
+                const float f = thirdHz (k); if (f < 25 || f > 18000) continue;
+                const float x = xOf (f), y = mid - juce::jlimit (-12.0f, 12.0f, P.stTh[k].load()) * dbSc;
+                if (! st) { me.startNewSubPath (x, y); st = true; } else me.lineTo (x, y);
+            }
+            g.setColour (C::text.withAlpha (0.25f)); g.strokePath (me, juce::PathStrokeType (4.0f, juce::PathStrokeType::curved));
+            g.setColour (C::text.withAlpha (0.9f)); g.strokePath (me, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved));
+        }
+        else { g.setFont (neo::f (10.0f)); g.setColour (C::dim); g.drawText ("sto ascoltando: la media del pezzo arriva dopo qualche secondo di musica", p.withTrimmedTop (p.getHeight() * 0.62f).withHeight (16), juce::Justification::centred); }
+        // nomi e correzione delle sei zone
+        for (int r = 0; r < kRegions; ++r)
+        {
+            const float x0 = xOf (regionEdge (r)), x1 = xOf (regionEdge (r + 1)), db = P.stUi[r].load();
+            g.setColour (C::dim.withAlpha (0.18f)); g.fillRect (x1, p.getY(), 1.0f, 14.0f);
+            g.setFont (neo::cap (7.0f)); g.setColour (C::dim); g.drawText (regionName (r), juce::Rectangle<float> (x0, p.getY() + 1, x1 - x0, 10), juce::Justification::centred);
+            g.setFont (neo::num (8.5f)); g.setColour (std::abs (db) < 0.1f ? C::dim : db > 0 ? C::green : C::red);
+            g.drawText ((db > 0.05f ? "+" : "") + juce::String (db, 1), juce::Rectangle<float> (x0, p.getY() + 11, x1 - x0, 12), juce::Justification::centred);
+        }
+    }
+    {
+        juce::Path c, up, dn;
+        for (int i = 0; i <= NP; ++i)
+        {
+            const float x = p.getX() + p.getWidth() * i / NP, y = mid - juce::jlimit (-12.0f, 12.0f, cv[i]) * dbSc;
+            if (i == 0) { c.startNewSubPath (x, y); up.startNewSubPath (x, mid); dn.startNewSubPath (x, mid); }
+            c.lineTo (x, y); up.lineTo (x, juce::jmin (y, mid)); dn.lineTo (x, juce::jmax (y, mid));
+        }
+        up.lineTo (p.getRight(), mid); up.closeSubPath(); dn.lineTo (p.getRight(), mid); dn.closeSubPath();
+        const float a = on ? 1.0f : 0.35f;
+        g.setColour (C::green.withAlpha (0.30f * a)); g.fillPath (up); g.setColour (C::red.withAlpha (0.34f * a)); g.fillPath (dn);
+        g.setColour (mc.withAlpha (a)); g.strokePath (c, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved));
+    }
+    if (mod == SPECTRAL)
+    {   // le risonanze prese adesso: punto rosso sulla frequenza
+        for (int k = 0; k < Spectral::kB; ++k)
+        {
+            const float fc = 60.0f * std::pow (2.0f, k / 3.0f * 1.02f), db = P.spUi[k].load();
+            if (db < -0.6f && fc < sr * 0.45) { const float x = xOf (fc), y = mid - juce::jlimit (-12.0f, 12.0f, db * 0.6f) * dbSc; g.setColour (C::red); g.fillEllipse (x - 3.5f, y - 3.5f, 7, 7);
+                g.setFont (neo::num (8.0f)); g.drawText ((fc >= 1000 ? juce::String (fc / 1000.0f, 1) + "k" : juce::String (juce::roundToInt (fc))), juce::Rectangle<float> (x - 22, y + 4, 44, 11), juce::Justification::centred); }
+        }
+    }
+    // zona d'intervento: fuori si oscura, i bordi si trascinano
+    g.setColour (juce::Colours::black.withAlpha (0.38f));
+    g.fillRect (juce::Rectangle<float>::leftTopRightBottom (p.getX(), p.getY(), juce::jmax (p.getX(), xl), p.getBottom()));
+    g.fillRect (juce::Rectangle<float>::leftTopRightBottom (juce::jmin (p.getRight(), xh), p.getY(), p.getRight(), p.getBottom()));
+    for (int k = 0; k < 2; ++k)
+    {
+        const float x = k == 0 ? xl : xh; const bool hl = drag == k || hov == k; const auto hc = hl ? C::text : C::amber;
+        g.setColour (hc.withAlpha (hl ? 0.95f : 0.7f)); g.fillRect (x - (hl ? 1.0f : 0.5f), p.getY(), hl ? 2.0f : 1.0f, p.getHeight());
+        auto grip = juce::Rectangle<float> (x - 22, b.getY() + 3, 44, 14); g.setColour (C::lcd2.withAlpha (0.9f)); g.fillRoundedRectangle (grip, 4); g.setColour (hc); g.drawRoundedRectangle (grip, 4, 1.0f);
+        const float f = k == 0 ? lo : hi; g.setFont (neo::num (8.0f)); g.drawText (f >= 1000 ? juce::String (f / 1000.0f, 1) + "k" : juce::String (juce::roundToInt (f)), grip, juce::Justification::centred);
+    }
+    g.setFont (neo::f (8.5f)); g.setColour (C::dim);
+    g.drawText (mod == SPECTRAL ? juce::String ("spettro: pieno = entrata, linea = uscita     curva: cosa toglie / aggiunge adesso")
+                                : juce::String ("bianco = il tuo pezzo in media   tratteggio = curva del genere   colore = correzione"),
+                juce::Rectangle<float> (p.getX() + 8, p.getBottom() - 14, p.getWidth() - 16, 12), juce::Justification::centredLeft);
+}
+void FreqView::mouseMove (const juce::MouseEvent& e)
+{
+    auto& P = ed.proc; const float dl = std::abs (e.position.x - xOf (P.value (loId()))), dh = std::abs (e.position.x - xOf (P.value (hiId())));
+    const int h = juce::jmin (dl, dh) < 14 ? (dl < dh ? 0 : 1) : -1;
+    if (h != hov) { hov = h; repaint(); }
+    setMouseCursor (h >= 0 ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::PointingHandCursor);
+}
+void FreqView::mouseDown (const juce::MouseEvent& e)
+{
+    auto& P = ed.proc; const float dl = std::abs (e.position.x - xOf (P.value (loId()))), dh = std::abs (e.position.x - xOf (P.value (hiId())));
+    drag = dl < dh ? 0 : 1;
+    ed.P (drag == 0 ? loId() : hiId())->beginChangeGesture();
+    if (auto* o = ed.P (mod == SPECTRAL ? "sp_on" : "st_on")) if (o->getValue() < 0.5f) o->setValueNotifyingHost (1.0f);
+    mouseDrag (e);
+}
+void FreqView::mouseDrag (const juce::MouseEvent& e)
+{
+    if (drag < 0) return;
+    auto* pr = ed.P (drag == 0 ? loId() : hiId());
+    pr->setValueNotifyingHost (pr->convertTo0to1 (pr->getNormalisableRange().snapToLegalValue (fOf (e.position.x)))); repaint();
+}
+void FreqView::mouseUp (const juce::MouseEvent&) { if (drag >= 0) ed.P (drag == 0 ? loId() : hiId())->endChangeGesture(); drag = -1; repaint(); }
 
 void VmView::paint (juce::Graphics& g)
 {
@@ -2458,7 +2651,13 @@ void Editor::timerCallback()
     // interruttori (ATTIVO, DELTA, ...) cambiati da preset, automazione o da un altro comando: si riaccendono da soli
     for (auto* pg : std::initializer_list<juce::Component*> { &maxPage, &limPage, &bassPage, &eqPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &spPage, &stPage })
         if (pg->isVisible()) for (auto* c : pg->getChildren()) if (auto* sw = dynamic_cast<Switch*> (c)) if (sw->param->getValue() != sw->shown) sw->repaint();
-    for (auto* pg : std::initializer_list<juce::Component*> { &bassPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &spPage, &stPage, &balPage, &refPage, &earPage }) if (pg->isVisible()) pg->repaint();
+    for (auto* pg : std::initializer_list<juce::Component*> { &bassPage, &imPage, &dsPage, &busPage, &mbPage, &tpPage, &exPage, &e4Page, &pqPage, &vmPage, &ipPage, &balPage, &refPage, &earPage }) if (pg->isVisible()) pg->repaint();
+    for (auto* pg : { &spPage, &stPage }) if (pg->isVisible())
+    {   // il grafico si ridisegna da solo; qui solo le manopole mosse e il genere
+        for (auto* k : pg->knobs) if (k->changed()) k->repaint();
+        if (pg->genre && tick % 6 == 0) pg->genre->repaint();
+        if (tick % 15 == 0) pg->repaint (0, 0, pg->getWidth(), 48);
+    }
     if (tick % 3 == 0)
     {   // spettro medio dell'uscita per bilanciamento e riferimento
         float l[4096], r[4096]; proc.ringOut.read (l, r, 4096);

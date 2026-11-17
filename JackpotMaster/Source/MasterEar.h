@@ -128,7 +128,8 @@ inline EarPlan earAnalyse (const EarCapture& C, int genreIdx, float targetLufs, 
     {
         const float f = P.loSide > -8 ? 150.0f : 120.0f;
         step (0, P.loSide > -12 ? PRIO_NEED : PRIO_ADVISE, "BASS CONTROL  mono sotto " + juce::String ((int) f) + " Hz",
-              "I bassi hanno " + a1 (P.loSide) + " dB di lati: su telefoni e impianti mono una parte si cancella. Al centro sotto " + juce::String ((int) f) + " Hz restano pieni ovunque.",
+              P.loSide > -12 ? "I bassi hanno " + a1 (P.loSide) + " dB di lati: su telefoni e impianti mono una parte si cancella. Al centro sotto " + juce::String ((int) f) + " Hz restano pieni ovunque."
+                             : "I bassi sono quasi al centro (" + a1 (P.loSide) + " dB di lati), ma per " + gname + " conviene averli mono del tutto sotto " + juce::String ((int) f) + " Hz: cassa e 808 piu' fermi in club.",
               { { "bc_on", 1 }, { "bc_mono", f }, { "bc_freq", f }, { "bc_thr", 0 } });
     }
     // 2. risonanza
@@ -144,6 +145,8 @@ inline EarPlan earAnalyse (const EarCapture& C, int genreIdx, float targetLufs, 
         for (int r = 0; r < kRegions; ++r)
         {
             if (std::abs (P.dev[r]) < tolTone) continue;
+            // non alzo una zona che contiene la risonanza trovata: la alzerei proprio dove sporge (ci pensa lo SPETTRALE)
+            if (P.dev[r] < 0 && P.resMax > 5 && P.resHz >= regionEdge (r) && P.resHz < regionEdge (r + 1)) continue;
             worst = juce::jmax (worst, std::abs (P.dev[r]));
             const float g = juce::jlimit (-3.0f, 3.0f, -P.dev[r] * 0.5f); const bool dyn = (r == 4 && P.dev[r] > 0) || (r == 2 && P.dev[r] > 0);
             const int b = nb++; auto id = [b] (const char* k) { return juce::String ("eq") + juce::String (b + 1) + "_" + k; };
@@ -156,7 +159,7 @@ inline EarPlan earAnalyse (const EarCapture& C, int genreIdx, float targetLufs, 
         if (nb > 0) { s.push_back ({ "eq_on", 1 }); step (1, worst > 4 ? PRIO_NEED : PRIO_ADVISE, "EQ DINAMICO  " + what.dropLastCharacters (2), "Rispetto " + cmp + ": " + why.dropLastCharacters (2) + " dB. Correggo meta' della distanza: il resto va giudicato a orecchio.", s); }
     }
     if (farZones >= 2 && ! P.useRef) step (15, PRIO_TASTE, "STABILIZER  " + gname + " al 30%", juce::String (farZones) + " zone sono lontane oltre 3 dB: lo stabilizer corregge piano mentre il pezzo cambia (strofe piu' vuote, ritornelli piu' pieni).",
-                                         { { "st_on", 1 }, { "st_amt", 0.3f }, { "st_speed", 0.3f }, { "st_genre", (float) genreIdx } });
+                                         { { "st_on", 1 }, { "st_amt", 0.3f }, { "st_speed", 0.3f }, { "st_genre", (float) genreIdx }, { "st_lo", 20 }, { "st_hi", 20000 } });
     // 4. sibilanti
     if (P.sib > 16) step (2, P.sib > 20 ? PRIO_NEED : PRIO_ADVISE, "DE-ESSER  5.5-12 kHz", "I picchi fra 5 e 10 kHz sporgono di " + a1 (P.sib) + " dB: dopo il maximizer pungerebbero ancora di piu'. Li prendo solo quando arrivano.",
                           { { "ds_on", 1 }, { "ds_lo", 5500 }, { "ds_hi", 12000 }, { "ds_thr", -12 }, { "ds_amt", juce::jlimit (0.25f, 0.6f, (P.sib - 14) * 0.05f) }, { "ds_soft", 0.7f }, { "ds_ch", 0 } });

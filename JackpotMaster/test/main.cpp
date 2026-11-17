@@ -226,22 +226,49 @@ int main (int argc, char** argv)
         std::printf ("preset con problemi: %d\n", bad);
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "cpu")
+    {
+        for (int i = 0; i < (int) presets().size(); i += 3)
+        {
+            auto p = blank(); p->loadPreset (i); std::vector<float> a, b;
+            const double t0 = juce::Time::getMillisecondCounterHiRes(); run (*p, beat, (int) sr * 10, a, b);
+            std::printf ("%-44s %.1f%%\n", presets()[(size_t) i].name, (juce::Time::getMillisecondCounterHiRes() - t0) / 100.0);
+        }
+        auto p = blank(); setP (*p, "mode", 1); setP (*p, "engine", 1); setP (*p, "sp_on", 1); setP (*p, "sp_res", 0.5f); setP (*p, "sp_clar", 0.4f); std::vector<float> a, b;
+        const double t0 = juce::Time::getMillisecondCounterHiRes(); run (*p, beat, (int) sr * 10, a, b);
+        std::printf ("solo SPETTRALE %.1f%%\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 100.0);
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "neutral")
+    {
+        for (int v = 0; v < 4; ++v) for (float amp : { 0.05f, 0.5f })
+        {
+            auto p = blank(); if (v == 1) setP (*p, "engine", 1); if (v == 2) { setP (*p, "mode", 1); setP (*p, "engine", 1); } if (v == 3) setP (*p, "e_loud", 0);
+            std::vector<float> a, b, in; juce::Random r2 (3);
+            run (*p, [&] (int k, float& l, float& r) { const float x = amp * (float) (std::sin (k * 0.0577) * 0.6 + (r2.nextFloat() - 0.5) * 0.4); in.push_back (x); l = x; r = x * 0.92f; }, 96000, a, b);
+            const int L = p->getLatencySamples(); double e = 0, ee = 0; for (int i = 48000; i < 96000; ++i) { e += std::pow (a[(size_t) i] - in[(size_t) (i - L)], 2.0); ee += in[(size_t) i] * in[(size_t) i]; }
+            std::printf ("caso %d ampiezza %.2f: differenza %.1f dB (lat %d) e_loud %.2f\n", v, amp, 10 * std::log10 (e / ee + 1e-30), L, p->value ("e_loud"));
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "ear")
     {   // prova d'ascolto: due mix diversi, proposta, applicazione, taratura
-        for (int kind = 0; kind < 2; ++kind)
+        for (int kind = 0; kind < 3; ++kind)
         {
-            auto p = blank(); setP (*p, "mode", 1); setP (*p, "engine", 1); setP (*p, "ear_genre", kind == 0 ? 0 : 6); setP (*p, "target", kind == 0 ? 5 : 0);
+            auto p = blank(); setP (*p, "mode", 1); setP (*p, "engine", 1); setP (*p, "ear_genre", kind == 0 ? 0 : kind == 1 ? 6 : 3); setP (*p, "target", kind == 0 ? 5 : 0);
+            Biquad sibF; sibF.set (Biquad::BPASS, 7500, 0, 2.0, sr);
             std::vector<float> a, b; juce::Random rr (kind + 1); double ph = 0, ph2 = 0;
             auto gen = [&] (int k, float& l, float& r) { beat (k, l, r); l *= kind == 0 ? 0.35f : 0.2f; ph += 2 * 3.14159 * 330 / sr; ph2 += 2 * 3.14159 * 52 / sr;
                 const float pad = (kind == 0 ? 0.04f : 0.12f) * (float) std::sin (ph), sub = (kind == 0 ? 0.18f : 0.04f) * (float) std::sin (ph2);
-                r = l + pad * 0.6f + sub * (kind == 0 ? 0.6f : 1.0f); l = l + pad + sub; };
+                r = l + pad * 0.6f + sub * (kind == 0 ? 0.6f : 1.0f); l = l + pad + sub;
+                if (kind == 2) { const double ts = std::fmod (k / sr, 0.75); const float sb = ts < 0.07 ? sibF ((rr.nextFloat() * 2 - 1)) * 1.4f : sibF (0.0f); l += sb; r += sb; } };
             setP (*p, "ear_dur", 0); p->earStart(); int guard = 0; while (p->earCap.on.load() && guard++ < 200) run (*p, gen, (int) sr / 2, a, b);
             p->earFinish(); const auto& E = p->ear;
-            std::printf ("\n==== mix %d  valid %d  ref %d\n", kind, (int) E.valid, (int) E.useRef);
+            std::printf ("\n==== mix %d  valid %d  ref %d  sib %.1f res %.1f@%.0f\n", kind, (int) E.valid, (int) E.useRef, E.sib, E.resMax, E.resHz);
             for (auto& h : E.heard) std::printf ("  . %s\n", h.toRawUTF8());
             for (auto& st : E.steps) std::printf ("  > [%s%s] %s\n      %s\n", prioName (st.prio), st.sel ? "" : " off", st.title.toRawUTF8(), st.why.toRawUTF8());
             for (auto& t : E.notes) std::printf ("  ! %s\n", t.toRawUTF8());
-            p->earApply();
+            p->earApply(); a.clear(); b.clear();
             for (int t = 0; t < 40 && p->earCalib >= 0; ++t) { run (*p, gen, (int) sr / 2, a, b); p->earTick(); }
             float pk = 0; bool nan = false; for (auto x : a) { if (! std::isfinite (x)) nan = true; pk = std::max (pk, std::abs (x)); }
             std::printf ("  = %s   (picco %.2f nan %d)\n", p->earMsg.toRawUTF8(), pk, (int) nan);
@@ -425,6 +452,7 @@ int main (int argc, char** argv)
         if (auto* v = std::getenv ("JTHEME")) p->uiTheme = std::atoi (v);
         if (std::getenv ("JMODS")) { setP (*p, "pq_on", 1); setP (*p, "pq_lb", 6); setP (*p, "pq_la", 4); setP (*p, "pq_hb", 3); setP (*p, "pq_ha", 1.5f); setP (*p, "pq_tube", 0.3f);
                                      setP (*p, "vm_on", 1); setP (*p, "vm_thr", -26); }
+        if (std::getenv ("JNEW")) { setP (*p, "sp_on", 1); setP (*p, "sp_res", 0.6f); setP (*p, "sp_clar", 0.5f); setP (*p, "st_on", 1); setP (*p, "st_amt", 0.8f); setP (*p, "engine", 1); p->rackFromOn(); }
         std::vector<float> a, b; run (*p, beat, (int) sr * 12, a, b);
         Editor ed (*p);
         if (auto* jsc = std::getenv ("JSCALE")) ed.scaler.set ((float) std::atof (jsc));
@@ -455,6 +483,7 @@ int main (int argc, char** argv)
             ed.setVisible (true); std::printf ("scala %.2f\n", ed.scaler.s); for (int k = 0; k < 5; ++k) { auto pc = (ed.advTabs.r[k].getCentre() * ed.scaler.s).toInt(); auto* h = ed.getComponentAt (pc); std::printf ("  scheda %d: sotto il mouse %s\n", k, h ? typeid (*h).name() : "niente"); } auto* hit = ed.getComponentAt (juce::Point<int> (1, 1)); std::printf ("al punto delle schede c'e': %s\n", hit ? typeid (*hit).name() : "niente");
         }
         for (int i = 0; i < 30; ++i) ed.tickForTest();
+        for (int i = 0; i < 10; ++i) { if (ed.spPage.fv) ed.spPage.fv->specFrame (30); if (ed.stPage.fv) ed.stPage.fv->specFrame (30); }
         if (std::getenv ("JPERF"))
         {
             const double t0 = juce::Time::getMillisecondCounterHiRes();

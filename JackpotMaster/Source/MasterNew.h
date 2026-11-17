@@ -79,7 +79,7 @@ public:
         {
             fc[b] = 60.0f * std::pow (2.0f, b / 3.0f * 1.02f);
             for (int c = 0; c < 2; ++c) { det[b][c].set (Biquad::BPASS, fc[b], 0, 4.3, sr); det[b][c].reset(); eq[b][c].set (Biquad::BELL, fc[b], 0, 4.3, sr); eq[b][c].reset(); }
-            env[b] = 0; gDb[b] = 0; ui[b] = 0;
+            env[b] = 0; gDb[b] = 0; ui[b] = 0; gSet[b] = 0;
         }
         cnt = 0;
     }
@@ -115,7 +115,11 @@ public:
                 }
                 const float k = tgt < gDb[b] ? 0.35f : 0.06f;   // giu' veloce, su lento
                 gDb[b] += (tgt - gDb[b]) * k; ui[b] = gDb[b];
-                for (int c = 0; c < 2; ++c) eq[b][c].set (Biquad::BELL, fc[b], gDb[b] * 0.6f, 4.3, sr);
+                if (std::abs (gDb[b] - gSet[b]) > 0.01f)
+                {   // coefficienti solo quando il guadagno cambia davvero (prima: 56 calcoli con seni e coseni ogni 32 campioni)
+                    gSet[b] = gDb[b]; eq[b][0].set (Biquad::BELL, fc[b], gDb[b] * 0.6f, 4.3, sr);
+                    eq[b][1].b0 = eq[b][0].b0; eq[b][1].b1 = eq[b][0].b1; eq[b][1].b2 = eq[b][0].b2; eq[b][1].a1 = eq[b][0].a1; eq[b][1].a2 = eq[b][0].a2;
+                }
             }
             // applico
             for (int i = i0; i < i0 + m; ++i)
@@ -130,19 +134,19 @@ public:
 private:
     static constexpr int kSub = 32;
     double sr = 48000; int cnt = 0;
-    Biquad det[kB][2], eq[kB][2]; float env[kB] {}, lev[kB] {}, gDb[kB] {};
+    Biquad det[kB][2], eq[kB][2]; float env[kB] {}, lev[kB] {}, gDb[kB] {}, gSet[kB] {};
 };
 
 // ---------------------------------------------------------------------------------------------------- STABILIZER
 // Ascolta lo spettro medio (ultimi secondi), lo confronta con la curva del genere scelto e corregge piano le sei zone
 // (sub, bassi, medio-bassi, medi, presenza, aria) con filtri larghi. Si muove lento: segue la canzone, non il colpo.
-struct StabSettings { float amt = 0, speed = 0.5f; int genre = 0; bool delta = false; };
+struct StabSettings { float amt = 0, speed = 0.5f, lo = 20, hi = 20000; int genre = 0; bool delta = false; };
 class Stabilizer
 {
 public:
     void prepare (double s)
     {
-        sr = s; ana.reset(); fill = 0; for (auto& g : gDb) g = 0; for (auto& g : ui) g = 0; for (auto& d : diff) d = 0;
+        sr = s; ana.reset(); fill = 0; for (auto& g : gDb) g = 0; for (auto& g : ui) g = 0; for (auto& d : diff) d = 0; thReady = false;
         setFilters (true);
     }
     void process (float* L, float* R, int n, const StabSettings& S)
@@ -156,7 +160,7 @@ public:
                 std::copy (ring.begin() + 2048, ring.end(), ring.begin()); fill = 2048;
                 if (ana.frames > 4)
                 {
-                    float th[kThirds], reg[kRegions]; ana.result (th); ThirdAnalyzer::regions (th, reg);
+                    float reg[kRegions]; ana.result (th); ThirdAnalyzer::regions (th, reg); thReady = true;
                     const auto& G = genre (S.genre);
                     for (int r = 0; r < kRegions; ++r) diff[r] = G.off[r] - reg[r];
                 }
@@ -164,8 +168,17 @@ public:
         }
         // guadagni: verso la curva, al massimo +/- 4 dB, lentissimi
         const float k = (float) (n / sr) / (0.6f + 4.0f * (1 - S.speed));
-        for (int r = 0; r < kRegions; ++r) { const float tgt = juce::jlimit (-4.0f, 4.0f, diff[r] * 0.7f) * S.amt; gDb[r] += (tgt - gDb[r]) * juce::jmin (1.0f, k); ui[r] = gDb[r]; }
-        setFilters (false);
+        // zona d'intervento DA / A: ogni regione conta per quanta parte (in ottave) cade dentro
+        const float l0 = std::log2 (juce::jmax (20.0f, S.lo)), l1 = std::log2 (juce::jmax (S.lo * 1.01f, S.hi));
+        bool moved = false;
+        for (int r = 0; r < kRegions; ++r)
+        {
+            const float a = std::log2 (regionEdge (r)), b = std::log2 (regionEdge (r + 1));
+            const float w = juce::jlimit (0.0f, 1.0f, (juce::jmin (b, l1) - juce::jmax (a, l0)) / (b - a));
+            const float tgt = juce::jlimit (-4.0f, 4.0f, diff[r] * 0.7f) * S.amt * w;
+            const float g0 = gDb[r]; gDb[r] += (tgt - gDb[r]) * juce::jmin (1.0f, k); ui[r] = gDb[r]; moved |= std::abs (gDb[r] - g0) > 1e-5f;
+        }
+        if (moved) setFilters (false);
         for (int i = 0; i < n; ++i)
         {
             float x = L[i], y = R[i]; const float x0 = x, y0 = y;
@@ -173,7 +186,7 @@ public:
             L[i] = S.delta ? x - x0 : x; R[i] = S.delta ? y - y0 : y;
         }
     }
-    float ui[kRegions] {}, diff[kRegions] {};
+    float ui[kRegions] {}, diff[kRegions] {}, th[kThirds] {}; bool thReady = false;
 private:
     void setFilters (bool reset)
     {

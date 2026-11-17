@@ -7,6 +7,8 @@
 #include "JkProEq.h"
 #include "MasterNew.h"
 #include "MasterEar.h"
+#include <unordered_map>
+#include <string_view>
 
 namespace jms
 {
@@ -84,7 +86,7 @@ public:
     void easyToAdv(); void advToEasy(); juce::String sigEasy() const; juce::String sigAdv() const; void syncSnap();
     juce::String snapEasy, snapAdv; int lastMode = -1;
     void loadModPreset (int i);
-    float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
+    float value (const char* id) const { const auto it = pcache.find (std::string_view (id)); return it != pcache.end() ? it->second->load() : apvts.getRawParameterValue (id)->load(); }
     double sampleRate() const { return sr; }
 
     juce::AudioProcessorValueTreeState apvts;
@@ -94,7 +96,7 @@ public:
     // misure per l'interfaccia
     std::atomic<float> lufsM { -100 }, lufsS { -100 }, lufsI { -100 }, lra { 0 }, tpMax { -100 }, inS { -100 }, matchDb { 0 }, normDb { 0 };
     std::atomic<float> grMax { 0 }, grLim { 0 }, inPk[2] {}, outPk[2] {}, outRms[2] {};   // outRms: media quadratica ~300 ms (colonna del livello)
-    std::atomic<float> bassGain { 0 }, bassLow { 0 }, eqDyn[kEqBands] {}, eqLvl[kEqBands] {}, imCorr[kImBands] {}, imLim[kImBands] {}, corrAll { 1 }, vmGr { 0 }, ipUi[4] {}, spUi[Spectral::kB] {}, stUi[kRegions] {}, stDiff[kRegions] {};
+    std::atomic<float> bassGain { 0 }, bassLow { 0 }, eqDyn[kEqBands] {}, eqLvl[kEqBands] {}, imCorr[kImBands] {}, imLim[kImBands] {}, corrAll { 1 }, vmGr { 0 }, ipUi[4] {}, spUi[Spectral::kB] {}, stUi[kRegions] {}, stDiff[kRegions] {}, stTh[kThirds] {}; std::atomic<bool> stThOk { false };
     std::atomic<int> eqSolo { -1 };
     std::atomic<int> eqListen { -1 };  // FACILE: BASSI/MEDI/ALTI in ascolto. 0..2 = solo della zona, 3..5 = delta della banda
     Biquad bandF[2][2]; int soloKey = -1;   // banda dell'EQ in ascolto da sola (solo interfaccia)
@@ -138,13 +140,15 @@ public:
 
 private:
     void timerCallback() override;
+    void processChunk (juce::AudioBuffer<float>&);
+    std::vector<std::string> pkeys; std::unordered_map<std::string_view, std::atomic<float>*> pcache;
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100;
     EasyEngine easyEng; double inAcc = 0; int inAccN = 0; float grSm = 0;
     BassControl bass; DynEq deq; jmx::ProEq peq; Eq432 e432; Pultec pult; VariMu vmu; Impact imp; Spectral spec; Stabilizer stab; Imager img; DeEsser dess; BusComp bus; Multiband mband; TapeMachine tape; Exciter exc; VarDelay deltaVar[2];
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2], loudPad[2];
-    juce::AudioBuffer<float> tmp, keep;
+    juce::AudioBuffer<float> tmp, keep, limIn; float easyLimMix = 0; int easyLimWarm = 0;
     double sqL = 0, sqR = 0; float matchSm = 1, normSm = 1, colIn = 0, colOut = 0, colM = 0, colL = 0, colRaw = 0; int colN = 0; double sqIn = 0, sqOut = 0;
     std::shared_ptr<RefTrack> ref; mutable juce::SpinLock refLock;
     float tpHold = -100; double cLR = 0, cLL = 1e-9, cRR = 1e-9;

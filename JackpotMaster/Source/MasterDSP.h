@@ -323,6 +323,14 @@ public:
         lastK = -1;
     }
     int latency() const { return maxLat + (Lk[0]) + Lb; }   // costante: filtri del 16x + lookahead + fase a bande
+    // tutto a zero (per ripartire pulito dopo essere stato in bypass)
+    void reset()
+    {
+        for (int k = 1; k < 5; ++k) if (os[k]) os[k]->reset();
+        for (int k = 0; k < 5; ++k) { eng[k].reset(); for (auto& d : dl[k]) d.reset(); for (auto& d : pad[k]) d.reset(); }
+        for (auto& e : bEng) e.reset(); for (auto& b : bDl) for (auto& d : b) d.reset(); for (auto& d : bPad) d.reset();
+        x1.reset(); x2.reset(); ap.reset(); gr = grBands = bandGr = 0;
+    }
     void process (float* Lc, float* Rc, int n, const LimSettings& S)
     {
         const int k = juce::jlimit (S.truePeak ? 2 : 0, 4, S.os);
@@ -387,6 +395,15 @@ public:
             }
             if (k > 0) os[k]->processSamplesDown (blk);
             for (int i = 0; i < m; ++i) { a[i] = pad[k][0] (a[i]); b[i] = pad[k][1] (b[i]); }
+            // rete di sicurezza: con materiale molto clippato i filtri di ritorno dal sovracampionamento possono far risalire
+            // un picco di qualche decimo di dB. Solo quei picchi vengono arrotondati sotto il tetto, il resto non si tocca
+            const float top = dbToG (S.ceilDb), c0 = top * 0.97f, span = top - c0;
+            for (int i = 0; i < m; ++i)
+                for (float* v : { a + i, b + i })
+                {
+                    const float x = std::abs (*v);
+                    if (x > c0) *v = std::copysign (c0 + span * std::tanh ((x - c0) / span), *v);
+                }
         }
         gr = juce::jmax (grMax, bandGr); grBands = bandGr;
     }

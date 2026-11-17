@@ -48,8 +48,9 @@ public:
     juce::RangedAudioParameter* param; juce::Colour col; juce::String label;
     std::function<juce::String()> text; std::function<void()> onTouch;
     bool big = false, bipolar = false; float activity = 0;
+    bool changed() { const float v = param->getValue(); if (v == lastV) return false; lastV = v; return true; }
 private:
-    float start = 0; bool drag = false, hover = false;
+    float start = 0, lastV = -2; bool drag = false, hover = false;
 };
 
 class Segs : public juce::Component
@@ -59,6 +60,7 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     juce::RangedAudioParameter* param; juce::Colour col; juce::StringArray items; float font = 11.0f; int rows = 1;
+    juce::Rectangle<float> cell (int i) const;
 };
 
 class Switch : public juce::Component
@@ -395,6 +397,26 @@ public:
     VmView view; std::unique_ptr<Segs> mode, att, rel, hpf; std::unique_ptr<Switch> autoM, ms;
 };
 
+// SPETTRALE e STABILIZER: le frequenze vere (spettro prima / dopo), cosa fa il modulo sopra, e la zona DA / A da trascinare
+class FreqView : public juce::Component
+{
+public:
+    FreqView (Editor& e, int m);
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { hov = -1; repaint(); }
+    juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (10, 8).withTrimmedLeft (22).withTrimmedBottom (16).withTrimmedTop (18); }
+    float xOf (float f) const; float fOf (float x) const;
+    const char* loId() const; const char* hiId() const;
+    void specFrame (float dtMs);
+    Editor& ed; int mod; int drag = -1, hov = -1;
+    std::vector<float> pxIn, pxOut, rl = std::vector<float> (4096), rr = std::vector<float> (4096), win, buf;
+    juce::dsp::FFT fft { 12 }; std::unique_ptr<juce::VBlankAttachment> vb; double lastFrame = 0; neo::Cache grid;
+};
+
 // IMPACT, SPETTRALE, STABILIZER: una pagina sola che cambia disegno e comandi secondo il modulo
 class NewModPage : public ModPage
 {
@@ -402,7 +424,8 @@ public:
     NewModPage (Editor&, int mod);
     void paint (juce::Graphics& g) override;
     void resized() override;
-    std::unique_ptr<Segs> genre;
+    juce::Rectangle<float> viewRect() const { return { 16, 48, (float) getWidth() - 32, (float) getHeight() - 272 }; }
+    std::unique_ptr<Segs> genre; std::unique_ptr<FreqView> fv;
 };
 
 constexpr int TOOL_BAL = 100, TOOL_REF = 101, TOOL_EAR = 102;

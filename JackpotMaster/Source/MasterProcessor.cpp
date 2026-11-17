@@ -3,6 +3,12 @@
 
 namespace jms
 {
+// id di parametro composto senza stringhe nuove (si usa nel thread audio)
+static const char* pidf (const char* fmt, int a, const char* tail = "")
+{
+    static thread_local char buf[4][32]; static thread_local int k = 0; k = (k + 1) & 3;
+    std::snprintf (buf[k], sizeof (buf[k]), fmt, a, tail); return buf[k];
+}
 const char* onParam (int m)
 {
     static const char* p[kNumMods] = { "bc_on", "eq_on", "ds_on", "bus_on", "mb_on", "ex_on", "tp_on", "im_on", "mx_on", "lm_on", "e4_on", "pq_on", "vm_on", "ip_on", "sp_on", "st_on" };
@@ -97,6 +103,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "st_amt", 1 }, "Stabilizer Amount", NormalisableRange<float> (0, 1), 0.5f));
     l.add (std::make_unique<AudioParameterFloat> (ParameterID { "st_speed", 1 }, "Stabilizer Speed", NormalisableRange<float> (0, 1), 0.4f));
     { StringArray gn; for (int g = 0; g < kGenres; ++g) gn.add (genre (g).name); l.add (std::make_unique<AudioParameterChoice> (ParameterID { "st_genre", 1 }, "Stabilizer Genre", gn, 0)); }
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "st_lo", 2 }, "Stabilizer Low", NormalisableRange<float> (20, 2000, 0, 0.4f), 20, AudioParameterFloatAttributes().withLabel ("Hz")));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "st_hi", 2 }, "Stabilizer High", NormalisableRange<float> (1000, 20000, 0, 0.5f), 20000, AudioParameterFloatAttributes().withLabel ("Hz")));
     // EQ 432
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "e4_on", 1 }, "EQ432 On", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "e4_delta", 1 }, "EQ432 Delta", false));
@@ -244,6 +252,9 @@ Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "JMS", layout())
 {
+    // tabella dei parametri: dal thread audio niente ricerche fra stringhe JUCE (e niente memoria nuova)
+    for (auto* p : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p)) pkeys.push_back (rp->paramID.toStdString());
+    for (auto& k : pkeys) pcache.emplace (std::string_view (k), apvts.getRawParameterValue (k));
     { for (int k = 0; k < kNumMods; ++k) order[k] = defaultOrder()[(size_t) k]; }
     rackFromOn();
     for (int i = 0; i < kHist; ++i) { hIn[i] = -60; hOut[i] = -60; hGrM[i] = 0; hGrL[i] = 0; hS[i] = -60; hRaw[i] = -100; hRawR[i] = -100; hOutR[i] = -100; hPpq[i] = -1; }
@@ -272,21 +283,32 @@ void Processor::prepareToPlay (double s, int maxBlock)
     for (auto& d : dry) d.prepare (total);
     setLatencySamples (total);
     loudIn.prepare (s); loudOut.prepare (s); dith.reset(); for (auto& t : tpOut) t.reset();
-    tmp.setSize (2, mb); keep.setSize (2, mb);
+    tmp.setSize (2, mb); keep.setSize (2, mb); limIn.setSize (2, mb); easyLimMix = 0; easyLimWarm = 0;
     matchSm = normSm = 1; tpHold = -100;
 }
 
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals nd;
-    const int n = buffer.getNumSamples(); if (n == 0) return;
-    if (tmp.getNumSamples() < n) { tmp.setSize (2, n, false, false, true); keep.setSize (2, n, false, false, true); }
+    const int n = buffer.getNumSamples(), cap = tmp.getNumSamples(); if (n == 0 || buffer.getNumChannels() < 2) return;
+    if (n <= cap) { processChunk (buffer); return; }
+    // blocco piu' grande del previsto: a pezzi (nessun buffer da ingrandire mentre suona)
+    for (int o = 0; o < n; o += cap)
+    {
+        float* ch[2] = { buffer.getWritePointer (0) + o, buffer.getWritePointer (1) + o };
+        juce::AudioBuffer<float> sub (ch, 2, juce::jmin (cap, n - o));
+        processChunk (sub);
+    }
+}
+
+void Processor::processChunk (juce::AudioBuffer<float>& buffer)
+{
+    const int n = buffer.getNumSamples();
     float* L = buffer.getWritePointer (0); float* R = buffer.getWritePointer (1);
     if (resetReq.exchange (false)) { loudOut.resetIntegrated(); tpHold = -100; }
 
     const float trim = dbToG (value ("trim"));
     float pi[2] = { 0, 0 };
-    if ((int) mRawA.size() < n) { mRawA.resize ((size_t) n); mRawQ.resize ((size_t) n); mInA.resize ((size_t) n); }
     {   // tempo del pezzo all'inizio del blocco: le colonne dell'onda portano la loro posizione in battiti (griglia a tempo)
         hostPlay = false;
         if (auto* ph = getPlayHead())
@@ -349,7 +371,28 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             if (ms.gainDb > 0.01f) mx.process (L, R, n, ms);
             else for (int i = 0; i < n; ++i) { L[i] = mxBy[0] (L[i]); R[i] = mxBy[1] (R[i]); }   // LOUD a zero: solo il ritardo, suono intatto
             LimSettings ls; ls.ceilDb = value ("lm_ceil"); ls.relMs = 80; ls.autoRel = true; ls.truePeak = true;
-            lim.process (L, R, n, ls);
+            {   // LOUD a zero: anche il limiter esce di scena (solo il suo ritardo), cosi' all'apertura il suono e' identico.
+                // Quando LOUD si muove il limiter riparte pulito, si scalda per la sua latenza e poi entra con una dissolvenza
+                // il limiter resta la rete di sicurezza appena il FACILE fa qualcosa (EQ, colore, colla...), anche con LOUD a zero
+                const bool easyActive = std::abs (E.low) > 0.01f || std::abs (E.mid) > 0.01f || std::abs (E.high) > 0.01f || E.calm > 0.001f || E.thick > 0.001f
+                                        || E.warm > 0.001f || E.silk > 0.001f || E.glue > 0.001f || std::abs (E.wide) > 0.001f || E.monoBass;
+                const bool want = ms.gainDb > 0.01f || easyActive;
+                if (want && easyLimMix <= 0.0f && easyLimWarm <= 0) { lim.reset(); easyLimWarm = lim.latency() + 64; }
+                if (want || easyLimMix > 0.0f || easyLimWarm > 0)
+                {
+                    float* kL2 = limIn.getWritePointer (0); float* kR2 = limIn.getWritePointer (1);
+                    for (int i = 0; i < n; ++i) { kL2[i] = limBy[0] (L[i]); kR2[i] = limBy[1] (R[i]); }
+                    lim.process (L, R, n, ls);
+                    const float st = 1.0f / (float) (0.03 * sr);
+                    for (int i = 0; i < n; ++i)
+                    {
+                        if (easyLimWarm > 0) --easyLimWarm; else easyLimMix = want ? juce::jmin (1.0f, easyLimMix + st) : juce::jmax (0.0f, easyLimMix - st);
+                        L[i] = kL2[i] + (L[i] - kL2[i]) * easyLimMix; R[i] = kR2[i] + (R[i] - kR2[i]) * easyLimMix;
+                    }
+                    if (! want && easyLimMix <= 0.0f) easyLimWarm = 0;
+                }
+                else for (int i = 0; i < n; ++i) { L[i] = limBy[0] (L[i]); R[i] = limBy[1] (R[i]); }
+            }
             {
                 const bool ld = value ("e_ldelta") > 0.5f; const float lg = dbToG (ms.gainDb);
                 for (int i = 0; i < n; ++i) { const float a = loudPad[0] (tL[i]) * lg, b = loudPad[1] (tR[i]) * lg; if (ld) { L[i] -= a; R[i] -= b; } }
@@ -421,9 +464,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                     MbSettings m; m.x1 = value ("mb_x1"); m.x2 = juce::jmax (value ("mb_x2"), m.x1 * 2); m.speed = value ("mb_speed"); m.mix = value ("mb_mix"); m.delta = d;
                     for (int b = 0; b < kMbBands; ++b)
                     {
-                        const juce::String mid = "mb" + juce::String (b + 1) + "_";
-                        m.b[b].thr = value ((mid + "thr").toRawUTF8()); m.b[b].ratio = value ((mid + "ratio").toRawUTF8()); m.b[b].up = value ((mid + "up").toRawUTF8());
-                        m.b[b].gain = value ((mid + "gain").toRawUTF8()); m.b[b].solo = value ((mid + "solo").toRawUTF8()) > 0.5f;
+                        m.b[b].thr = value (pidf ("mb%d_%s", b + 1, "thr")); m.b[b].ratio = value (pidf ("mb%d_%s", b + 1, "ratio")); m.b[b].up = value (pidf ("mb%d_%s", b + 1, "up"));
+                        m.b[b].gain = value (pidf ("mb%d_%s", b + 1, "gain")); m.b[b].solo = value (pidf ("mb%d_%s", b + 1, "solo")) > 0.5f;
                     }
                     mband.process (L, R, n, m);
                 }
@@ -454,7 +496,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 break;
             case IMPACT:
                 if (! on) break;
-                { ImpactSettings q; for (int b = 0; b < 4; ++b) q.amt[b] = value (("ip_b" + juce::String (b + 1)).toRawUTF8()); q.speed = value ("ip_speed"); q.delta = d; imp.process (L, R, n, q); for (int b = 0; b < 4; ++b) ipUi[b] = imp.ui[b]; }
+                { ImpactSettings q; for (int b = 0; b < 4; ++b) q.amt[b] = value (pidf ("ip_b%d%s", b + 1)); q.speed = value ("ip_speed"); q.delta = d; imp.process (L, R, n, q); for (int b = 0; b < 4; ++b) ipUi[b] = imp.ui[b]; }
                 break;
             case SPECTRAL:
                 if (! on) break;
@@ -462,7 +504,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 break;
             case STABIL:
                 if (! on) break;
-                { StabSettings q; q.amt = value ("st_amt"); q.speed = value ("st_speed"); q.genre = juce::roundToInt (value ("st_genre")); q.delta = d; stab.process (L, R, n, q); for (int r = 0; r < kRegions; ++r) { stUi[r] = stab.ui[r]; stDiff[r] = stab.diff[r]; } }
+                { StabSettings q; q.amt = value ("st_amt"); q.speed = value ("st_speed"); q.genre = juce::roundToInt (value ("st_genre")); q.lo = value ("st_lo"); q.hi = value ("st_hi"); q.delta = d; stab.process (L, R, n, q);
+                  for (int r = 0; r < kRegions; ++r) { stUi[r] = stab.ui[r]; stDiff[r] = stab.diff[r]; } if (stab.thReady) for (int k = 0; k < kThirds; ++k) stTh[k] = stab.th[k]; stThOk = stab.thReady; }
                 break;
             case EQ432:
                 if (! on) break;
@@ -470,8 +513,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                     Eq432Settings e; e.range = juce::roundToInt (value ("e4_range")); e.colour = value ("e4_col"); e.shelf[0] = value ("e4_sh1") > 0.5f; e.shelf[1] = value ("e4_sh5") > 0.5f;
                     for (int b = 0; b < k432Bands; ++b)
                     {
-                        const juce::String id = "e4_" + juce::String (b + 1);
-                        e.f[b] = value ((id + "f").toRawUTF8()); e.g[b] = value ((id + "g").toRawUTF8()); e.q[b] = value ((id + "q").toRawUTF8());
+                        e.f[b] = value (pidf ("e4_%d%s", b + 1, "f")); e.g[b] = value (pidf ("e4_%d%s", b + 1, "g")); e.q[b] = value (pidf ("e4_%d%s", b + 1, "q"));
                     }
                     if (d) copyIn();
                     e432.process (L, R, n, e);
@@ -484,8 +526,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                     ExSettings e; e.x1 = value ("ex_x1"); e.x2 = juce::jmax (value ("ex_x2"), e.x1 * 2); e.mix = value ("ex_mix"); e.delta = d;
                     for (int b = 0; b < kExBands; ++b)
                     {
-                        const juce::String id = "ex" + juce::String (b + 1) + "_";
-                        e.amt[b] = value ((id + "amt").toRawUTF8()); e.mode[b] = (int) value ((id + "mode").toRawUTF8()); e.solo[b] = value ((id + "solo").toRawUTF8()) > 0.5f;
+                        e.amt[b] = value (pidf ("ex%d_%s", b + 1, "amt")); e.mode[b] = (int) value (pidf ("ex%d_%s", b + 1, "mode")); e.solo[b] = value (pidf ("ex%d_%s", b + 1, "solo")) > 0.5f;
                     }
                     exc.process (L, R, n, e);
                 }
@@ -496,8 +537,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                     ImagerSettings S; S.x[0] = value ("im_x1"); S.x[1] = juce::jmax (value ("im_x2"), S.x[0] * 1.5f); S.x[2] = juce::jmax (value ("im_x3"), S.x[1] * 1.5f);
                     for (int b = 0; b < kImBands; ++b)
                     {
-                        S.w[b] = value (("im_w" + juce::String (b + 1)).toRawUTF8()); S.stz[b] = value (("im_s" + juce::String (b + 1)).toRawUTF8());
-                        S.solo[b] = value (("im_solo" + juce::String (b + 1)).toRawUTF8()) > 0.5f;
+                        S.w[b] = value (pidf ("im_w%d%s", b + 1)); S.stz[b] = value (pidf ("im_s%d%s", b + 1));
+                        S.solo[b] = value (pidf ("im_solo%d%s", b + 1)) > 0.5f;
                     }
                     S.mode = juce::roundToInt (value ("im_smode")); S.delta = d; S.safe = value ("im_safe") > 0.5f;
                     img.process (L, R, n, S);
@@ -971,13 +1012,25 @@ void Processor::earTick()
     const float s = lufsS.load();
     if (s < -50) { earMsg = "Taratura in pausa: aspetto che il pezzo suoni."; return; }
     const float err = ear.targetLufs - s; ++earSteps;
-    auto* p = apvts.getParameter ("mx_gain"); const float g = value ("mx_gain");
-    if (std::abs (err) < 0.4f) ++earOk; else { earOk = 0; if (p) p->setValueNotifyingHost (p->convertTo0to1 (juce::jlimit (0.0f, 14.0f, g + juce::jlimit (-1.5f, 1.5f, err * 0.6f)))); }
-    earMsg = "Taratura: " + juce::String (s, 1) + " LUFS su " + juce::String (ear.targetLufs, 1) + " voluti (maximizer +" + juce::String (value ("mx_gain"), 1) + " dB).";
-    if (earOk >= 3 || earSteps > 60 || (g >= 14.0f && err > 0))
+    // prima il maximizer (fino a +14 dB); se non basta, il guadagno d'ingresso del limiter (fino a +6 dB)
+    auto* p = apvts.getParameter ("mx_gain"); auto* pl = apvts.getParameter ("lm_gain"); const float g = value ("mx_gain"), gl = value ("lm_gain");
+    const float stepDb = juce::jlimit (-1.5f, 1.5f, err * 0.6f);
+    if (std::abs (err) < 0.4f) ++earOk;
+    else
+    {
+        earOk = 0;
+        if (err > 0 && g >= 13.95f && pl) pl->setValueNotifyingHost (pl->convertTo0to1 (juce::jlimit (0.0f, 6.0f, gl + stepDb)));
+        else if (err < 0 && gl > 0.05f && pl) pl->setValueNotifyingHost (pl->convertTo0to1 (juce::jlimit (0.0f, 6.0f, gl + stepDb)));
+        else if (p) p->setValueNotifyingHost (p->convertTo0to1 (juce::jlimit (0.0f, 14.0f, g + stepDb)));
+    }
+    earMsg = "Taratura: " + juce::String (s, 1) + " LUFS su " + juce::String (ear.targetLufs, 1) + " voluti (maximizer +" + juce::String (value ("mx_gain"), 1) + " dB"
+             + (value ("lm_gain") > 0.05f ? ", limiter +" + juce::String (value ("lm_gain"), 1) + " dB)." : juce::String (")."));
+    const bool maxed = g >= 13.95f && value ("lm_gain") >= 5.95f && err > 0;
+    if (earOk >= 3 || earSteps > 60 || maxed)
     {
         earCalib = -1;
-        earMsg = g >= 14.0f && err > 0 ? "Il maximizer e' al massimo e mancano " + juce::String (err, 1) + " dB: alza l'INGRESSO o abbassa l'obiettivo." : "Tarato: " + juce::String (s, 1) + " LUFS. Se non ti convince premi SCARTA.";
+        earMsg = maxed ? "Maximizer e limiter sono al massimo e mancano " + juce::String (err, 1) + " dB: e' troppo per questo mix. Abbassa l'obiettivo o alza il mix prima del master."
+                       : "Tarato: " + juce::String (s, 1) + " LUFS. Se non ti convince premi SCARTA.";
         syncSnap();
     }
 }
@@ -1089,7 +1142,24 @@ const std::vector<ModPreset>& modPresets()
         { PULTEC, true, "Bassi enormi", "Boost forte e atten a 60 Hz: sub pieno, senza fango.", { { "pq_lf", 2 }, { "pq_lb", 6 }, { "pq_la", 4 } } },
         { PULTEC, true, "Brillante morbido", "Boost largo a 10 kHz e un filo di atten a 20 kHz.", { { "pq_hf", 4 }, { "pq_hb", 5 }, { "pq_bw", 8 }, { "pq_as", 2 }, { "pq_ha", 1 } } },
         { VARIMU, true, "Limita i picchi", "Modo LIMIT: tiene fermi i colpi piu forti con il suono delle valvole.", { { "vm_mode", 1 }, { "vm_thr", -14 }, { "vm_att", 1 }, { "vm_rel", 1 } } },
-        { VARIMU, true, "Solo il centro (M/S)", "Comprime il centro: voce e cassa piu ferme, i lati respirano.", { { "vm_ms", 1 }, { "vm_thr", -20 }, { "vm_mix", 1 } } } };
+        { VARIMU, true, "Solo il centro (M/S)", "Comprime il centro: voce e cassa piu ferme, i lati respirano.", { { "vm_ms", 1 }, { "vm_thr", -20 }, { "vm_mix", 1 } } },
+        // ---- IMPACT
+        { IMPACT, true, "Cassa che esce", "Piu' attacco solo sotto i 120 Hz: la cassa torna fuori dopo il maximizer, il resto intatto.", { { "ip_b1", 0.3f }, { "ip_b2", 0 }, { "ip_b3", 0 }, { "ip_b4", 0 }, { "ip_speed", 0.45f } } },
+        { IMPACT, true, "Rullante e voce avanti", "Attacco sui medi (120 Hz - 1 kHz e 1-6 kHz): schiocco del rullante e consonanti piu' chiare.", { { "ip_b1", 0 }, { "ip_b2", 0.2f }, { "ip_b3", 0.15f }, { "ip_b4", 0 }, { "ip_speed", 0.6f } } },
+        { IMPACT, true, "Piatti meno pungenti", "Attacco giu' solo sopra i 6 kHz: hat e piatti piu' morbidi senza togliere aria.", { { "ip_b1", 0 }, { "ip_b2", 0 }, { "ip_b3", 0 }, { "ip_b4", -0.35f }, { "ip_speed", 0.7f } } },
+        { IMPACT, false, "Bus batteria punch", "Sul bus della batteria: piu' botta su cassa e rullante, piatti piu' tranquilli.", { { "ip_b1", 0.4f }, { "ip_b2", 0.3f }, { "ip_b3", 0.1f }, { "ip_b4", -0.2f }, { "ip_speed", 0.55f } } },
+        // ---- SPETTRALE
+        { SPECTRAL, true, "Fango dei medio-bassi", "Risonanze solo fra 150 Hz e 1 kHz: toglie il rimbombo di 808 e stanza solo quando si accumula.", { { "sp_res", 0.55f }, { "sp_sens", 0.55f }, { "sp_clar", 0 }, { "sp_lo", 150 }, { "sp_hi", 1000 } } },
+        { SPECTRAL, true, "Durezza della voce", "Fra 1,5 e 5 kHz: le frequenze che fischiano nella voce e nei synth, prese solo quando sporgono.", { { "sp_res", 0.5f }, { "sp_sens", 0.6f }, { "sp_clar", 0 }, { "sp_lo", 1500 }, { "sp_hi", 5000 } } },
+        { SPECTRAL, true, "Clarity sul mix", "Alza piano le zone coperte fra 300 Hz e 8 kHz: i dettagli escono senza alzare il volume.", { { "sp_res", 0.2f }, { "sp_sens", 0.4f }, { "sp_clar", 0.45f }, { "sp_lo", 300 }, { "sp_hi", 8000 } } },
+        { SPECTRAL, true, "Pulizia completa", "Risonanze e clarity su quasi tutto lo spettro: il mix piu' aperto e liscio. Ascolta col DELTA.", { { "sp_res", 0.45f }, { "sp_sens", 0.5f }, { "sp_clar", 0.3f }, { "sp_lo", 120 }, { "sp_hi", 12000 } } },
+        { SPECTRAL, false, "Bus voci", "Sul gruppo delle voci: toglie i fischi fra 2 e 8 kHz e un po' di nasale.", { { "sp_res", 0.6f }, { "sp_sens", 0.65f }, { "sp_clar", 0.15f }, { "sp_lo", 700 }, { "sp_hi", 8000 } } },
+        // ---- STABILIZER
+        { STABIL, true, "Trap / drill", "Avvicina il pezzo alla curva trap: sub e bassi presenti, medi asciutti.", { { "st_genre", 0 }, { "st_amt", 0.5f }, { "st_speed", 0.4f }, { "st_lo", 20 }, { "st_hi", 20000 } } },
+        { STABIL, true, "Boom bap", "Curva hip hop: bassi caldi, alti morbidi. Lento, segue la canzone.", { { "st_genre", 1 }, { "st_amt", 0.45f }, { "st_speed", 0.3f }, { "st_lo", 20 }, { "st_hi", 20000 } } },
+        { STABIL, true, "Solo i bassi", "Lavora solo sotto 1 kHz: sub, bassi e medio-bassi sempre allo stesso livello fra strofe e ritornelli.", { { "st_amt", 0.6f }, { "st_speed", 0.5f }, { "st_lo", 20 }, { "st_hi", 1000 } } },
+        { STABIL, true, "Solo medi e alti", "Lavora sopra gli 800 Hz: voce e piatti stabili, i bassi li decidi tu.", { { "st_amt", 0.5f }, { "st_speed", 0.4f }, { "st_lo", 800 }, { "st_hi", 20000 } } },
+        { STABIL, true, "Pop / R&B delicato", "Poca quantita', lento: corregge solo quello che si sposta tanto.", { { "st_genre", 2 }, { "st_amt", 0.3f }, { "st_speed", 0.25f }, { "st_lo", 20 }, { "st_hi", 20000 } } } };
     return P;
 }
 static bool ownsParam (int m, const juce::String& id)
