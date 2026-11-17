@@ -34,6 +34,22 @@ int main (int argc, char** argv)
     auto fresh = [&] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); return p; };
     // batteria finta: cassa ogni 0.5 s, rullante in levare, hat in ottavi
     juce::Random rnd (5);
+    if (argc > 1 && juce::String (argv[1]) == "lat")
+    {   // latenza vera (correlazione col rumore d'ingresso) contro quella dichiarata, modulo per modulo
+        const char* cases[] = { "", "s_on=1", "d_on=1,d_drive=0.5", "f_on=1", "c_on=1,c_amt=0.5", "t_on=1", "t_on=1,t_wow=1,t_flut=1,amount=1.5", "r_on=1,r_mix=0.3", "n_on=1", "s_on=1,d_on=1,f_on=1,c_on=1,t_on=1,r_on=1,n_on=1" };
+        for (auto* cs : cases)
+        {
+            auto p = fresh();
+            for (auto kv : juce::StringArray::fromTokens (cs, ",", "")) setP (*p, kv.upToFirstOccurrenceOf ("=", false, false).toRawUTF8(), kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+            juce::Random rn (9); std::vector<float> in, L, R;
+            run (*p, [&] (int, float& l, float& r) { const float x = (rn.nextFloat() - 0.5f) * 0.3f; in.push_back (x); l = r = x; }, (int) sr * 12, L, R);
+            int best = 0; double bc = -1;
+            for (int d = 0; d < 600; ++d) { double c = 0; for (int i = (int) sr * 2; i < (int) sr * 12; ++i) c += (double) L[(size_t) i] * in[(size_t) (i - d)]; if (c > bc) { bc = c; best = d; } }
+            double e = 0, ee = 0; const int Lt = p->getLatencySamples(); for (int i = (int) sr * 2; i < (int) sr * 12; ++i) { e += std::pow (L[(size_t) i] - in[(size_t) (i - Lt)], 2.0); ee += in[(size_t) i] * in[(size_t) i]; }
+            std::printf ("%-60s dichiarata %4d  vera %4d %s  differenza dal pulito %.1f dB\n", cs[0] ? cs : "(tutto spento)", Lt, best, std::abs (best - Lt) > 2 ? "<<< SBAGLIATA" : "", 10 * std::log10 (e / ee + 1e-30));
+        }
+        return 0;
+    }
     auto drums = [&] (int i, float& l, float& r)
     {
         const double t = i / sr, b = std::fmod (t, 0.5), h = std::fmod (t, 0.125), s2 = std::fmod (t + 0.25, 0.5);

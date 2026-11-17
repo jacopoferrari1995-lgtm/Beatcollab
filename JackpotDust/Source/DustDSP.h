@@ -115,6 +115,28 @@ struct Settings
 // ---------------------------------------------------------------- motore
 // Ordine: sampler (1x, l'aliasing delle macchine e' voluto) -> [8x: saturazione, filtri, compressore, nastro] -> room -> polvere -> uscita.
 // Le manopole che cambiano livello o colore sono smussate per campione (niente click), i filtri si aggiornano a piccoli passi.
+// cancello dell'oversampling: quando nessun modulo a 8x lavora, il segnale passa solo da un ritardo uguale (neutro al bit);
+// quando uno si accende l'8x si scalda per la sua latenza e poi entra con una dissolvenza
+struct OsGate
+{
+    std::vector<float> ring[2], tmp[2]; int w = 0, L = 1, warm = 0; float m = 0; bool running = false;
+    void prepare (int lat, int maxBlock) { L = std::max (1, lat); for (int c = 0; c < 2; ++c) { ring[c].assign ((size_t) L, 0.0f); tmp[c].assign ((size_t) maxBlock, 0.0f); } w = 0; m = 0; warm = 0; running = false; }
+    void mix (float* const* ch, int N, bool act)
+    {
+        const float step = 1.0f / 1024.0f;
+        for (int i = 0; i < N; ++i)
+        {
+            if (warm > 0) --warm; else m = act ? std::min (1.0f, m + step) : std::max (0.0f, m - step);
+            for (int c = 0; c < 2; ++c)
+            {
+                const float in = running ? tmp[c][(size_t) i] : ch[c][i], d = ring[c][(size_t) w]; ring[c][(size_t) w] = in;
+                ch[c][i] = running ? d + (ch[c][i] - d) * m : d;
+            }
+            if (++w >= L) w = 0;
+        }
+        if (! act && m <= 0.0f && warm == 0) running = false;
+    }
+};
 struct Sm1 { float v = 0; bool init = false; inline float step (float t, float k) { if (! init) { v = t; init = true; } v += (t - v) * k; return v; } };
 
 class Engine
@@ -125,9 +147,10 @@ public:
     {
         sr = s; maxBlock = block; sr4 = s * kOs;
         os = std::make_unique<juce::dsp::Oversampling<float>> (2, kOsSt, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, false, true);
-        os->initProcessing ((size_t) block); osLat = (int) std::round (os->getLatencyInSamples());
-        dryDl[0].prepare (osLat + block + 8); dryDl[1].prepare (osLat + block + 8); bypDl[0].prepare (osLat + 8); bypDl[1].prepare (osLat + 8); upTail = 0;
-        for (auto& t : tapeDl) t.prepare ((int) (sr * 0.03) + 8);
+        os->initProcessing ((size_t) block); osLat = (int) std::round (os->getLatencyInSamples()); gUp.prepare (osLat, block);
+        tapeD0 = (int) std::ceil ((0.0087 * 1.5 / (2 * kPi * 0.55) * 1.2 + 0.0025 * 1.5 / (2 * kPi * 6.3) + 0.001 * 1.5 / (2 * kPi * 11.0)) * sr) + 4;
+        dryDl[0].prepare (osLat + tapeD0 + block + 8); dryDl[1].prepare (osLat + tapeD0 + block + 8); bypDl[0].prepare (osLat + 8); bypDl[1].prepare (osLat + 8); upTail = 0;
+        for (auto& t : tapeDl) t.prepare (2 * tapeD0 + 16);
         satDry.setSize (2, block * kOs);
         for (auto& c : ch) c = Ch();
         holdPh = 1; env = 0; inRms = outRms = 1e-6f; gr = 0; dropG = 1; dropT = 0; wowPh = flPh = fl2Ph = 0;
@@ -141,7 +164,8 @@ public:
         roomEnv = 0; roomHold = 0; roomGate = 0; wetHp[0] = wetHp[1] = 0;
         ottSr = -1;
     }
-    int latency() const { return osLat; }
+    // il nastro ha un ritardo fisso (centro del wow e del flutter) che c'e' sempre, anche a nastro spento: la latenza dichiarata e' quella vera
+    int latency() const { return osLat + tapeD0; }
 
     void process (float* L, float* R, int n, const Settings& S)
     {
@@ -194,17 +218,25 @@ public:
 
         // 2-5) a 8x: niente aliasing da saturazione, clip, compressore e nastro
         // l'oversampling gira sempre (latenza costante, nessun salto quando accendi un modulo); i moduli spenti non costano nulla
-        {
-            juce::dsp::AudioBlock<float> blk (io, 2, (size_t) n);
-            auto up = os->processSamplesUp (blk);
-            const int N = (int) up.getNumSamples();
-            float* u[2] = { up.getChannelPointer (0), up.getChannelPointer (1) };
-            processUp (u, N, S, A, kS4);
-            os->processSamplesDown (blk);
+        {   // solo se un modulo a 8x lavora; altrimenti un ritardo uguale (cosi' a moduli spenti il plugin non cambia il suono)
+            const bool upAct = S.dOn || smv[5].v > 0.0005f || S.cOn || smv[7].v > 0.0005f || (S.tOn && S.tAge * A > 0.001f) || smv[11].v > 0.001f;
+            if (upAct && ! gUp.running) { os->reset(); gUp.running = true; gUp.warm = 2 * osLat + 8; }
+            if (gUp.running)
+            {
+                for (int c = 0; c < 2; ++c) std::copy (io[c], io[c] + n, gUp.tmp[c].begin());
+                juce::dsp::AudioBlock<float> blk (io, 2, (size_t) n);
+                auto up = os->processSamplesUp (blk);
+                const int N = (int) up.getNumSamples();
+                float* u[2] = { up.getChannelPointer (0), up.getChannelPointer (1) };
+                processUp (u, N, S, A, kS4);
+                os->processSamplesDown (blk);
+            }
+            gUp.mix (io, n, upAct);
         }
         // a 1x: filtri ed EQ, poi il trasporto del nastro
         processFilters (io, n, S);
         if (S.tOn) processTape (io, n, S, A);
+        else for (int c = 0; c < 2; ++c) for (int i = 0; i < n; ++i) { tapeDl[c].push (io[c][i]); io[c][i] = tapeDl[c].read ((float) tapeD0); }   // solo il ritardo fisso
 
         // 6) room: piccola stanza per batterie grandi (prime riflessioni + coda corta), con gate opzionale
         processRoom (io, n, S, kS);
@@ -216,7 +248,7 @@ public:
         {
             float l = io[0][i], r = io[1][i];
             const float mx = smv[2].step (S.mix, kS);
-            if (mx < 0.9995f) { const float t = (float) (osLat + n - 1 - i), dl = dryDl[0].read (t), dr = dryDl[1].read (t); l = dl + (l - dl) * mx; r = dr + (r - dr) * mx; }
+            if (mx < 0.9995f) { const float t = (float) (osLat + tapeD0 + n - 1 - i), dl = dryDl[0].read (t), dr = dryDl[1].read (t); l = dl + (l - dl) * mx; r = dr + (r - dr) * mx; }
             const float mo = smv[3].step (S.mono ? 1.0f : 0.0f, kS);
             if (mo > 0.0005f) { const float m = 0.5f * (l + r); l += (m - l) * mo; r += (m - r) * mo; }
             eout += 0.5 * (l * l + r * r);
@@ -457,7 +489,8 @@ private:
             wowPh += 0.55 / sr; if (wowPh > 1) { wowPh -= 1; wowTarget = rng.next() * 0.4f; const double r = std::sqrt (oW[0] * oW[0] + oW[1] * oW[1]); oW[0] /= r; oW[1] /= r; oF[0] /= std::hypot (oF[0], oF[1]); oF[1] /= std::hypot (oF[0], oF[1]); }
             wowDrift += 0.0003f * (wowTarget - wowDrift);
             wA_s += (wA - wA_s) * 0.001f; fA_s += (fA - fA_s) * 0.001f; f2A_s += (f2A - f2A_s) * 0.001f;
-            const float d = 2 + wA_s * (1 + (float) oW[1] + wowDrift) + fA_s * (1 + (float) oF[1]) + f2A_s * (1 + (float) oF2[1]);
+            // modulazione attorno al centro fisso (media zero): il nastro oscilla ma non sposta il tempo del pezzo
+            const float d = (float) tapeD0 + wA_s * ((float) oW[1] + (wowDrift - 0.2f)) + fA_s * (float) oF[1] + f2A_s * (float) oF2[1];
             if (drop > 0.001f)
             {
                 if (dropT <= 0 && rng.uni() < drop * 1.5f / (float) sr) dropT = (int) (sr * (0.02 + 0.1 * rng.uni()));
@@ -469,7 +502,7 @@ private:
             {
                 auto& C = ch[c];
                 tapeDl[c].push (io[c][i]);
-                float v = tapeDl[c].read (d + (c ? 0.3f : 0.0f));
+                float v = tapeDl[c].read (d + (c ? 0.3f : 0.0f) * juce::jmin (1.0f, wA_s + fA_s));   // il piccolo scarto fra i canali solo quando il nastro si muove
                 if (age > 0.001f) v = C.tLp1.run (C.bump.run (v));
                 io[c][i] = v * dropG;
             }
@@ -567,14 +600,14 @@ private:
         float pre = 0, held = 0, pink = 0, popLp = 0, hissHp = 0;
     };
     double sr = 44100, sr4 = 44100 * 8, wowPh = 0, flPh = 0, fl2Ph = 0, humPh = 0, ottSr = -1;
-    int maxBlock = 512, osLat = 0, lastModel = -1, dropT = 0, lastDModel = -1;
+    int maxBlock = 512, osLat = 0, lastModel = -1, dropT = 0, lastDModel = -1, tapeD0 = 8;
     float holdPh = 1, lastRate = -1, driveMk = 1, mkFor = -100, env = 0, rms = 0, envF = 0, envS = 0, inRms = 1e-6f, outRms = 1e-6f, dropG = 1, wowTarget = 0, wowDrift = 0, noiseEnv = 0, muCharge = 0, lastAge = -1;
     float wA_s = 0, fA_s = 0, f2A_s = 0, compG = 1, ottG[3] { 1, 1, 1 }, lastTone = -100;
     double oW[2] { 1, 0 }, oF[2] { 1, 0 }, oF2[2] { 1, 0 };
     float fk[7] { -1, -1, -1, -1, -1, -1, -1 }, crackLp[2] {}, popZ[2] {}, wLpA = 0.01f, ottEnv[3] {};
     Sm1 smv[12], fs[7];
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
-    Dl dryDl[2], tapeDl[2], erDl[2], fdn[4], bypDl[2]; int upTail = 0; float fdnLp[4] {}, wetHp[2] {}, roomEnv = 0, roomHold = 0, roomGate = 0;
+    OsGate gUp; Dl dryDl[2], tapeDl[2], erDl[2], fdn[4], bypDl[2]; int upTail = 0; float fdnLp[4] {}, wetHp[2] {}, roomEnv = 0, roomHold = 0, roomGate = 0;
     Ch ch[2]; Rng rng;
     juce::AudioBuffer<float> satDry;
 };
