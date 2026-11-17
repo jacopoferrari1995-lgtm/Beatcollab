@@ -2,6 +2,8 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "ButterAnalog.h"
+#include "../../Common/JkDriveModels.h"
+#include "../../Common/JkProEq.h"
 #include <juce_dsp/juce_dsp.h>
 #include <unordered_map>
 #include <string_view>
@@ -44,6 +46,13 @@ private:
 };
 
 struct BurroPreset { const char* name; std::vector<std::pair<const char*, float>> p; };
+// EQ: 8 bande libere, lo stesso motore dell'EQ del Master (campana, shelf, tagli, notch, tilt; stereo/mid/side/L/R; dinamica)
+constexpr int kQBands = 8;
+const char* qId (int band, const char* key);          // "u_q3_f" ecc. (puntatori stabili)
+const juce::StringArray& qTypeNames();
+const juce::StringArray& qChNames();
+// vecchio EQ analogico (modelli) -> bande dell'EQ nuovo. set (id, valore)
+void aeToBands (const AeSettings& S, const std::function<void (const char*, float)>& set);
 const std::vector<BurroPreset>& burroPresets();
 
 struct Ramp { float a = 0, b = 0, n = 1; inline float at (int i) const { return a + (b - a) * (float) (i + 1) / n; } inline float atF (float t) const { return a + (b - a) * t; } };
@@ -96,7 +105,7 @@ public:
     float anIn[AN] = {}, anOut[AN] = {}, anL[AN] = {}, anR[AN] = {}; std::atomic<int> anW { 0 };
     std::atomic<float> corr { 1 }; double cLL = 0, cRR = 0, cLR = 0;
 private:
-    std::unique_ptr<juce::dsp::Oversampling<float>> osSat, osClip; OsGate gSat, gClip; int latSat = 0, latClip = 0, osLat = 0;
+    std::unique_ptr<juce::dsp::Oversampling<float>> osSat, osClip, osLim; OsGate gSat, gClip, gLim; int latSat = 0, latClip = 0, latLim = 0, osLat = 0;
     Hist dryDl[2], trDl; float rampLast[16] {}; float fLo4[2][2] {}, fHi4[2][2] {};
     std::vector<std::string> pkeys; std::unordered_map<std::string_view, std::atomic<float>*> pcache;
     double sr = 44100;
@@ -115,7 +124,25 @@ private:
     // compressore
     float cEnv[4] = {}; float xLo[2] = {}, xHi[2] = {};
     // saturazione
-    float satLp[2] = {}, holdV[2] = {}; double holdPh = 0;
+    float satLp[2] = {}, holdV[2] = {}; double holdPh = 0; float satLvl[2] = {}, satAg = 1;
+    jmx::ProEq peq;
+public:
+    std::atomic<int> eqSolo { -1 }; float eqDyn (int b) const { return peq.dynUi[b].load(); }
+private:
+    ja::DriveChannel drv[2]; ja::BQ satTone[2], satAA[2][4], satLp8[2][8], clipLp8[2][8];
+    // curve con antiderivata (ADAA): tanh e clip morbido
+    struct Ad
+    {
+        double x1 = 0; bool init = false;
+        static double lc (double v) { const double a = std::abs (v); return a + std::log1p (std::exp (-2.0 * a)) - 0.6931471805599453; }
+        static double sF (double x) { const double t = 0.9, k = 0.15, a = std::abs (x); if (a <= t - k) return 0.5 * x * x; if (a >= t + k) { const double e = t + k, Fe = 0.5 * (t - k) * (t - k) + (2 * k) * (t - k) + 0.5 * 4 * k * k - (8 * k * k * k) / (12 * k); return Fe + t * (a - e); } const double d = a - (t - k); return 0.5 * (t - k) * (t - k) + (t - k) * d + 0.5 * d * d - d * d * d / (12 * k); }
+        template <typename F, typename G> float run (float x, F&& Fa, G&& f) { if (! init) { init = true; x1 = x; return f (x); } const double dx = x - x1; const float y = std::abs (dx) > 1e-5 ? (float) ((Fa (x) - Fa (x1)) / dx) : f ((float) (0.5 * (x + x1))); x1 = x; return y; }
+        float tanhA (float x) { return run (x, [] (double v) { return lc (v); }, [] (float v) { return std::tanh (v); }); }
+        float softA (float x);
+        static double lF (double x) { const double a = std::abs (x); return a <= 0.8 ? 0.5 * x * x : 0.32 + 0.8 * (a - 0.8) + 0.04 * lc ((a - 0.8) / 0.2); }
+        float limA (float x) { return run (x, [] (double v) { return lF (v); }, [] (float v) { const float a = std::abs (v); return a <= 0.8f ? v : std::copysign (0.8f + 0.2f * std::tanh ((a - 0.8f) / 0.2f), v); }); }
+    };
+    Ad clipAd[2][4], compAd[2], limAd[2]; ja::BQ warmLp[2][2]; bool satAAok = false;
     // spazio
     Fdn verb; Biq spF[2], xF[2], fF[4]; float spLast[2] = { -1, -1 }, xLast[2] = { -1, -1 }, fLast[4] = { -1, -1, -1, -1 };
     float imLp[2] = {}; Biq imB; float imLast = -1;

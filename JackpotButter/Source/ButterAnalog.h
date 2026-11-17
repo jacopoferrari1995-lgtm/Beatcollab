@@ -62,7 +62,8 @@ inline int aeIndex (const AeBand& b, float v) { return juce::jlimit (0, (int) b.
 struct AeSettings { int model = 0; float g[4] {}, f[4] {}, q = 0.5f, drive = 0.3f; };
 
 // filtri effettivi per una banda (anche per disegnare la curva)
-inline void aeBandFilter (const AeSettings& S, int k, double sr, Bq& out, bool& active)
+// i valori effettivi di una banda (tipo, frequenza, guadagno, Q): servono per convertire i vecchi preset nell'EQ nuovo
+inline void aeBandParams (const AeSettings& S, int k, int& type, float& fo, float& go, float& qo, bool& active)
 {
     const auto& I = aeInfo (S.model); const auto& B = I.b[k];
     int idx = aeIndex (B, S.f[k]);
@@ -83,13 +84,17 @@ inline void aeBandFilter (const AeSettings& S, int k, double sr, Bq& out, bool& 
         case AE_MAAG: if (k == 3) g *= 1.0f; break;
         default: break;
     }
-    out.set (B.type, sr, f, g, q);
+    type = B.type; fo = f; go = g; qo = q;
+}
+inline void aeBandFilter (const AeSettings& S, int k, double sr, Bq& out, bool& active)
+{
+    int t; float f, g, q; aeBandParams (S, k, t, f, g, q, active); out.set (t, sr, f, g, q);
 }
 
 // colore: armoniche diverse per ogni modello. drive = quanto si entra caldi nel circuito
 struct AeColour
 {
-    float lp[2] {}, dc[2] {};
+    float lp[2] {}, dc[2] {}, h1[2] {}, h2[2] {}, aHi = 0.3f; double lastSr = 0;
     inline float run (float x, int c, int model, float drive, double sr)
     {
         if (drive < 0.001f) return x;
@@ -112,7 +117,10 @@ struct AeColour
             {
                 lp[c] += (x - lp[c]) * aLf; const float lo = lp[c], kd = 1.0f + drive * 1.5f;
                 y = x + (std::tanh (lo * kd) / kd - lo);
-                y = asym (y, 1.0f + drive * 1.3f, 0.25f * drive);                                                // valvola: 2a armonica
+                // valvola: 2a armonica, solo sotto i 3 kHz (gira a 1x: le armoniche degli acuti tornerebbero giu' come sporco)
+                if (sr != lastSr) { lastSr = sr; aHi = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * 3000.0 / sr)); }
+                h1[c] += (y - h1[c]) * aHi; h2[c] += (h1[c] - h2[c]) * aHi;
+                y = asym (h2[c], 1.0f + drive * 1.3f, 0.25f * drive) + (y - h2[c]);
                 break;
             }
             default: break;

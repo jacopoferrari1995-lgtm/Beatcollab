@@ -42,7 +42,20 @@ void Processor::loadPreset (int i)
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
             if (rp->getParameterID().startsWith ("u_") && ! keep.contains (rp->getParameterID()) && rp->getParameterID() != "u_in" && rp->getParameterID() != "u_out")
                 rp->setValueNotifyingHost (rp->getDefaultValue());
-    for (auto& [id, v] : all[(size_t) i].p) if (! keep.contains (id)) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+    AeSettings ae; bool hasAe = false;
+    for (auto& [id, v] : all[(size_t) i].p)
+    {
+        const juce::String sid (id);
+        if (sid.startsWith ("u_ae"))
+        {   // preset scritti per il vecchio EQ analogico: diventano bande dell'EQ nuovo
+            hasAe = true;
+            if (sid == "u_aeModel") ae.model = (int) v; else if (sid == "u_aeQ") ae.q = v; else if (sid == "u_aeDrive") ae.drive = v;
+            else { const int k = sid.substring (4, 5).getIntValue() - 1; if (k >= 0 && k < 4) { if (sid.endsWith ("g")) ae.g[k] = v; else ae.f[k] = v; } }
+            continue;
+        }
+        if (! keep.contains (id)) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+    }
+    if (hasAe) aeToBands (ae, [this] (const char* id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); });
 }
 
 void Processor::processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&)
@@ -90,7 +103,7 @@ void Processor::getStateInformation (juce::MemoryBlock& d)
 {
     auto st = apvts.copyState();
     juce::String ord, lk; for (auto& o : dsp.order) ord << o.load() << ","; for (auto& l : locked) lk << (l.load() ? "1" : "0");
-    st.setProperty ("order", ord, nullptr); st.setProperty ("locks", lk, nullptr); st.setProperty ("preset", preset, nullptr); st.setProperty ("bv", 2, nullptr); st.setProperty ("uname", userName, nullptr);
+    st.setProperty ("order", ord, nullptr); st.setProperty ("locks", lk, nullptr); st.setProperty ("preset", preset, nullptr); st.setProperty ("bv", 3, nullptr); st.setProperty ("uname", userName, nullptr);
     if (auto x = st.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
@@ -98,7 +111,17 @@ void Processor::setStateInformation (const void* data, int size)
     auto x = getXmlFromBinary (data, size); if (x == nullptr) return;
     auto st = juce::ValueTree::fromXml (*x); if (! st.isValid()) return;
     const bool old = (int) st.getProperty ("bv", 1) < 2;
+    // sessioni salvate col vecchio EQ analogico (modelli): le sue impostazioni diventano bande dell'EQ nuovo
+    AeSettings ae; bool hasAe = false;
+    if ((int) st.getProperty ("bv", 1) < 3)
+    {
+        auto pv = [&st] (const char* id, float d) { auto c = st.getChildWithProperty ("id", id); return c.isValid() ? (float) c.getProperty ("value", d) : d; };
+        ae.model = (int) pv ("u_aeModel", 2); ae.q = pv ("u_aeQ", 0.5f); ae.drive = pv ("u_aeDrive", 0);
+        for (int k = 0; k < 4; ++k) { ae.g[k] = pv (("u_ae" + juce::String (k + 1) + "g").toRawUTF8(), 0); ae.f[k] = pv (("u_ae" + juce::String (k + 1) + "f").toRawUTF8(), k == 3 ? 0.0f : 0.5f); }
+        hasAe = st.getChildWithProperty ("id", "u_aeModel").isValid();
+    }
     apvts.replaceState (st);
+    if (hasAe) aeToBands (ae, [this] (const char* id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); });
     if (old)
         if (auto* nt = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter ("u_nType")))
         {   // vinile e nastro non ci sono piu' (stanno in Dust): diventano pink; metallo e sabbia scalano di due posti
@@ -145,7 +168,7 @@ void Processor::randomize()
             case 0: set ("u_bOn", 1); set ("u_boom", on ? rng (0.15f, 0.6f) : 0); set ("u_bTone", rng (40, 75)); set ("u_acid", r.nextFloat() < 0.2f ? 1.0f : 0.0f); set ("u_noise", r.nextFloat() < 0.2f ? rng (0, 0.2f) : 0); set ("u_nType", (float) r.nextInt (4)); break;
             case 1: set ("u_shOn", 1); set ("u_shAmt", on ? rng (0.2f, 0.7f) : 0); { const float iv[] = { -12, -7, -5, 0, 5, 7, 12 }; set ("u_shPitch", iv[r.nextInt (7)]); }; set ("u_shTgt", rng (0.2f, 1)); set ("u_shFoc", (float) r.nextInt (4)); break;
             case 2: set ("u_cOn", 1); set ("u_cType", (float) r.nextInt (6)); set ("u_cAmt", on ? rng (0.2f, 0.65f) : 0); set ("u_cBands", rng (0, 0.8f)); break;
-            case 3: set ("u_sOn", 1); set ("u_sType", (float) r.nextInt (6)); set ("u_sAmt", on ? rng (0.15f, 0.6f) : 0); set ("u_sStyle", rng (0.2f, 0.8f)); set ("u_sTgt", rng (-0.5f, 0.6f)); set ("u_sFoc", (float) r.nextInt (4)); break;
+            case 3: set ("u_sOn", 1); { const int ty[] = { 0, 1, 2, 3, 5, 6 }; set ("u_sType", (float) ty[r.nextInt (6)]); } set ("u_sAmt", on ? rng (0.15f, 0.6f) : 0); set ("u_sStyle", rng (0.2f, 0.8f)); set ("u_sTgt", rng (-0.5f, 0.6f)); set ("u_sFoc", (float) r.nextInt (4)); break;
             case 4: set ("u_spOn", 1); set ("u_spType", (float) r.nextInt (4)); set ("u_spAmt", on ? rng (0.08f, 0.35f) : 0); set ("u_spDecay", rng (0.2f, 0.7f)); set ("u_spPre", rng (0, 40)); set ("u_spDuck", rng (0.2f, 0.8f)); set ("u_spWidth", rng (0.4f, 1)); break;
             case 5: set ("u_mOn", 1); set ("u_mAmt", on ? rng (0.1f, 0.45f) : 0); set ("u_mStages", (float) r.nextInt (3)); set ("u_mTone", rng (-0.5f, 0.5f)); set ("u_mTgt", rng (-0.3f, 0.6f)); set ("u_mFoc", (float) r.nextInt (4)); break;
             case 6:

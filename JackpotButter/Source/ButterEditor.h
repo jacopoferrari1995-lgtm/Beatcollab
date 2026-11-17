@@ -92,7 +92,8 @@ public:
     Editor& ed; int mod; bool dragging = false, lastOn = true; int dragX = 0; neo::Cache base;
     std::unique_ptr<PKnob> big; juce::OwnedArray<PKnob> smalls; std::unique_ptr<Pill> type, extraPill; std::unique_ptr<Segs> focus; std::unique_ptr<Target> target;
     std::unique_ptr<Switch> power, extra;
-    juce::Rectangle<int> lockRect() const { return { getWidth() - 28, 9, 18, 18 }; }
+    juce::Rectangle<int> lockRect() const { return { getWidth() - 54, 9, 18, 18 }; }
+    int slot() const { return juce::jlimit (0, 6, (getX() + 40) / 158); }
     juce::Rectangle<float> displayRect() const { return { 8, 40, getWidth() - 16.0f, 80 }; }
 };
 
@@ -114,7 +115,53 @@ public:
     Editor& ed; std::unique_ptr<Switch> on; std::unique_ptr<PKnob> width, mono; neo::Cache base; float lastOn = -1;
 };
 
-// EQ analogico: modelli MAAG / SSL / NEVE / LINDELL 81 / 73 / PE 1C, con analizzatore
+// EQ: lo stesso del Master (stile Pro-Q). Punti sul grafico, scheda della banda, spettro prima/dopo; INGRANDISCI lo apre su tutto il plugin
+class EqView;
+class EqPop : public juce::Component
+{
+public:
+    explicit EqPop (EqView& v) : view (v) {}
+    void show (int band);
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override { dragK = -1; }
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    EqView& view; int band = -1;
+    struct Hot { juce::Rectangle<float> r; int id; };
+    std::vector<Hot> hots;
+private:
+    int dragK = -1; float dragStart = 0; int hit (juce::Point<float>) const;
+};
+class EqView : public juce::Component
+{
+public:
+    explicit EqView (Editor&);
+    void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    void tick();
+    void bandMenu (int b);
+    void updatePop();
+    float val (int b, const char* k) const;
+    void setV (int b, const char* k, float v);
+    float xOf (float f) const; float fOf (float x) const; float yOf (float db) const; float dbOf (float y) const;
+    juce::Point<float> nodeOf (int b) const; int hit (juce::Point<float>) const;
+    juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (8).withTrimmedTop (6).withTrimmedBottom (16).withTrimmedLeft (26); }
+    void specFrame (float dtMs);
+    Editor& ed; EqPop pop { *this };
+    int hover = -1, drag = -1, sel = -1, popBand = -1, popHold = 0;
+    float dynShown[kQBands] {}; std::vector<float> pxPre, pxPost;
+    std::unique_ptr<juce::VBlankAttachment> vb; neo::Cache grid; double lastFrame = 0;
+private:
+    juce::dsp::FFT fft { 12 }; std::vector<float> win, buf, specPre, specPost;
+};
 class EqPanel : public juce::Component
 {
 public:
@@ -122,20 +169,19 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
-    void updateSpectrum();
-    juce::Rectangle<float> plot() const { return { 14, 30, (float) getWidth() - 28, 92 }; }
-    juce::Rectangle<int> modelRect() const { return { getWidth() - 190, 4, 176, 22 }; }
-    Editor& ed; neo::Cache base; float lastModel = -1;
-    juce::dsp::FFT fft { 11 };
-    std::vector<float> fftBuf, specIn, specOut;
-    std::unique_ptr<Switch> on; juce::OwnedArray<PKnob> knobs;   // 4 x (gain, freq), drive, q
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { btnHover = false; repaint (bigBtn()); }
+    void updateSpectrum() { view.specFrame (33.0f); }
+    void setBig (bool b);
+    juce::Rectangle<int> bigBtn() const { return { getWidth() - 160, 7, 116, 22 }; }
+    Editor& ed; neo::Cache base; std::unique_ptr<Switch> on; EqView view;
+    bool big = false, btnHover = false; float lastOn = -1; juce::Rectangle<int> smallBounds;
 };
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
     skin::Keep skinKeep;
 public:
-    skin::ThemeChip themeChip;
 private:
 public:
     explicit Editor (Processor&);
@@ -157,7 +203,7 @@ public:
     std::unique_ptr<Switch> clip;
     std::unique_ptr<EqPanel> eq;
     std::unique_ptr<PultecPanel> pultec; std::unique_ptr<ImagerPanel> imager; std::unique_ptr<Pill> limType;
-    juce::Rectangle<int> presetRect, prevRect, nextRect, randRect, abRect; bool randHover = false, abHover = false;
+    juce::Rectangle<int> presetRect, prevRect, nextRect, randRect, abRect, themeRect; bool randHover = false, abHover = false, themeHover = false;
     jbrowse::Browser browser; void setupBrowser(); void askPresetName();
     juce::String lastPresetTxt; int lastAb = -1; float lastClip = -1, lastLim = -1;
     void mouseMove (const juce::MouseEvent&) override;

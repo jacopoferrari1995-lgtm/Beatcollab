@@ -4,6 +4,32 @@
 using namespace jb;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "eqcurve")
+    {
+        jmx::BandSet B; B.on = true; B.type = jmx::BT_HSHELF; B.f = 12000; B.g = 1.5f; B.q = 0.7f; jmx::BQ f[8]; const int n = jmx::designBand (B, 48000, B.g, f);
+        for (float fr = 3000; fr < 20000; fr *= 1.01f) { double d = 0; for (int q = 0; q < n; ++q) d += f[q].magDb (fr, 48000); if (d > 1.6 || d < -0.1) std::printf ("%.0f Hz: %.2f dB\n", fr, d); }
+        std::printf ("b0 %f b1 %f b2 %f a1 %f a2 %f\n", f[0].b0, f[0].b1, f[0].b2, f[0].a1, f[0].a2);
+        jmx::BandSet A; A.on = true; A.type = jmx::BT_LSHELF; A.f = 60; A.g = 2; A.q = 1.1f; jmx::BQ fa[8]; const int na = jmx::designBand (A, 48000, A.g, fa);
+        double prev = 0; for (int x = 0; x < 1200; x += 2) { const float fr = 20.0f * std::pow (1000.0f, x / 1200.0f); double d = 0; for (int q = 0; q < na; ++q) d += fa[q].magDb (fr, 48000); for (int q = 0; q < n; ++q) d += f[q].magDb (fr, 48000); if (x > 0 && std::abs (d - prev) > 0.3) std::printf ("salto a %.0f Hz: %.2f -> %.2f\n", fr, prev, d); prev = d; }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "alias")
+    {   // tono acuto attraverso il rack (JSET=id=v,...): spur non armonico peggiore (aliasing)
+        juce::ScopedJuceInitialiser_GUI gx; const double sr = 48000; const int N = 65536;
+        for (float amp : { 0.25f, 0.5f }) for (int bin : { 8603, 13653 })
+        {
+            Processor q; q.prepareToPlay (sr, 512);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = q.apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+            const double ff = bin * sr / N; std::vector<float> o; juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m;
+            for (int off = 0; off < N * 2; off += 512) { for (int i = 0; i < 512; ++i) { const float x = amp * (float) std::sin (2 * 3.14159265358979 * ff * (off + i) / sr); b.setSample (0, i, x); b.setSample (1, i, x); } q.processBlock (b, m); for (int i = 0; i < 512; ++i) o.push_back (b.getSample (0, i)); }
+            juce::dsp::FFT fft (16); std::vector<float> a ((size_t) 2 * N, 0); for (int i = 0; i < N; ++i) { const double w = 6.283185307179586 * i / N; a[(size_t) i] = o[(size_t) (N + i)] * (float) (0.35875 - 0.48829 * std::cos (w) + 0.14128 * std::cos (2 * w) - 0.01168 * std::cos (3 * w)); }
+            fft.performFrequencyOnlyForwardTransform (a.data()); float ref0 = 0; for (int k = bin - 5; k <= bin + 5; ++k) ref0 = std::max (ref0, a[(size_t) k]);
+            float worst = 0; double wf = 0; double hs = 0;
+            for (int k = 40; k < N / 2; ++k) { bool h = false; for (int mm = 1; mm < 8; ++mm) if (std::abs (k - bin * mm) <= 14) { h = true; if (mm > 1) hs += (double) a[(size_t) k] * a[(size_t) k]; } if (std::abs (k - bin) < bin / 20) h = true; if (! h && a[(size_t) k] > worst) { worst = a[(size_t) k]; wf = k * sr / N; } }
+            std::printf ("amp %.2f  %5.0f Hz: spur %6.1f dB a %5.0f Hz   armoniche %6.1f dB\n", amp, ff, juce::Decibels::gainToDecibels (worst / ref0, -200.0f), wf, juce::Decibels::gainToDecibels ((float) std::sqrt (hs) / ref0, -200.0f));
+        }
+        return 0;
+    }
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
         if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
@@ -42,6 +68,12 @@ int main (int argc, char** argv)
             std::printf ("ridisegno completo (retina) %.1f ms   fotogramma animato %.1f ms\n", (t1 - t0) / 10, (t2 - t1) / 10);
         }
         if (std::getenv ("JBROWSE")) ed.browser.open();
+        if (std::getenv ("JEQBIG")) { ed.eq->setBig (true); for (int k = 0; k < 30; ++k) ed.eq->updateSpectrum(); }
+        if (std::getenv ("JEQDUMP"))
+        {
+            auto& V = ed.eq->view;
+            for (int k = 0; k < kQBands; ++k) if (V.val (k, "on") > 0.5f) std::printf ("banda %d tipo %.0f f %.1f g %.2f q %.2f ch %.0f slope %.0f dyn %.0f\n", k, V.val (k, "type"), V.val (k, "f"), V.val (k, "g"), V.val (k, "q"), V.val (k, "ch"), V.val (k, "slope"), V.val (k, "dyn"));
+        }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

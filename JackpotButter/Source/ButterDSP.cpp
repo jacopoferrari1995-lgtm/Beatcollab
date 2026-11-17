@@ -7,7 +7,7 @@ using namespace juce;
 static const StringArray kNoise { "WHITE", "PINK", "METALLO", "SABBIA" };   // vinile e nastro sono il lavoro di Dust
 static const StringArray kFocus { "FULL", "LOW", "MID", "HIGH" };
 static const StringArray kComp { "PUNCH", "WARM", "GLUE", "GENTLE", "SMACK", "OTT" };
-static const StringArray kSat { "CONSOLE", "4 TRACK", "TAPE", "TUBE", "DIGITAL", "FLUB", "OVERDRIVE", "DISTORSORE", "FUZZ" };
+static const StringArray kSat { "CONSOLE", "4 TRACK", "TAPE", "TUBE", "LO-FI", "FLUB", "OVERDRIVE", "DISTORSORE", "FUZZ" };
 static const StringArray kSpace { "ROOM", "HALL", "PLATE", "SPRING" };
 static const StringArray kStages { "1", "2", "3", "4" };
 
@@ -27,14 +27,24 @@ void Burro::addParams (AudioProcessorValueTreeState::ParameterLayout& l)
     F ("u_spPre", "Space Predelay", 0, 120, 10); F ("u_spDuck", "Space Duck", 0, 1, 0); F ("u_spWidth", "Space Width", 0, 1, 0.8f);
     B ("u_mOn", "Clip On", true); F ("u_mAmt", "Clip Drive", 0, 1, 0); C ("u_mStages", "Clip Stages", kStages, 1); F ("u_mTone", "Clip Tone", -1, 1, 0); F ("u_mTgt", "Clip Target", -1, 1, 0); C ("u_mFoc", "Clip Focus", kFocus, 0);
     B ("u_eqOn", "EQ On", true);
-    C ("u_aeModel", "EQ Modello", StringArray { "MAAG EQ4", "SSL E", "NEVE 1084", "LINDELL 81", "73", "PE 1C" }, 2);
-    for (int k = 1; k <= 4; ++k)
-    {
-        const String id = "u_ae" + String (k);
-        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "g", 1 }, "EQ banda " + String (k) + " gain", NormalisableRange<float> (-15, 15), 0));
-        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id + "f", 1 }, "EQ banda " + String (k) + " freq", NormalisableRange<float> (0, 1), k == 4 ? 0.0f : 0.5f));
+    {   // 8 bande, tutte spente: si accendono con un doppio clic sul grafico
+        static const float df[kQBands] = { 30, 100, 300, 1000, 3000, 8000, 12000, 18000 };
+        static const int dt[kQBands] = { jmx::BT_LCUT, jmx::BT_LSHELF, jmx::BT_BELL, jmx::BT_BELL, jmx::BT_BELL, jmx::BT_BELL, jmx::BT_HSHELF, jmx::BT_HCUT };
+        for (int b = 0; b < kQBands; ++b)
+        {
+            const String P = "EQ " + String (b + 1) + " ";
+            l.add (std::make_unique<AudioParameterBool> (ParameterID { qId (b, "on"), 1 }, P + "On", false));
+            l.add (std::make_unique<AudioParameterChoice> (ParameterID { qId (b, "type"), 1 }, P + "Type", qTypeNames(), dt[b]));
+            l.add (std::make_unique<AudioParameterChoice> (ParameterID { qId (b, "ch"), 1 }, P + "Channel", qChNames(), 0));
+            l.add (std::make_unique<AudioParameterChoice> (ParameterID { qId (b, "slope"), 1 }, P + "Slope", StringArray { "12 dB/ott", "24 dB/ott", "48 dB/ott", "96 dB/ott" }, 1));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { qId (b, "f"), 1 }, P + "Freq", NormalisableRange<float> (20, 20000, 0, 0.25f), df[b], AudioParameterFloatAttributes().withLabel ("Hz")));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { qId (b, "g"), 1 }, P + "Gain", NormalisableRange<float> (-18, 18, 0.1f), 0, AudioParameterFloatAttributes().withLabel ("dB")));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { qId (b, "q"), 1 }, P + "Q", NormalisableRange<float> (0.1f, 18, 0, 0.3f), 0.9f));
+            l.add (std::make_unique<AudioParameterBool> (ParameterID { qId (b, "dyn"), 1 }, P + "Dynamic", false));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { qId (b, "thr"), 1 }, P + "Threshold", NormalisableRange<float> (-60, 0, 0.1f), -30, AudioParameterFloatAttributes().withLabel ("dB")));
+            l.add (std::make_unique<AudioParameterFloat> (ParameterID { qId (b, "rng"), 1 }, P + "Range", NormalisableRange<float> (-18, 18, 0.1f), -6, AudioParameterFloatAttributes().withLabel ("dB")));
+        }
     }
-    F ("u_aeQ", "EQ Q / Bandwidth", 0, 1, 0.5f); F ("u_aeDrive", "EQ Drive", 0, 1, 0.0f);
     B ("u_pOn", "Pultec On", true); F ("u_pLB", "Pultec LF Boost", 0, 10, 0); F ("u_pLA", "Pultec LF Atten", 0, 10, 0);
     C ("u_pLF", "Pultec LF Freq", StringArray { "20", "30", "60", "100" }, 2); F ("u_pHB", "Pultec HF Boost", 0, 10, 0); F ("u_pBW", "Pultec Bandwidth", 0, 10, 5);
     C ("u_pHF", "Pultec HF Freq", StringArray { "3k", "4k", "5k", "8k", "10k", "12k", "16k" }, 4); F ("u_pHA", "Pultec HF Atten", 0, 10, 0); C ("u_pAS", "Pultec Atten Sel", StringArray { "5k", "10k", "20k" }, 1);
@@ -48,6 +58,34 @@ void Burro::addParams (AudioProcessorValueTreeState::ParameterLayout& l)
     F ("u_tone", "Master Tone", -1, 1, 0); F ("u_air", "Master Air", 0, 1, 0); F ("u_att", "Master Attack", -1, 1, 0); F ("u_sus", "Master Sustain", -1, 1, 0); B ("u_clip", "Master Clip", false);
 }
 
+const char* qId (int band, const char* key)
+{
+    static const char* keys[10] = { "on", "type", "ch", "slope", "f", "g", "q", "dyn", "thr", "rng" };
+    static const std::vector<std::string> ids = []
+    {
+        std::vector<std::string> v; for (int b = 0; b < kQBands; ++b) for (auto* k : keys) v.push_back ("u_q" + std::to_string (b + 1) + "_" + k);
+        return v;
+    }();
+    int ki = 0; for (int i = 0; i < 10; ++i) if (std::strcmp (keys[i], key) == 0) ki = i;
+    return ids[(size_t) (jlimit (0, kQBands - 1, band) * 10 + ki)].c_str();
+}
+const StringArray& qTypeNames() { static const StringArray n { "CAMPANA", "SHELF BASSI", "SHELF ALTI", "TAGLIO BASSI", "TAGLIO ALTI", "NOTCH", "PASSA BANDA", "TILT" }; return n; }
+const StringArray& qChNames() { static const StringArray n { "STEREO", "MID", "SIDE", "SINISTRO", "DESTRO" }; return n; }
+void aeToBands (const AeSettings& S, const std::function<void (const char*, float)>& set)
+{
+    int b = 0;
+    for (int k = 0; k < 4; ++k)
+    {
+        int t; float f, g, q; bool act; aeBandParams (S, k, t, f, g, q, act);
+        if (! act) continue;
+        const int nt = t == Bq::LSH ? jmx::BT_LSHELF : t == Bq::HSH ? jmx::BT_HSHELF : t == Bq::HP ? jmx::BT_LCUT : t == Bq::LP ? jmx::BT_HCUT : jmx::BT_BELL;
+        set (qId (b, "on"), 1); set (qId (b, "type"), (float) nt); set (qId (b, "f"), jlimit (20.0f, 20000.0f, f)); set (qId (b, "g"), jlimit (-18.0f, 18.0f, g));
+        set (qId (b, "q"), nt == jmx::BT_LCUT ? jlimit (0.3f, 3.0f, q / 0.7071f) : jlimit (0.1f, 18.0f, q)); set (qId (b, "slope"), nt == jmx::BT_LCUT ? 0.0f : 1.0f);
+        set (qId (b, "dyn"), 0); set (qId (b, "ch"), 0);
+        ++b;
+    }
+}
+
 // tanh veloce (Pade 3/3, liscia: a +-3 vale 1 con derivata 0)
 static inline float ftanh (float x) { x = juce::jlimit (-3.0f, 3.0f, x); const float x2 = x * x; return x * (27 + x2) / (27 + 9 * x2); }
 
@@ -59,6 +97,8 @@ static inline float softClip (float x)
     if (a >= t + k) return std::copysign (t, x);
     const float d = a - (t - k); return std::copysign (a - d * d / (4 * k), x);
 }
+
+float Burro::Ad::softA (float x) { return run (x, [] (double v) { return sF (v); }, [] (float v) { return softClip (v); }); }
 
 const std::vector<BurroPreset>& burroPresets()
 {
@@ -152,7 +192,20 @@ void Burro::applyPreset (AudioProcessorValueTreeState& s, int index)
     const auto& all = burroPresets(); if (index < 0 || index >= (int) all.size()) return;
     for (auto* p : s.processor.getParameters())
         if (auto* rp = dynamic_cast<RangedAudioParameter*> (p)) if (rp->getParameterID().startsWith ("u_")) rp->setValueNotifyingHost (rp->getDefaultValue());
-    for (auto& [id, v] : all[(size_t) index].p) if (auto* rp = s.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+    AeSettings ae; bool hasAe = false;
+    for (auto& [id, v] : all[(size_t) index].p)
+    {
+        const String sid (id);
+        if (sid.startsWith ("u_ae"))
+        {   // i preset scritti per il vecchio EQ analogico
+            hasAe = true;
+            if (sid == "u_aeModel") ae.model = (int) v; else if (sid == "u_aeQ") ae.q = v; else if (sid == "u_aeDrive") ae.drive = v;
+            else { const int k = sid.substring (4, 5).getIntValue() - 1; if (k >= 0 && k < 4) { if (sid.endsWith ("g")) ae.g[k] = v; else ae.f[k] = v; } }
+            continue;
+        }
+        if (auto* rp = s.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+    }
+    if (hasAe) aeToBands (ae, [&s] (const char* id, float v) { if (auto* rp = s.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); });
 }
 
 void Burro::bind (AudioProcessorValueTreeState& s)
@@ -170,13 +223,17 @@ void Burro::prepare (double sampleRate, int maxBlock)
     preBuf.setSize (2, (int) (sr * 0.25) + 8); preBuf.clear(); preW = 0;
     verb.prepare (sr); verb.reset(); lastSpType = -1;
     xBuf.setSize (2, (int) (sr * 2.2)); xBuf.clear(); xW = 0;
-    form.prepare (sr); for (auto& x : lastAe) x = 99; puInit = false;
+    form.prepare (sr); for (auto& x : lastAe) x = 99; puInit = false; peq.prepare (sr, jmax (64, maxBlock));
     const int mb = jmax (64, maxBlock);
-    osSat = std::make_unique<juce::dsp::Oversampling<float>> (2, 3, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, false, true);
-    osClip = std::make_unique<juce::dsp::Oversampling<float>> (2, 3, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, false, true);
+    osSat = std::make_unique<juce::dsp::Oversampling<float>> (2, 3, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+    osClip = std::make_unique<juce::dsp::Oversampling<float>> (2, 3, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+    for (auto& d : drv) d.prepare (sampleRate * kOs, kOs); satLvl[0] = satLvl[1] = 0; satAg = 1; satAAok = false; for (auto& c : satAA) for (auto& f : c) f.reset(); for (auto& c : satLp8) for (auto& f : c) f.reset(); for (auto& c : clipLp8) for (auto& f : c) f.reset(); for (auto& c : clipAd) for (auto& a : c) a = {}; compAd[0] = compAd[1] = {}; limAd[0] = limAd[1] = {}; for (auto& w : warmLp) { w[0].lp (sampleRate, 3000, 0.5412); w[1].lp (sampleRate, 3000, 1.3066); w[0].reset(); w[1].reset(); }
+    { static const double Q16[8] = { 0.5024, 0.5225, 0.5669, 0.6468, 0.7882, 1.0607, 1.7224, 5.1011 }; for (int c = 0; c < 2; ++c) for (int j = 0; j < 8; ++j) { clipLp8[c][j].lp (sampleRate * kOs, jmin (21500.0, sampleRate * 0.45), Q16[j]); satLp8[c][j].lp (sampleRate * kOs, jmin (21500.0, sampleRate * 0.45), Q16[j]); } }
     osSat->initProcessing ((size_t) mb); osClip->initProcessing ((size_t) mb);
-    latSat = (int) std::round (osSat->getLatencyInSamples()); latClip = (int) std::round (osClip->getLatencyInSamples()); osLat = latSat + latClip;
-    gSat.prepare (latSat, mb); gClip.prepare (latClip, mb);
+    osLim = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+    osLim->initProcessing ((size_t) mb);
+    latSat = (int) std::round (osSat->getLatencyInSamples()); latClip = (int) std::round (osClip->getLatencyInSamples()); latLim = (int) std::round (osLim->getLatencyInSamples()); osLat = latSat + latClip + latLim;
+    gSat.prepare (latSat, mb); gClip.prepare (latClip, mb); gLim.prepare (latLim, mb);
     dryDl[0].prepare (mb + osLat + 8); dryDl[1].prepare (mb + osLat + 8); trDl.prepare (mb + osLat + 8);
     for (auto& r : rampLast) r = -1e9f;
     for (auto& a : fLo4) for (auto& x : a) x = 0; for (auto& a : fHi4) for (auto& x : a) x = 0;
@@ -359,7 +416,11 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
                 for (int b = 0; b < 3; ++b) { const float g = Decibels::decibelsToGain (gainDb (det (cEnv[1 + b], jmax (std::abs (bl[b]), std::abs (br[b]))))); ml += bl[b] * g; mr += br[b] * g; }
                 sl += (ml - sl) * bands; sr2 += (mr - sr2) * bands;
             }
-            if (type == 1) { sl = std::tanh (sl * 1.2f) / 1.2f * 1.15f; sr2 = std::tanh (sr2 * 1.2f) / 1.2f * 1.15f; }
+            if (type == 1)
+            {   // WARM: il colore solo sotto i 3 kHz (gira a 1x: le armoniche degli acuti tornerebbero giu' come sporco), con antiderivata
+                const float lL = warmLp[0][1] (warmLp[0][0] (sl)), lR = warmLp[1][1] (warmLp[1][0] (sr2));
+                sl = (compAd[0].tanhA (lL * 1.2f) / 1.2f + (sl - lL)) * 1.15f; sr2 = (compAd[1].tanhA (lR * 1.2f) / 1.2f + (sr2 - lR)) * 1.15f;
+            }
             ch[0][i] = sl; ch[1][i] = sr2;
         }
         grMeter = jmax (grMeter.load(), maxGr);
@@ -379,46 +440,56 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         if (gSat.running)
         {
         for (int c = 0; c < 2; ++c) std::copy (ch[c], ch[c] + N, gSat.tmp[c].begin());
+        // mono (sinistro = destro, il caso dei bassi e degli 808): si calcola un canale solo e si copia, stato compreso
+        const bool mono = std::memcmp (ch[0], ch[1], sizeof (float) * (size_t) N) == 0; const int nc = mono ? 1 : 2;
         auto up4 = osSat->processSamplesUp (blk); const int N4 = (int) up4.getNumSamples(); float* u[2] = { up4.getChannelPointer (0), up4.getChannelPointer (1) };
         if (act)
         {
+            // i modelli di Alter Drive (antiderivata contro l'aliasing, gia' misurati) al posto delle vecchie curve
             const double s4 = sr * kOs;
-            const int type = (int) v ("u_sType"); const float st = v ("u_sStyle"), tgt = v ("u_sTgt"); const int foc = (int) v ("u_sFoc");
-            const float lpA = coef (14000 - st * 9000, s4), lpB = coef (16000 - st * 6000, s4), lpOd = coef (9000 - st * 6000, s4), lpDs = coef (7000 - st * 4000, s4), lpFz = coef (6000 - st * 2500, s4);
+            const int type = jlimit (0, 8, (int) v ("u_sType")); const float st = v ("u_sStyle"), tgt = v ("u_sTgt"); const int foc = (int) v ("u_sFoc");
+            static const int kMap[9] = { ja::CONSOLE, ja::TAPE, ja::TAPE, ja::VALVOLA, ja::LOFI, ja::FOLD, ja::OVERDRIVE, ja::DISTORSIONE, ja::FUZZ };
+            const int model = kMap[type];
+            for (auto& d : drv) d.setModel (model);
+            const float aB = aR.b; for (auto& d : drv) d.setDrive (aB * aB);
+            // STILE = tono del saturato: a sinistra scuro, al centro com'e', a destra brillante (il 4 TRACK e' sempre un po' chiuso)
+            const float toneHz = type == 1 ? 7000.0f + 6000.0f * st : 4000.0f * std::pow (5.0f, st * 2.0f);
+            for (int c = 0; c < 2; ++c) { satTone[c].lp (s4, jmin (40000.0f, toneHz)); if (! satAAok) { satAA[c][0].lp (s4, 5000, 0.5412); satAA[c][1].lp (s4, 5000, 1.3066); } }
+            satAAok = true;
             const float aLo4 = coef (200, s4), aHi4 = coef (3000, s4);
-            const double holdRate = (1.0 - st * 0.85) / kOs; const float q = std::pow (2.0f, 14.0f - st * 10.0f);
+            const float mx = (float) ja::modelInfo (model).maxDb * 0.8f;
+            const float gA = Decibels::decibelsToGain (mx * aR.a * aR.a), gB = Decibels::decibelsToGain (mx * aR.b * aR.b);
             for (int k = 0; k < N4; ++k)
             {
-                const int i = k / kOs; const float a = aR.atF ((k + 1) / (float) N4);
-                // curva morbida: i primi punti percentuali sono delicati, la spinta vera arriva nella seconda meta
-                const float ae = a * a, wet = jmin (1.0f, a * 3.0f), d = 1.0f + ae * 12.0f, comp = 1.0f / (1.0f + ae * 1.2f);
+                const int i = k / kOs; const float t = (k + 1) / (float) N4, a = aR.atF (t);
+                const float ae = a * a, wet = jmin (1.0f, a * 3.0f), g = gA + (gB - gA) * t;
                 const float w = tgtW (tgt, trAt (i));
-                bool tick = false; if (type == 4) { holdPh += holdRate; if (holdPh >= 1.0) { holdPh -= 1.0; tick = true; } }
-                for (int c = 0; c < 2; ++c)
+                for (int c = 0; c < nc; ++c)
                 {
                     const float xin = u[c][k];
                     float band = xin;
                     if (foc != 0) { const float lo = onePole (xin, fLo4[0][c], aLo4), lph = onePole (xin, fHi4[0][c], aHi4); band = foc == 1 ? lo : foc == 3 ? xin - lph : lph - lo; }
                     const float rest = xin - band;
-                    const float x = band * d; float y;
-                    switch (type)
-                    {
-                        case 1: y = onePole (std::tanh (x * 0.8f) + 0.08f * st * x * x / (1 + x * x), satLp[c], lpA); break;
-                        case 2: y = std::atan (x * (1 + st)) / std::atan (1.0f + st) * 0.8f; y = onePole (y, satLp[c], lpB); break;
-                        case 3: y = x > 0 ? std::tanh (x) : std::tanh (x * (0.55f + 0.45f * (1 - st))) / (0.55f + 0.45f * (1 - st)) * 0.8f; y += 0.12f * st * y * y; break;
-                        case 4: { if (tick) holdV[c] = jlimit (-1.0f, 1.0f, x); y = std::round (holdV[c] * q) / q; break; }
-                        case 5: y = std::sin (x * (1.0f + st * 2.0f)) * 0.9f; break;
-                        case 6: { const float xx = x * 1.4f; y = xx > 0 ? std::tanh (xx) : std::tanh (xx * 0.75f) / 0.75f * 0.9f; y = onePole (y, satLp[c], lpOd) * 0.95f; break; }   // overdrive: asimmetrico, medi in avanti
-                        case 7: { const float xx = x * (2.0f + st * 4.0f); y = jlimit (-1.0f, 1.0f, xx); y = y - y * y * y / 3.0f; y = onePole (y * 1.3f, satLp[c], lpDs); break; }   // distorsore: duro
-                        case 8: { const float xx = x * (2.0f + st * 3.5f), bi = 0.35f * st; y = ftanh (xx + bi) - ftanh (bi); y = y + 0.3f * st * (y * y - 0.3f); y = onePole (y, satLp[c], lpFz) * 0.85f; break; }   // fuzz: tanh con bias (pari ma senza spigoli)
-                        default: y = std::tanh (x + st * 0.3f * x * x / (1 + std::abs (x))); break;
-                    }
-                    y *= comp;
+                    // il fuzz ha gia' tanto guadagno suo: meno spinta, e gli acuti oltre i 5 kHz non entrano nel transistor (come da un pedale vero)
+                    float y = model == ja::FUZZ ? drv[c].process (satAA[c][1] (satAA[c][0] (band)), g * 0.7f, ae * 0.3f) : drv[c].process (band, g, ae);
+                    if (st < 0.49f || st > 0.51f || type == 1) { const float lp = satTone[c] (y); y = st >= 0.5f && type != 1 ? y + (y - lp) * (st - 0.5f) * 1.2f : lp; }
                     u[c][k] = rest + band + (y - band) * w * wet;
                 }
             }
+            if (mono) { drv[1] = drv[0]; satTone[1] = satTone[0]; for (int j = 0; j < 4; ++j) satAA[1][j] = satAA[0][j]; fLo4[0][1] = fLo4[0][0]; fHi4[0][1] = fHi4[0][0]; }
         }
+        // tutto quello che il saturatore crea sopra i 21 kHz si toglie qui, prima di tornare al rate normale: niente sporco ripiegato
+        for (int c = 0; c < nc; ++c) { float* x = u[c]; auto* f = satLp8[c]; for (int k = 0; k < N4; ++k) { float y = x[k]; for (int j = 0; j < 8; ++j) y = f[j] (y); x[k] = y; } }
+        if (mono) { std::copy (u[0], u[0] + N4, u[1]); for (int j = 0; j < 8; ++j) satLp8[1][j] = satLp8[0][j]; }
         osSat->processSamplesDown (blk);
+        {   // volume pari: il saturato esce con la stessa energia che entra (media di 150 ms), cosi' il confronto e' onesto
+            double ei = 0, eo = 0; for (int c = 0; c < 2; ++c) for (int i = 0; i < N; ++i) { ei += (double) gSat.tmp[c][(size_t) i] * gSat.tmp[c][(size_t) i]; eo += (double) ch[c][i] * ch[c][i]; }
+            const float kk = std::exp (-(float) N / (0.15f * (float) sr));
+            satLvl[0] = kk * satLvl[0] + (1 - kk) * (float) (ei / N); satLvl[1] = kk * satLvl[1] + (1 - kk) * (float) (eo / N);
+            const float tg = act && satLvl[0] > 1e-10f ? jlimit (0.1f, 2.0f, std::sqrt (satLvl[0] / jmax (1e-12f, satLvl[1]))) : 1.0f;
+            for (int i = 0; i < N; ++i) { const float gg = satAg + (tg - satAg) * (float) (i + 1) / (float) N; ch[0][i] *= gg; ch[1][i] *= gg; }
+            satAg = tg;
+        }
         }
         // fuori dall'8x quando e' spento: solo un ritardo uguale, quindi neutro al bit; dissolvenza quando si accende o si spegne
         gSat.mix (ch, N, act);
@@ -479,6 +550,7 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         if (gClip.running)
         {
         for (int c = 0; c < 2; ++c) std::copy (ch[c], ch[c] + N, gClip.tmp[c].begin());
+        const bool mono = std::memcmp (ch[0], ch[1], sizeof (float) * (size_t) N) == 0; const int nc = mono ? 1 : 2;
         auto up4 = osClip->processSamplesUp (blk); const int N4 = (int) up4.getNumSamples(); float* u[2] = { up4.getChannelPointer (0), up4.getChannelPointer (1) };
         if (act)
         {
@@ -490,20 +562,24 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
                 const int i = k / f; const float t = (k + 1) / (float) N4, a = aR.atF (t), tone = toneR.atF (t);
                 const float ae = a * a, wet = jmin (1.0f, a * 3.0f), d = 1.0f + ae * 10.0f, comp = 1.0f / (1.0f + ae * 0.8f);
                 const float w = tgtW (tgt, trAt (i));
-                for (int c = 0; c < 2; ++c)
+                for (int c = 0; c < nc; ++c)
                 {
                     const float xin = u[c][k];
                     float band = xin;
                     if (foc != 0) { const float lo = onePole (xin, fLo4[1][c], aLo4), lph = onePole (xin, fHi4[1][c], aHi4); band = foc == 1 ? lo : foc == 3 ? xin - lph : lph - lo; }
                     const float rest = xin - band;
                     float y = band * d;
-                    for (int s2 = 0; s2 < stages; ++s2) y = (s2 % 2 == 0) ? ftanh (y * 1.1f) : softClip (y * 1.25f);
+                    for (int s2 = 0; s2 < stages; ++s2) y = (s2 % 2 == 0) ? clipAd[c][s2].tanhA (y * 1.1f) : clipAd[c][s2].softA (y * 1.25f);   // con antiderivata: niente sporco
                     const float lp = onePole (y, mLp[c], tA); y = lp * (1 - tone * 0.6f) + (y - lp) * (1 + tone * 0.6f);
                     y *= comp;
                     u[c][k] = rest + band + (y - band) * w * wet;
                 }
             }
         }
+        if (mono && act) { for (int j = 0; j < 4; ++j) clipAd[1][j] = clipAd[0][j]; fLo4[1][1] = fLo4[1][0]; fHi4[1][1] = fHi4[1][0]; mLp[1] = mLp[0]; }
+        // sopra i 21 kHz via prima di tornare al rate normale (sempre, anche mentre sfuma: stessa fase)
+        for (int c = 0; c < nc; ++c) { float* x = u[c]; auto* fl = clipLp8[c]; for (int k = 0; k < N4; ++k) { float y = x[k]; for (int j = 0; j < 8; ++j) y = fl[j] (y); x[k] = y; } }
+        if (mono) { std::copy (u[0], u[0] + N4, u[1]); for (int j = 0; j < 8; ++j) clipLp8[1][j] = clipLp8[0][j]; }
         osClip->processSamplesDown (blk);
         }
         // fuori dall'8x quando e' spento: solo un ritardo uguale, quindi neutro al bit; dissolvenza quando si accende o si spegne
@@ -582,14 +658,20 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         const auto toneR = ramp (4, "u_tone"), airR = ramp (5, "u_air"), attR = ramp (6, "u_att"), susR = ramp (7, "u_sus"), wR = ramp (8, "u_iWidth"); const bool clip = v ("u_clip") > 0.5f;
         const float tA = coef (700, sr), aA = coef (7500, sr);
         const bool eqOn = v ("u_eqOn") > 0.5f;
-        // EQ analogico: ricalcolo solo quando cambia qualcosa
-        AeSettings ae; ae.model = (int) v ("u_aeModel"); ae.q = v ("u_aeQ"); ae.drive = v ("u_aeDrive");
-        for (int k = 0; k < 4; ++k) { ae.g[k] = v (k == 0 ? "u_ae1g" : k == 1 ? "u_ae2g" : k == 2 ? "u_ae3g" : "u_ae4g"); ae.f[k] = v (k == 0 ? "u_ae1f" : k == 1 ? "u_ae2f" : k == 2 ? "u_ae3f" : "u_ae4f"); }
+        // EQ (motore del Master): bande lette una volta per blocco
+        jmx::EqSet eqS; eqS.live = true; bool eqAny = false;
+        if (eqOn)
         {
-            const float pv[12] = { (float) ae.model, ae.g[0], ae.g[1], ae.g[2], ae.g[3], ae.f[0], ae.f[1], ae.f[2], ae.f[3], ae.q, 0, 0 };
-            if (std::memcmp (pv, lastAe, sizeof (pv)) != 0) { for (int k = 0; k < 4; ++k) aeBandFilter (ae, k, sr, this->ae[k], aeAct[k]); std::memcpy (lastAe, pv, sizeof (pv)); }
+            const int so = eqSolo.load();
+            for (int b = 0; b < kQBands; ++b)
+            {
+                auto& B = eqS.b[b];
+                B.on = v (qId (b, "on")) > 0.5f; if (! B.on) continue; eqAny = true;
+                B.type = (int) v (qId (b, "type")); B.ch = (int) v (qId (b, "ch")); B.slope = (int) v (qId (b, "slope"));
+                B.f = v (qId (b, "f")); B.g = v (qId (b, "g")); B.q = v (qId (b, "q"));
+                B.dyn = v (qId (b, "dyn")) > 0.5f; B.thr = v (qId (b, "thr")); B.range = v (qId (b, "rng")); B.solo = b == so;
+            }
         }
-        bool aeAny = false; for (bool b2 : aeAct) aeAny |= b2;
         // Pultec
         PultecSettings puS; puS.lb = v ("u_pLB"); puS.la = v ("u_pLA"); puS.lf = (int) v ("u_pLF"); puS.hb = v ("u_pHB"); puS.bw = v ("u_pBW"); puS.hf = (int) v ("u_pHF"); puS.ha = v ("u_pHA"); puS.as = (int) v ("u_pAS");
         const bool puOn = v ("u_pOn") > 0.5f && pultecActive (puS);
@@ -623,12 +705,29 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
                 float y = ch[c][i];
                 if (std::abs (tone) > 1e-4f) { const float lp = onePole (y, tLp[c], tA); y = lp * (1 - tone * 0.8f) + (y - lp) * (1 + tone * 0.85f); }
                 if (air > 1e-4f) { const float lp = onePole (y, aLp[c], aA); y += (y - lp) * air * 3.4f; }
-                y *= g;
-                if (eqOn && (aeAny || ae.drive > 0.001f)) { for (int k = 0; k < 4; ++k) if (aeAct[k]) y = this->ae[k].run (y, c); y = aeCol.run (y, c, ae.model, ae.drive, sr); }
-                if (clip && limType == 0) { const float ay = std::abs (y); if (ay > 0.8f) y = std::copysign (0.8f + 0.2f * std::tanh ((ay - 0.8f) / 0.2f), y); }
-                ch[c][i] = y;
+                ch[c][i] = y * g;
             }
-            if (clip && limType == 1) maxx.run (ch[0][i], ch[1][i], sr, 0.966f);   // -0.3 dBFS
+        }
+        if (eqAny) peq.process (ch[0], ch[1], N, eqS);
+        else for (int b = 0; b < kQBands; ++b) peq.dynUi[b] = 0.0f;
+        {   // LIMITE (CLIP o MAXX) a 4x: niente sporco ripiegato. Spento = solo un ritardo uguale (neutro al bit)
+            juce::dsp::AudioBlock<float> blk (ch, 2, (size_t) N);
+            if (clip && ! gLim.running) { osLim->reset(); gLim.running = true; gLim.warm = 2 * latLim + 8; limAd[0] = limAd[1] = {}; maxx = {}; }
+            if (gLim.running)
+            {
+                for (int c = 0; c < 2; ++c) std::copy (ch[c], ch[c] + N, gLim.tmp[c].begin());
+                auto up = osLim->processSamplesUp (blk); const int N4 = (int) up.getNumSamples(); float* u0 = up.getChannelPointer (0); float* u1 = up.getChannelPointer (1);
+                if (clip)
+                {
+                    if (limType == 0) for (int k = 0; k < N4; ++k) { u0[k] = limAd[0].limA (u0[k]); u1[k] = limAd[1].limA (u1[k]); }
+                    else for (int k = 0; k < N4; ++k) maxx.run (u0[k], u1[k], sr * 4, 0.966f);   // -0.3 dBFS
+                }
+                osLim->processSamplesDown (blk);
+            }
+            gLim.mix (ch, N, clip);
+        }
+        for (int i = 0; i < N; ++i)
+        {
             {   // il pulito e' ritardato quanto l'oversampling di saturazione e clip
                 const float mg = magR.at (i);
                 const float dl = dryDl[0].read (osLat, i, N), dr = dryDl[1].read (osLat, i, N);
