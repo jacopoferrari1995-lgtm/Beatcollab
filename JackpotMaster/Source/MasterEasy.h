@@ -113,7 +113,8 @@ public:
             }
         }
         // ---- WARM: nastro da 15 pollici (head bump, compressione morbida, alti arrotondati)
-        if (S.warm > 0.001f) { TapeSettings t; t.model = 1; t.drive = 1.0f * S.warm; t.bias = 0.1f; t.noise = 0; t.mix = juce::jmin (1.0f, 0.5f + S.warm); tape.process (L, R, n, t); }
+        // il nastro passa sempre (a miscela zero quando WARM e' a zero): il suo ritardo resta uguale e la DAW lo compensa
+        { TapeSettings t; t.model = 1; t.drive = 1.0f * S.warm; t.bias = 0.1f; t.noise = 0; t.mix = S.warm > 0.001f ? juce::jmin (1.0f, 0.5f + S.warm) : 0.0f; tape.process (L, R, n, t); }
         // ---- SILK: aria sopra 4.5 kHz. Parte lineare (un filo di shelf) al rate normale; le armoniche (2a + 3a, generate esatte)
         // a 4x e poi filtrate: quelle oltre i 20 kHz non rientrano come sporco (aliasing)
         if (S.silk > 0.001f && sOs)

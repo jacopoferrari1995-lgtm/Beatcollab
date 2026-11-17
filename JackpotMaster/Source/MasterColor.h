@@ -34,71 +34,133 @@ struct TapeSettings { int model = T15; float drive = 0, bias = 0, noise = 0, mix
 class TapeMachine
 {
 public:
-    // tutto il nastro (pre-enfasi, saturazione, filtri e miscela col segnale pulito) gira a 4x: la saturazione non rimanda sporco
-    // sotto (aliasing) e il pulito passa dagli stessi filtri, quindi la miscela non crea pettini
+    // tutto il nastro gira a 4x e passa SEMPRE dal sovracampionamento (anche spento, a miscela zero): il ritardo dei filtri
+    // di sovracampionamento c'e' sempre, uguale, e si dichiara alla DAW. I filtri lineari agiscono su tutto il segnale;
+    // solo le armoniche della saturazione passano dal filtro anti-sporco e dal taglio della continua.
     void prepare (double s)
     {
-        sr = s; lastModel = -1; lastBias = 99; for (auto& c : ch) c = {};
-        os = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false);
-        os->initProcessing ((size_t) kMax); gS = -1; mS = -1;
+        sr = s; lastModel = -1; lastBias = 99; biasS = -99; for (auto& c : ch) c = {};
+        os = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+        os->initProcessing ((size_t) kMax); gS = -1; mS = 0; dS = -1;
+        lat = juce::jmax (1, (int) std::round (os->getLatencyInSamples()));   // FIR a fase lineare: ritardo uguale a tutte le frequenze
+        os->reset();
+        for (int c = 0; c < 2; ++c) { ring[c].assign ((size_t) lat, 0.0f); dryT[c].assign ((size_t) kMax, 0.0f); }
+        rw = 0; running = false; warm = 0; gm = 0;
     }
+    int latency() const { return lat; }
+    // spento: solo un ritardo uguale alla latenza (neutro al bit); acceso: il 4x si scalda e poi entra con una dissolvenza
     void process (float* L, float* R, int n, const TapeSettings& S)
     {
-        const auto& ti = tapeInfo (S.model); const double f4 = sr * 4;
-        if (S.model != lastModel || std::abs (S.bias - lastBias) > 1e-3f)
+        const bool act = S.mix > 0.0f || S.delta;
+        if (act && ! running) { running = true; warm = lat + 64; gm = 0; os->reset(); for (auto& c : ch) { Ch f; f.sat = {}; c = f; } lastModel = -1; mS = 0; gS = -1; dS = -1; biasS = -99; }
+        float* io[2] = { L, R };
+        for (int off = 0; off < n; off += kMax)
         {
-            lastModel = S.model; lastBias = S.bias;
-            // BIAS: sotto = piu acuti e piu distorsione, sopra = piu scuro e pulito
-            for (auto& c : ch)
+            const int m = juce::jmin (kMax, n - off);
+            if (running) for (int c = 0; c < 2; ++c) std::copy (io[c] + off, io[c] + off + m, dryT[c].begin());
+            if (running) processOs (L + off, R + off, m, S);
+            const float step = 1.0f / 1024.0f;
+            for (int i = 0; i < m; ++i)
             {
-                c.pre.set (Biquad::HSHELF, 3000, ti.preDb, 0.6, f4); c.de.set (Biquad::HSHELF, 3000, -ti.preDb, 0.6, f4);
-                c.bump.set (Biquad::BELL, ti.bumpF, ti.bumpDb, 0.9, f4); c.dip.set (Biquad::BELL, ti.bumpF * 2.1, -ti.bumpDb * 0.35, 1.2, f4);
-                c.lp.set (Biquad::HCUT, juce::jmin (ti.lpF * (1.0f - 0.25f * S.bias), 30000.0f), 0, 0.6, f4);
-                c.air.set (Biquad::HSHELF, 9000, -2.5 * S.bias, 0.7, f4);
-                c.nlp.set (Biquad::HCUT, 9000, 0, 0.7, f4); c.nhp.set (Biquad::LCUT, 400, 0, 0.7, f4);
-                c.aa1.set (Biquad::HCUT, 19000, 0, 0.5412, f4); c.aa2.set (Biquad::HCUT, 19000, 0, 1.3066, f4);
+                if (warm > 0) --warm; else if (running) gm = act ? juce::jmin (1.0f, gm + step) : juce::jmax (0.0f, gm - step);
+                for (int c = 0; c < 2; ++c)
+                {
+                    float* x = io[c] + off;
+                    const float in = running ? dryT[c][(size_t) i] : x[i], d = ring[c][(size_t) rw]; ring[c][(size_t) rw] = in;
+                    x[i] = running ? d + (x[i] - d) * gm : d;
+                }
+                if (++rw >= lat) rw = 0;
             }
+            if (! act && gm <= 0.0f && warm == 0) running = false;
         }
+    }
+private:
+    void processOs (float* L, float* R, int n, const TapeSettings& S)
+    {
+        const auto& ti = tapeInfo (S.model); const double f4 = sr * 4;
+        const float sk = 1.0f - std::exp (-1.0f / (0.010f * (float) f4));      // drive, bias e miscela scivolano (10 ms)
         const float g = dbToG (12.0f * std::pow (S.drive, 1.5f) * ti.satK);
-        if (gS < 0) { gS = g; mS = S.mix; }
-        const float asym = 0.06f + 0.10f * juce::jmax (0.0f, -S.bias);       // poco bias = piu seconda armonica
+        if (gS < 0) { gS = g; dS = S.drive; }
+        if (biasS < -9) biasS = S.bias;
+        const float asym0 = 0.06f + 0.10f * juce::jmax (0.0f, -biasS);       // poco bias = piu seconda armonica
         const float hiss = S.noise * 0.0025f * ti.noise;
-        const float sk = 1.0f - std::exp (-1.0f / (0.010f * (float) f4));      // drive e miscela scivolano (10 ms)
-        const bool lpOn = ti.lpF < 21000 || S.bias > 0.01f;
+        const float dcK = (float) std::exp (-juce::MathConstants<double>::twoPi * 5.0 / f4);
         for (int off = 0; off < n; off += kMax)
         {
             const int m = juce::jmin (kMax, n - off);
             float* io[2] = { L + off, R + off };
             juce::dsp::AudioBlock<float> blk (io, 2, (size_t) m);
             auto up = os->processSamplesUp (blk);
-            const int nu = (int) up.getNumSamples(); float g0 = gS, m0 = mS;
-            for (int c = 0; c < 2; ++c)
+            const int nu = (int) up.getNumSamples();
+            const bool idle = false;
+            if (! idle)
             {
-                auto& st = ch[c]; float* x = up.getChannelPointer ((size_t) c); float gg = g0, mm = m0;
-                for (int i = 0; i < nu; ++i)
+                // il BIAS scivola: i filtri si ricalcolano a pezzi di 64 campioni (a 4x), niente scatti
+                const float bk = 1.0f - std::exp (-(float) nu / (0.02f * (float) f4));
+                biasS += (S.bias - biasS) * bk; if (std::abs (biasS - S.bias) < 1e-4f) biasS = S.bias;
+                if (S.model != lastModel || std::abs (biasS - lastBias) > 1e-4f)
                 {
-                    gg += (g - gg) * sk; mm += (S.mix - mm) * sk;
-                    const float in = x[i];
-                    float y = st.pre (in);
-                    st.on += ((S.drive > 1e-4f ? 1.0f : 0.0f) - st.on) * sk;
-                    if (st.on > 1e-5f) y += (st.sat (y * gg, asym) / gg - y) * st.on;
-                    y = st.de (y); y = st.dip (st.bump (y)); y = st.air (y);
-                    if (lpOn) y = st.lp (y);
-                    if (hiss > 0 && (i & 3) == 0) st.hz = st.nlp (st.nhp ((rng.nextFloat() * 2 - 1) * hiss * 2.0f));
-                    if (hiss > 0) y += st.hz;
-                    const float d = st.aa2 (st.aa1 (y - in));   // la differenza (colore e armoniche) senza nulla sopra i 19 kHz: non rientra come sporco
-                    y = in + d * mm;
-                    x[i] = S.delta ? y - in : y;
+                    lastModel = S.model; lastBias = biasS;
+                    for (auto& c : ch)
+                    {
+                        c.pre.set (Biquad::HSHELF, 3000, ti.preDb, 0.6, f4); c.de.set (Biquad::HSHELF, 3000, -ti.preDb, 0.6, f4);
+                        c.bump.set (Biquad::BELL, ti.bumpF, ti.bumpDb, 0.9, f4); c.dip.set (Biquad::BELL, ti.bumpF * 2.1, -ti.bumpDb * 0.35, 1.2, f4);
+                        c.lp.set (Biquad::HCUT, juce::jmin (ti.lpF * (1.0f - 0.25f * biasS), 30000.0f), 0, 0.6, f4);
+                        c.air.set (Biquad::HSHELF, 9000, -2.5 * biasS, 0.7, f4);
+                        c.nlp.set (Biquad::HCUT, 9000, 0, 0.7, f4); c.nhp.set (Biquad::LCUT, 400, 0, 0.7, f4);
+                        c.aa1.set (Biquad::HCUT, 19000, 0, 0.5412, f4); c.aa2.set (Biquad::HCUT, 19000, 0, 1.3066, f4);
+                    }
                 }
-                gS = gg; mS = mm;
+                const bool lpOn = ti.lpF < 21000 || biasS > 0.01f;
+                const float asym = 0.06f + 0.10f * juce::jmax (0.0f, -biasS); (void) asym0;
+                float g0 = gS, m0 = mS, d0 = dS;
+                for (int c = 0; c < 2; ++c)
+                {
+                    auto& st = ch[c]; float* x = up.getChannelPointer ((size_t) c); float gg = g0, mm = m0, dd = d0;
+                    for (int i = 0; i < nu; ++i)
+                    {
+                        gg += (g - gg) * sk; mm += (S.mix - mm) * sk; dd += (S.drive - dd) * sk;
+                        const float in = x[i];
+                        float y = st.pre (in);
+                        // armoniche della saturazione: solo loro passano dall'anti-sporco (sotto i 19 kHz) e dal taglio della continua
+                        if (dd > 1e-5f)
+                        {
+                            float h = st.sat (y * gg, asym) / gg - y;
+                            h = st.aa2 (st.aa1 (h));
+                            st.dc = dcK * st.dc + (1.0f - dcK) * h; h -= st.dc;
+                            y += h * juce::jmin (1.0f, dd * 1.0e4f);
+                        }
+                        y = st.de (y); y = st.dip (st.bump (y)); y = st.air (y);
+                        if (lpOn) y = st.lp (y);
+                        if (hiss > 0 && (i & 3) == 0) st.hz = st.nlp (st.nhp ((rng.nextFloat() * 2 - 1) * hiss * 2.0f));
+                        if (hiss > 0) y += st.hz;
+                        y = in + (y - in) * mm;
+                        x[i] = S.delta ? y - in : y;
+                    }
+                    if (c == 1) { gS = gg; mS = mm; dS = dd; }
+                }
             }
             os->processSamplesDown (blk);
         }
     }
-private:
+    int measureLatency()
+    {   // ritardo vero del passaggio su e giu' (filtri IIR): fase di un seno a 1 kHz
+        juce::AudioBuffer<float> b (2, kMax); const double f = 1000.0; double re = 0, im = 0; long k = 0;
+        for (int blkI = 0; blkI < 40; ++blkI)
+        {
+            for (int i = 0; i < kMax; ++i) { const float v = (float) std::sin (juce::MathConstants<double>::twoPi * f * (k + i) / sr); b.setSample (0, i, v); b.setSample (1, i, v); }
+            juce::dsp::AudioBlock<float> blk (b); os->processSamplesUp (blk); os->processSamplesDown (blk);
+            if (blkI >= 20) for (int i = 0; i < kMax; ++i) { const double w = juce::MathConstants<double>::twoPi * f * (k + i) / sr; re += b.getSample (0, i) * std::cos (w); im += b.getSample (0, i) * std::sin (w); }
+            k += kMax;
+        }
+        double ph = std::atan2 (-re, im);   // ritardo di fase dell'uscita rispetto al seno d'ingresso (meno di un periodo: 48 campioni a 48 kHz)
+        if (ph < 0) ph += juce::MathConstants<double>::twoPi;
+        return juce::roundToInt (ph / juce::MathConstants<double>::twoPi * sr / f);
+    }
     static constexpr int kMax = 1024;
-    struct Ch { Biquad pre, de, bump, dip, lp, air, nlp, nhp, aa1, aa2; AdaaTanh sat; float hz = 0, on = 0; };
-    double sr = 48000; int lastModel = -1; float lastBias = 99, gS = -1, mS = -1; Ch ch[2]; juce::Random rng { 77 };
+    struct Ch { Biquad pre, de, bump, dip, lp, air, nlp, nhp, aa1, aa2; AdaaTanh sat; float hz = 0, dc = 0; };
+    double sr = 48000; int lastModel = -1, lat = 0; float lastBias = 99, biasS = -99, gS = -1, mS = 0, dS = -1; Ch ch[2]; juce::Random rng { 77 };
+    std::vector<float> ring[2], dryT[2]; int rw = 0, warm = 0; float gm = 0; bool running = false;
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
 };
 
@@ -133,29 +195,44 @@ public:
     }
     void process (float* L, float* R, int n, const ExSettings& S)
     {
-        if (std::abs (S.x1 - lx1) > 0.5f) { lx1 = S.x1; x1.setCutoffFrequency (S.x1); }
-        if (std::abs (S.x2 - lx2) > 0.5f) { lx2 = S.x2; x2.setCutoffFrequency (S.x2); ap.setCutoffFrequency (S.x2); }
+        // quantita', miscela e incroci scivolano (20 ms): niente click quando si muovono
+        if (lx1 < 0) { lx1 = S.x1; lx2 = S.x2; x1.setCutoffFrequency (lx1); x2.setCutoffFrequency (lx2); ap.setCutoffFrequency (lx2); for (int k = 0; k < kExBands; ++k) amS[k] = S.amt[k]; mixS = S.mix; }
+        const float a32 = 1.0f - std::exp (-32.0f / (0.02f * (float) sr));
         bool anySolo = false; for (bool b : S.solo) anySolo |= b;
         float* io[2] = { L, R };
-        for (int c = 0; c < 2; ++c)
+        for (int o = 0; o < n; o += 32)
         {
-            float* x = io[c];
-            for (int i = 0; i < n; ++i)
+            const int m = juce::jmin (32, n - o);
+            const float n1 = lx1 + (S.x1 - lx1) * a32, n2 = lx2 + (S.x2 - lx2) * a32;
+            if (std::abs (n1 - lx1) > 0.01f) { lx1 = n1; x1.setCutoffFrequency (lx1); } else if (lx1 != S.x1 && std::abs (S.x1 - lx1) < 0.05f) { lx1 = S.x1; x1.setCutoffFrequency (lx1); }
+            if (std::abs (n2 - lx2) > 0.01f) { lx2 = n2; x2.setCutoffFrequency (lx2); ap.setCutoffFrequency (lx2); } else if (lx2 != S.x2 && std::abs (S.x2 - lx2) < 0.05f) { lx2 = S.x2; x2.setCutoffFrequency (lx2); ap.setCutoffFrequency (lx2); }
+            float a0[kExBands], a1[kExBands]; const float mx0 = mixS;
+            for (int k = 0; k < kExBands; ++k) { a0[k] = amS[k]; a1[k] = amS[k] + (S.amt[k] - amS[k]) * a32; if (std::abs (a1[k] - S.amt[k]) < 1e-5f) a1[k] = S.amt[k]; }
+            const float mx1 = mixS + (S.mix - mixS) * a32;
+            for (int c = 0; c < 2; ++c)
             {
-                float lo, hi, b[kExBands];
-                x1.processSample (c, x[i], lo, hi); x2.processSample (c, hi, b[1], b[2]); b[0] = ap.processSample (c, lo);
-                float out = 0, dry = 0;
-                for (int k = 0; k < kExBands; ++k)
+                float* x = io[c] + o;
+                for (int i = 0; i < m; ++i)
                 {
-                    float y = b[k];
-                    if (S.amt[k] > 1e-4f) y = excite (st[k][c], b[k], S.mode[k], S.amt[k]);
-                    if (anySolo && ! S.solo[k]) continue;
-                    out += y; dry += b[k];
+                    const float t = (float) (i + 1) / (float) m;
+                    float lo, hi, b[kExBands];
+                    x1.processSample (c, x[i], lo, hi); x2.processSample (c, hi, b[1], b[2]); b[0] = ap.processSample (c, lo);
+                    float out = 0, dry = 0;
+                    for (int k = 0; k < kExBands; ++k)
+                    {
+                        float y = b[k]; const float am = a0[k] + (a1[k] - a0[k]) * t;
+                        if (am > 1e-4f || a0[k] > 1e-4f) y = excite (st[k][c], b[k], S.mode[k], am);
+                        if (anySolo && ! S.solo[k]) continue;
+                        out += y; dry += b[k];
+                    }
+                    // il suono diretto non passa dagli incroci (niente rotazione di fase): si aggiunge solo quello che l'exciter crea
+                    const float add = (out - dry) * (mx0 + (mx1 - mx0) * t);
+                    x[i] = S.delta ? add : (anySolo ? dry + add : x[i] + add);
+                    if (c == 0) { const float e = std::abs (out - dry); meter = juce::jmax (meter * 0.9999f, e); }
                 }
-                const float res = dry + (out - dry) * S.mix;
-                x[i] = S.delta ? res - dry : res;
-                if (c == 0) { const float e = std::abs (out - dry); meter = juce::jmax (meter * 0.9999f, e); }
             }
+            for (int k = 0; k < kExBands; ++k) amS[k] = a1[k];
+            mixS = mx1;
         }
     }
     float meter = 0;
@@ -185,7 +262,7 @@ private:
         t.gS += (gc - t.gS) * 0.001f;
         return y * t.gS;
     }
-    double sr = 48000; float lx1 = -1, lx2 = -1;
+    double sr = 48000; float lx1 = -1, lx2 = -1, amS[kExBands] {}, mixS = 1;
     juce::dsp::LinkwitzRileyFilter<float> x1, x2, ap; St st[kExBands][2];
 };
 
@@ -265,39 +342,58 @@ inline void pultecDesign (const PultecSettings& S, double sr, Biquad* f /* 4 fil
     // atten alti: shelf verso il basso, fino a -16 dB
     f[3].set (Biquad::HSHELF, pultecAs (S.as) * 0.7, -S.ha * 1.6, 0.6, sr);
 }
+// valvola che colora senza sporco: la non linearita' lavora su una copia passata sotto i 5 kHz (le armoniche nascono dai bassi
+// e dai medi, come nell'hardware) e al suono si somma solo quello che la valvola aggiunge; il suono diretto non cambia fase
+struct BandTube
+{
+    Biquad lp1, lp2; AdaaTanh sat; float dc1 = 0, dc2 = 0;
+    void prepare (double sr) { lp1.set (Biquad::HCUT, 5000, 0, 0.5412, sr); lp2.set (Biquad::HCUT, 5000, 0, 1.3066, sr); lp1.reset(); lp2.reset(); sat = {}; dc1 = dc2 = 0; }
+    inline float run (float y, float drv, float bias, float nrm, float dA)
+    {
+        const float xl = lp2 (lp1 (y));
+        const float v = sat (xl * drv, bias) * nrm / drv - xl;          // solo cio' che la valvola aggiunge
+        const float o = v - dc1 + dA * dc2; dc1 = v; dc2 = o;            // via la continua
+        return o;
+    }
+};
 class Pultec
 {
 public:
-    void prepare (double s) { sr = s; for (auto& c : f) for (auto& x : c) x.reset(); key = -1; for (auto& a : sat) a = {}; for (auto& v : dc) v = 0; }
+    void prepare (double s) { sr = s; for (auto& c : f) for (auto& x : c) x.reset(); key = -1; for (auto& t : tb) t.prepare (s); init = false; }
     void process (float* L, float* R, int n, const PultecSettings& S)
     {
-        const float k = S.lf * 1.0f + S.hf * 10 + S.as * 100 + S.lb * 1e3f + S.la * 1.3e4f + S.hb * 1.7e5f + S.bw * 2.3e6f + S.ha * 3.1e7f;
-        if (k != key)
-        {
-            key = k; Biquad nf[4];
-            pultecDesign (S, sr, nf, act);
-            for (int c = 0; c < 2; ++c) for (int b = 0; b < 4; ++b) { const double z1 = f[c][b].z1, z2 = f[c][b].z2; f[c][b] = nf[b]; f[c][b].z1 = z1; f[c][b].z2 = z2; }
-        }
-        const bool any = act[0] || act[1] || act[2] || act[3];
-        const float tube = S.tube, drv = 0.45f + 0.45f * tube, bias = 0.08f * tube, nrm = 1.0f / (1.0f - std::tanh (bias) * std::tanh (bias));
+        // le manopole scivolano (20 ms): i filtri si ricalcolano a pezzi di 32 campioni, niente click
+        if (! init) { Sm = S; init = true; }
+        Sm.lf = S.lf; Sm.hf = S.hf; Sm.as = S.as;
+        const float a = 1.0f - std::exp (-32.0f / (0.02f * (float) sr));
         const float dA = 1.0f - (float) (juce::MathConstants<double>::twoPi * 8.0 / sr);
         float* io[2] = { L, R };
-        for (int c = 0; c < 2; ++c)
-            for (int i = 0; i < n; ++i)
+        for (int o = 0; o < n; o += 32)
+        {
+            const int m = juce::jmin (32, n - o);
+            auto sm = [a] (float& x, float t) { x += (t - x) * a; if (std::abs (x - t) < 1e-4f) x = t; };
+            sm (Sm.lb, S.lb); sm (Sm.la, S.la); sm (Sm.hb, S.hb); sm (Sm.bw, S.bw); sm (Sm.ha, S.ha); sm (Sm.tube, S.tube);
+            const float k = Sm.lf * 1.0f + Sm.hf * 10 + Sm.as * 100 + Sm.lb * 1e3f + Sm.la * 1.3e4f + Sm.hb * 1.7e5f + Sm.bw * 2.3e6f + Sm.ha * 3.1e7f;
+            if (k != key)
             {
-                float y = io[c][i];
-                if (any) for (int b = 0; b < 4; ++b) if (act[b]) y = f[c][b] (y);
-                if (tube > 0.001f)
-                {   // stadio d'uscita a valvola (12AX7 + 12AU7): armoniche pari morbide, livello invariato
-                    const float v = sat[c] (y * drv, bias) * nrm / drv;
-                    const float o = v - dc[c * 2] + dA * dc[c * 2 + 1]; dc[c * 2] = v; dc[c * 2 + 1] = o;
-                    y = y + (o - y) * tube;
-                }
-                io[c][i] = y;
+                key = k; Biquad nf[4];
+                pultecDesign (Sm, sr, nf, act);
+                for (int c = 0; c < 2; ++c) for (int b = 0; b < 4; ++b) { const double z1 = f[c][b].z1, z2 = f[c][b].z2; f[c][b] = nf[b]; f[c][b].z1 = z1; f[c][b].z2 = z2; }
             }
+            const bool any = act[0] || act[1] || act[2] || act[3];
+            const float tube = Sm.tube, drv = 0.45f + 0.45f * tube, bias = 0.08f * tube, nrm = 1.0f / (1.0f - std::tanh (bias) * std::tanh (bias));
+            for (int c = 0; c < 2; ++c)
+                for (int i = o; i < o + m; ++i)
+                {
+                    float y = io[c][i];
+                    if (any) for (int b = 0; b < 4; ++b) if (act[b]) y = f[c][b] (y);
+                    if (tube > 0.0005f) y += tb[c].run (y, drv, bias, nrm, dA) * tube;   // stadio d'uscita a valvola (12AX7 + 12AU7)
+                    io[c][i] = y;
+                }
+        }
     }
 private:
-    double sr = 48000; Biquad f[2][4]; bool act[4] {}; float key = -1; AdaaTanh sat[2]; float dc[4] {};
+    double sr = 48000; Biquad f[2][4]; bool act[4] {}; float key = -1; BandTube tb[2]; PultecSettings Sm; bool init = false;
 };
 
 // --------------------------------------------------------------------------- VARI-MU (compressore valvolare a pendenza variabile)
@@ -321,7 +417,7 @@ inline float vmCurve (float over, int mode)
 class VariMu
 {
 public:
-    void prepare (double s) { sr = s; env = 0; gdb = 0; slow = 0; lastHpf = -1; for (auto& h : hp) h.reset(); for (auto& a : sat) a = {}; for (auto& v : dc) v = 0; avgGr = 0; mkG = -1; }
+    void prepare (double s) { sr = s; env = 0; gdb = 0; slow = 0; lastHpf = -1; for (auto& h : hp) h.reset(); for (auto& t : tb) t.prepare (s); avgGr = 0; mkG = -1; tubeS = -1; mixS = -1; }
     void process (float* L, float* R, int n, const VariMuSettings& S)
     {
         const float hz = vmHpf (S.hpf);
@@ -332,8 +428,9 @@ public:
         const float avK = (float) std::exp (-(double) n / (3.0 * sr));
         const float mkDb = S.makeup + (S.autoMakeup ? avgGr * 1.0f : 0.0f);
         const float mk0 = mkG < 0 ? dbToG (mkDb) : mkG, mk1 = dbToG (mkDb);
-        const float tube = S.tube, drv = 0.45f + 0.45f * tube, bias = 0.08f * tube, nrm = 1.0f / (1.0f - std::tanh (bias) * std::tanh (bias));
         const float dA = 1.0f - (float) (juce::MathConstants<double>::twoPi * 8.0 / sr);
+        const float tk = 1.0f - std::exp (-1.0f / (0.02f * (float) sr));   // TUBE e MIX scivolano (20 ms)
+        if (tubeS < 0) { tubeS = S.tube; mixS = S.mix; }
         float grMaxB = 0; double grSum = 0;
         for (int i = 0; i < n; ++i)
         {
@@ -352,20 +449,17 @@ public:
             grMaxB = juce::jmin (grMaxB, gdb); grSum += gdb;
             const float g = dbToG (gdb) * (mk0 + (mk1 - mk0) * (float) (i + 1) / (float) n);
             float yl = l * g, yr = r * g;
-            if (tube > 0.001f)
-            {   // le valvole lavorano di piu' quando comprimono: colore che segue la riduzione
+            tubeS += (S.tube - tubeS) * tk; mixS += (S.mix - mixS) * tk;
+            const float tube = tubeS;
+            if (tube > 0.0005f)
+            {   // le valvole lavorano di piu' quando comprimono: colore che segue la riduzione (solo sotto i 5 kHz: niente sporco)
+                const float drv = 0.45f + 0.45f * tube, bias = 0.08f * tube, nrm = 1.0f / (1.0f - std::tanh (bias) * std::tanh (bias));
                 const float d2 = drv * (1.0f + 0.03f * -gdb);
-                float* ys[2] = { &yl, &yr };
-                for (int c = 0; c < 2; ++c)
-                {
-                    const float v = sat[c] (*ys[c] * d2, bias) * nrm / d2;
-                    const float o = v - dc[c * 2] + dA * dc[c * 2 + 1]; dc[c * 2] = v; dc[c * 2 + 1] = o;
-                    *ys[c] = *ys[c] + (o - *ys[c]) * tube;
-                }
+                yl += tb[0].run (yl, d2, bias, nrm, dA) * tube; yr += tb[1].run (yr, d2, bias, nrm, dA) * tube;
             }
             if (S.ms) { const float m = yl, sd = yr; yl = m + sd; yr = m - sd; }
             const float xl = L[i], xr = R[i];
-            yl = xl + (yl - xl) * S.mix; yr = xr + (yr - xr) * S.mix;
+            yl = xl + (yl - xl) * mixS; yr = xr + (yr - xr) * mixS;
             L[i] = S.delta ? yl - xl : yl; R[i] = S.delta ? yr - xr : yr;
         }
         gr = -grMaxB; mkG = mk1;
@@ -373,6 +467,6 @@ public:
     }
     float gr = 0;
 private:
-    double sr = 48000; Biquad hp[2]; float env = 0, gdb = 0, slow = 0, lastHpf = -1, avgGr = 0, mkG = -1; AdaaTanh sat[2]; float dc[4] {};
+    double sr = 48000; Biquad hp[2]; float env = 0, gdb = 0, slow = 0, lastHpf = -1, avgGr = 0, mkG = -1, tubeS = -1, mixS = -1; BandTube tb[2];
 };
 }

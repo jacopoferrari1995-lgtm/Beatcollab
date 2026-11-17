@@ -380,6 +380,42 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "diag")
+    {   // preset JPRESET (JOFF = moduli da spegnere): DC su tono 1 kHz a -6 dBFS, latenza vera (correlazione) contro dichiarata, risposta a 48 e 96 kHz
+        int pi = 0; for (int i = 0; i < (int) presets().size(); ++i) if (juce::String (presets()[(size_t) i].name) == (std::getenv ("JPRESET") ? std::getenv ("JPRESET") : "Init")) pi = i;
+        auto mk = [&] (double rate) { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, 512); p->prepareToPlay (rate, 512); p->loadPreset (pi); setP (*p, "mode", 0);
+            if (auto* off = std::getenv ("JOFF")) for (auto& t : juce::StringArray::fromTokens (off, ",", "")) setP (*p, t.toRawUTF8(), 0);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) setP (*p, kv.upToFirstOccurrenceOf ("=", false, false).toRawUTF8(), kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+            p->syncSnap(); p->prepareToPlay (rate, 512); return p; };
+        {
+            auto p = mk (sr); std::vector<float> oL, oR;
+            run (*p, [&] (int k, float& l, float& r) { l = r = 0.5f * (float) std::sin (2 * 3.14159265358979 * 999.76 * k / sr); }, (int) sr * 5, oL, oR);
+            double dc = 0; for (size_t i = oL.size() - 48000; i < oL.size(); ++i) dc += oL[i]; dc /= 48000;
+            std::printf ("DC su tono -6 dBFS: %.1f dBFS\n", gToDb ((float) std::abs (dc) + 1e-12f));
+        }
+        {
+            auto p = mk (sr); const int rep = p->getLatencySamples(); std::vector<float> in, oL, oR; juce::Random rr (9);
+            const int N = (int) sr * 4; in.resize ((size_t) N); for (auto& x : in) x = 0.02f * (rr.nextFloat() * 2 - 1);
+            run (*p, [&] (int k, float& l, float& r) { l = r = in[(size_t) k]; }, N, oL, oR);
+            double best = -1e30; int bl = 0; std::vector<double> cc (1200);
+            for (int l = 0; l < 1200; ++l) { double c = 0; for (int i = 48000; i < N - 1200; ++i) c += (double) in[(size_t) i] * oL[(size_t) (i + l)]; cc[(size_t) l] = c; if (c > best) { best = c; bl = l; } }
+            double fr = bl; if (bl > 0 && bl < 1199) { const double a = cc[(size_t) bl - 1], b = cc[(size_t) bl], c = cc[(size_t) bl + 1]; fr = bl + 0.5 * (a - c) / (a - 2 * b + c); }
+            std::printf ("latenza dichiarata %d, misurata %.2f\n", rep, fr);
+        }
+        for (double f : { 100.0, 1000.0, 4000.0, 7680.0, 10000.0 })
+        {
+            float g[2];
+            for (int j = 0; j < 2; ++j)
+            {
+                const double rate = j ? 96000.0 : 48000.0; auto p = mk (rate); std::vector<float> oL, oR;
+                run (*p, [&] (int k, float& l, float& r) { l = r = 0.05f * (float) std::sin (2 * 3.14159265358979 * f * k / rate); }, (int) rate * 4, oL, oR);
+                double e = 0; for (size_t i = oL.size() - (size_t) rate; i < oL.size(); ++i) e += (double) oL[i] * oL[i];
+                g[j] = gToDb ((float) std::sqrt (e / rate) / (0.05f / std::sqrt (2.0f)));
+            }
+            std::printf ("%6.0f Hz: 48k %+6.2f dB  96k %+6.2f dB  diff %+5.2f\n", f, g[0], g[1], g[1] - g[0]);
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "ear")
     {   // prova d'ascolto: due mix diversi, proposta, applicazione, taratura
         for (int kind = 0; kind < 3; ++kind)

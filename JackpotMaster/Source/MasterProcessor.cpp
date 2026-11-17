@@ -273,13 +273,13 @@ void Processor::prepareToPlay (double s, int maxBlock)
     mRawA.assign ((size_t) mb * 2, 0.0f); mRawQ.assign ((size_t) mb * 2, 0.0f); mInA.assign ((size_t) mb * 2, 0.0f);
     mx.prepare (s, mb); lim.prepare (s, mb); easyEng.prepare (s); imp.prepare (s, mb); spec.prepare (s); stab.prepare (s); earCap.prepare (s);
     bass.prepare (s); deq.prepare (s); peq.prepare (s, mb); e432.prepare (s); pult.prepare (s); vmu.prepare (s); img.prepare (s); dess.prepare (s); bus.prepare (s); mband.prepare (s); tape.prepare (s); exc.prepare (s);
-    for (auto& d : deltaVar) { d.b.assign ((size_t) (mx.latency() + lim.latency() + 1), 0.0f); d.w = 0; }
+    const int total = mx.latency() + lim.latency() + tape.latency();   // il nastro (nei due motori) ha lo stesso ritardo
+    for (auto& d : deltaVar) { d.b.assign ((size_t) (total + 1), 0.0f); d.w = 0; }
     for (auto& d : mxBy) d.prepare (mx.latency());
     for (auto& d : limBy) d.prepare (lim.latency());
     for (auto& d : mxIn) d.prepare (mx.latency());
     for (auto& d : deltaPad) d.prepare (lim.latency());
-    for (auto& d : loudPad) d.prepare (mx.latency() + lim.latency());
-    const int total = mx.latency() + lim.latency();
+    for (auto& d : loudPad) d.prepare (mx.latency() + lim.latency());   // misura dopo il motore FACILE (nastro gia passato)
     for (auto& d : dry) d.prepare (total);
     setLatencySamples (total);
     loudIn.prepare (s); loudOut.prepare (s); dith.reset(); for (auto& t : tpOut) t.reset();
@@ -475,9 +475,9 @@ void Processor::processChunk (juce::AudioBuffer<float>& buffer)
                 }
                 break;
             case TAPE:
-                if (! on) break;
-                { TapeSettings t; t.model = juce::roundToInt (value ("tp_model")); t.drive = value ("tp_drive"); t.bias = value ("tp_bias"); t.noise = value ("tp_noise"); t.mix = value ("tp_mix"); t.delta = d;
-                  tape.process (L, R, n, t); }
+                // sempre attraversato (spento = miscela zero): il ritardo del sovracampionamento resta costante
+                { TapeSettings t; t.model = juce::roundToInt (value ("tp_model")); t.drive = value ("tp_drive"); t.bias = value ("tp_bias"); t.noise = value ("tp_noise"); t.mix = on ? value ("tp_mix") : 0.0f; t.delta = d && on;
+                  tape.process (L, R, n, t); latSoFar += tape.latency(); }
                 break;
             case PULTEC:
                 if (! on) break;
@@ -581,7 +581,7 @@ void Processor::processChunk (juce::AudioBuffer<float>& buffer)
         if (d) deltaFrom = id;
     }
     // delta: il resto della catena e saltato, si ritarda quanto mancava per restare allineati
-    const int remain = mx.latency() + lim.latency() - latSoFar;
+    const int remain = mx.latency() + lim.latency() + tape.latency() - latSoFar;
     for (int c = 0; c < 2; ++c)
     {
         float* x = c ? R : L; auto& vd = deltaVar[c];
