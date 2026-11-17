@@ -86,7 +86,13 @@ inline float shapeFn (int m, float x)
     {
         case D_TUBE:    { const float b = 0.18f; return std::tanh (x + b) - std::tanh (b) + 0.08f * x / (1 + std::abs (x)); }
         case D_CONSOLE: { const float y = x / std::sqrt (1 + 0.6f * x * x); return std::tanh (1.15f * y) / std::tanh (1.15f); }
-        case D_CLIP:    return juce::jlimit (-1.0f, 1.0f, x * 0.98f + 0.02f * std::tanh (x));
+        case D_CLIP:
+        {   // clipper con un ginocchio corto (derivata continua): taglia come un clip duro ma con molte meno armoniche alte da ripiegare
+            const float k = 0.25f, ax = std::abs (x);
+            if (ax <= 1 - k) return x;
+            if (ax >= 1 + k) return std::copysign (1.0f, x);
+            const float d = ax - (1 - k); return std::copysign (ax - d * d / (4 * k), x);
+        }
         case D_PUSH:    { const float a = std::abs (x); const float y = a < 0.6f ? a : (a < 1.6f ? 0.6f + (a - 0.6f) * (1 - (a - 0.6f) * 0.5f) : 1.1f); return std::copysign (std::min (y, 1.1f), x) / 1.1f * 1.05f; }
         default:        return std::tanh (x);
     }
@@ -118,10 +124,10 @@ public:
     void prepare (double s, int block)
     {
         sr = s; maxBlock = block; sr4 = s * kOs;
-        os = std::make_unique<juce::dsp::Oversampling<float>> (2, kOsSt, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+        os = std::make_unique<juce::dsp::Oversampling<float>> (2, kOsSt, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, false, true);
         os->initProcessing ((size_t) block); osLat = (int) std::round (os->getLatencyInSamples());
         dryDl[0].prepare (osLat + block + 8); dryDl[1].prepare (osLat + block + 8); bypDl[0].prepare (osLat + 8); bypDl[1].prepare (osLat + 8); upTail = 0;
-        for (auto& t : tapeDl) t.prepare ((int) (sr4 * 0.03));
+        for (auto& t : tapeDl) t.prepare ((int) (sr * 0.03) + 8);
         satDry.setSize (2, block * kOs);
         for (auto& c : ch) c = Ch();
         holdPh = 1; env = 0; inRms = outRms = 1e-6f; gr = 0; dropG = 1; dropT = 0; wowPh = flPh = fl2Ph = 0;
@@ -196,6 +202,9 @@ public:
             processUp (u, N, S, A, kS4);
             os->processSamplesDown (blk);
         }
+        // a 1x: filtri ed EQ, poi il trasporto del nastro
+        processFilters (io, n, S);
+        if (S.tOn) processTape (io, n, S, A);
 
         // 6) room: piccola stanza per batterie grandi (prime riflessioni + coda corta), con gate opzionale
         processRoom (io, n, S, kS);
@@ -238,66 +247,36 @@ private:
         if (S.dOn || smv[5].v > 0.0005f)
         {
             if (S.dModel != lastDModel || std::abs (driveT - mkFor) > 0.25f) { lastDModel = S.dModel; mkFor = driveT; driveMk = makeup (S.dModel, driveT); }
-            for (int c = 0; c < 2; ++c) { ch[c].tiltLo.lowShelf (250, -S.dTone * 4.0, sr4); ch[c].tiltHi.lowShelf (250, S.dTone * 4.0, sr4); }
+            if (S.dTone != lastTone) { lastTone = S.dTone; for (int c = 0; c < 2; ++c) { ch[c].tiltLo.lowShelf (250, -S.dTone * 4.0, sr4); ch[c].tiltHi.lowShelf (250, S.dTone * 4.0, sr4); } }
+            const bool tilt = std::abs (S.dTone) > 0.01f;
             for (int i = 0; i < n; ++i)
             {
-                const float dr = smv[6].step (driveT, kS), mx = smv[5].step (dMixT, kS), g = dbToG (dr);
-                const float mk = driveMk;
+                const float dr = smv[6].step (driveT, kS), mx = smv[5].step (dMixT, kS), g = dbToG (dr) * 1.0f;
                 for (int c = 0; c < 2; ++c)
                 {
                     const float x = io[c][i];
-                    const float y = ch[c].tiltHi.run (shapeFn (S.dModel, ch[c].tiltLo.run (x) * g) * mk);
+                    float y = shapeFn (S.dModel, (tilt ? ch[c].tiltLo.run (x) : x) * g) * driveMk;
+                    if (tilt) y = ch[c].tiltHi.run (y);
                     io[c][i] = x + (y - x) * mx;
                 }
             }
         }
         else { smv[5].step (0, 1); smv[6].step (driveT, 1); }
-        // filtri ed EQ da batteria (coefficenti aggiornati a passi di 32 campioni con valori smussati)
-        if (S.fOn)
-        {
-            for (int o = 0; o < n; o += 32)
-            {
-                const int m = std::min (32, n - o);
-                Settings F = S; const float kb = 1.0f - std::exp (-(float) m / (0.02f * (float) sr4));
-                F.fHp = fs[0].step (S.fHp, kb); F.fLp = fs[1].step (S.fLp, kb); F.fBoom = fs[2].step (S.fBoom, kb); F.fCrack = fs[3].step (S.fCrack, kb);
-                F.fWarm = fs[4].step (S.fWarm, kb); F.fAir = fs[5].step (S.fAir, kb); F.fRes = fs[6].step (S.fRes, kb);
-                updateFilters (F);
-                for (int c = 0; c < 2; ++c)
-                {
-                    auto& C = ch[c];
-                    for (int i = o; i < o + m; ++i)
-                    {
-                        float v = io[c][i], lp, hp;
-                        if (F.fHp > 21) { C.hp1.tick (v, lp, hp); v = hp; if (S.f24) { C.hp2.tick (v, lp, hp); v = hp; } }
-                        if (F.fLp < 19900) { C.lp1.tick (v, lp, hp); v = lp; if (S.f24) { C.lp2.tick (v, lp, hp); v = lp; } }
-                        if (std::abs (F.fBoom) > 0.02f) v = C.boom.run (v);
-                        if (std::abs (F.fCrack) > 0.02f) v = C.crack.run (v);
-                        if (F.fWarm > 0.001f)
-                        {   // EQ caldo: bassi col trucco del Pultec (boost a 85 + dip a 320), alti arrotondati, trasformatore e valvola
-                            v = C.wLo.run (v); v = C.wDip.run (v); v = C.wHi.run (v);
-                            const float w = F.fWarm;
-                            C.wLp += (v - C.wLp) * wLpA; const float lo = C.wLp, kd = 1.0f + w * 2.5f;
-                            v += std::tanh (lo * kd) / kd - lo;
-                            const float b = 0.18f * w, d = 1.0f + w * 1.2f, nn = d * (1 - std::tanh (b) * std::tanh (b));
-                            v = (std::tanh (d * v + b) - std::tanh (b)) / nn;
-                            C.wDc += (v - C.wDc) * 0.00005f; v -= C.wDc;
-                        }
-                        if (F.fAir > 0.001f) v = C.air.run (v);
-                        io[c][i] = v;
-                    }
-                }
-            }
-        }
         // compressore e punch
-        const float cMixT = S.cOn ? S.cMix : 0.0f;
         if (S.cOn || smv[7].v > 0.0005f)
         {
             if (S.cStyle == C_OTT) processOtt (io, n, S, A, kS);
             else processComp (io, n, S, A, kS);
         }
-        else { gr = 0; smv[7].step (cMixT, 1); }
-        // nastro: wow, flutter, eta, dropout
-        if (S.tOn) processTape (io, n, S, A);
+        else { gr = 0; smv[7].step (0, 1); }
+        // saturazione del nastro (il resto del nastro, che e' lineare, gira a 1x)
+        const float ageT = S.tOn ? std::min (1.5f, S.tAge * A) : 0.0f;
+        if (ageT > 0.001f || smv[11].v > 0.001f)
+            for (int i = 0; i < n; ++i)
+            {
+                const float age = smv[11].step (ageT, kS), sat = 1 + age * 1.5f, k = (1 + age * 0.15f) / sat;
+                io[0][i] = std::tanh (io[0][i] * sat) * k; io[1][i] = std::tanh (io[1][i] * sat) * k;
+            }
     }
 
     static float makeup (int model, float drive)
@@ -307,30 +286,72 @@ private:
         return 0.5f / (float) std::sqrt (e / 64 + 1e-12) * 0.7071f;
     }
 
+    // filtri ed EQ da batteria a 1x (sono lineari: a 8x costavano otto volte tanto senza suonare diversi)
+    void processFilters (float** io, int n, const Settings& S)
+    {
+        if (! S.fOn) return;
+        for (int o = 0; o < n; o += 32)
+        {
+            const int m = std::min (32, n - o);
+            Settings F = S; const float kb = 1.0f - std::exp (-(float) m / (0.02f * (float) sr));
+            F.fHp = fs[0].step (S.fHp, kb); F.fLp = fs[1].step (S.fLp, kb); F.fBoom = fs[2].step (S.fBoom, kb); F.fCrack = fs[3].step (S.fCrack, kb);
+            F.fWarm = fs[4].step (S.fWarm, kb); F.fAir = fs[5].step (S.fAir, kb); F.fRes = fs[6].step (S.fRes, kb);
+            updateFilters (F);
+            for (int c = 0; c < 2; ++c)
+            {
+                auto& C = ch[c];
+                for (int i = o; i < o + m; ++i)
+                {
+                    float v = io[c][i], lp, hp;
+                    if (F.fHp > 21) { C.hp1.tick (v, lp, hp); v = hp; if (S.f24) { C.hp2.tick (v, lp, hp); v = hp; } }
+                    if (F.fLp < 19900) { C.lp1.tick (v, lp, hp); v = lp; if (S.f24) { C.lp2.tick (v, lp, hp); v = lp; } }
+                    if (std::abs (F.fBoom) > 0.02f) v = C.boom.run (v);
+                    if (std::abs (F.fCrack) > 0.02f) v = C.crack.run (v);
+                    if (F.fWarm > 0.001f)
+                    {   // EQ caldo: bassi col trucco del Pultec (boost a 85 + dip a 320), alti arrotondati, trasformatore sui bassi
+                        v = C.wLo.run (v); v = C.wDip.run (v); v = C.wHi.run (v);
+                        const float w = F.fWarm;
+                        C.wLp += (v - C.wLp) * wLpA; const float lo = C.wLp, kd = 1.0f + w * 2.5f;
+                        v += std::tanh (lo * kd) / kd - lo;
+                        C.wDc += (v - C.wDc) * 0.00005f; v -= C.wDc;
+                    }
+                    if (F.fAir > 0.001f) v = C.air.run (v);
+                    io[c][i] = v;
+                }
+            }
+        }
+    }
+
+    // compressore: il segnale passa a 8x, ma il calcolo del guadagno (logaritmi ed esponenziali) si fa una volta ogni 8 campioni
+    // e si interpola: l'inviluppo e' lento rispetto al campione, il suono non cambia e la CPU scende di molto
     void processComp (float** io, int n, const Settings& S, float A, float kS)
     {
-        const int st = S.cStyle;
-        const float aRms = std::exp (-1.0f / (0.01f * (float) sr4));
-        const float pA1 = std::exp (-1.0f / (0.0008f * (float) sr4)), pR1 = std::exp (-1.0f / (0.04f * (float) sr4)), pA2 = std::exp (-1.0f / (0.02f * (float) sr4)), pR2 = std::exp (-1.0f / (0.15f * (float) sr4));
+        const int st = S.cStyle; const float sc = (float) sr;   // tempi alla frequenza di controllo (1x)
+        const float aRms = std::exp (-1.0f / (0.01f * sc));
+        const float pA1 = std::exp (-1.0f / (0.0008f * sc)), pR1 = std::exp (-1.0f / (0.04f * sc)), pA2 = std::exp (-1.0f / (0.02f * sc)), pR2 = std::exp (-1.0f / (0.15f * sc));
         const float att = (st == C_PUMP ? std::max (S.cAtt, 15.0f) : st == C_670 ? std::max (S.cAtt * 0.5f, 0.4f) : S.cAtt) * 0.001f, rel = (st == C_PUMP ? S.cRel * 2 : S.cRel) * 0.001f;
-        const float aA = std::exp (-1.0f / (att * (float) sr4)), aR = std::exp (-1.0f / (rel * (float) sr4));
+        const float aA = std::exp (-1.0f / (att * sc)), aR = std::exp (-1.0f / (rel * sc));
+        const float kG = 1.0f - std::pow (1.0f - kS, (float) kOs);
         float maxGr = 0;
-        for (int i = 0; i < n; ++i)
+        for (int i0 = 0; i0 < n; i0 += kOs)
         {
-            const float amt = smv[8].step (std::min (1.0f, S.cAmt * A), kS), mixC = smv[7].step (S.cOn ? S.cMix : 0.0f, kS), punch = smv[9].step (S.cPunch, kS);
+            const int m = std::min (kOs, n - i0);
+            const float amt = smv[8].step (std::min (1.0f, S.cAmt * A), kG), mixT = S.cOn ? S.cMix : 0.0f, punch = smv[9].step (S.cPunch, kG);
             const float thr = st == C_FET ? -amt * 30 : st == C_BUS ? -amt * 24 : st == C_670 ? -amt * 30 : -amt * 36;
             const float knee = st == C_BUS ? 10.0f : st == C_670 ? 16.0f : 6.0f;
             float makeupDb = 0;
-            {   // compensazione: il 70% della riduzione che avrebbe un segnale a -10 dBFS
+            {
                 const float ratio0 = st == C_FET ? 4 + amt * 16 : st == C_BUS ? 2 + 2 * amt : st == C_670 ? 3.0f : 10;
                 const float ov = -10.0f - thr;
                 if (ov > knee / 2) makeupDb = ov * (1 - 1 / ratio0); else if (ov > -knee / 2) { const float z = ov + knee / 2; makeupDb = (1 - 1 / ratio0) * z * z / (2 * knee); }
                 makeupDb *= 0.7f;
             }
-            const float l = io[0][i], r = io[1][i], a = std::max (std::abs (l), std::abs (r));
+            float a = 0, e2 = 0;
+            for (int i = i0; i < i0 + m; ++i) { const float l = io[0][i], r = io[1][i]; a = std::max (a, std::max (std::abs (l), std::abs (r))); e2 += 0.5f * (l * l + r * r); }
+            e2 /= (float) m;
             float pg = 1;
             if (std::abs (punch) > 0.005f)
-            {   // punch: differenza tra inviluppo veloce e lento
+            {
                 envF = a > envF ? pA1 * envF + (1 - pA1) * a : pR1 * envF + (1 - pR1) * a;
                 envS = a > envS ? pA2 * envS + (1 - pA2) * a : pR2 * envS + (1 - pR2) * a;
                 const float t = juce::jlimit (0.0f, 1.0f, (envF - envS) / (envS + 1e-4f));
@@ -338,98 +359,118 @@ private:
             }
             float det;
             if (st == C_FET || st == C_670) det = gToDb (a);
-            else { rms = aRms * rms + (1 - aRms) * 0.5f * (l * l + r * r); det = 10.0f * std::log10 (rms + 1e-12f); }
+            else { rms = aRms * rms + (1 - aRms) * e2; det = 10.0f * std::log10 (rms + 1e-12f); }
             const float over = det - thr;
-            // 670: il rapporto cresce con quanto si va oltre la soglia (valvola remote-cutoff)
             const float ratio = st == C_FET ? 4 + amt * 16 : st == C_BUS ? 2 + 2 * amt : st == C_670 ? juce::jmin (14.0f, 1.6f + juce::jmax (0.0f, over) * 0.35f) : 10;
             float want = 0;
             if (over > knee / 2) want = over * (1 - 1 / ratio);
             else if (over > -knee / 2) { const float z = over + knee / 2; want = (1 - 1 / ratio) * z * z / (2 * knee); }
             if (st == C_670)
             {   // rilascio a due tempi come TC5: veloce sui colpi singoli, lento se continua a lavorare
-                const float rr = rel * (1.0f + 4.0f * muCharge);
-                const float aR2 = std::exp (-1.0f / (rr * (float) sr4));
+                const float aR2 = std::exp (-1.0f / (rel * (1.0f + 4.0f * muCharge) * sc));
                 env = want > env ? aA * env + (1 - aA) * want : aR2 * env + (1 - aR2) * want;
-                muCharge += ((env > 2 ? 1.0f : 0.0f) - muCharge) * (1.0f / (2.0f * (float) sr4));
+                muCharge += ((env > 2 ? 1.0f : 0.0f) - muCharge) * (1.0f / (2.0f * sc));
             }
             else env = want > env ? aA * env + (1 - aA) * want : aR * env + (1 - aR) * want;
             maxGr = std::max (maxGr, env);
-            const float gg = dbToG (makeupDb - env) * pg;
-            float yl = l * gg, yr = r * gg;
-            if (st == C_FET && amt > 0.5f) { const float k = 1 + (amt - 0.5f) * 1.6f; yl = std::tanh (yl * k) / k; yr = std::tanh (yr * k) / k; }   // tutti i bottoni: un po' di sporco
-            if (st == C_670)
-            {   // valvola: seconda armonica che cresce con la riduzione, il corpo si gonfia
-                const float b = 0.06f + 0.012f * std::min (env, 15.0f), d = 1.0f + 0.4f * amt, nn = d * (1 - std::tanh (b) * std::tanh (b));
-                yl = (std::tanh (d * yl + b) - std::tanh (b)) / nn; yr = (std::tanh (d * yr + b) - std::tanh (b)) / nn;
-                for (int c = 0; c < 2; ++c) { float& y = c ? yr : yl; ch[c].muDc += (y - ch[c].muDc) * 0.00003f; y -= ch[c].muDc; }
+            const float gNew = dbToG (makeupDb - env) * pg, g0 = compG, mix0 = smv[7].v, mixN = smv[7].step (mixT, kG);
+            const bool fetSat = st == C_FET && amt > 0.5f; const float fk = 1 + (amt - 0.5f) * 1.6f;
+            const float b = 0.06f + 0.012f * std::min (env, 15.0f), d = 1.0f + 0.4f * amt, tb = std::tanh (b), nn = d * (1 - tb * tb);
+            for (int k = 0; k < m; ++k)
+            {
+                const float t = (k + 1) / (float) m, gg = g0 + (gNew - g0) * t, mixC = mix0 + (mixN - mix0) * t;
+                const int i = i0 + k; const float l = io[0][i], r = io[1][i];
+                float yl = l * gg, yr = r * gg;
+                if (fetSat) { yl = std::tanh (yl * fk) / fk; yr = std::tanh (yr * fk) / fk; }   // tutti i bottoni: un po' di sporco
+                if (st == C_670)
+                {   // valvola: seconda armonica che cresce con la riduzione, il corpo si gonfia
+                    yl = (std::tanh (d * yl + b) - tb) / nn; yr = (std::tanh (d * yr + b) - tb) / nn;
+                    ch[0].muDc += (yl - ch[0].muDc) * 0.00003f; yl -= ch[0].muDc; ch[1].muDc += (yr - ch[1].muDc) * 0.00003f; yr -= ch[1].muDc;
+                }
+                io[0][i] = l + (yl - l) * mixC; io[1][i] = r + (yr - r) * mixC;
             }
-            io[0][i] = l + (yl - l) * mixC; io[1][i] = r + (yr - r) * mixC;
+            compG = gNew;
         }
         gr = maxGr;
     }
 
-    // OTT: tre bande (120 Hz / 2.5 kHz), giu' sopra -20 dB, su sotto -40 dB, profondita' = QUANTITA
+    // OTT: tre bande (120 Hz / 2.5 kHz) divise a 8x; i guadagni di banda si calcolano ogni 8 campioni e si interpolano
     void processOtt (float** io, int n, const Settings& S, float A, float kS)
     {
         if (ottSr != sr4) { for (int c = 0; c < 2; ++c) { ch[c].xo[0].lp (120, 0.7071, sr4); ch[c].xo[1].lp (120, 0.7071, sr4); ch[c].xo[2].hp (2500, 0.7071, sr4); ch[c].xo[3].hp (2500, 0.7071, sr4); } ottSr = sr4; }
         static const float baseA[3] = { 47.8f, 22.4f, 13.5f }, baseR[3] = { 282, 282, 132 };
-        const float tA = S.cAtt / 10.0f, tR = S.cRel / 150.0f;
-        float ca[3], cr[3]; for (int b = 0; b < 3; ++b) { ca[b] = std::exp (-1.0f / (0.001f * baseA[b] * tA * (float) sr4)); cr[b] = std::exp (-1.0f / (0.001f * baseR[b] * tR * (float) sr4)); }
+        const float tA = S.cAtt / 10.0f, tR = S.cRel / 150.0f, sc = (float) sr;
+        float ca[3], cr[3]; for (int b = 0; b < 3; ++b) { ca[b] = std::exp (-1.0f / (0.001f * baseA[b] * tA * sc)); cr[b] = std::exp (-1.0f / (0.001f * baseR[b] * tR * sc)); }
+        const float kG = 1.0f - std::pow (1.0f - kS, (float) kOs);
         float maxDown = 0;
-        for (int i = 0; i < n; ++i)
+        for (int i0 = 0; i0 < n; i0 += kOs)
         {
-            const float depth = smv[8].step (std::min (1.0f, S.cAmt * A), kS), mixC = smv[7].step (S.cOn ? S.cMix : 0.0f, kS);
-            float band[3][2];
-            for (int c = 0; c < 2; ++c)
-            {
-                const float x = io[c][i];
-                const float lo = ch[c].xo[1].run (ch[c].xo[0].run (x)), hi = ch[c].xo[3].run (ch[c].xo[2].run (x));
-                band[0][c] = lo; band[2][c] = hi; band[1][c] = x - lo - hi;
-            }
-            float yl = 0, yr = 0;
+            const int m = std::min (kOs, n - i0);
+            const float depth = smv[8].step (std::min (1.0f, S.cAmt * A), kG), mix0 = smv[7].v, mixN = smv[7].step (S.cOn ? S.cMix : 0.0f, kG);
+            float band[3][2][8], pk[3] {};
+            for (int k = 0; k < m; ++k)
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float x = io[c][i0 + k];
+                    const float lo = ch[c].xo[1].run (ch[c].xo[0].run (x)), hi = ch[c].xo[3].run (ch[c].xo[2].run (x));
+                    band[0][c][k] = lo; band[2][c][k] = hi; band[1][c][k] = x - lo - hi;
+                    for (int b = 0; b < 3; ++b) pk[b] = std::max (pk[b], std::abs (band[b][c][k]));
+                }
+            float gN[3];
             for (int b = 0; b < 3; ++b)
             {
-                const float lev = std::max (std::abs (band[b][0]), std::abs (band[b][1]));
-                ottEnv[b] = lev > ottEnv[b] ? ca[b] * ottEnv[b] + (1 - ca[b]) * lev : cr[b] * ottEnv[b] + (1 - cr[b]) * lev;
+                ottEnv[b] = pk[b] > ottEnv[b] ? ca[b] * ottEnv[b] + (1 - ca[b]) * pk[b] : cr[b] * ottEnv[b] + (1 - cr[b]) * pk[b];
                 const float db = gToDb (ottEnv[b] + 1e-9f);
                 float gdb = 0;
                 if (db > -20) gdb -= (db + 20) * (1 - 1.0f / 8.0f);
                 if (db < -40 && db > -80) gdb += std::min ((-40 - db) * (1 - 1.0f / 3.0f), 24.0f);
                 gdb *= depth; maxDown = std::max (maxDown, -gdb);
-                const float gg = dbToG (gdb + 3.0f * depth);   // un filo di guadagno come l'OUT dell'originale
-                yl += band[b][0] * gg; yr += band[b][1] * gg;
+                gN[b] = dbToG (gdb + 3.0f * depth);   // un filo di guadagno come l'OUT dell'originale
             }
-            io[0][i] += (yl - io[0][i]) * mixC; io[1][i] += (yr - io[1][i]) * mixC;
+            for (int k = 0; k < m; ++k)
+            {
+                const float t = (k + 1) / (float) m, mixC = mix0 + (mixN - mix0) * t; const int i = i0 + k;
+                for (int c = 0; c < 2; ++c)
+                {
+                    float y = 0; for (int b = 0; b < 3; ++b) y += band[b][c][k] * (ottG[b] + (gN[b] - ottG[b]) * t);
+                    io[c][i] += (y - io[c][i]) * mixC;
+                }
+            }
+            for (int b = 0; b < 3; ++b) ottG[b] = gN[b];
         }
         gr = maxDown;
     }
 
+    // nastro a 1x: wow, flutter, eta (bump e alti chiusi), dropout. La saturazione del nastro e' gia' passata a 8x
     void processTape (float** io, int n, const Settings& S, float A)
     {
         const float age = std::min (1.5f, S.tAge * A), wow = S.tWow * A, flut = S.tFlut * A, drop = S.tDrop * A;
-        if (std::abs (age - lastAge) > 0.002f) { lastAge = age; for (int c = 0; c < 2; ++c) { ch[c].bump.bell (85, 0.8, age * 2.5, sr4); ch[c].tLp1.lp (20000 * (1 - 0.72f * std::min (1.0f, age)), 0.6, sr4); } }
-        const float wA = (float) (0.0087 * wow / (2 * kPi * 0.55) * sr4), fA = (float) (0.0025 * flut / (2 * kPi * 6.3) * sr4), f2A = (float) (0.001 * flut / (2 * kPi * 11.0) * sr4);
-        const float sat = 1 + age * 1.5f;
+        if (std::abs (age - lastAge) > 0.002f) { lastAge = age; for (int c = 0; c < 2; ++c) { ch[c].bump.bell (85, 0.8, age * 2.5, sr); ch[c].tLp1.lp (20000 * (1 - 0.72f * std::min (1.0f, age)), 0.6, sr); } }
+        const float wA = (float) (0.0087 * wow / (2 * kPi * 0.55) * sr), fA = (float) (0.0025 * flut / (2 * kPi * 6.3) * sr), f2A = (float) (0.001 * flut / (2 * kPi * 11.0) * sr);
+        const double sw = std::sin (2 * kPi * 0.55 / sr), cw = std::cos (2 * kPi * 0.55 / sr), sf = std::sin (2 * kPi * 6.3 / sr), cf = std::cos (2 * kPi * 6.3 / sr), s2 = std::sin (2 * kPi * 11.0 / sr), c2 = std::cos (2 * kPi * 11.0 / sr);
         for (int i = 0; i < n; ++i)
         {
-            wowPh += 0.55 / sr4; flPh += 6.3 / sr4; fl2Ph += 11.0 / sr4;
-            if (wowPh > 1) { wowPh -= 1; wowTarget = rng.next() * 0.4f; }
-            wowDrift += 0.00003f * (wowTarget - wowDrift);
-            wA_s += (wA - wA_s) * 0.0001f; fA_s += (fA - fA_s) * 0.0001f; f2A_s += (f2A - f2A_s) * 0.0001f;
-            const float d = 2 * kOs + wA_s * (1 + (float) std::sin (2 * kPi * wowPh) + wowDrift) + fA_s * (1 + (float) std::sin (2 * kPi * flPh)) + f2A_s * (1 + (float) std::sin (2 * kPi * fl2Ph));
+            // oscillatori a rotazione (niente seno per campione)
+            { const double x = oW[0] * cw - oW[1] * sw, y = oW[0] * sw + oW[1] * cw; oW[0] = x; oW[1] = y; }
+            { const double x = oF[0] * cf - oF[1] * sf, y = oF[0] * sf + oF[1] * cf; oF[0] = x; oF[1] = y; }
+            { const double x = oF2[0] * c2 - oF2[1] * s2, y = oF2[0] * s2 + oF2[1] * c2; oF2[0] = x; oF2[1] = y; }
+            wowPh += 0.55 / sr; if (wowPh > 1) { wowPh -= 1; wowTarget = rng.next() * 0.4f; const double r = std::sqrt (oW[0] * oW[0] + oW[1] * oW[1]); oW[0] /= r; oW[1] /= r; oF[0] /= std::hypot (oF[0], oF[1]); oF[1] /= std::hypot (oF[0], oF[1]); }
+            wowDrift += 0.0003f * (wowTarget - wowDrift);
+            wA_s += (wA - wA_s) * 0.001f; fA_s += (fA - fA_s) * 0.001f; f2A_s += (f2A - f2A_s) * 0.001f;
+            const float d = 2 + wA_s * (1 + (float) oW[1] + wowDrift) + fA_s * (1 + (float) oF[1]) + f2A_s * (1 + (float) oF2[1]);
             if (drop > 0.001f)
             {
-                if (dropT <= 0 && rng.uni() < drop * 1.5f / (float) sr4) dropT = (int) (sr4 * (0.02 + 0.1 * rng.uni()));
+                if (dropT <= 0 && rng.uni() < drop * 1.5f / (float) sr) dropT = (int) (sr * (0.02 + 0.1 * rng.uni()));
                 const float tgt = dropT > 0 ? 0.35f + 0.06f * rng.uni() : 1.0f; if (dropT > 0) --dropT;
-                dropG += (tgt - dropG) * 0.0006f;
+                dropG += (tgt - dropG) * 0.005f;
             }
-            else dropG += (1.0f - dropG) * 0.0006f;
+            else dropG += (1.0f - dropG) * 0.005f;
             for (int c = 0; c < 2; ++c)
             {
                 auto& C = ch[c];
                 tapeDl[c].push (io[c][i]);
-                float v = tapeDl[c].read (d + (c ? 0.3f * kOs : 0.0f));
-                if (age > 0.001f) { v = std::tanh (v * sat) / sat * (1 + age * 0.15f); v = C.tLp1.run (C.bump.run (v)); }
+                float v = tapeDl[c].read (d + (c ? 0.3f : 0.0f));
+                if (age > 0.001f) v = C.tLp1.run (C.bump.run (v));
                 io[c][i] = v * dropG;
             }
         }
@@ -510,14 +551,14 @@ private:
     {
         if (S.fHp == fk[0] && S.fLp == fk[1] && S.fRes == fk[2] && S.fBoom == fk[3] && S.fCrack == fk[4] && S.fWarm == fk[5] && S.fAir == fk[6]) return;
         fk[0] = S.fHp; fk[1] = S.fLp; fk[2] = S.fRes; fk[3] = S.fBoom; fk[4] = S.fCrack; fk[5] = S.fWarm; fk[6] = S.fAir;
-        wLpA = (float) (1.0 - std::exp (-2 * kPi * 100.0 / sr4));
+        wLpA = (float) (1.0 - std::exp (-2 * kPi * 100.0 / sr));
         for (auto& C : ch)
         {
-            C.hp1.set (S.fHp, S.fRes * 0.6f, sr4); C.hp2.set (S.fHp, 0.0f, sr4);
-            C.lp1.set (S.fLp, S.fRes, sr4); C.lp2.set (S.fLp, 0.0f, sr4);
-            C.boom.bell (70, 0.9, S.fBoom, sr4); C.crack.bell (2600, 1.0, S.fCrack, sr4);
-            C.wLo.lowShelf (85, S.fWarm * 4.5, sr4); C.wDip.bell (320, 0.8, -S.fWarm * 2.5, sr4); C.wHi.highShelf (9000, -S.fWarm * 3.0, sr4);
-            C.air.highShelf (11000, S.fAir * 7.0, sr4);
+            C.hp1.set (S.fHp, S.fRes * 0.6f, sr); C.hp2.set (S.fHp, 0.0f, sr);
+            C.lp1.set (S.fLp, S.fRes, sr); C.lp2.set (S.fLp, 0.0f, sr);
+            C.boom.bell (70, 0.9, S.fBoom, sr); C.crack.bell (2600, 1.0, S.fCrack, sr);
+            C.wLo.lowShelf (85, S.fWarm * 4.5, sr); C.wDip.bell (320, 0.8, -S.fWarm * 2.5, sr); C.wHi.highShelf (9000, -S.fWarm * 3.0, sr);
+            C.air.highShelf (11000, S.fAir * 7.0, sr);
         }
     }
     struct Ch
@@ -528,7 +569,8 @@ private:
     double sr = 44100, sr4 = 44100 * 8, wowPh = 0, flPh = 0, fl2Ph = 0, humPh = 0, ottSr = -1;
     int maxBlock = 512, osLat = 0, lastModel = -1, dropT = 0, lastDModel = -1;
     float holdPh = 1, lastRate = -1, driveMk = 1, mkFor = -100, env = 0, rms = 0, envF = 0, envS = 0, inRms = 1e-6f, outRms = 1e-6f, dropG = 1, wowTarget = 0, wowDrift = 0, noiseEnv = 0, muCharge = 0, lastAge = -1;
-    float wA_s = 0, fA_s = 0, f2A_s = 0;
+    float wA_s = 0, fA_s = 0, f2A_s = 0, compG = 1, ottG[3] { 1, 1, 1 }, lastTone = -100;
+    double oW[2] { 1, 0 }, oF[2] { 1, 0 }, oF2[2] { 1, 0 };
     float fk[7] { -1, -1, -1, -1, -1, -1, -1 }, crackLp[2] {}, popZ[2] {}, wLpA = 0.01f, ottEnv[3] {};
     Sm1 smv[12], fs[7];
     std::unique_ptr<juce::dsp::Oversampling<float>> os;

@@ -100,6 +100,32 @@ int main (int argc, char** argv)
         double e = 0; for (size_t i = (size_t) lat + 1000; i < L.size(); ++i) e += std::pow (L[i] - in[i - (size_t) lat], 2.0);
         std::printf ("mix 50%% allineato: differenza %.1f dB\n", 10 * std::log10 (e / L.size() + 1e-30));
     }
+    if (std::getenv ("JPROF"))
+    {
+        auto bench = [&] (const char* nm, std::function<void (Processor&)> f)
+        {
+            auto p = fresh(); p->loadPreset (1); f (*p);
+            juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mb; for (int c = 0; c < 2; ++c) for (int i = 0; i < 512; ++i) b.setSample (c, i, 0.3f * std::sin (i * 0.05f));
+            const auto t0 = juce::Time::getMillisecondCounterHiRes(); const int nb = 375;
+            for (int k = 0; k < nb; ++k) p->processBlock (b, mb);
+            std::printf ("%-28s %.2f%%\n", nm, (juce::Time::getMillisecondCounterHiRes() - t0) / 40.0);
+        };
+        bench ("ricetta intera", [] (Processor&) {});
+        for (auto id : { "s_on", "d_on", "f_on", "c_on", "t_on", "r_on", "n_on" })
+            bench ((juce::String ("senza ") + id).toRawUTF8(), [id] (Processor& p) { setP (p, id, 0.0f); });
+        {   // aliasing: tono a 9999 Hz nel CLIP spinto
+            auto p = fresh(); setP (*p, "d_on", 1); setP (*p, "d_model", 4); setP (*p, "d_drive", 18); if (std::getenv ("JCOMP")) { setP (*p, "c_on", 1); setP (*p, "c_style", 0); setP (*p, "c_amt", 0.8f); }
+            std::vector<float> L, R; run (*p, [] (int i, float& l, float& r) { l = r = 0.5f * (float) std::sin (2 * 3.14159265 * 9999.27 * i / 48000.0); }, 48000 + 32768, L, R);
+            const int NF = 32768; std::vector<float> fb ((size_t) NF * 2);
+            for (int i = 0; i < NF; ++i) fb[(size_t) i] = L[(size_t) (48000 + i)] * (0.5f - 0.5f * std::cos (2 * 3.14159f * i / NF));
+            juce::dsp::FFT fft (15); fft.performFrequencyOnlyForwardTransform (fb.data());
+            const double bin = 48000.0 / NF; float ref = 0, worst = 0; double wf = 0;
+            for (int k = 1; k < NF / 2; ++k) { const double f = k * bin; bool harm = false; for (int h = 1; h < 6; ++h) if (std::abs (f - h * 9999.27) < 25 * bin) harm = true; if (std::abs (f - 9999.27) < 3 * bin) ref = std::max (ref, fb[(size_t) k]); if (! harm && f > 50 && fb[(size_t) k] > worst) { worst = fb[(size_t) k]; wf = f; } }
+            std::printf ("aliasing CLIP +18 dB su 10 kHz: %.1f dB a %.0f Hz\n", 20 * std::log10 (worst / ref), wf);
+        }
+        bench ("tutto spento", [] (Processor& p) { for (auto id : { "s_on", "d_on", "f_on", "c_on", "t_on", "r_on", "n_on" }) setP (p, id, 0.0f); });
+        return 0;
+    }
     for (int i = 0; i < (int) presets().size(); ++i)
     {
         auto p = fresh(); p->loadPreset (i); std::vector<float> L, R, in;
