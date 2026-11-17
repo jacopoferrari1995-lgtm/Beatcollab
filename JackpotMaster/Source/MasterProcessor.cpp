@@ -284,7 +284,7 @@ void Processor::prepareToPlay (double s, int maxBlock)
     setLatencySamples (total);
     loudIn.prepare (s); loudOut.prepare (s); dith.reset(); for (auto& t : tpOut) t.reset();
     tmp.setSize (2, mb); keep.setSize (2, mb); limIn.setSize (2, mb); easyLimMix = 0; easyLimWarm = 0;
-    matchSm = normSm = 1; tpHold = -100;
+    matchSm = normSm = 1; tpHold = -100; trimSm = outSm = lmgSm = -1; engCur = -1; engDip = 1;
 }
 
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -308,6 +308,8 @@ void Processor::processChunk (juce::AudioBuffer<float>& buffer)
     if (resetReq.exchange (false)) { loudOut.resetIntegrated(); tpHold = -100; }
 
     const float trim = dbToG (value ("trim"));
+    const float gk = 1.0f - std::exp (-1.0f / (0.010f * (float) sr));   // guadagni che scivolano in 10 ms (niente click)
+    if (trimSm < 0) trimSm = trim;
     float pi[2] = { 0, 0 };
     {   // tempo del pezzo all'inizio del blocco: le colonne dell'onda portano la loro posizione in battiti (griglia a tempo)
         hostPlay = false;
@@ -322,7 +324,7 @@ void Processor::processChunk (juce::AudioBuffer<float>& buffer)
     for (int i = 0; i < n; ++i)
     {
         mRawA[(size_t) i] = juce::jmax (std::abs (L[i]), std::abs (R[i])); mRawQ[(size_t) i] = 0.5f * (L[i] * L[i] + R[i] * R[i]);   // il wav cosi' com'e' (senza master)
-        L[i] *= trim; R[i] *= trim;
+        trimSm += (trim - trimSm) * gk; L[i] *= trimSm; R[i] *= trimSm;
         pi[0] = juce::jmax (pi[0], std::abs (L[i])); pi[1] = juce::jmax (pi[1], std::abs (R[i])); mInA[(size_t) i] = juce::jmax (std::abs (L[i]), std::abs (R[i]));
         loudIn.push (L[i], R[i]);
     }
@@ -338,7 +340,9 @@ void Processor::processChunk (juce::AudioBuffer<float>& buffer)
     auto copyIn = [&] { for (int i = 0; i < n; ++i) { tL[i] = L[i]; tR[i] = R[i]; } };
     auto subIn = [&] { for (int i = 0; i < n; ++i) { L[i] -= tL[i]; R[i] -= tR[i]; } };
     mx.gr = 0; lim.gr = 0;
-    const bool isEasy = runEasy();
+    const int engWant = runEasy() ? 0 : 1;
+    if (engCur < 0) engCur = engWant;
+    const bool isEasy = engCur == 0;   // il motore cambia solo a volume zero (breve dissolvenza), mai a meta' blocco
     if (isEasy)
     {   // ---- modalita FACILE: motore suo, poi LOUD (maximizer) e true peak
         EasySettings E; E.low = value ("e_low"); E.mid = value ("e_mid"); E.high = value ("e_high"); E.calm = value ("e_calm"); E.thick = value ("e_thick");
@@ -560,7 +564,10 @@ void Processor::processChunk (juce::AudioBuffer<float>& buffer)
             {
                 LimSettings ls; ls.ceilDb = value ("lm_ceil"); ls.relMs = value ("lm_rel"); ls.autoRel = value ("lm_auto") > 0.5f; ls.truePeak = value ("lm_tp") > 0.5f;
                 ls.type = juce::roundToInt (value ("lm_type")); ls.os = juce::roundToInt (value ("lm_os")); ls.enhance = value ("lm_enh");
-                if (on) { const float g = dbToG (value ("lm_gain")); if (g != 1.0f) for (int i = 0; i < n; ++i) { L[i] *= g; R[i] *= g; } }
+                {   // guadagno d'ingresso del limiter, scivola
+                    const float g = on ? dbToG (value ("lm_gain")) : 1.0f; if (lmgSm < 0) lmgSm = g;
+                    if (std::abs (g - lmgSm) > 1e-6f || g != 1.0f) for (int i = 0; i < n; ++i) { lmgSm += (g - lmgSm) * gk; L[i] *= lmgSm; R[i] *= lmgSm; }
+                }
                 copyIn();
                 if (on) lim.process (L, R, n, ls);
                 else for (int i = 0; i < n; ++i) { L[i] = limBy[0] (L[i]); R[i] = limBy[1] (R[i]); }
@@ -588,7 +595,18 @@ void Processor::processChunk (juce::AudioBuffer<float>& buffer)
     for (int b = 0; b < kImBands; ++b) { imCorr[b] = img.corr (b); imLim[b] = value ("im_on") > 0.5f ? img.limited (b) : 0.0f; }
 
     // ---- volume d'uscita (manopola USCITA dell'avanzato), dopo tutta la catena
-    if (! isEasy) { const float og = dbToG (value ("outg")); if (std::abs (og - 1.0f) > 1e-5f) for (int i = 0; i < n; ++i) { L[i] *= og; R[i] *= og; } }
+    {
+        const float og = isEasy ? 1.0f : dbToG (value ("outg")); if (outSm < 0) outSm = og;
+        if (std::abs (og - outSm) > 1e-6f || std::abs (og - 1.0f) > 1e-6f) for (int i = 0; i < n; ++i) { outSm += (og - outSm) * gk; L[i] *= outSm; R[i] *= outSm; }
+    }
+    {   // cambio di motore FACILE <-> AVANZATO: scende a zero in 6 ms, cambia, risale
+        const float st = 1.0f / (0.006f * (float) sr);
+        if (engWant != engCur || engDip < 1.0f)
+        {
+            for (int i = 0; i < n; ++i) { engDip = engWant != engCur ? juce::jmax (0.0f, engDip - st) : juce::jmin (1.0f, engDip + st); L[i] *= engDip; R[i] *= engDip; }
+            if (engWant != engCur && engDip <= 0.0f) engCur = engWant;
+        }
+    }
     // ---- misure d'uscita (prima di confronto e ascolto normalizzato)
     float po[2] = { 0, 0 }; float tpb = 0;
     for (int i = 0; i < n; ++i)
@@ -813,8 +831,10 @@ void Processor::timerCallback()
         if (lastMode >= 0)
         {
             auto setEng = [&] (float v) { if (auto* rp = apvts.getParameter ("engine")) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
-            if (! easy() && runEasy() && sa != snapAdv) setEng (1);
-            else if (easy() && ! runEasy() && se != snapEasy) setEng (0);
+            // solo se l'utente ha appena toccato l'interfaccia: l'automazione o il DAW che muovono un parametro dell'altro motore non lo cambiano
+            const bool user = juce::Time::getMillisecondCounterHiRes() - uiActMs.load() < 1500.0;
+            if (user && ! easy() && runEasy() && sa != snapAdv) setEng (1);
+            else if (user && easy() && ! runEasy() && se != snapEasy) setEng (0);
         }
         snapEasy = se; snapAdv = sa; lastMode = easy() ? 0 : 1;
     }

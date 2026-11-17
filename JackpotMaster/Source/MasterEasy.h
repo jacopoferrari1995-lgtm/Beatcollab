@@ -23,9 +23,30 @@ public:
         sMax = 1024; sBuf.setSize (2, sMax);
         sOs = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, false, false);
         sOs->initProcessing ((size_t) sMax);
-        last = {}; last.low = 99;
+        last = {}; last.low = 99; smInit = false;
     }
+    // le manopole scivolano verso il valore nuovo (circa 10 ms, a passi di 32 campioni): niente click quando si muovono
     void process (float* L, float* R, int n, const EasySettings& S)
+    {
+        if (! smInit) { sm = S; smInit = true; }
+        auto same = [&] { return sm.low == S.low && sm.mid == S.mid && sm.high == S.high && sm.thick == S.thick && sm.warm == S.warm && sm.silk == S.silk && sm.glue == S.glue && sm.calm == S.calm && sm.wide == S.wide; };
+        sm.monoBass = S.monoBass; sm.listenBand = S.listenBand; sm.listenDelta = S.listenDelta;
+        if (same()) { raw (L, R, n, sm); return; }
+        const float k = 1.0f - std::exp (-32.0f / (0.010f * (float) sr));
+        auto glide = [&] (float& a, float b, float eps) { a += (b - a) * k; if (std::abs (b - a) < eps) a = b; };
+        for (int o = 0; o < n; o += 32)
+        {
+            glide (sm.low, S.low, 0.005f); glide (sm.mid, S.mid, 0.005f); glide (sm.high, S.high, 0.005f);
+            glide (sm.thick, S.thick, 0.0005f); glide (sm.warm, S.warm, 0.0005f); glide (sm.silk, S.silk, 0.0005f);
+            glide (sm.glue, S.glue, 0.0005f); glide (sm.calm, S.calm, 0.0005f); glide (sm.wide, S.wide, 0.0005f);
+            raw (L + o, R + o, juce::jmin (32, n - o), sm);
+        }
+    }
+    void reset() { smInit = false; }
+private:
+    EasySettings sm; bool smInit = false;
+public:
+    void raw (float* L, float* R, int n, const EasySettings& S)
     {
         // ---- EQ: shelf morbido sui bassi (Baxandall), campana larga sui medi, shelf d'aria sugli alti
         if (S.low != last.low || S.mid != last.mid || S.high != last.high)

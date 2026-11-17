@@ -218,7 +218,7 @@ public:
         for (auto& e : eng) e.prepare (fs, maxL4);
         for (auto& d : dl) d.prepare (maxL4);
         for (auto& d : pad) d.prepare (0);
-        lastStyle = -1; maxB = maxBlock;
+        lastStyle = -1; maxB = maxBlock; gS = -1; cOn = 0;
     }
     // latenza totale in campioni al rate base (costante)
     int latency() const { return osLat + maxL4 / 4; }
@@ -248,11 +248,16 @@ public:
             float* a = up.getChannelPointer (0); float* b = up.getChannelPointer (1);
             const int nu = (int) up.getNumSamples();
             float grMax = 0;
+            if (gS < 0) { gS = g; cS = clipT; ceS = ceil; }
+            const float sk = 1.0f - std::exp (-1.0f / (0.008f * (float) sr * 4.0f));   // guadagno, clip e tetto scivolano (8 ms): niente click
             for (int i = 0; i < nu; ++i)
             {
-                float x = a[i] * g, y = b[i] * g;
-                if (S.style == MORBIDO) { x = soft (x, ceil * 2.0f); y = soft (y, ceil * 2.0f); }   // un filo di saturazione prima
-                if (S.clip > 0.001f) { x = clip (x, clipT, knee); y = clip (y, clipT, knee); }
+                gS += (g - gS) * sk; cS += (clipT - cS) * sk; ceS += (ceil - ceS) * sk; cOn += ((S.clip > 0.001f ? 1.0f : 0.0f) - cOn) * sk;
+                const float ceil = ceS, clipT = cS;
+                float x = a[i] * gS, y = b[i] * gS;
+                // saturazione e clip con antialiasing (ADAA) oltre al 4x: anche un acuto spinto molto sopra il tetto non rimanda sporco
+                if (S.style == MORBIDO) { x = aSoft[0] (x, ceil * 2.0f); y = aSoft[1] (y, ceil * 2.0f); }   // un filo di saturazione prima
+                if (cOn > 1e-4f) { x += (aClip[0] (x, clipT, knee) - x) * cOn; y += (aClip[1] (y, clipT, knee) - y) * cOn; }
                 // guadagno richiesto per canale, poi collegamento stereo
                 float rl = juce::jmin (1.0f, ceil / juce::jmax (1e-9f, std::abs (x))), rr = juce::jmin (1.0f, ceil / juce::jmax (1e-9f, std::abs (y)));
                 const float lk = juce::jmin (rl, rr);
@@ -270,6 +275,36 @@ public:
     float gr = 0;   // riduzione (dB) dell'ultimo blocco
 private:
     static inline float soft (float x, float c) { return c * std::tanh (x / c); }
+    static inline double lcosh (double v) { const double a = std::abs (v); return a > 15 ? a - 0.6931471805599453 : std::log (std::cosh (v)); }
+    // ADAA di primo ordine: uscita = (F(x) - F(x1)) / (x - x1), F = integrale della curva
+    struct ASoft
+    {
+        double x1 = 0;
+        float operator() (float x, float c)
+        {
+            const double d = x - x1; float y;
+            if (std::abs (d) < 1e-6) y = soft ((float) (0.5 * (x + x1)), c);
+            else y = (float) (c * c * (lcosh (x / c) - lcosh (x1 / c)) / d);
+            x1 = x; return y;
+        }
+    };
+    struct AClip
+    {
+        double x1 = 0;
+        static double F (double x, double t, double knee)
+        {
+            const double a = std::abs (x), k = t * knee, r = juce::jmax (1e-9, t - k);
+            return a <= k ? 0.5 * x * x : k * a + r * r * lcosh ((a - k) / r) - 0.5 * k * k;
+        }
+        float operator() (float x, float t, float knee)
+        {
+            const double d = x - x1; float y;
+            if (std::abs (d) < 1e-6) y = clip ((float) (0.5 * (x + x1)), t, knee);
+            else y = (float) ((F (x, t, knee) - F (x1, t, knee)) / d);
+            x1 = x; return y;
+        }
+    };
+    ASoft aSoft[2]; AClip aClip[2];
     // clipper morbido: lineare fino a t*knee, poi curva che tende a t
     static inline float clip (float x, float t, float knee)
     {
@@ -278,7 +313,7 @@ private:
         const float r = t - k; const float y = k + r * std::tanh ((a - k) / r);
         return std::copysign (y, x);
     }
-    double sr = 48000; int osLat = 0, maxL4 = 960, lastStyle = -1, maxB = 512;
+    double sr = 48000; int osLat = 0, maxL4 = 960, lastStyle = -1, maxB = 512; float gS = -1, cS = 1, ceS = 1, cOn = 0;
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
     GainEngine eng[2]; Delay dl[2], pad[2];
 };
@@ -320,16 +355,17 @@ public:
         x1.setCutoffFrequency (150.0f); x2.setCutoffFrequency (2500.0f);
         ap.prepare ({ sr, (juce::uint32) maxB, 2 }); ap.setType (juce::dsp::LinkwitzRileyFilterType::allpass); ap.setCutoffFrequency (2500.0f);
         sat[0] = sat[1] = {};
-        lastK = -1;
+        lastK = -1; resetSafe(); sRel = 1.0f / (float) (3.0 * sr);   // risale piano: con un tono fermo resta immobile (nessuna modulazione)
     }
-    int latency() const { return maxLat + (Lk[0]) + Lb; }   // costante: filtri del 16x + lookahead + fase a bande
+    void resetSafe() { for (int j = 0; j < kSafe; ++j) { sReq[j] = 1; sMin[j] = 1; } sSum = kSafe; sW = 0; sEnv = 1; for (auto& d : sDl) d.prepare (kSafe - 1 + TruePeak::kDelay - 1); for (auto& t : sTp) t.reset(); }
+    int latency() const { return maxLat + (Lk[0]) + Lb + kSafe - 1 + TruePeak::kDelay - 1; }   // costante: filtri del 16x + lookahead + fase a bande + rete di sicurezza
     // tutto a zero (per ripartire pulito dopo essere stato in bypass)
     void reset()
     {
         for (int k = 1; k < 5; ++k) if (os[k]) os[k]->reset();
         for (int k = 0; k < 5; ++k) { eng[k].reset(); for (auto& d : dl[k]) d.reset(); for (auto& d : pad[k]) d.reset(); }
         for (auto& e : bEng) e.reset(); for (auto& b : bDl) for (auto& d : b) d.reset(); for (auto& d : bPad) d.reset();
-        x1.reset(); x2.reset(); ap.reset(); gr = grBands = bandGr = 0;
+        x1.reset(); x2.reset(); ap.reset(); gr = grBands = bandGr = 0; resetSafe();
     }
     void process (float* Lc, float* Rc, int n, const LimSettings& S)
     {
@@ -396,14 +432,21 @@ public:
             if (k > 0) os[k]->processSamplesDown (blk);
             for (int i = 0; i < m; ++i) { a[i] = pad[k][0] (a[i]); b[i] = pad[k][1] (b[i]); }
             // rete di sicurezza: con materiale molto clippato i filtri di ritorno dal sovracampionamento possono far risalire
-            // un picco di qualche decimo di dB. Solo quei picchi vengono arrotondati sotto il tetto, il resto non si tocca
-            const float top = dbToG (S.ceilDb), c0 = top * 0.97f, span = top - c0;
+            // un picco di qualche decimo di dB. Un limite di guadagno con 16 campioni d'anticipo (non una curva sul segnale:
+            // niente armoniche, niente aliasing) li riporta sotto il tetto. Se nessun picco sfora, il segnale passa identico
+            const float top = dbToG (S.ceilDb);
             for (int i = 0; i < m; ++i)
-                for (float* v : { a + i, b + i })
-                {
-                    const float x = std::abs (*v);
-                    if (x > c0) *v = std::copysign (c0 + span * std::tanh ((x - c0) / span), *v);
-                }
+            {
+                // picco vero (interpolato 8x) se TRUE PEAK e' acceso, altrimenti il campione: riguarda il campione di kDelay-1 fa
+                const float t0 = sTp[0].push (a[i]), t1 = sTp[1].push (b[i]);
+                const float pk = S.truePeak ? juce::jmax (t0, t1) : juce::jmax (sTp[0].center, sTp[1].center);
+                const float r = pk > top ? top / pk : 1.0f;
+                sReq[sW] = r; float mn = 1.0f; for (int j = 0; j < kSafe; ++j) mn = juce::jmin (mn, sReq[j]);
+                sSum += (double) mn - sMin[sW]; sMin[sW] = mn; if (++sW >= kSafe) sW = 0;
+                const float av = sSum >= kSafe - 1e-9 ? 1.0f : (float) (sSum / kSafe);
+                sEnv = juce::jmin (av, sEnv + sRel);
+                a[i] = sDl[0] (a[i]) * sEnv; b[i] = sDl[1] (b[i]) * sEnv;
+            }
         }
         gr = juce::jmax (grMax, bandGr); grBands = bandGr;
     }
@@ -414,6 +457,7 @@ private:
     double sr = 48000; int maxB = 512, maxLat = 0, osLat[5] {}, Lk[5] {}, Lb = 72, lastK = -1;
     std::unique_ptr<juce::dsp::Oversampling<float>> os[5];
     GainEngine eng[5]; Delay dl[5][2], pad[5][2], bPad[2];
+    static constexpr int kSafe = 17; float sReq[kSafe] {}, sMin[kSafe] {}, sEnv = 1, sRel = 0.0004f; double sSum = kSafe; int sW = 0; Delay sDl[2]; TruePeak sTp[2];
     GainEngine bEng[3]; Delay bDl[3][2];
     juce::dsp::LinkwitzRileyFilter<float> x1, x2, ap;
 };

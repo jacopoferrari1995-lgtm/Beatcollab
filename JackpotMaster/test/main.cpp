@@ -281,6 +281,105 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "tapealias")
+    {
+        for (float amp : { 0.25f, 0.5f, 0.9f }) for (float drv : { 0.3f, 1.0f })
+        {
+            TapeMachine tm; tm.prepare (sr); TapeSettings ts; ts.model = 1; ts.drive = drv; ts.bias = 0.1f; ts.mix = 0.8f;
+            const int N = 65536; std::vector<float> l ((size_t) N * 2), r ((size_t) N * 2); const double ff = 8603 * sr / 65536;
+            for (int i = 0; i < N * 2; ++i) l[(size_t) i] = r[(size_t) i] = amp * (float) std::sin (2 * 3.14159265358979 * ff * i / sr);
+            for (int o = 0; o < N * 2; o += 512) tm.process (l.data() + o, r.data() + o, 512, ts);
+            juce::dsp::FFT fft (16); std::vector<float> a ((size_t) 2 * N, 0); for (int i = 0; i < N; ++i) a[(size_t) i] = l[(size_t) (N + i)] * (0.5f - 0.5f * std::cos (6.2831853f * i / N));
+            fft.performFrequencyOnlyForwardTransform (a.data()); const int k0 = 8603; float ref0 = a[(size_t) k0]; float worst = 0; double wf = 0;
+            for (int k = 40; k < N / 2; ++k) { bool h = false; for (int m = 1; m < 5; ++m) if (std::abs (k - k0 * m) <= 6) h = true; if (! h && a[(size_t) k] > worst) { worst = a[(size_t) k]; wf = k * sr / N; } }
+            std::printf ("amp %.2f drive %.1f: spur %.1f dB a %.0f Hz\n", amp, drv, gToDb (worst / ref0), wf);
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "dbg")
+    {
+        for (float ld : { 0.0f, 5.0f, 10.0f })
+        {
+            auto p = blank(); setP (*p, "e_loud", ld); setP (*p, "lm_ceil", -1.0f); std::vector<float> a, b;
+            run (*p, [&] (int k, float& l, float& r) { beat (k, l, r); l *= 0.6f; r *= 0.6f; }, (int) sr * 10, a, b);
+            float pk = 0; for (size_t i = a.size() / 2; i < a.size(); ++i) pk = std::max (pk, std::abs (a[i]));
+            std::printf ("loud %.0f: in S %.1f out S %.1f  picco %.2f dB  TP %.2f  eng %d\n", ld, p->inS.load(), p->lufsS.load(), gToDb (pk), measTP (a, (int) sr * 3), (int) p->value ("engine"));
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {   // come THE_LAB: preset Genere | Boom Bap in vista FACILE, salti del 30% su ogni manopola (click > 5 kHz), estremi e ritorno, aliasing a 6,3 kHz, crosstalk
+        int pi = 0; for (int i = 0; i < (int) presets().size(); ++i) if (juce::String (presets()[(size_t) i].name) == (std::getenv ("JPRESET") ? std::getenv ("JPRESET") : "Genere | Boom Bap")) pi = i;
+        auto mk = [&] { auto p = blank(); p->loadPreset (pi); setP (*p, "mode", 0);
+            if (std::getenv ("JEASY")) { p->loadPreset (0); setP (*p, "engine", 0); setP (*p, "e_loud", 6); setP (*p, "e_glue", 0.4f); setP (*p, "e_thick", 0.3f); setP (*p, "e_warm", 0.3f); setP (*p, "e_silk", 0.3f); setP (*p, "e_low", 1); setP (*p, "e_high", 1); setP (*p, "e_calm", 0.3f); setP (*p, "e_wide", 0.2f); setP (*p, "e_monob", 1); } if (auto* off = std::getenv ("JOFF")) for (auto& t : juce::StringArray::fromTokens (off, ",", "")) setP (*p, t.toRawUTF8(), 0); p->syncSnap(); return p; };
+        const int blk = 512;
+        auto tone = [&] (int k, float& l, float& r) { l = r = 0.25f * (float) std::sin (2 * 3.14159265358979 * 999.76 * k / sr); };
+        auto render = [&] (Processor& p, int len, std::function<void (int)> atBlock, std::function<void (int, float&, float&)> gen)
+        {
+            std::vector<float> o; juce::AudioBuffer<float> b (2, blk); juce::MidiBuffer mb;
+            for (int off = 0, bi = 0; off < len; off += blk, ++bi)
+            {
+                atBlock (off); for (int i = 0; i < blk; ++i) { float l, r; gen (off + i, l, r); b.setSample (0, i, l); b.setSample (1, i, r); }
+                p.processBlock (b, mb); if (bi % 19 == 0) p.tickForTest();
+                for (int i = 0; i < blk; ++i) o.push_back (b.getSample (0, i));
+            }
+            return o;
+        };
+        const char* only = std::getenv ("JONLY");
+        std::vector<juce::String> ps;
+        { auto p = mk(); for (auto* q : p->getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (q)) if (! dynamic_cast<juce::AudioParameterChoice*> (rp) && ! dynamic_cast<juce::AudioParameterBool*> (rp)) ps.push_back (rp->paramID); }
+        const int T = 512 * 282, J = 512 * 188;
+        auto ref = [&] { auto p = mk(); return render (*p, T, [] (int) {}, tone); }();
+        float tpk = 0; for (int i = J; i < T; ++i) tpk = std::max (tpk, std::abs (ref[(size_t) i]));
+        int nClick = 0, nBroken = 0, nJ = 0;
+        for (auto& id : ps)
+        { if (only && ! id.contains (only)) continue;
+            // salto: 4 volte del 30% (su e giu') a partire da 2 s
+            auto p = mk(); auto* rp = p->apvts.getParameter (id); const float v0 = rp->getValue();
+            auto out = render (*p, T, [&] (int off) { for (int j = 0; j < 4; ++j) if (off == J + j * 4096) rp->setValueNotifyingHost (j % 2 == 0 ? (v0 + 0.3f <= 1 ? v0 + 0.3f : v0 - 0.3f) : v0); }, tone);
+            Biquad h1, h2; h1.set (Biquad::LCUT, 5000, 0, 0.707, sr); h2.set (Biquad::LCUT, 5000, 0, 0.707, sr);
+            float pk = 0, chg = 0; for (int i = J - 2048; i < T; ++i) { const float d = out[(size_t) i] - ref[(size_t) i]; chg = std::max (chg, std::abs (d)); const float y = h2 (h1 (d)); if (i >= J) pk = std::max (pk, std::abs (y)); }
+            float cdb = gToDb (pk / tpk + 1e-12f);
+            {   // un salto solo, confrontato con lo stesso valore tenuto dall'inizio: resta solo il transitorio del salto
+                const float v1 = v0 + 0.3f <= 1 ? v0 + 0.3f : v0 - 0.3f;
+                auto pa = mk(); auto* ra = pa->apvts.getParameter (id); auto oa = render (*pa, J + 8192, [&] (int off) { if (off == J) ra->setValueNotifyingHost (v1); }, tone);
+                auto pb = mk(); pb->apvts.getParameter (id)->setValueNotifyingHost (v1); auto ob = render (*pb, J + 8192, [] (int) {}, tone);
+                Biquad g1, g2; g1.set (Biquad::LCUT, 5000, 0, 0.707, sr); g2.set (Biquad::LCUT, 5000, 0, 0.707, sr); float pk2 = 0;
+                for (int i = J - 1024; i < J + 8192; ++i) { const float y = g2 (g1 (oa[(size_t) i] - ob[(size_t) i])); if (i >= J && i < J + 2400) pk2 = std::max (pk2, std::abs (y)); }
+                cdb = gToDb (pk2 / tpk + 1e-12f);
+            }
+            if (gToDb (chg / tpk + 1e-12f) < -80) continue;   // non cambia niente: non giudicato
+            ++nJ; const bool click = cdb > -35;
+            // estremi: 0 per 0,5 s, 1 per 0,5 s, poi di nuovo il valore di partenza; rumore + tono
+            auto p2 = mk(); auto* rq = p2->apvts.getParameter (id); juce::Random rn (5);
+            auto gen = [&] (int k, float& l, float& r) { tone (k, l, r); const float nz = (rn.nextFloat() - 0.5f) * 0.1f; l += nz; r += nz; };
+            juce::Random rn0 (5); auto gen0 = [&] (int k, float& l, float& r) { tone (k, l, r); const float nz = (rn0.nextFloat() - 0.5f) * 0.1f; l += nz; r += nz; };
+            const int E = std::getenv ("JLONG") ? 512 * 1500 : 512 * 563;
+            auto o2 = render (*p2, E, [&] (int off) { if (off == 512 * 94) rq->setValueNotifyingHost (0); if (off == 512 * 141) rq->setValueNotifyingHost (1); if (off == 512 * 188) rq->setValueNotifyingHost (v0); }, gen);
+            auto p3 = mk(); auto o3 = render (*p3, E, [] (int) {}, gen0);
+            bool nan = false; float mx2 = 0; double ed = 0, er = 0;
+            for (int i = 0; i < E; ++i) { if (! std::isfinite (o2[(size_t) i])) nan = true; mx2 = std::max (mx2, std::abs (o2[(size_t) i])); if (i > E - (int) sr) { ed += std::pow (o2[(size_t) i] - o3[(size_t) i], 2.0); er += o3[(size_t) i] * o3[(size_t) i]; } }
+            if (only) { for (int w = 4; w < E / 24000; ++w) { double a2 = 0, b2 = 0; for (int i = w * 24000; i < (w + 1) * 24000; ++i) { a2 += std::pow (o2[(size_t) i] - o3[(size_t) i], 2.0); b2 += o3[(size_t) i] * o3[(size_t) i]; } std::printf ("%.1fs %.1f  ", w * 0.5, 10 * std::log10 (a2 / b2 + 1e-30)); } std::printf ("\n"); }
+            const float back = (float) (10 * std::log10 (ed / er + 1e-30)); const bool broken = nan || back > -60;
+            if (click) ++nClick; if (broken) ++nBroken;
+            if (click || broken || only) std::printf ("%-22s click %6.1f dB %s  estremi: max %+5.1f dBFS, dopo il ritorno %6.1f dB %s%s  motore %d\n", id.toRawUTF8(), cdb, click ? "CLICK" : "     ", gToDb (mx2), back, broken ? "ROTTO" : "", nan ? " NaN" : "", (int) p2->value ("engine"));
+        }
+        std::printf ("giudicati %d: click %d, rotti %d\n", nJ, nClick, nBroken);
+        // aliasing con toni acuti e crosstalk
+        for (float amp : { 0.5f, 0.9f }) for (double f0 : { 6300.0, 10000.0 })
+        {
+            const double fq = (double) (((int) std::round (f0 * 65536 / sr)) | 1); const double ff = fq * sr / 65536;
+            auto p = mk(); auto o = render (*p, (int) sr * 4, [] (int) {}, [&] (int k, float& l, float& r) { l = r = amp * (float) std::sin (2 * 3.14159265358979 * ff * k / sr); });
+            const int N = 65536; juce::dsp::FFT fft (16); std::vector<float> a ((size_t) 2 * N, 0);
+            for (int i = 0; i < N; ++i) a[(size_t) i] = o[o.size() - N + (size_t) i] * (0.5f - 0.5f * std::cos (6.2831853f * i / N));
+            fft.performFrequencyOnlyForwardTransform (a.data());
+            const int k0 = (int) fq; float ref0 = 0; for (int k = k0 - 4; k <= k0 + 4; ++k) ref0 = std::max (ref0, a[(size_t) k]);
+            float worst = 0; double wf = 0;
+            for (int k = 40; k < N / 2; ++k) { bool harm = false; for (int h = 1; h < 10; ++h) if (std::abs (k - k0 * h) <= 6) harm = true; if (std::abs (k - k0) < k0 / 20) harm = true; if (! harm && a[(size_t) k] > worst) { worst = a[(size_t) k]; wf = k * sr / N; } }
+            std::printf ("amp %.1f tono %.0f Hz: spur peggiore %.1f dB a %.0f Hz\n", amp, ff, gToDb (worst / ref0), wf);
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "ear")
     {   // prova d'ascolto: due mix diversi, proposta, applicazione, taratura
         for (int kind = 0; kind < 3; ++kind)

@@ -86,12 +86,15 @@ public:
     {
         int solo = -1; for (int k = 0; k < kBands; ++k) if (S.b[k].on && S.b[k].solo) solo = k;
         const float aA = 1.0f - std::exp (-1.0f / (0.001f * S.att * (float) sr)), aR = 1.0f - std::exp (-1.0f / (0.001f * S.rel * (float) sr));
+        // frequenza, guadagno e Q scivolano verso il valore nuovo (circa 10 ms): niente click quando si muovono o si automatizzano
+        const float gk = 1.0f - std::exp (-16.0f / (0.010f * (float) sr));
         for (int k = 0; k < kBands; ++k)
         {
             const auto& B = S.b[k]; auto& T = st[k];
             const bool dynOn = B.dyn && hasGain (B.type) && ! (B.spec && ! S.live);
-            const int key = (int) B.type * 7 + B.slope * 131 + juce::roundToInt (B.f * 10) * 3 + juce::roundToInt (B.q * 1000) * 11 + juce::roundToInt ((dynOn ? T.dyn + B.g : B.g) * 20) * 13;
-            if (key != T.key) { T.key = key; T.n = designBand (B, sr, dynOn ? B.g + T.dyn : B.g, T.f); }
+            if (! B.on || T.ty != B.type || T.sl != B.slope) { T.sf = B.f; T.sg = B.g; T.sq = B.q; T.ty = B.type; T.sl = B.slope; T.key = -1; }
+            if (! dynOn) T.dyn = 0;
+            if (T.key < 0) { T.key = 1; redesign (B, T); }
             const int dk = juce::roundToInt (B.f) + juce::roundToInt (B.q * 100) * 100003;
             if (dk != T.dk) { T.dk = dk; for (auto& d : T.det) d.design (6, sr, B.f, 0, juce::jmax (0.5f, B.q)); T.solo.design (6, sr, B.f, 0, (B.type == BT_BELL || B.type == BT_NOTCH || B.type == BT_BPASS) ? juce::jmax (0.4f, B.q) : 0.7); }
         }
@@ -112,9 +115,18 @@ public:
                     const float amt = juce::jlimit (0.0f, 1.0f, over / 10.0f);
                     const float tgt = B.range * amt;
                     T.dyn += (tgt - T.dyn) * 0.01f;
-                    if ((i & 15) == 0 && std::abs (T.dyn - T.dynC) > 0.05f) { T.dynC = T.dyn; designBand (B, sr, B.g + T.dyn, T.f); }
                 }
-                else T.dyn = 0;
+                if ((i & 15) == 0)
+                {
+                    const bool mv = std::abs (B.g - T.sg) > 0.002f || std::abs (B.f - T.sf) > T.sf * 0.0005f || std::abs (B.q - T.sq) > T.sq * 0.0005f;
+                    if (mv)
+                    {
+                        T.sg += (B.g - T.sg) * gk;
+                        T.sf = std::exp (std::log (T.sf) + (std::log (juce::jmax (1.0f, B.f)) - std::log (T.sf)) * gk);
+                        T.sq = std::exp (std::log (T.sq) + (std::log (juce::jmax (0.01f, B.q)) - std::log (T.sq)) * gk);
+                    }
+                    if (mv || std::abs (T.dyn - T.dynC) > 0.05f) { T.dynC = T.dyn; redesign (B, T); }
+                }
                 float a[2]; get (B.ch, l, r, a);
                 for (int s = 0; s < T.n; ++s) { a[0] = T.f[s].run (a[0], 0); if (B.ch == 0) a[1] = T.f[s].run (a[1], 1); }
                 put (B.ch, l, r, a);
@@ -147,6 +159,12 @@ private:
             case 2: { const float m = 0.5f * (l + r); l = m + a[0]; r = m - a[0]; break; }
             case 3: l = a[0]; break; case 4: r = a[0]; break; default: l = a[0]; r = a[1];
         }
+    }
+    struct St;
+    void redesign (const BandSet& B, St& T)
+    {
+        BandSet b = B; b.f = T.sf; b.q = T.sq; const bool dynOn = B.dyn && hasGain (B.type);
+        T.n = designBand (b, sr, T.sg + (dynOn ? T.dyn : 0.0f), T.f);
     }
     void spectral (float* L, float* R, int n, const EqSet& S)
     {
@@ -195,7 +213,7 @@ private:
         }
         for (int v = 0; v < kView; ++v) { const float f = 20.0f * std::pow (1000.0f, (float) v / (kView - 1)); specView[v] = red[(size_t) juce::jlimit (1, nb - 1, (int) (f / binHz))]; }
     }
-    struct St { BQ f[8]; BQ det[2]; BQ solo; int n = 1, key = -1, dk = -1; float env = 0, dyn = 0, dynC = 0; } st[kBands];
+    struct St { BQ f[8]; BQ det[2]; BQ solo; int n = 1, key = -1, dk = -1, ty = -1, sl = -1; float env = 0, dyn = 0, dynC = 0, sf = 1000, sg = 0, sq = 1; } st[kBands];
     double sr = 44100; int order = 11, N = 2048, H = 512, w = 0;
     std::unique_ptr<juce::dsp::FFT> fft; std::vector<float> win, inQ[2], outQ[2], red; std::vector<std::complex<float>> spec[2], cb;
 };

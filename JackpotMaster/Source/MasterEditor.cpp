@@ -2641,7 +2641,7 @@ void Editor::timerCallback()
 {
     {   // ANNULLA / RIFAI: un passo per ogni gesto finito (bottone del mouse rilasciato); le mosse dell'automazione non entrano
         const bool down = juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown();
-        if (down) lastUserMs = juce::Time::getMillisecondCounterHiRes();
+        if (down) { lastUserMs = juce::Time::getMillisecondCounterHiRes(); proc.uiActMs = lastUserMs; }
         if (! down && tick % 4 == 0)
         {
             const bool acted = juce::Time::getMillisecondCounterHiRes() - lastUserMs < 1500.0;

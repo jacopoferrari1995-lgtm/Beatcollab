@@ -135,6 +135,8 @@ public:
     std::atomic<bool> resetReq { false };
     // modalita FACILE
     bool easy() const { return value ("mode") < 0.5f; }           // vista
+    void tickForTest() { timerCallback(); }
+    std::atomic<double> uiActMs { -1.0e9 };   // ultimo gesto del mouse nell'interfaccia (il cambio di motore lo fa solo un gesto vero)
     // PROVA D'ASCOLTO
     EarCapture earCap; EarPlan ear; juce::MemoryBlock earBackup; int earCalib = -1, earOk = 0, earSteps = 0; juce::String earMsg;
     void earStart() { ear = {}; earCalib = -1; earMsg = {}; const int d = juce::roundToInt (value ("ear_dur")); earCap.start (d == 0 ? 30 : d == 1 ? 60 : 0); }
@@ -164,7 +166,8 @@ private:
     Maximizer mx; Limiter lim; Dither dith; Loudness loudIn, loudOut; TruePeak tpOut[2];
     Delay mxBy[2], limBy[2], dry[2], mxIn[2], deltaPad[2], loudPad[2];
     juce::AudioBuffer<float> tmp, keep, limIn; float easyLimMix = 0; int easyLimWarm = 0;
-    double sqL = 0, sqR = 0; float matchSm = 1, normSm = 1, colIn = 0, colOut = 0, colM = 0, colL = 0, colRaw = 0; int colN = 0; double sqIn = 0, sqOut = 0;
+    double sqL = 0, sqR = 0; float matchSm = 1, normSm = 1, trimSm = -1, outSm = -1, lmgSm = -1, engDip = 1; int engCur = -1, engPend = -1;
+    float colIn = 0, colOut = 0, colM = 0, colL = 0, colRaw = 0; int colN = 0; double sqIn = 0, sqOut = 0;
     std::shared_ptr<RefTrack> ref; mutable juce::SpinLock refLock;
     float tpHold = -100; double cLR = 0, cLL = 1e-9, cRR = 1e-9;
 };

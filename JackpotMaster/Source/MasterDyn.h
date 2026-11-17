@@ -107,7 +107,10 @@ public:
             L[i] = L[i] + (L[i] * g - L[i]) * S.mix; R[i] = R[i] + (R[i] * g - R[i]) * S.mix;
         }
         gr = -grMaxB; mkG = mkEnd;
-        avgGr = avK * avgGr + (1 - avK) * (-grSum / (float) juce::jmax (1, n)); grSum = 0;
+        {   // media della riduzione: non va oltre il RANGE (niente accumulo) e scende piu' in fretta di quanto sale
+            const float now = juce::jmin (S.range, -grSum / (float) juce::jmax (1, n)), k = now < avgGr ? (float) std::exp (-(double) n / (1.0 * sr)) : avK;
+            avgGr = juce::jmin (S.range, k * avgGr + (1 - k) * now); grSum = 0;
+        }
     }
     float gr = 0;
 private:

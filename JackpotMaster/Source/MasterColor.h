@@ -34,46 +34,72 @@ struct TapeSettings { int model = T15; float drive = 0, bias = 0, noise = 0, mix
 class TapeMachine
 {
 public:
-    void prepare (double s) { sr = s; lastModel = -1; lastBias = 99; for (auto& c : ch) c = {}; }
+    // tutto il nastro (pre-enfasi, saturazione, filtri e miscela col segnale pulito) gira a 4x: la saturazione non rimanda sporco
+    // sotto (aliasing) e il pulito passa dagli stessi filtri, quindi la miscela non crea pettini
+    void prepare (double s)
+    {
+        sr = s; lastModel = -1; lastBias = 99; for (auto& c : ch) c = {};
+        os = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false);
+        os->initProcessing ((size_t) kMax); gS = -1; mS = -1;
+    }
     void process (float* L, float* R, int n, const TapeSettings& S)
     {
-        const auto& ti = tapeInfo (S.model);
+        const auto& ti = tapeInfo (S.model); const double f4 = sr * 4;
         if (S.model != lastModel || std::abs (S.bias - lastBias) > 1e-3f)
         {
             lastModel = S.model; lastBias = S.bias;
             // BIAS: sotto = piu acuti e piu distorsione, sopra = piu scuro e pulito
             for (auto& c : ch)
             {
-                c.pre.set (Biquad::HSHELF, 3000, ti.preDb, 0.6, sr); c.de.set (Biquad::HSHELF, 3000, -ti.preDb, 0.6, sr);
-                c.bump.set (Biquad::BELL, ti.bumpF, ti.bumpDb, 0.9, sr); c.dip.set (Biquad::BELL, ti.bumpF * 2.1, -ti.bumpDb * 0.35, 1.2, sr);
-                c.lp.set (Biquad::HCUT, ti.lpF * (1.0f - 0.25f * S.bias), 0, 0.6, sr);
-                c.air.set (Biquad::HSHELF, 9000, -2.5 * S.bias, 0.7, sr);
-                c.nlp.set (Biquad::HCUT, 9000, 0, 0.7, sr); c.nhp.set (Biquad::LCUT, 400, 0, 0.7, sr);
+                c.pre.set (Biquad::HSHELF, 3000, ti.preDb, 0.6, f4); c.de.set (Biquad::HSHELF, 3000, -ti.preDb, 0.6, f4);
+                c.bump.set (Biquad::BELL, ti.bumpF, ti.bumpDb, 0.9, f4); c.dip.set (Biquad::BELL, ti.bumpF * 2.1, -ti.bumpDb * 0.35, 1.2, f4);
+                c.lp.set (Biquad::HCUT, juce::jmin (ti.lpF * (1.0f - 0.25f * S.bias), 30000.0f), 0, 0.6, f4);
+                c.air.set (Biquad::HSHELF, 9000, -2.5 * S.bias, 0.7, f4);
+                c.nlp.set (Biquad::HCUT, 9000, 0, 0.7, f4); c.nhp.set (Biquad::LCUT, 400, 0, 0.7, f4);
+                c.aa1.set (Biquad::HCUT, 19000, 0, 0.5412, f4); c.aa2.set (Biquad::HCUT, 19000, 0, 1.3066, f4);
             }
         }
-        const float g = dbToG (12.0f * std::pow (S.drive, 1.5f) * ti.satK), inv = 1.0f / g;
+        const float g = dbToG (12.0f * std::pow (S.drive, 1.5f) * ti.satK);
+        if (gS < 0) { gS = g; mS = S.mix; }
         const float asym = 0.06f + 0.10f * juce::jmax (0.0f, -S.bias);       // poco bias = piu seconda armonica
         const float hiss = S.noise * 0.0025f * ti.noise;
-        float* io[2] = { L, R };
-        for (int c = 0; c < 2; ++c)
+        const float sk = 1.0f - std::exp (-1.0f / (0.010f * (float) f4));      // drive e miscela scivolano (10 ms)
+        const bool lpOn = ti.lpF < 21000 || S.bias > 0.01f;
+        for (int off = 0; off < n; off += kMax)
         {
-            auto& st = ch[c]; float* x = io[c];
-            for (int i = 0; i < n; ++i)
+            const int m = juce::jmin (kMax, n - off);
+            float* io[2] = { L + off, R + off };
+            juce::dsp::AudioBlock<float> blk (io, 2, (size_t) m);
+            auto up = os->processSamplesUp (blk);
+            const int nu = (int) up.getNumSamples(); float g0 = gS, m0 = mS;
+            for (int c = 0; c < 2; ++c)
             {
-                const float in = x[i];
-                float y = st.pre (in);
-                y = S.drive > 1e-4f ? st.sat (y * g, asym) * inv : y;
-                y = st.de (y); y = st.dip (st.bump (y)); y = st.air (y);
-                if (ti.lpF < 21000 || S.bias > 0.01f) y = st.lp (y);
-                if (hiss > 0) y += st.nlp (st.nhp ((rng.nextFloat() * 2 - 1) * hiss));
-                y = in + (y - in) * S.mix;
-                x[i] = S.delta ? y - in : y;
+                auto& st = ch[c]; float* x = up.getChannelPointer ((size_t) c); float gg = g0, mm = m0;
+                for (int i = 0; i < nu; ++i)
+                {
+                    gg += (g - gg) * sk; mm += (S.mix - mm) * sk;
+                    const float in = x[i];
+                    float y = st.pre (in);
+                    st.on += ((S.drive > 1e-4f ? 1.0f : 0.0f) - st.on) * sk;
+                    if (st.on > 1e-5f) y += (st.sat (y * gg, asym) / gg - y) * st.on;
+                    y = st.de (y); y = st.dip (st.bump (y)); y = st.air (y);
+                    if (lpOn) y = st.lp (y);
+                    if (hiss > 0 && (i & 3) == 0) st.hz = st.nlp (st.nhp ((rng.nextFloat() * 2 - 1) * hiss * 2.0f));
+                    if (hiss > 0) y += st.hz;
+                    const float d = st.aa2 (st.aa1 (y - in));   // la differenza (colore e armoniche) senza nulla sopra i 19 kHz: non rientra come sporco
+                    y = in + d * mm;
+                    x[i] = S.delta ? y - in : y;
+                }
+                gS = gg; mS = mm;
             }
+            os->processSamplesDown (blk);
         }
     }
 private:
-    struct Ch { Biquad pre, de, bump, dip, lp, air, nlp, nhp; AdaaTanh sat; };
-    double sr = 48000; int lastModel = -1; float lastBias = 99; Ch ch[2]; juce::Random rng { 77 };
+    static constexpr int kMax = 1024;
+    struct Ch { Biquad pre, de, bump, dip, lp, air, nlp, nhp, aa1, aa2; AdaaTanh sat; float hz = 0, on = 0; };
+    double sr = 48000; int lastModel = -1; float lastBias = 99, gS = -1, mS = -1; Ch ch[2]; juce::Random rng { 77 };
+    std::unique_ptr<juce::dsp::Oversampling<float>> os;
 };
 
 // --------------------------------------------------------------------------- EXCITER multibanda
