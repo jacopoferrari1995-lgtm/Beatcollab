@@ -30,6 +30,81 @@ int main (int argc, char** argv)
         }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "knobs")
+    {   // come THE_LAB: tono a 1 kHz, ogni manopola continua salta del 30%; energia sopra 5 kHz della differenza contro il picco del tono
+        juce::ScopedJuceInitialiser_GUI gx; const double sr = 48000;
+        Processor probe; const int np = probe.getParameters().size();
+        for (int pi = 0; pi < np; ++pi)
+        {
+            auto* pp = dynamic_cast<juce::AudioParameterFloat*> (probe.getParameters()[pi]); if (pp == nullptr) continue;
+            auto render = [&] (int mode)   // 0 = fermo su v0, 1 = fermo su v1, 2 = salti
+            {
+                Processor q; q.prepareToPlay (sr, 512); if (auto* pr = std::getenv ("JPR")) q.loadPreset (std::atoi (pr));
+                auto* r = q.getParameters()[pi]; const float v0 = r->getValue(), v1 = v0 > 0.5f ? v0 - 0.3f : v0 + 0.3f;
+                if (mode == 1) r->setValueNotifyingHost (v1);
+                std::vector<float> o; juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; long n = 0;
+                for (int blk = 0; blk < 200; ++blk)
+                {
+                    if (mode == 2 && blk >= 100 && (blk - 100) % 20 == 0 && blk < 180) r->setValueNotifyingHost (((blk - 100) / 20) % 2 ? v0 : v1);
+                    for (int i = 0; i < 512; ++i, ++n) { const float x = 0.5f * (float) std::sin (2 * 3.14159265358979 * 999.76 * n / sr); b.setSample (0, i, x); b.setSample (1, i, x); }
+                    q.processBlock (b, m); if (blk >= 96) for (int i = 0; i < 512; ++i) o.push_back (b.getSample (0, i));
+                }
+                return o;
+            };
+            const auto a = render (0), b1 = render (1), bb = render (2);
+            // per ogni salto: finestra di 2048 campioni dal salto; energia NON armonica fra 5 e 20 kHz (le armoniche del tono si muovono di proposito)
+            // nella versione col salto, meno quella ferma sul valore di arrivo
+            double e = 0, pk = 0, ch = 0; for (size_t i = 0; i < a.size(); ++i) { pk = std::max (pk, (double) std::abs (a[i])); ch = std::max (ch, (double) std::abs (bb[i] - a[i])); }
+            juce::dsp::FFT fft (11);
+            auto nonHarm = [&] (const std::vector<float>& x, size_t at)
+            {
+                std::vector<float> w (4096, 0.0f); for (int i = 0; i < 2048; ++i) w[(size_t) i] = x[at + (size_t) i] * (0.5f - 0.5f * std::cos (6.2831853f * i / 2047));
+                fft.performFrequencyOnlyForwardTransform (w.data()); double s = 0;
+                for (int k = 1; k < 1024; ++k) { const double fq = k * sr / 2048; if (fq < 5000 || fq > 20000) continue; const double hn = fq / 999.76; if (std::abs (hn - std::round (hn)) * 999.76 < 120) continue; s += (double) w[(size_t) k] * w[(size_t) k]; }
+                return s;
+            };
+            for (int j = 0; j < 4; ++j)
+            {
+                const size_t at = (size_t) (4 + j * 20) * 512 - 1024;   // il salto al centro della finestra
+                const auto& ref = j % 2 == 0 ? b1 : a;
+                e = std::max (e, nonHarm (bb, at) - nonHarm (ref, at));
+            }
+            e = std::sqrt (std::max (0.0, e)) / 1024.0 * 2.0;   // ampiezza circa, contro il picco del tono
+            if (ch < 1e-6) continue;
+            const double db = 20 * std::log10 (e / (pk + 1e-12) + 1e-12);
+            if (db > -45 || std::getenv ("JALL")) std::printf ("%-24s %6.1f dB%s\n", pp->getName (40).toRawUTF8(), db, db > -35 ? "  CLICK" : "");
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "lat")
+    {   // ritardo vero (correlazione col rumore) contro quello dichiarato; JPR = preset, JSET come sopra; JBUF = blocchi irregolari
+        juce::ScopedJuceInitialiser_GUI gx; const double sr = 48000; const int N = 48000 * 3;
+        auto render = [&] (bool uneven, std::vector<float>& in, std::vector<float>& out, int& rep)
+        {
+            Processor q; q.prepareToPlay (sr, 512);
+            if (auto* pr = std::getenv ("JPR")) q.loadPreset (std::atoi (pr));
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = q.apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+            q.prepareToPlay (sr, 512); rep = q.getLatencySamples();
+            juce::Random rnd (7); in.resize ((size_t) N); out.resize ((size_t) N);
+            for (int i = 0; i < N; ++i) in[(size_t) i] = 0.05f * (rnd.nextFloat() * 2 - 1);
+            juce::MidiBuffer m; juce::Random rb (3);
+            for (int off = 0; off < N; )
+            {
+                const int n = uneven ? juce::jmin (N - off, 1 + rb.nextInt (512)) : juce::jmin (512, N - off);
+                juce::AudioBuffer<float> b (2, n); for (int i = 0; i < n; ++i) { b.setSample (0, i, in[(size_t) (off + i)]); b.setSample (1, i, in[(size_t) (off + i)]); }
+                q.processBlock (b, m); for (int i = 0; i < n; ++i) out[(size_t) (off + i)] = b.getSample (0, i);
+                off += n;
+            }
+        };
+        std::vector<float> in, out, in2, out2; int rep = 0; render (false, in, out, rep);
+        double best = -1e30; int bl = 0; std::vector<double> cc (600);
+        for (int l = 0; l < 600; ++l) { double c = 0; for (int i = 24000; i < N - 600; ++i) c += (double) in[(size_t) i] * out[(size_t) (i + l)]; cc[(size_t) l] = c; if (c > best) { best = c; bl = l; } }
+        double fr = bl; if (bl > 0 && bl < 599) { const double a = cc[(size_t) bl - 1], b = cc[(size_t) bl], c = cc[(size_t) bl + 1]; fr = bl + 0.5 * (a - c) / (a - 2 * b + c); }
+        render (true, in2, out2, rep);
+        double e = 0, d = 0; for (int i = 24000; i < N; ++i) { e += (double) out[(size_t) i] * out[(size_t) i]; const double x = out[(size_t) i] - out2[(size_t) i]; d += x * x; }
+        std::printf ("latenza dichiarata %d, misurata %.2f  |  blocchi irregolari vs 512: %.1f dB\n", rep, fr, 10 * std::log10 (d / (e + 1e-30) + 1e-30));
+        return 0;
+    }
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
         if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);

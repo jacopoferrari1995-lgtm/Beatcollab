@@ -232,7 +232,10 @@ void Burro::prepare (double sampleRate, int maxBlock)
     osSat->initProcessing ((size_t) mb); osClip->initProcessing ((size_t) mb);
     osLim = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
     osLim->initProcessing ((size_t) mb);
-    latSat = (int) std::round (osSat->getLatencyInSamples()); latClip = (int) std::round (osClip->getLatencyInSamples()); latLim = (int) std::round (osLim->getLatencyInSamples()); osLat = latSat + latClip + latLim;
+    // il passa-basso a 16 poli dentro l'8x ritarda anche lui (somma di 1/Q diviso la pulsazione di taglio): va contato, altrimenti la DAW sbaglia di 4 campioni
+    const double lpGd = [&] { static const double Q16[8] = { 0.5024, 0.5225, 0.5669, 0.6468, 0.7882, 1.0607, 1.7224, 5.1011 }; double s = 0; for (double q : Q16) s += 1.0 / q;
+                              return s / (MathConstants<double>::twoPi * jmin (21500.0, sampleRate * 0.45)) * sampleRate; }();
+    latSat = (int) std::round (osSat->getLatencyInSamples() + lpGd); latClip = (int) std::round (osClip->getLatencyInSamples() + lpGd); latLim = (int) std::round (osLim->getLatencyInSamples()); osLat = latSat + latClip + latLim;
     gSat.prepare (latSat, mb); gClip.prepare (latClip, mb); gLim.prepare (latLim, mb);
     dryDl[0].prepare (mb + osLat + 8); dryDl[1].prepare (mb + osLat + 8); trDl.prepare (mb + osLat + 8);
     for (auto& r : rampLast) r = -1e9f;
@@ -253,7 +256,11 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         return s.getRawParameterValue (id)->load();   // non succede: la tabella contiene tutti i parametri
     };
     // valori che cambiano il suono di colpo: rampa lineare dal blocco precedente a questo (niente click quando li muovi)
-    auto ramp = [this, &v, N] (int slot, const char* id) { Ramp r; r.a = rampLast[slot] < -1e8f ? v (id) : rampLast[slot]; r.b = v (id); r.n = (float) N; rampLast[slot] = r.b; return r; };
+    // ogni manopola scivola verso il valore nuovo con costante di 20 ms (esponenziale: uguale con qualunque grandezza di buffer)
+    const float rk = std::exp (-(float) N / (0.02f * (float) sr));
+    // un modulo resta acceso finche' la sua quantita' non e' scivolata davvero a zero; da spento riparte da zero
+    auto live = [this, &v] (int slot, const char* id) { const bool l = std::abs (v (id)) > 0.001f || (rampLast[slot] > -1e8f && std::abs (rampLast[slot]) > 0.001f); if (! l) rampLast[slot] = 0; return l; };
+    auto ramp = [this, &v, N, rk] (int slot, const char* id) { Ramp r; const float tg = v (id); r.a = rampLast[slot] < -1e8f ? tg : rampLast[slot]; float e = tg + (r.a - tg) * rk; if (std::abs (e - tg) < 1e-5f) e = tg; r.b = e; r.n = (float) N; rampLast[slot] = e; return r; };
     const auto magR = ramp (0, "u_mag");
     // rilevatore dei transienti
     const float fA = (float) std::exp (-1.0 / (0.0005 * sr)), fR = (float) std::exp (-1.0 / (0.03 * sr)), sA = (float) std::exp (-1.0 / (0.025 * sr)), sR = (float) std::exp (-1.0 / (0.15 * sr));
@@ -287,7 +294,7 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
     // ---- 1. BOOM / NOISE ----
     if (v ("u_bOn") > 0.5f)
     {
-        const auto boomR = ramp (2, "u_boom"); float boom = boomR.b; const float noise = v ("u_noise"); const bool acid = v ("u_acid") > 0.5f; const int nt = (int) v ("u_nType");
+        const auto boomR = ramp (2, "u_boom"); float boom = boomR.b; const float noise = ramp (16, "u_noise").b; const bool acid = v ("u_acid") > 0.5f; const int nt = (int) v ("u_nType");
         const float bf = v ("u_bTone"), bDec = v ("u_bDecay"), punch = v ("u_bPunch");
         const float hpA = coef (7000, sr);
         const float thDec = (float) std::exp (-1.0 / ((0.04 + bDec * 0.45) * sr)), thPd = (float) std::exp (-1.0 / (0.014 * sr)), lowA = coef (140, sr);
@@ -345,9 +352,9 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         case 1:
         {
     // ---- 2. SHIFT ----
-    if (v ("u_shOn") > 0.5f && v ("u_shAmt") > 0.001f)
+    if (v ("u_shOn") > 0.5f && live (1, "u_shAmt"))
     {
-        const auto amtR = ramp (1, "u_shAmt"); const float tgt = v ("u_shTgt"); const int foc = (int) v ("u_shFoc");
+        const auto amtR = ramp (1, "u_shAmt"); const float tgt = ramp (17, "u_shTgt").b; const int foc = (int) v ("u_shFoc");
         const float fst = v ("u_shForm"); const bool useF = std::abs (fst) > 0.05f;
         form.ratio = (float) std::pow (2.0, (v ("u_shPitch") + fst) / 12.0);
         const double ratio = std::pow (2.0, v ("u_shPitch") / 12.0), W = 0.045 * sr; const int BL = shBuf.getNumSamples();
@@ -381,7 +388,7 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         {
     // ---- 3. COMPRESS ----
     grMeter = grMeter.load() * 0.9f;
-    if (v ("u_cOn") > 0.5f && std::abs (v ("u_cAmt")) > 0.001f)
+    if (v ("u_cOn") > 0.5f && live (11, "u_cAmt"))
     {
         const auto amtR = ramp (11, "u_cAmt"); const int type = (int) v ("u_cType"); const float bands = v ("u_cBands");
         struct CT { float att, rel, ratio; };
@@ -433,7 +440,7 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
     // ---- 4. SATURATE (a 8x: niente aliasing anche con fuzz e distorsore) ----
     {
         const bool on = v ("u_sOn") > 0.5f;
-        const auto aR = ramp (10, "u_sAmt");
+        const auto aR = ramp (10, "u_sAmt"), stR = ramp (14, "u_sStyle"), tgR = ramp (15, "u_sTgt");
         juce::dsp::AudioBlock<float> blk (ch, 2, (size_t) N);
         const bool act = on && (aR.a > 0.001f || aR.b > 0.001f);
         if (act && ! gSat.running) { osSat->reset(); gSat.running = true; gSat.warm = 2 * latSat + 8; }
@@ -447,7 +454,7 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         {
             // i modelli di Alter Drive (antiderivata contro l'aliasing, gia' misurati) al posto delle vecchie curve
             const double s4 = sr * kOs;
-            const int type = jlimit (0, 8, (int) v ("u_sType")); const float st = v ("u_sStyle"), tgt = v ("u_sTgt"); const int foc = (int) v ("u_sFoc");
+            const int type = jlimit (0, 8, (int) v ("u_sType")); const float st = stR.b, tgt = tgR.b; const int foc = (int) v ("u_sFoc");
             static const int kMap[9] = { ja::CONSOLE, ja::TAPE, ja::TAPE, ja::VALVOLA, ja::LOFI, ja::FOLD, ja::OVERDRIVE, ja::DISTORSIONE, ja::FUZZ };
             const int model = kMap[type];
             for (auto& d : drv) d.setModel (model);
@@ -482,13 +489,15 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         for (int c = 0; c < nc; ++c) { float* x = u[c]; auto* f = satLp8[c]; for (int k = 0; k < N4; ++k) { float y = x[k]; for (int j = 0; j < 8; ++j) y = f[j] (y); x[k] = y; } }
         if (mono) { std::copy (u[0], u[0] + N4, u[1]); for (int j = 0; j < 8; ++j) satLp8[1][j] = satLp8[0][j]; }
         osSat->processSamplesDown (blk);
-        {   // volume pari: il saturato esce con la stessa energia che entra (media di 150 ms), cosi' il confronto e' onesto
-            double ei = 0, eo = 0; for (int c = 0; c < 2; ++c) for (int i = 0; i < N; ++i) { ei += (double) gSat.tmp[c][(size_t) i] * gSat.tmp[c][(size_t) i]; eo += (double) ch[c][i] * ch[c][i]; }
-            const float kk = std::exp (-(float) N / (0.15f * (float) sr));
-            satLvl[0] = kk * satLvl[0] + (1 - kk) * (float) (ei / N); satLvl[1] = kk * satLvl[1] + (1 - kk) * (float) (eo / N);
-            const float tg = act && satLvl[0] > 1e-10f ? jlimit (0.1f, 2.0f, std::sqrt (satLvl[0] / jmax (1e-12f, satLvl[1]))) : 1.0f;
-            for (int i = 0; i < N; ++i) { const float gg = satAg + (tg - satAg) * (float) (i + 1) / (float) N; ch[0][i] *= gg; ch[1][i] *= gg; }
-            satAg = tg;
+        {   // volume pari: il saturato esce con la stessa energia che entra (media di 150 ms), campione per campione: uguale con ogni buffer
+            const float kk = std::exp (-1.0f / (0.15f * (float) sr)), ka = 1.0f - std::exp (-1.0f / (0.05f * (float) sr));
+            for (int i = 0; i < N; ++i)
+            {
+                const float xi = gSat.tmp[0][(size_t) i] * gSat.tmp[0][(size_t) i] + gSat.tmp[1][(size_t) i] * gSat.tmp[1][(size_t) i], xo = ch[0][i] * ch[0][i] + ch[1][i] * ch[1][i];
+                satLvl[0] = kk * satLvl[0] + (1 - kk) * xi; satLvl[1] = kk * satLvl[1] + (1 - kk) * xo;
+                const float tg = act && satLvl[0] > 1e-10f ? jlimit (0.1f, 2.0f, std::sqrt (satLvl[0] / jmax (1e-12f, satLvl[1]))) : 1.0f;
+                satAg += (tg - satAg) * ka; ch[0][i] *= satAg; ch[1][i] *= satAg;
+            }
         }
         }
         // fuori dall'8x quando e' spento: solo un ritardo uguale, quindi neutro al bit; dissolvenza quando si accende o si spegne
@@ -501,7 +510,7 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         case 4:
         {
     // ---- 5. SPACE ----
-    if (v ("u_spOn") > 0.5f && v ("u_spAmt") > 0.001f)
+    if (v ("u_spOn") > 0.5f && live (3, "u_spAmt"))
     {
         const auto amtR = ramp (3, "u_spAmt"); const int type = (int) v ("u_spType"); const float dec = v ("u_spDecay"), duck = v ("u_spDuck"), width = v ("u_spWidth");
         const int pre = jlimit (1, preBuf.getNumSamples() - 2, (int) (v ("u_spPre") * 0.001 * sr)); const int PL = preBuf.getNumSamples();
@@ -592,9 +601,9 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         case 6:
         {
         // ---- 7. EXTRA: delay a tempo, bitcrush, wobble ----
-        if (v ("u_xOn") > 0.5f && v ("u_xAmt") > 0.001f)
+        if (v ("u_xOn") > 0.5f && live (9, "u_xAmt"))
         {
-            const auto amtR = ramp (9, "u_xAmt"); const int type = (int) v ("u_xType"); const float p1 = v ("u_xP1"), p2 = v ("u_xP2"), tgt = v ("u_xTgt");
+            const auto amtR = ramp (9, "u_xAmt"); const int type = (int) v ("u_xType"); const float p1 = v ("u_xP1"), p2 = v ("u_xP2"), tgt = ramp (18, "u_xTgt").b;
             const int BL = xBuf.getNumSamples();
             const float xlo = v ("u_xLo"), xhi = v ("u_xHi");
             if (xlo != xLast[0]) { xF[0].set (3, sr, xlo, 0, 0.707); xLast[0] = xlo; }
@@ -674,16 +683,27 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         }
         // Pultec
         PultecSettings puS; puS.lb = v ("u_pLB"); puS.la = v ("u_pLA"); puS.lf = (int) v ("u_pLF"); puS.hb = v ("u_pHB"); puS.bw = v ("u_pBW"); puS.hf = (int) v ("u_pHF"); puS.ha = v ("u_pHA"); puS.as = (int) v ("u_pAS");
-        const bool puOn = v ("u_pOn") > 0.5f && pultecActive (puS);
-        if (puOn && (! puInit || std::memcmp (&puS, &puLast, sizeof (puS)) != 0)) { pultecFilters (puS, sr, pu); puLast = puS; puInit = true; }
-        const float puDrive = juce::jmin (1.0f, (puS.lb + puS.hb) / 20.0f * 0.6f + 0.15f);
+        // il Pultec scivola (20 ms) verso le manopole nuove, e si accende/spegne sfumando: niente click
+        if (v ("u_pOn") < 0.5f) { puS.lb = puS.la = puS.hb = puS.ha = 0; }
+        if (! puInit) { puSm = puS; puInit = true; puLast = {}; puLast.lb = -1; }
+        puSm.lf = puS.lf; puSm.hf = puS.hf; puSm.as = puS.as;
         const bool iOn = v ("u_iOn") > 0.5f;
         const float iM = v ("u_iMono");
         if (iOn && iM > 21 && iM != imLast) { imB.set (4, sr, iM, 0, 0.707); imLast = iM; }
         const int limType = (int) v ("u_limType");
         for (int i = 0; i < N; ++i)
         {
-            if (puOn) for (int c = 0; c < 2; ++c) { float y = ch[c][i]; for (auto& f : pu) y = f.run (y, c); ch[c][i] = puCol.run (y, c, AE_PE1C, puDrive, sr); }
+            if ((i & 31) == 0)
+            {
+                const float a = 1.0f - std::exp (-32.0f / (0.02f * (float) sr));
+                auto sm = [a] (float& x, float t) { x += (t - x) * a; if (std::abs (x - t) < 1e-4f) x = t; };
+                sm (puSm.lb, puS.lb); sm (puSm.la, puS.la); sm (puSm.hb, puS.hb); sm (puSm.ha, puS.ha); sm (puSm.bw, puS.bw);
+                puAct = pultecActive (puSm) || pultecActive (puS);
+                if (puAct && std::memcmp (&puSm, &puLast, sizeof (puSm)) != 0) { pultecFilters (puSm, sr, pu); puLast = puSm; }
+                puMix = jmin (1.0f, (puSm.lb + puSm.la + puSm.hb + puSm.ha) * 2.0f);
+                puDrive = jmin (1.0f, (puSm.lb + puSm.hb) / 20.0f * 0.6f + 0.15f);
+            }
+            if (puAct) for (int c = 0; c < 2; ++c) { float y = ch[c][i]; for (auto& f : pu) y = f.run (y, c); const float col = puCol.run (y, c, AE_PE1C, puDrive, sr); ch[c][i] = y + (col - y) * puMix; }
             const float iW = wR.at (i);
             if (iOn && (std::abs (iW - 1.0f) > 0.005f || iM > 21))
             {

@@ -106,7 +106,7 @@ public:
     std::atomic<float> corr { 1 }; double cLL = 0, cRR = 0, cLR = 0;
 private:
     std::unique_ptr<juce::dsp::Oversampling<float>> osSat, osClip, osLim; OsGate gSat, gClip, gLim; int latSat = 0, latClip = 0, latLim = 0, osLat = 0;
-    Hist dryDl[2], trDl; float rampLast[16] {}; float fLo4[2][2] {}, fHi4[2][2] {};
+    Hist dryDl[2], trDl; float rampLast[20] {}; float fLo4[2][2] {}, fHi4[2][2] {};
     std::vector<std::string> pkeys; std::unordered_map<std::string_view, std::atomic<float>*> pcache;
     double sr = 44100;
     std::vector<float> dryL, dryR, trW;
@@ -153,7 +153,7 @@ private:
     float tLp[2] = {}, aLp[2] = {}, mEnvF = 0, mEnvS = 0;
     int lastSpType = -1;
     Bq ae[4]; bool aeAct[4] {}; AeColour aeCol; float lastAe[12] = { 99 };
-    Bq pu[4]; PultecSettings puLast; bool puInit = false; AeColour puCol; Maxx maxx;
+    Bq pu[4]; PultecSettings puLast, puSm; bool puInit = false, puAct = false; float puMix = 0, puDrive = 0.15f; AeColour puCol; Maxx maxx;
     // modulo EXTRA
     juce::AudioBuffer<float> xBuf; int xW = 0; float xLp[2] = {}, xHold[2] = {}; double xPh = 0, xLfo = 0, xDrift = 0, xDt = 0; juce::Random xr; int lastXType = -1;
     float accIn = 0, accOut = 0, accGr = 0, accTr = 0; int accN = 0;
