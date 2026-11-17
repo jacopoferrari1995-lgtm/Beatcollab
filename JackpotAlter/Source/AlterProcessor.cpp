@@ -35,7 +35,11 @@ void PitchStage::frame (const Settings& S, bool monoOnly)
     }
     else { corr = 0; inHz = 0; }
     corrSemi = corr;
-    const float ratio = std::pow (2.0f, (S.pitch + corr) / 12.0f), fRatio = std::pow (2.0f, S.formant / 12.0f);
+    // PITCH e FORMANTE scivolano fra un frame e l'altro (circa 25 ms): niente scalini quando si muovono
+    if (pSm < -100) { pSm = S.pitch; fSm = S.formant; }
+    pSm += (S.pitch - pSm) * 0.2f; fSm += (S.formant - fSm) * 0.2f;
+    if (std::abs (pSm - S.pitch) < 0.002f) pSm = S.pitch; if (std::abs (fSm - S.formant) < 0.002f) fSm = S.formant;
+    const float ratio = std::pow (2.0f, (pSm + corr) / 12.0f), fRatio = std::pow (2.0f, fSm / 12.0f);
     outHz = inHz.load() > 0 ? inHz.load() * ratio : 0.0f;
     const float lifter = (float) (sr * 0.0012);
     pv[0].frame (ratio, fRatio, ! S.link, lifter);
@@ -46,7 +50,7 @@ void PitchStage::process (float* L, float* R, int n, const Settings& S)
 {
     const bool on = std::abs (S.pitch) > 0.004f || std::abs (S.formant) > 0.004f || S.mode != TRASPONI;
     active = on;
-    const float step = (float) (1.0 / (0.03 * sr));
+    const float step = (float) (1.0 / (0.06 * sr));
     if (wasMono && ! S.mono) pv[1].copyFrom (pv[0]);   // torna stereo: il destro riparte da dove sarebbe stato
     wasMono = S.mono;
     for (int i = 0; i < n; ++i)
@@ -63,7 +67,7 @@ void PitchStage::process (float* L, float* R, int n, const Settings& S)
         {
             hopPos = 0;
             if (on || wet > 0) frame (S, S.mono);
-            else for (auto& p : pv) p.markFresh();   // fermo: niente calcolo, il percorso pulito basta
+            else { for (auto& p : pv) p.markFresh(); pSm = 0; fSm = 0; }   // fermo: niente calcolo, il percorso pulito basta
         }
     }
 }
@@ -72,24 +76,28 @@ void PitchStage::process (float* L, float* R, int n, const Settings& S)
 void DriveStage::prepare (double s, int maxBlock)
 {
     sr = s; maxB = juce::jmax (16, maxBlock);
-    os = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+    os = std::make_unique<juce::dsp::Oversampling<float>> (2, 3, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
     os->initProcessing ((size_t) maxB);
-    osLat = juce::roundToInt (os->getLatencyInSamples());
-    for (auto& b : ch) for (auto& c : b) c.prepare (sr * 4, 4);
-    for (auto& c : postCh) c.prepare (sr * 4, 4);
-    for (int c = 0; c < 2; ++c) { x1[c].reset(); x2[c].reset(); ap2[c].reset(); }
-    lastX1 = lastX2 = -1; lastModel = -1; toneSet = 99; toneSm = 0;
-    eIn = eOut = 1e-6f; agSm = 1; for (int b = 0; b < 4; ++b) { gPrev[b] = 1; dPrev[b] = 0; wPrev[b] = 0; } mbSm = 1;
-    for (auto& d : bd) d.assign ((size_t) juce::jmax (1, osLat), 0.0f); bdPos = 0; xw = 0;
-    tdl.assign ((size_t) maxB, 0.0f); tdr = tdl;
+    static const double Q16[8] = { 0.5024, 0.5225, 0.5669, 0.6468, 0.7882, 1.0607, 1.7224, 5.1011 }; double sq = 0; for (double q : Q16) sq += 1.0 / q;
+    const double fc = juce::jmin (21000.0, sr * 0.45);
+    for (int c = 0; c < 2; ++c) for (int j = 0; j < 8; ++j) { aa[c][j].lp (sr * kOs, fc, Q16[j]); aa[c][j].reset(); }
+    osLat = juce::jmax (1, juce::roundToInt (os->getLatencyInSamples() + sq / (juce::MathConstants<double>::twoPi * fc) * sr));
+    for (auto& b : ch) for (auto& c : b) c.prepare (sr * kOs, kOs);
+    for (auto& c : postCh) c.prepare (sr * kOs, kOs);
+    for (auto& b : pre) for (auto& c : b) { c[0].lp (sr * kOs, 5000, 0.5412); c[1].lp (sr * kOs, 5000, 1.3066); c[0].reset(); c[1].reset(); }
+    for (int c = 0; c < 2; ++c) { x1[c].reset(); x2[c].reset(); }
+    fx1 = fx2 = setX1 = setX2 = -1; lastModel = -1; toneSet = 99; toneSm = 0;
+    eIn = eOut = 1e-6f; agSm = 1; for (int b = 0; b < 4; ++b) { gS[b] = 1; dS[b] = 0; wS[b] = 0; } mbS = 1;
+    for (auto& d : bd) d.assign ((size_t) osLat, 0.0f); bdPos = 0; xw = 0;
+    tdl.assign ((size_t) maxB, 0.0f); tdr = tdl; cntOs = cnt1 = 0;
 }
 
 void DriveStage::process (float* l, float* r, int m, const Settings& S)
 {
     if (S.model != lastModel) { for (auto& b : ch) for (auto& c : b) c.setModel (S.model); for (auto& c : postCh) c.setModel (S.model); lastModel = S.model; }
-    const float f1 = juce::jlimit (30.0f, 2000.0f, S.x1), f2 = juce::jlimit (f1 * 1.5f, 16000.0f, S.x2);
-    if (f1 != lastX1) { for (auto& f : x1) f.set (sr * 4, f1); lastX1 = f1; }
-    if (f2 != lastX2) { for (int c = 0; c < 2; ++c) { x2[c].set (sr * 4, f2); ap2[c].set (sr * 4, f2); } lastX2 = f2; }
+    const bool pedal = S.model == FUZZ || S.model == OTTAVA || S.model == DISTORSIONE;
+    const float f1t = juce::jlimit (30.0f, 2000.0f, S.x1), f2t = juce::jlimit (f1t * 1.5f, 16000.0f, S.x2);
+    if (fx1 < 0) { fx1 = f1t; fx2 = f2t; }
     const float mbT = S.multi ? 1.0f : 0.0f;
     float dN[4]; for (int b = 0; b < 3; ++b) dN[b] = juce::jlimit (0.0f, 1.0f, S.drive * S.w[b]); dN[3] = S.drive;
     const bool need = S.drive > 0.0005f;
@@ -103,81 +111,96 @@ void DriveStage::process (float* l, float* r, int m, const Settings& S)
     if (! need && xw <= 0.0f)
     {
         for (int i = 0; i < m; ++i) { l[i] = tdl[(size_t) i]; r[i] = tdr[(size_t) i]; }
-        agSm = 1; autoDb = 0; for (int b = 0; b < 4; ++b) { dPrev[b] = 0; gPrev[b] = 1; wPrev[b] = 0; } mbSm = mbT;
+        agSm = 1; autoDb = 0; for (int b = 0; b < 4; ++b) { dS[b] = 0; gS[b] = 1; wS[b] = 0; } mbS = mbT; fx1 = f1t; fx2 = f2t;
         for (auto& v : bandLev) v = v.load() * 0.85f;
         return;
     }
-    auto resetBands = [this] { for (int c = 0; c < 2; ++c) { x1[c].reset(); x2[c].reset(); ap2[c].reset(); } for (int b = 0; b < 3; ++b) for (auto& c : ch[b]) c.reset(); };
-    if (xw <= 0.0f) { os->reset(); resetBands(); for (auto& c : ch[3]) c.reset(); for (auto& c : postCh) c.reset(); for (auto& t : toneLo) t.reset(); for (auto& t : toneHi) t.reset(); }
-    double ei = 0; for (int i = 0; i < m; ++i) ei += l[i] * l[i] + r[i] * r[i];
-    // tono (inclinazione attorno a 800 Hz), a 1x dopo il drive
-    toneSm += (S.tone - toneSm) * 0.3f; if (std::abs (S.tone - toneSm) < 1e-3f) toneSm = S.tone;
-    if (std::abs (toneSm - toneSet) > 1e-4f) { toneSet = toneSm; for (int c = 0; c < 2; ++c) { toneLo[c].shelf (sr, 800, -6.0 * toneSm, false); toneHi[c].shelf (sr, 800, 6.0 * toneSm, true); } }
-    // rampe per il blocco: guadagno d'ingresso, quanto drive, quanto effetto (sotto il 5% il modello entra piano)
+    if (xw <= 0.0f)
+    {   // si riparte da fermo: tutto pulito
+        os->reset(); for (int c = 0; c < 2; ++c) { x1[c].reset(); x2[c].reset(); for (auto& f : aa[c]) f.reset(); }
+        for (auto& b : ch) for (auto& c : b) c.reset(); for (auto& c : postCh) c.reset(); for (auto& t : toneLo) t.reset(); for (auto& t : toneHi) t.reset();
+        for (auto& b : pre) for (auto& c : b) { c[0].reset(); c[1].reset(); }
+        eIn = eOut = 1e-6f; agSm = 1;
+    }
     float gN[4], wN[4]; for (int b = 0; b < 4; ++b) { gN[b] = juce::Decibels::decibelsToGain (dN[b] * modelInfo (S.model).maxDb); wN[b] = juce::jlimit (0.0f, 1.0f, dN[b] / 0.05f); }
-    const float mbStep = (float) m / (float) (0.03 * sr);
-    const float mbN = mbT > mbSm ? juce::jmin (mbT, mbSm + mbStep) : juce::jmax (mbT, mbSm - mbStep);
-    if (mbSm <= 0.0f && mbN > 0.0f) resetBands();
-    if (mbSm >= 1.0f && mbN < 1.0f) for (auto& c : ch[3]) c.reset();
     for (int b = 0; b < 4; ++b) for (auto& c : ch[b]) c.setDrive (dN[b]);
+    const float k8 = 1.0f - std::exp (-1.0f / (0.02f * (float) (sr * kOs)));            // 20 ms a 8x
+    const float a32 = 1.0f - std::exp (-32.0f / (0.12f * (float) (sr * kOs)));   // i tagli scivolano piu lenti (120 ms): spostano dove lavora la saturazione
     float* chans[2] = { l, r };
     juce::dsp::AudioBlock<float> blk (chans, 2, (size_t) m);
     auto up = os->processSamplesUp (blk);
-    const int M = (int) up.getNumSamples(); const float invM = 1.0f / (float) M;
+    const int M = (int) up.getNumSamples();
     float pk[3] {};
     const int nc = S.mono ? 1 : 2;   // mono: un canale solo, poi si copia
-    for (int c = 0; c < nc; ++c)
+    float* u[2] = { up.getChannelPointer (0), up.getChannelPointer (1) };
+    for (int i = 0; i < M; ++i)
     {
-        float* u = up.getChannelPointer ((size_t) c);
-        auto& po = postCh[c];
-        for (int i = 0; i < M; ++i)
+        // valori che scivolano: uguali campione per campione con qualunque grandezza di buffer
+        for (int b = 0; b < 4; ++b) { dS[b] += (dN[b] - dS[b]) * k8; gS[b] += (gN[b] - gS[b]) * k8; const float wp = wS[b]; wS[b] += (wN[b] - wS[b]) * k8; if (wN[b] <= 0 && wS[b] < 1e-4f) wS[b] = 0;
+            if (wp <= 0.0f && wS[b] > 0.0f) for (auto& c : ch[b]) c.reset(); }
+        mbS += (mbT - mbS) * k8; if (std::abs (mbS - mbT) < 1e-4f) mbS = mbT;
+        if ((cntOs++ & 31) == 0)
+        {   // tagli che scivolano, ricalcolati a piccoli passi
+            fx1 += (f1t - fx1) * a32; fx2 += (f2t - fx2) * a32;
+            if (std::abs (fx1 - setX1) > setX1 * 0.001f) { setX1 = fx1; for (auto& f : x1) f.set (sr * kOs, fx1); }
+            if (std::abs (fx2 - setX2) > setX2 * 0.001f) { setX2 = fx2; for (auto& f : x2) f.set (sr * kOs, fx2); }
+        }
+        for (int c = 0; c < nc; ++c)
         {
-            const float t = (float) (i + 1) * invM, x = u[i], mb = mbSm + (mbN - mbSm) * t;
-            // ogni banda: parte non lineare pesata (va nei filtri lineari comuni) + parte pulita
+            const float x = u[c][i];
             float wetSum = 0, drySum = 0;
             auto band = [&] (int b, float in, float k)
             {
-                const float w = wPrev[b] + (wN[b] - wPrev[b]) * t;
+                const float w = wS[b];
                 if (w <= 0.0f) { drySum += in * k; return in; }
-                const float d = dPrev[b] + (dN[b] - dPrev[b]) * t, g = gPrev[b] + (gN[b] - gPrev[b]) * t;
-                const float y = ch[b][c].core (in, g, d);
+                // pedali (fuzz, ottava, distorsione): gli acuti oltre i 5 kHz non entrano nel transistor, come da un pedale vero (e niente sporco ripiegato)
+                const float xin = pedal ? pre[b][c][1] (pre[b][c][0] (in)) : in;
+                const float y = ch[b][c].core (xin, gS[b], dS[b]) + (pedal ? (in - xin) : 0.0f);
                 wetSum += y * w * k; drySum += in * (1.0f - w) * k; return y;
             };
-            if (mb > 0.0f)
-            {
-                float lo, rest, mid, hi; x1[c].split (x, lo, rest); x2[c].split (rest, mid, hi); lo = ap2[c].allpass (lo);
-                const float yl = band (0, lo, mb), ym = band (1, mid, mb), yh = band (2, hi, mb);
-                pk[0] = juce::jmax (pk[0], std::abs (yl)); pk[1] = juce::jmax (pk[1], std::abs (ym)); pk[2] = juce::jmax (pk[2], std::abs (yh));
+            if (mbS > 0.0f)
+            {   // bande complementari: basso = passa-basso, il resto e' la differenza (la somma torna identica, niente rotazione di fase)
+                const float lo = x1[c].low (x), rest = x - lo, mid = x2[c].low (rest), hi = rest - mid;
+                const float yl = band (0, lo, mbS), ym = band (1, mid, mbS), yh = band (2, hi, mbS);
+                if (c == 0) { pk[0] = juce::jmax (pk[0], std::abs (yl)); pk[1] = juce::jmax (pk[1], std::abs (ym)); pk[2] = juce::jmax (pk[2], std::abs (yh)); }
             }
-            if (mb < 1.0f) band (3, x, 1.0f - mb);
-            u[i] = po.post (wetSum) + drySum;
+            if (mbS < 1.0f) band (3, x, 1.0f - mbS);
+            float y = postCh[c].post (wetSum) + drySum;
+            for (auto& f : aa[c]) y = f (y);
+            u[c][i] = y;
         }
+        if (S.mono) u[1][i] = u[0][i];
     }
     if (S.mono)
-    {   // il destro e' uguale: si copia l'uscita e lo stato, cosi' se torna stereo riparte senza salti
-        std::copy (up.getChannelPointer (0), up.getChannelPointer (0) + M, up.getChannelPointer (1));
-        for (auto& b : ch) b[1] = b[0]; postCh[1] = postCh[0]; x1[1] = x1[0]; x2[1] = x2[0]; ap2[1] = ap2[0];
+    {   // il destro e' uguale: si copia lo stato, cosi' se torna stereo riparte senza salti
+        for (auto& b : ch) b[1] = b[0]; postCh[1] = postCh[0]; x1[1] = x1[0]; x2[1] = x2[0]; for (int j = 0; j < 8; ++j) aa[1][j] = aa[0][j];
+        for (auto& b : pre) b[1][0] = b[0][0], b[1][1] = b[0][1];
     }
-    for (int b = 0; b < 4; ++b) { gPrev[b] = gN[b]; dPrev[b] = dN[b]; wPrev[b] = wN[b]; } mbSm = mbN;
     os->processSamplesDown (blk);
-    for (int c = 0; c < 2; ++c) { float* x = chans[c]; for (int i = 0; i < m; ++i) x[i] = toneHi[c] (toneLo[c] (x[i])); }
-    // guadagno automatico: stessa energia prima e dopo
-    double eo = 0; for (int i = 0; i < m; ++i) eo += l[i] * l[i] + r[i] * r[i];
-    const float k = std::exp (-(float) m / (0.15f * (float) sr));
-    eIn = k * eIn + (1 - k) * (float) (ei / m); eOut = k * eOut + (1 - k) * (float) (eo / m);
-    float target = 1;
-    if (S.autoGain && eIn > 1e-9f) target = juce::jlimit (0.06f, 2.0f, std::sqrt (eIn / juce::jmax (1e-12f, eOut)));
-    const float a0 = agSm; autoDb = juce::Decibels::gainToDecibels (target);
-    for (int i = 0; i < m; ++i) { const float a = a0 + (target - a0) * (float) (i + 1) / (float) m; l[i] *= a; r[i] *= a; }
-    agSm = target;
-    // dissolvenza fra percorso a riposo e percorso con il drive
+    // tono (inclinazione attorno a 800 Hz) e guadagno automatico, campione per campione
+    const float a32b = 1.0f - std::exp (-32.0f / (0.02f * (float) sr));
+    const float kE = std::exp (-1.0f / (0.15f * (float) sr)), kA = 1.0f - std::exp (-1.0f / (0.05f * (float) sr));
     const float xs1 = 1.0f / (float) (0.02 * sr);
     for (int i = 0; i < m; ++i)
     {
+        if ((cnt1++ & 31) == 0)
+        {
+            toneSm += (S.tone - toneSm) * a32b; if (std::abs (S.tone - toneSm) < 1e-3f) toneSm = S.tone;
+            if (std::abs (toneSm - toneSet) > 1e-4f) { toneSet = toneSm; for (int c = 0; c < 2; ++c) { toneLo[c].shelf (sr, 800, -6.0 * toneSm, false); toneHi[c].shelf (sr, 800, 6.0 * toneSm, true); } }
+        }
+        float yl = toneHi[0] (toneLo[0] (l[i])), yr = toneHi[1] (toneLo[1] (r[i]));
+        // stessa energia prima e dopo (riferimento: l'ingresso ritardato, allineato all'uscita)
+        eIn = kE * eIn + (1 - kE) * (tdl[(size_t) i] * tdl[(size_t) i] + tdr[(size_t) i] * tdr[(size_t) i]);
+        eOut = kE * eOut + (1 - kE) * (yl * yl + yr * yr);
+        const float target = S.autoGain && eIn > 1e-9f ? juce::jlimit (0.06f, 2.0f, std::sqrt (eIn / juce::jmax (1e-12f, eOut))) : 1.0f;
+        agSm += (target - agSm) * kA; yl *= agSm; yr *= agSm;
+        // dissolvenza fra percorso a riposo e percorso con il drive
         xw = need ? juce::jmin (1.0f, xw + xs1) : juce::jmax (0.0f, xw - xs1);
-        if (xw < 1.0f) { l[i] = tdl[(size_t) i] + (l[i] - tdl[(size_t) i]) * xw; r[i] = tdr[(size_t) i] + (r[i] - tdr[(size_t) i]) * xw; }
+        l[i] = xw < 1.0f ? tdl[(size_t) i] + (yl - tdl[(size_t) i]) * xw : yl;
+        r[i] = xw < 1.0f ? tdr[(size_t) i] + (yr - tdr[(size_t) i]) * xw : yr;
     }
-    for (int b = 0; b < 3; ++b) bandLev[b] = juce::jmax (pk[b] * mbSm, bandLev[b].load() * 0.85f);
+    autoDb = juce::Decibels::gainToDecibels (agSm);
+    for (int b = 0; b < 3; ++b) bandLev[b] = juce::jmax (pk[b] * mbS, bandLev[b].load() * 0.85f);
 }
 
 // ======================================================================= PROCESSOR

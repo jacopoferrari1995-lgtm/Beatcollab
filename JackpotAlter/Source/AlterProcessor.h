@@ -30,6 +30,25 @@ struct LR4
     void reset() { l1.reset(); l2.reset(); h1.reset(); h2.reset(); }
     inline void split (float x, float& lo, float& hi) { lo = l2 (l1 (x)); hi = h2 (h1 (x)); }
     inline float allpass (float x) { float a, b; split (x, a, b); return a + b; }
+    inline float low (float x) { return l2 (l1 (x)); }
+};
+
+// passa-basso a 24 dB (due Butterworth) a variabili di stato (TPT): si puo' muovere il taglio mentre suona senza transitori
+struct SvfLp4
+{
+    double g = 0, k = 1.41421356, a1 = 1, a2 = 0, a3 = 0, s[2][2] {};
+    void set (double fs, double f) { g = std::tan (juce::MathConstants<double>::pi * juce::jmin (f, fs * 0.45) / fs); a1 = 1.0 / (1.0 + g * (g + k)); a2 = g * a1; a3 = g * a2; }
+    void reset() { for (auto& x : s) x[0] = x[1] = 0; }
+    inline float low (float xf)
+    {
+        double x = xf;
+        for (auto& st : s)
+        {
+            const double v3 = x - st[1], v1 = a1 * st[0] + a2 * v3, v2 = st[1] + a2 * st[0] + a3 * v3;
+            st[0] = 2 * v1 - st[0]; st[1] = 2 * v2 - st[1]; x = v2;
+        }
+        return (float) x;
+    }
 };
 
 struct Settings
@@ -53,7 +72,7 @@ private:
     double sr = 44100; int N = 2048, H = 256, hopPos = 0;
     PhaseVocoder pv[2]; PitchDetector det;
     std::vector<float> dly[2]; int dPos = 0;          // percorso pulito (stessa latenza) quando il pitch e' fermo
-    float wet = 0, corr = 0, lastF0 = 0; int unvoiced = 0; bool wasMono = false;
+    float wet = 0, corr = 0, lastF0 = 0, pSm = -999, fSm = 0; int unvoiced = 0; bool wasMono = false;
 };
 
 // ---------------------------------------------------------------- stadio DRIVE: una banda o tre, un modello
@@ -65,16 +84,19 @@ public:
     int latency() const { return osLat; }
     std::atomic<float> autoDb { 0 }, bandLev[3] {};
 private:
+    static constexpr int kOs = 8;
     double sr = 44100; int osLat = 0, maxB = 512;
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
     DriveChannel ch[4][2], postCh[2];                        // 0-2 bande, 3 banda unica; post: i filtri lineari, una volta sulla somma
-    LR4 x1[2], x2[2], ap2[2];                                // tagli (sovracampionati) e allpass che riallinea i bassi
-    float lastX1 = -1, lastX2 = -1;
+    SvfLp4 x1[2], x2[2];                                     // tagli (sovracampionati): bande complementari, la somma e' il segnale esatto
+    BQ pre[4][2][2];                                         // ingresso dei pedali: niente acuti oltre i 6 kHz nel transistor
+    BQ aa[2][8];                                             // passa-basso a 16 poli a 21 kHz dentro l'8x (il suo ritardo e' contato)
+    float fx1 = -1, fx2 = -1, setX1 = -1, setX2 = -1;
     BQ toneLo[2], toneHi[2]; float toneSm = 0, toneSet = 99;
     float eIn = 1e-6f, eOut = 1e-6f, agSm = 1;
-    float gPrev[4] { 1, 1, 1, 1 }, dPrev[4] {}, wPrev[4] {}, mbSm = 1;  // valori del blocco prima (rampe senza scalini)
+    float gS[4] { 1, 1, 1, 1 }, dS[4] {}, wS[4] {}, mbS = 1;  // valori che scivolano campione per campione (uguali con ogni buffer)
     std::vector<float> bd[2], tdl, tdr; int bdPos = 0; float xw = 0;   // a riposo: solo un ritardo uguale (neutro al bit)
-    int lastModel = -1;
+    int lastModel = -1; long cntOs = 0, cnt1 = 0;
 };
 
 class Processor : public juce::AudioProcessor
