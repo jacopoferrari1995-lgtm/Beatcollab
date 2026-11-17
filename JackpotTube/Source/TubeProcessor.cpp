@@ -17,12 +17,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     B ("sat_in", "Saturation in", false); F ("sat", "Saturation", { 0, 10, 0.01f }, 3); Cc ("satFreq", "Sat freq", { "LOW", "FLAT", "HIGH" }, 1); B ("alt", "Alt tube", false);
     B ("air_in", "Air in", false); F ("air", "Air", { 0, 10, 0.01f }, 4); Cc ("calib", "Calibration", { "DARK", "NORMAL", "BRIGHT" }, 1);
     F ("mix", "Mix", { 0, 1 }, 1); B ("ms", "Mid/Side", false);
-    // enhancer multibanda
+    // enhancer: quattro comandi
     B ("mb_on", "Enhancer on", false);
-    const float xo[4] = { 120, 600, 2500, 8000 }; const float lo[4] = { 40, 200, 800, 3000 }, hi[4] = { 300, 2000, 7000, 16000 };
-    for (int k = 0; k < 4; ++k) { NormalisableRange<float> r (lo[k], hi[k]); r.setSkewForCentre (xo[k]); F ("x" + String (k + 1), "Taglio " + String (k + 1), r, xo[k]); }
-    for (int k = 1; k <= 5; ++k) { F ("h" + String (k), "Armoniche " + String (k), { 0, 1 }, 0); F ("l" + String (k), "Livello " + String (k), { -12, 12, 0.01f }, 0); F ("w" + String (k), "Larghezza " + String (k), { 0, 2 }, 1); }
-    Cc ("char", "Carattere", { "TUBO", "NASTRO", "TRANSISTOR" }, 0); F ("mb_mix", "Enhancer mix", { 0, 1 }, 1);
+    F ("e_amt", "Enhancer amount", { 0, 10, 0.01f }, 4);
+    Cc ("char", "Carattere", { "TUBO", "NASTRO", "TRANSISTOR" }, 0);
+    F ("e_focus", "Enhancer focus", { 0, 1 }, 0.5f);
+    F ("e_width", "Enhancer width", { 0, 2 }, 1);
     F ("out", "Output", { -12, 12, 0.01f }, 0);
     return l;
 }
@@ -36,9 +36,7 @@ Settings Processor::settings() const
     S.hgOn = b ("hg_on"); S.inDb = value ("in"); S.pentode = value ("pentode"); S.triode = value ("triode"); S.density = value ("density");
     S.satIn = b ("sat_in"); S.sat = value ("sat"); S.satFreq = juce::roundToInt (value ("satFreq")); S.alt = b ("alt");
     S.airIn = b ("air_in"); S.air = value ("air"); S.calib = juce::roundToInt (value ("calib")); S.mix = value ("mix"); S.ms = b ("ms");
-    S.mbOn = b ("mb_on"); for (int k = 0; k < 4; ++k) S.xo[k] = valueS ("x" + juce::String (k + 1));
-    for (int k = 0; k < 5; ++k) { S.harm[k] = valueS ("h" + juce::String (k + 1)); S.lvl[k] = valueS ("l" + juce::String (k + 1)); S.width[k] = valueS ("w" + juce::String (k + 1)); }
-    S.character = juce::roundToInt (value ("char")); S.mbMix = value ("mb_mix"); S.outDb = value ("out");
+    S.mbOn = b ("mb_on"); S.amount = value ("e_amt"); S.character = juce::roundToInt (value ("char")); S.focus = value ("e_focus"); S.width = value ("e_width"); S.outDb = value ("out");
     return S;
 }
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -53,16 +51,31 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 void Processor::loadPreset (int i)
 {
     if (! juce::isPositiveAndBelow (i, (int) presets().size())) return;
-    preset = i; jkit::applyPreset (*this, apvts, presets()[(size_t) i], { "out" });
+    preset = i; userName = {}; jkit::applyPreset (*this, apvts, presets()[(size_t) i], { "out" });
+}
+bool Processor::saveUser (const juce::File& f)
+{
+    auto x = apvts.copyState().createXml(); if (! x) return false;
+    const bool ok = x->writeTo (f); if (ok) userName = f.getFileNameWithoutExtension(); return ok;
+}
+bool Processor::loadUser (const juce::File& f)
+{
+    auto x = juce::XmlDocument::parse (f); if (! x) return false;
+    auto t = juce::ValueTree::fromXml (*x); if (! t.isValid()) return false;
+    for (auto* pp : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (pp))
+    {
+        for (int i = 0; i < t.getNumChildren(); ++i) { auto c = t.getChild (i); if (c.getProperty ("id").toString() == rp->paramID) { rp->setValueNotifyingHost (rp->convertTo0to1 ((float) (double) c.getProperty ("value"))); break; } }
+    }
+    userName = f.getFileNameWithoutExtension(); return true;
 }
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
-    auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr);
+    auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr); s.setProperty ("user", userName, nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
-    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); apvts.replaceState (t); } }
+    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); userName = t.getProperty ("user", "").toString(); apvts.replaceState (t); } }
 }
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
 
@@ -74,14 +87,9 @@ static PV hg (float pent, float tri, float sat, int freq, bool alt, bool air, in
     return { { "hg_on", 1 }, { "pentode", pent }, { "triode", tri }, { "sat_in", sat > 0 ? 1.0f : 0.0f }, { "sat", sat }, { "satFreq", (float) freq }, { "alt", alt ? 1.0f : 0.0f },
              { "air_in", air ? 1.0f : 0.0f }, { "air", 4 }, { "calib", (float) calib }, { "density", dens }, { "mix", mix } };
 }
-static PV mb (std::initializer_list<float> h, std::initializer_list<float> l, std::initializer_list<float> w, int ch = 0, float mix = 1)
-{
-    PV r { { "mb_on", 1 }, { "char", (float) ch }, { "mb_mix", mix } }; int k = 1;
-    for (float v : h) r.push_back ({ k == 1 ? "h1" : k == 2 ? "h2" : k == 3 ? "h3" : k == 4 ? "h4" : "h5", v }), ++k; k = 1;
-    for (float v : l) r.push_back ({ k == 1 ? "l1" : k == 2 ? "l2" : k == 3 ? "l3" : k == 4 ? "l4" : "l5", v }), ++k; k = 1;
-    for (float v : w) r.push_back ({ k == 1 ? "w1" : k == 2 ? "w2" : k == 3 ? "w3" : k == 4 ? "w4" : "w5", v }), ++k;
-    return r;
-}
+// enhancer: quantita' 0..10, carattere 0 TUBO / 1 NASTRO / 2 TRANSISTOR, fuoco in Hz, larghezza 0..2
+static float nFoc (float hz) { return juce::jlimit (0.0f, 1.0f, std::log (hz / 60.0f) / std::log (150.0f)); }
+static PV en (float amt, int ch, float hz, float w = 1) { return { { "mb_on", 1 }, { "e_amt", amt }, { "char", (float) ch }, { "e_focus", nFoc (hz) }, { "e_width", w } }; }
 const std::vector<jkit::Preset>& presets()
 {
     // impostazioni dal manuale e dagli esempi d'uso dell'HG-2 (posizioni a orologio convertite)
@@ -94,17 +102,27 @@ const std::vector<jkit::Preset>& presets()
         { "Batteria | Lenta e grossa", "Sat LOW a ore 13, pentode ore 10, alt tube.", cat ({ hg (clk (10), clk (12), clk (13), 0, true, false), PV { { "out", 2.3f } } }) },
         { "Batteria | Pugno", "Pentode ore 14, sat FLAT ore 11, triode basso.", cat ({ hg (clk (14), clk (10), clk (11), 1, false, false, 1, 2), PV { { "out", -0.7f } } }) },
         { "Basso | Spesso", "Sat FLAT, pentode ore 13, alt tube, air: il basso si sente ovunque.", cat ({ hg (clk (13), clk (13), clk (11), 1, true, true), PV { { "out", -5.4f } } }) },
-        { "Basso | Ringhio", "Sat HIGH a ore 15, pentode al massimo.", cat ({ hg (clk (17), clk (14), clk (15), 2, true, true), PV { { "out", -12.0f } } }) },
+        { "Basso | Ringhio", "Sat HIGH a ore 15, pentode quasi al massimo.", cat ({ hg (clk (16), clk (13), clk (14), 2, true, true), PV { { "out", -10.0f } } }) },
         { "Voce | Calda", "Sat LOW a ore 17, pentode ore 13, air.", cat ({ hg (clk (13), clk (12), clk (17), 0, true, true), PV { { "out", -6.7f } } }) },
         { "Voce | Presenza", "Sat FLAT ore 14, triode ore 10, niente air.", cat ({ hg (clk (14), clk (10), clk (14), 1, true, false), PV { { "out", -2.1f } } }) },
         { "Chitarra | Crunch", "Sat LOW ore 10, pentode ore 13, triode ore 14.", cat ({ hg (clk (13), clk (14), clk (10), 0, true, true), PV { { "out", -7.1f } } }) },
         { "Parallelo | Meta valvole", "Pentode e triode spinti al 50% di mix.", cat ({ hg (clk (16), clk (12), clk (13), 1, true, true, 1, 3, 0.5f), PV { { "out", -4.5f } } }) },
-        { "Enhancer | Mix che brilla", "Armoniche leggere su medi alti e aria, un po' di larghezza in alto.", mb ({ 0, 0.1f, 0.25f, 0.35f, 0.3f }, { 0, 0, 0.5f, 1, 1.5f }, { 1, 1, 1.1f, 1.25f, 1.35f }) },
-        { "Enhancer | Basso che si sente", "Armoniche pari sul sub e sui bassi: il basso esce anche dal telefono.", cat ({ mb ({ 0.6f, 0.4f, 0, 0, 0 }, { 0, 1, 0, 0, 0 }, { 0.6f, 0.8f, 1, 1, 1 }), PV { { "out", -1.0f } } }) },
-        { "Enhancer | Voce davanti", "Armoniche sui medi e presenza, medi bassi stretti.", cat ({ mb ({ 0, 0, 0.35f, 0.4f, 0.15f }, { -1, -1, 1, 1.5f, 1 }, { 0.8f, 0.8f, 1, 1.1f, 1.2f }), PV { { "out", 1.0f } } }) },
-        { "Enhancer | Batteria viva", "Nastro su bassi e medi, transistor sugli alti.", mb ({ 0.35f, 0.2f, 0.25f, 0.4f, 0.3f }, { 1, 0, 0, 1, 1 }, { 1, 1, 1, 1.2f, 1.3f }, 1) },
-        { "Enhancer | Largo", "Solo larghezza: bassi mono, alti larghi.", mb ({ 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 }, { 0, 0.7f, 1.2f, 1.5f, 1.6f }) },
-        { "Catena | Valvole + Enhancer", "HG-2 sul bus e harmonic enhancer leggero dopo.", cat ({ cat ({ hg (clk (13), clk (12), clk (10), 0, true, true), mb ({ 0.2f, 0.1f, 0.15f, 0.25f, 0.2f }, { 0, 0, 0, 0.5f, 1 }, { 0.8f, 1, 1, 1.15f, 1.25f }) }), PV { { "out", -2.7f } } }) } };
+        { "Mix | Glue di valvola", "Pentode e triode a ore 12, density un filo: il mix si stringe e prende corpo.", cat ({ hg (clk (12), clk (12), 0, 1, false, false, 1, 2), PV { { "out", 1.5f } } }) },
+        { "Master | Ultimo tocco", "Pochissimo: pentode ore 11, air, mix al 60%. Calore che non si sente ma si sente.", cat ({ hg (clk (11), clk (11), clk (8), 2, false, true, 1, 0, 0.6f), PV { { "out", 1.2f } } }) },
+        { "808 | Si sente sul telefono", "Triode spinto e TUBO sulle armoniche dei bassi: l'808 esce dalle casse piccole.", cat ({ hg (clk (12), clk (14), clk (10), 0, true, false), en (5.5f, 0, 90, 0.6f), PV { { "out", -3.0f } } }) },
+        { "808 | Ringhio drill", "Pentode al limite, ALT TUBE, TRANSISTOR basso: l'808 morde.", cat ({ hg (clk (15), clk (13), clk (13), 1, true, false, 1, 3), en (4, 2, 120, 0.5f), PV { { "out", -8.0f } } }) },
+        { "Voce | Rap davanti", "Sat FLAT, triode basso, enhancer NASTRO sulla presenza: la voce esce dal beat.", cat ({ hg (clk (13), clk (10), clk (12), 1, false, true), en (4, 1, 2500, 1.1f), PV { { "out", -2.5f } } }) },
+        { "Voce | Aria R&B", "Valvole leggere, TUBO sull'aria e largo: lucido senza fischiare.", cat ({ hg (clk (11), clk (11), clk (9), 2, false, true, 1, 0, 0.7f), en (3.5f, 0, 6000, 1.3f), PV { { "out", -0.5f } } }) },
+        { "Voce | Telefono vintage", "Sat HIGH a ore 16, CALIBRATION dark, TRANSISTOR sui medi: voce da radio, per intro e ad-lib.", cat ({ hg (clk (14), clk (13), clk (16), 2, true, false, 0, 2), en (6, 2, 1500, 0.4f), PV { { "out", -9.0f } } }) },
+        { "Batteria | Rullante che spacca", "TRANSISTOR sul corpo del rullante e pentode spinto.", cat ({ hg (clk (14), clk (11), clk (12), 1, false, false, 1, 2), en (5, 2, 700, 1.0f), PV { { "out", -3.5f } } }) },
+        { "Batteria | Boom bap", "Sat LOW, alt tube, NASTRO sui bassi: cassa e rullante come da campionatore.", cat ({ hg (clk (13), clk (12), clk (13), 0, true, false, 0, 1), en (4, 1, 150, 0.8f), PV { { "out", -4.0f } } }) },
+        { "Chitarra | Campione soul", "Valvole calde e TUBO sui medi: il campione si scalda come da vinile.", cat ({ hg (clk (13), clk (13), clk (11), 0, true, false, 0), en (4, 0, 900, 1.2f), PV { { "out", -5.0f } } }) },
+        { "Keys | Rhodes in avanti", "Pentode ore 12, NASTRO sui medi-alti, un po' largo.", cat ({ hg (clk (12), clk (12), clk (10), 1, false, true), en (3.5f, 1, 1800, 1.3f), PV { { "out", -1.5f } } }) },
+        { "Enhancer | Mix che brilla", "Solo enhancer, TUBO sulla presenza e largo in alto.", en (3.5f, 0, 4000, 1.35f) },
+        { "Enhancer | Basso che si sente", "Solo enhancer: armoniche pari sui bassi, il basso esce anche dal telefono.", en (6, 0, 80, 0.6f) },
+        { "Enhancer | Voce davanti", "Solo enhancer, NASTRO sui medi della voce.", en (4.5f, 1, 2000, 1.0f) },
+        { "Enhancer | Grinta", "Solo enhancer, TRANSISTOR sui medi: piu' aggressivo, per synth e chitarre.", en (5, 2, 1200, 1.1f) },
+        { "Catena | Valvole + Enhancer", "HG-2 sul bus e un filo di enhancer TUBO in alto.", cat ({ hg (clk (13), clk (12), clk (10), 0, true, true), en (2.5f, 0, 5000, 1.2f), PV { { "out", -2.7f } } }) } };
     return p;
 }
 }

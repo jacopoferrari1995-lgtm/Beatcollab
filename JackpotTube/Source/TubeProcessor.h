@@ -28,6 +28,11 @@ public:
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
     void loadPreset (int i);
+    // preset tuoi: file .jtb in Musica / Jackpot / Tube Box Preset
+    static juce::File presetFolder() { auto f = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Tube Box Preset"); f.createDirectory(); return f; }
+    bool saveUser (const juce::File& f);
+    bool loadUser (const juce::File& f);
+    juce::String userName;
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     float valueS (const juce::String& id) const { return apvts.getRawParameterValue (id)->load(); }
     Settings settings() const;
