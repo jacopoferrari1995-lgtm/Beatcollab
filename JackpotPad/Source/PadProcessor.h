@@ -235,7 +235,7 @@ private:
         double fin = 0, fout = 0;   // fade in / fade out in campioni della sorgente
         bool active = false, rel = false, choking = false, loop = false; int pad = 0, age = 0, gate = -1, warp = 0;
         SamplePtr s; double pos = 0, inc = 1, a0 = 0, a1 = 0, tRate = 1, pRate = 1, G = 2048, sbpm = 0, pitch = 1; int dir = 1;
-        float velSemis = 0, velDb = 0, velCut = 1, panOff = 0; bool layer = false;
+        float velSemis = 0, velDb = 0, velCut = 1, panOff = 0, xSemis = 0, gmul = 1, gainT = 1, cutT = 20000, fgD = 0; bool layer = false;
         Grain gr[2];
         float gain = 1, env = 0, atkInc = 1, decCoef = 1, relCoef = 1, fEnv = 1, fEnvCoef = 1, cutBase = 20000, fenvAmt = 0, reso = 0.1f; bool atkDone = false, hold = false;
         float ic1[2] = {}, ic2[2] = {}, fg = 0, fk = 1; int ftype = 0, fCount = 0; bool filt = false;
@@ -245,13 +245,18 @@ private:
         Biquad eq[6][2], sol[2]; float cEnv = 0; float holdL = 0, holdR = 0; double holdPh = 0; int active = 0;
         float lastBand[6][5]; float solKey[3] { -1, -1, -1 };
         float lastDrv = -1, drvNorm = 1; int lastDType = -1; float dHp[2] {}, dHpX[2] {}, dLp[2] {};
+        // comandi che scivolano e passaggi sfumati (EQ, compressore, drive, lo-fi)
+        struct Band { float f = 0, g = 0, q = 0, w = 0; int t = -1; bool init = false; } bs[6];
+        float cThr = 0, cMk = 1, cMix = 0, cW = 0; int cCur = 0; bool cInit = false;
+        float dS = 0, dW = 0, nS = 1; int dCur = 0; double aU[2] {}, aF[2] {}; std::unique_ptr<juce::dsp::Oversampling<float>> dOs;
+        float bS = 0, rS = 0, lW = 0;
         PadChain() { for (auto& b : lastBand) for (auto& v : b) v = -999; }
     };
     Voice voices[kVoices];
     PadChain chain[kPads];
     SamplePtr smp[kPads], smp2[kPads];
     mutable juce::SpinLock sLock;
-    double sr = 44100, curBpm = 120;
+    double sr = 44100, curBpm = 120; float gainK = 0.004f, smK = 0.001f;
     std::atomic<int> audP { -1 }, audReq { 0 }; std::atomic<float> audS0 { 0 }, audS1 { 1 }; int audSeen = 0; std::atomic<bool> stopReq { false };
     SamplePtr prevNext, prevS; std::atomic<int> prevReq { 0 }; int prevSeen = 0; double prevPos = 0;
     struct UiEv { int pad, vel; bool on; };
@@ -263,13 +268,15 @@ private:
     int heldVel[kPads] = {}; double nrStart[kPads] = {}; double nrPhase[kPads] = {};
     struct Trig { int off, pad, vel; bool on; };
     std::vector<Trig> trigs; juce::MidiBuffer midiOut; float gainSm[kPads][4] {}; float outSm = -1;
-    juce::AudioBuffer<float> padBuf;
+    juce::AudioBuffer<float> padBuf, drvTmp; static constexpr int kDrvChunk = 1024;
     std::vector<float> revL, revR, dlyInL, dlyInR;
     juce::AudioBuffer<float> dlyBuf; int dlyW = 0; float dlyLpL = 0, dlyLpR = 0;
     juce::Reverb reverb; float satZ = 0;
     std::vector<float> preBuf; int preW = 0; float rvHpZ[2] {}, rvHpX[2] {}; Biquad rvLp; float dlHp[2] {}, dlHpX[2] {}, dlLp[2] {};
     juce::Random rng;
-    float busEnv = 0;
+    float busEnv = 0, bThr = 0, bMk = 1, bW = 0; int bCur = 0; bool bInit = false;
+    std::unique_ptr<juce::dsp::Oversampling<float>> mOsSat, mOsClip; float satS = 0, satW = 0, clipW = 0;
+    void osRun (juce::dsp::Oversampling<float>& os, float* l, float* r, int n, const std::function<void (float*, float*, int, int)>& fn);
     // effetti da performance
     pfx::Engine perf; std::atomic<float>* fxTypeRaw[8] {}; std::atomic<float>* fxAmtRaw[8] {};
     // loudness

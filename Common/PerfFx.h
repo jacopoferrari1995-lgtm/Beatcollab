@@ -231,11 +231,30 @@ public:
         djMode = 0; fxG = 1; amtS = -1; amtC = -1; phLfo = 0; free = 0; tOnS = 0; for (int c = 0; c < 2; ++c) { adL[c] = {}; adT[c] = {}; adF[c] = {}; adD[c] = {}; }
         stuWait = brOn = rvOn = hsOn = frOn = plOn = plDone = false; plG = 0; brX = rvX = hsX = frX = 0; faderS = 1; psPh = 0; rsI1 = rsI2 = rsF = 0; lastPh = brLastPh = 1;
     }
-    void setType (int t) { if (t != type) { type = t; reset(); } }
-    int type = OFF;
+    // cambio tipo sfumato: l'effetto vecchio esce (10 ms), si cambia, il nuovo entra (prima: scambio secco = click)
+    void setType (int t) { pendType = t == type ? -1 : t; }
+    int type = OFF, pendType = -1; float tW = 1.0f; float dryL[64] {}, dryR[64] {};
     float a[kAdv] { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f };   // parametri avanzati (li mette l'Engine)
     // amt: valore della manopola (0..1). bpm, ppq e playing: per gli effetti a tempo
     void process (float* L, float* R, int N, float amt, double bpm, double ppq, bool playing, const float* fam = nullptr)
+    {
+        if (pendType < 0 && tW >= 1.0f) { processAmt (L, R, N, amt, bpm, ppq, playing, fam); return; }
+        const double qps = juce::jmax (40.0, bpm) / 60.0 / sr; const float st = 1.0f / (float) (0.010 * sr);
+        for (int off = 0; off < N; off += 64)
+        {
+            const int m = juce::jmin (64, N - off);
+            if (pendType >= 0 && tW <= 0.0f) { type = pendType; pendType = -1; reset(); }
+            std::copy (L + off, L + off + m, dryL); std::copy (R + off, R + off + m, dryR);
+            processAmt (L + off, R + off, m, amt, bpm, ppq + (playing ? off * qps : 0.0), playing, fam);
+            const float tgt = pendType >= 0 ? 0.0f : 1.0f;
+            for (int i = 0; i < m; ++i)
+            {
+                tW = tgt > tW ? juce::jmin (tgt, tW + st) : juce::jmax (tgt, tW - st);
+                L[off + i] = dryL[i] + (L[off + i] - dryL[i]) * tW; R[off + i] = dryR[i] + (R[off + i] - dryR[i]) * tW;
+            }
+        }
+    }
+    void processAmt (float* L, float* R, int N, float amt, double bpm, double ppq, bool playing, const float* fam = nullptr)
     {
         if (type == OFF || ! smoothAmt (type)) { amtC = amt; processRaw (L, R, N, amt, bpm, ppq, playing, fam); return; }
         if (amtC < 0) amtC = amt;

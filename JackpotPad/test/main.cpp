@@ -9,6 +9,77 @@
 using namespace jp;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "ilab")
+    {   // banco per lo strumento: sinusoide 999.76 Hz sul pad 1 tenuto; ogni comando salta 4 volte; energia non armonica 5-20 kHz contro la versione ferma
+        juce::ScopedJuceInitialiser_GUI gi; const double sr = 48000; const int B = 512, NB = 200; const double F0 = std::getenv ("JFREQ") ? std::atof (std::getenv ("JFREQ")) : 999.76;
+        auto mk = [&] ()
+        {
+            auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (0, 2, sr, B); p->prepareToPlay (sr, B);
+            for (int q = 0; q < kPads; ++q) { p->clearPad (q); p->pad[q].reset(); }
+            p->neutralMasterFx();
+            auto sd = std::make_shared<SampleData>(); sd->sr = sr; sd->buf.setSize (2, (int) sr * 6);
+            for (int k = 0; k < sd->buf.getNumSamples(); ++k) { const float v = 0.5f * (float) std::sin (2 * juce::MathConstants<double>::pi * F0 * k / sr); sd->buf.setSample (0, k, v); sd->buf.setSample (1, k, v); }
+            p->setSample (0, sd);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { const auto id = kv.upToFirstOccurrenceOf ("=", false, false); const float v = kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue();
+                bool done = false; for (int k = 0; k < kNumPadParams; ++k) if (id == kPInfo[k].id) { p->pad[0].v[k] = v; done = true; }
+                if (! done) if (auto* r = p->apvts.getParameter (id)) r->setValueNotifyingHost (r->convertTo0to1 (v)); }
+            return p;
+        };
+        auto render = [&] (Processor& p, std::function<void (int)> at)
+        {
+            std::vector<float> o; juce::AudioBuffer<float> b (2, B);
+            for (int k = 0; k < NB; ++k) { if (at) at (k); juce::MidiBuffer m; if (k == 0) m.addEvent (juce::MidiMessage::noteOn (1, p.rootNote(), (juce::uint8) 127), 0); b.clear(); p.processBlock (b, m); for (int i = 0; i < B; ++i) o.push_back (b.getSample (0, i)); }
+            return o;
+        };
+        juce::dsp::FFT fft (11);
+        auto nonHarm = [&] (const std::vector<float>& x, size_t at) { std::vector<float> w (4096, 0.0f); for (int i = 0; i < 2048; ++i) w[(size_t) i] = x[at + (size_t) i] * (0.5f - 0.5f * std::cos (6.2831853f * i / 2047));
+            fft.performFrequencyOnlyForwardTransform (w.data()); double s2 = 0; for (int k = 1; k < 1024; ++k) { const double fq = k * sr / 2048; if (fq < 5000 || fq > 20000) continue; const double hn = fq / F0; if (std::abs (hn - std::round (hn)) * F0 < 120) continue; s2 += (double) w[(size_t) k] * w[(size_t) k]; } return s2; };
+        {   auto p = mk(); auto o = render (*p, {}); double e = 0, pk = 0; for (size_t i = o.size() / 2; i < o.size(); ++i) { e += o[i] * o[i]; pk = std::max (pk, (double) std::abs (o[i])); }
+            std::printf ("latenza dichiarata %d   livello %.2f dBFS rms   picco %.3f   non armonico %.1f dB\n", p->getLatencySamples(), 10 * std::log10 (e / (o.size() / 2)), pk, 10 * std::log10 (nonHarm (o, o.size() - 4096) + 1e-20) - 60); }
+        if (std::getenv ("JCPU"))
+        {   // caso peggiore: 16 pad suonati insieme, ognuno con EQ, compressore, drive, lo-fi
+            auto p = mk(); auto sd = p->getSample (0);
+            for (int q = 0; q < kPads; ++q) { p->setSample (q, sd); p->pad[q].v[DRIVE] = 0.6f; p->pad[q].v[CMODE] = 2; p->pad[q].v[MIDG] = 4; p->pad[q].v[BITS] = 0.2f; }
+            juce::AudioBuffer<float> b (2, 512); const auto t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int k = 0; k < (int) (10 * sr / 512); ++k) { juce::MidiBuffer m; if (k % 40 == 0) for (int q = 0; q < kPads; ++q) m.addEvent (juce::MidiMessage::noteOn (1, p->rootNote() + q, (juce::uint8) 110), q); p->processBlock (b, m); }
+            std::printf ("CPU 16 pad pieni: %.1f%% di un core\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 100.0); return 0;
+        }
+        if (std::getenv ("JALIAS"))
+        {   // aliasing: picco non armonico in tutta la banda contro la fondamentale
+            auto p = mk(); auto o = render (*p, {}); std::vector<float> w (16384, 0.0f); juce::dsp::FFT f2 (13);
+            for (int i = 0; i < 8192; ++i) w[(size_t) i] = o[o.size() - 8192 + (size_t) i] * (0.5f - 0.5f * std::cos (6.2831853f * i / 8191));
+            f2.performFrequencyOnlyForwardTransform (w.data()); float ref = 0, worst = 0; double wf = 0;
+            for (int k = 4; k < 4096; ++k) { const double fq = k * sr / 8192; const double hn = fq / F0; const bool harm = std::abs (hn - std::round (hn)) * F0 < 60; if (std::abs (fq - F0) < 60) ref = std::max (ref, w[(size_t) k]); else if (! harm && w[(size_t) k] > worst) { worst = w[(size_t) k]; wf = fq; } }
+            std::printf ("aliasing %.0f Hz: %.1f dB a %.0f Hz\n", F0, 20 * std::log10 (worst / (ref + 1e-12f) + 1e-12f), wf); return 0;
+        }
+        auto judge = [&] (const juce::String& name, std::function<void (Processor&, bool)> set)
+        {
+            auto run = [&] (int mode) { auto p = mk(); if (mode == 1) set (*p, true); return render (*p, [&] (int blk) { if (mode == 2 && blk >= 100 && (blk - 100) % 20 == 0 && blk < 180) set (*p, ((blk - 100) / 20) % 2 == 0); }); };
+            const auto a = run (0), b1 = run (1), bb = run (2);
+            double ch = 0; for (size_t i = 0; i < a.size(); ++i) ch = std::max (ch, (double) std::abs (bb[i] - a[i])); if (ch < 1e-6) { std::printf ("  %-26s (nessun effetto)\n", name.toRawUTF8()); return; }
+            double e = 0; for (int j = 0; j < 4; ++j) { const size_t at = (size_t) (100 + j * 20) * B - 1024; e = std::max (e, nonHarm (bb, at) - nonHarm (j % 2 == 0 ? b1 : a, at)); }
+            const double db = 20 * std::log10 (std::sqrt (std::max (0.0, e)) / 1024.0 * 2.0 / 0.5 + 1e-12);
+            std::printf ("  %-26s %6.1f dB%s\n", name.toRawUTF8(), db, db > -35 ? " CLICK" : "");
+        };
+        const juce::String only = std::getenv ("JONLY") ? std::getenv ("JONLY") : "";
+        for (int k = 0; k < kNumPadParams; ++k)
+        {
+            if (only.isNotEmpty() && ! only.contains (kPInfo[k].id)) continue;
+            const auto& I = kPInfo[k]; const float v0 = I.def; float v1;
+            if (I.kind == 6 || I.kind == 7 || I.kind == 8) v1 = v0 + 1 <= I.max ? v0 + 1 : v0 - 1; else v1 = v0 + (v0 - I.min > 0.5f * (I.max - I.min) ? -0.3f : 0.3f) * (I.max - I.min);
+            judge (juce::String ("pad ") + I.id, [&] (Processor& p, bool on) { p.setPadValue (0, k, on ? v1 : v0); });
+        }
+        if (only.isEmpty() || only.contains ("master"))
+            for (auto probe = mk(); auto* prm : probe->getParameters())
+            {
+                auto* rp = dynamic_cast<juce::RangedAudioParameter*> (prm); if (rp == nullptr || (rp->paramID.length() > 3 && rp->paramID[0] == 'p' && juce::CharacterFunctions::isDigit (rp->paramID[1]) && rp->paramID[3] == '_')) continue;
+                const juce::String id = rp->paramID;
+                judge ("ms " + id, [id] (Processor& p, bool on) { auto* r = p.apvts.getParameter (id); const float v0 = r->getDefaultValue(); const int ns = r->getNumSteps(); float v1 = v0 > 0.5f ? v0 - 0.3f : v0 + 0.3f;
+                    if (ns > 1 && ns < 100) { const float st = 1.0f / (float) (ns - 1); v1 = v0 + st <= 1.0001f ? v0 + st : v0 - st; } r->setValueNotifyingHost (on ? v1 : v0); });
+            }
+        return 0;
+    }
+
     if (argc > 1 && juce::String (argv[1]) == "rndneutral")
     {
         juce::ScopedJuceInitialiser_GUI gui0; Processor p; p.prepareToPlay (48000, 512);

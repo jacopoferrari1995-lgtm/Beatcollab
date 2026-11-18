@@ -63,6 +63,34 @@ float driveShape (int t, float x)
     }
 }
 
+// antiderivate dei 7 drive (per l'anti-aliasing ADAA): tabella in double, interpolata
+struct DriveAD
+{
+    static constexpr int kN = 32768; static constexpr double kR = 96.0;
+    std::vector<double> F[kDriveTypes];
+    DriveAD()
+    {
+        const double h = 2 * kR / (kN - 1);
+        for (int t = 0; t < kDriveTypes; ++t)
+        {
+            F[t].assign ((size_t) kN, 0.0);
+            const int z = (kN - 1) / 2; double acc = 0;   // F(0) ~ 0, integrale col metodo di Simpson su mezzo passo
+            for (int i = z + 1; i < kN; ++i) { const double x0 = -kR + (i - 1) * h, x1 = x0 + h; acc += h / 6 * (driveShape (t, (float) x0) + 4 * driveShape (t, (float) (0.5 * (x0 + x1))) + driveShape (t, (float) x1)); F[t][(size_t) i] = acc; }
+            acc = 0;
+            for (int i = z - 1; i >= 0; --i) { const double x1 = -kR + (i + 1) * h, x0 = x1 - h; acc -= h / 6 * (driveShape (t, (float) x0) + 4 * driveShape (t, (float) (0.5 * (x0 + x1))) + driveShape (t, (float) x1)); F[t][(size_t) i] = acc; }
+            const double off = F[t][(size_t) z]; for (auto& v : F[t]) v -= off;
+        }
+    }
+    double at (int t, double x) const
+    {
+        const double h = 2 * kR / (kN - 1); const double u = (juce::jlimit (-kR, kR, x) + kR) / h; const int i = juce::jlimit (0, kN - 2, (int) u); const double f = u - i;
+        double y = F[t][(size_t) i] + (F[t][(size_t) i + 1] - F[t][(size_t) i]) * f;
+        if (x > kR) y += (x - kR) * driveShape (t, (float) kR); else if (x < -kR) y += (x + kR) * driveShape (t, (float) -kR);
+        return y;
+    }
+    static const DriveAD& get() { static const DriveAD d; return d; }
+};
+
 const int kAutoParams[kAutoN] = { GAIN, LEVEL, PAN, TUNE, FINE, START, DECAY, CUTOFF, RESO, DRIVE, SREV, SDLY };
 int autoIndex (int i) { for (int k = 0; k < kAutoN; ++k) if (kAutoParams[k] == i) return k; return -1; }
 
@@ -286,18 +314,28 @@ void Processor::prepareToPlay (double s, int block)
 {
     sr = s;
     perf.prepare (sr);
+    gainK = (float) (1.0 - std::exp (-1.0 / (0.005 * sr))); smK = (float) (1.0 - std::exp (-1.0 / (0.02 * sr)));
     for (int k = 0; k < 8; ++k) { fxTypeRaw[k] = apvts.getRawParameterValue ("fx" + juce::String (k + 1) + "type"); fxAmtRaw[k] = apvts.getRawParameterValue ("fx" + juce::String (k + 1)); }
     kw1.set (2, sr, 1681, 4.0, 0.707); kw2.set (4, sr, 38, 0, 0.5); kw1.reset(); kw2.reset(); lufsAcc = 0; lufsN = 0; for (auto& b : lufsBins) b = 0;
     for (auto& v : voices) { v.active = false; v.s.reset(); }
     // buffer grandi da subito (anche se la DAW manda blocchi piu' lunghi del previsto non serve memoria nuova mentre suona)
-    padBuf.setSize (kPads * 2, juce::jmax (block, 8192)); padBuf.clear();
+    padBuf.setSize (kPads * 2, juce::jmax (block, 8192)); padBuf.clear(); drvTmp.setSize (2, kDrvChunk);
+    for (auto* o : { &mOsSat, &mOsClip }) { *o = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, false, false); (*o)->initProcessing ((size_t) kDrvChunk); (*o)->reset(); }
+    satS = 0; satW = 0; clipW = 0; bInit = false; bW = 0; bCur = 0; busEnv = 0;
+    for (auto& C : chain)
+    {   // drive dei pad a 4x (prima a 1x: aliasing); IIR polifase, ritardo di pochi campioni
+        C = PadChain();
+        C.dOs = std::make_unique<juce::dsp::Oversampling<float>> (2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, false, false);
+        C.dOs->initProcessing ((size_t) kDrvChunk); C.dOs->reset();
+        for (auto& b : C.bs) { b.init = false; b.w = 0; b.t = -1; } C.cInit = false; C.cW = 0; C.cCur = 0; C.dW = 0; C.dS = 0; C.lW = 0; C.bS = 0; C.rS = 0; C.cEnv = 0;
+        for (auto& b : C.eq) for (auto& q : b) q.reset();
+    }
     revL.assign ((size_t) juce::jmax (block, 8192), 0); revR = revL; dlyInL = revL; dlyInR = revL;
     trigs.reserve (2048); pend.reserve (600); midiOut.ensureSize (8192);
     for (auto& g : gainSm) g[0] = -1; outSm = -1;
     dlyBuf.setSize (2, (int) (sr * 4.5)); dlyBuf.clear(); dlyW = 0;
     reverb.setSampleRate (sr); reverb.reset();
     preBuf.assign ((size_t) (2 * ((int) (sr * 0.15) + 8)), 0.0f); preW = 0; rvLp.reset();
-    for (auto& c : chain) c = PadChain();
 }
 
 float Processor::velCurve (int vel) const
@@ -393,7 +431,8 @@ void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, 
         v->gr[1] = { v->pos, 0.0 };
     }
     else v->inc = pitch * (v->warp == 1 ? tempo : 1.0);
-    v->gain = gmul * 0.708f * juce::Decibels::decibelsToGain ((layer ? P.get (LGAIN) : P.get (GAIN)) - (1.0f - vv) * 18.0f * P.get (VLEVEL));   // -3 dB di margine
+    v->gain = v->gainT = gmul * 0.708f * juce::Decibels::decibelsToGain ((layer ? P.get (LGAIN) : P.get (GAIN)) - (1.0f - vv) * 18.0f * P.get (VLEVEL));   // -3 dB di margine
+    v->xSemis = extraSemis; v->gmul = gmul;
     const float atk = P.get (ATTACK);
     v->env = atk < 0.5f ? 1.0f : 0.0f; v->atkDone = atk < 0.5f; v->atkInc = atk < 0.5f ? 1.0f : (float) (1.0 / (atk * 0.001 * sr));
     // partenza a meta' campione (START spostato, velocity start, retro, fette): 1 ms di entrata, altrimenti click
@@ -403,9 +442,9 @@ void Processor::launch (int p, int vel, float r0, float r1, const SamplePtr& s, 
     v->relCoef = (float) std::exp (-1.0 / (P.get (RELEASE) * 0.001 * sr / 4.6));
     v->gate = (P.get (MODE) > 0.5f || loop) ? 1 : -1;
     if (r0 >= 0) { v->gate = -1; v->loop = false; v->hold = true; }   // ascolto di una fetta dall'editor
-    v->cutBase = juce::jlimit (30.0f, 20000.0f, P.get (CUTOFF) * std::pow (2.0f, (vv - 1.0f) * P.get (VFILTER) * 5.0f));
+    v->cutBase = v->cutT = juce::jlimit (30.0f, 20000.0f, P.get (CUTOFF) * std::pow (2.0f, (vv - 1.0f) * P.get (VFILTER) * 5.0f)); v->fgD = 0;
     v->fenvAmt = P.get (FENV); v->fEnv = 1.0f; v->fEnvCoef = (float) std::exp (-1.0 / (P.get (FDECAY) * 0.001 * sr / 4.6));
-    v->ftype = juce::roundToInt (P.get (FTYPE)); v->fCount = 0;
+    v->ftype = juce::roundToInt (P.get (FTYPE)); v->fCount = 0; v->fg = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) v->cutBase * std::pow (2.0f, v->fenvAmt * 7.0f), sr * 0.45) / sr);
     v->filt = ! (v->ftype == 0 && v->cutBase >= 19500.0f && std::abs (v->fenvAmt) < 0.01f);
     v->fk = 2.0f - 1.94f * P.get (RESO);
     v->fg = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) v->cutBase, sr * 0.45) / sr);
@@ -459,11 +498,15 @@ void Processor::render (Voice& v, float* L, float* R, int i)
     const float edge = (dist < 64 ? (float) (dist / 64) : 1.0f) * fade;
     if (v.filt)
     {
-        if (std::abs (v.fenvAmt) > 0.005f && (v.fCount++ & 15) == 0)
+        // ogni 16 campioni: cutoff che scivola verso il comando (in ottave, ~15 ms) piu' l'inviluppo; in mezzo il coefficiente va in rampa
+        if ((v.fCount++ & 15) == 0)
         {
-            const float cut = juce::jlimit (30.0f, 20000.0f, v.cutBase * std::pow (2.0f, v.fenvAmt * 7.0f * v.fEnv));
-            v.fg = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) cut, sr * 0.45) / sr);
+            if (v.cutBase != v.cutT) { v.cutBase *= std::pow (v.cutT / v.cutBase, 0.65f); if (std::abs (v.cutT / v.cutBase - 1.0f) < 0.002f) v.cutBase = v.cutT; }
+            const float cut = juce::jlimit (30.0f, 20000.0f, v.cutBase * (std::abs (v.fenvAmt) > 0.005f ? std::pow (2.0f, v.fenvAmt * 7.0f * v.fEnv) : 1.0f));
+            const float t = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) cut, sr * 0.45) / sr);
+            v.fgD = (t - v.fg) / 16.0f;
         }
+        v.fg += v.fgD;
         v.fEnv *= v.fEnvCoef;
         for (int c = 0; c < 2; ++c)
         {
@@ -472,6 +515,7 @@ void Processor::render (Voice& v, float* L, float* R, int i)
             out[c] = v.ftype == 0 ? v2 : v.ftype == 1 ? x - v.fk * v1 - v2 : v1 * v.fk;
         }
     }
+    v.gain += (v.gainT - v.gain) * gainK;   // GAIN che scivola (~5 ms)
     const float g = v.gain * v.env * edge;
     if (v.panOff != 0.0f)
     {
@@ -704,16 +748,17 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     {
         if (! v.active || ! v.s) continue;
         const auto& P = pad[v.pad];
-        v.pitch = std::pow (2.0, (P.get (TUNE) + P.get (FINE) / 100.0 + v.velSemis) / 12.0) * v.s->sr / sr;
+        // accordi e layer tengono la loro trasposizione e il loro gain (prima tornavano alla nota del pad dopo il primo blocco)
+        v.pitch = std::pow (2.0, (P.get (TUNE) + P.get (FINE) / 100.0 + v.velSemis + v.xSemis + (v.layer ? P.get (LTUNE) : 0.0f)) / 12.0) * v.s->sr / sr;
         const double tempo = (v.warp > 0 && v.sbpm > 40) ? curBpm / v.sbpm : 1.0;
         if (v.warp == 2) { v.tRate = tempo * v.s->sr / sr; v.inc = v.tRate; v.pRate = v.pitch; }
         else v.inc = v.pitch * (v.warp == 1 ? tempo : 1.0);
-        v.gain = 0.708f * juce::Decibels::decibelsToGain (P.get (GAIN) + v.velDb);
-        v.cutBase = juce::jlimit (30.0f, 20000.0f, P.get (CUTOFF) * v.velCut); v.reso = P.get (RESO); v.fk = 2.0f - 1.94f * P.get (RESO);
-        const bool wantF = ! (v.ftype == 0 && v.cutBase >= 19500.0f && std::abs (v.fenvAmt) < 0.01f);
-        if (wantF && ! v.filt) for (int c = 0; c < 2; ++c) { v.ic1[c] = 0; v.ic2[c] = 0; }
+        v.gainT = v.gmul * 0.708f * juce::Decibels::decibelsToGain ((v.layer ? P.get (LGAIN) : P.get (GAIN)) + v.velDb);   // il render ci scivola sopra
+        if (v.layer) v.panOff = P.get (LPAN);
+        v.cutT = juce::jlimit (30.0f, 20000.0f, P.get (CUTOFF) * v.velCut); v.reso = P.get (RESO); v.fk = 2.0f - 1.94f * P.get (RESO);
+        const bool wantF = ! (v.ftype == 0 && v.cutT >= 19500.0f && v.cutBase >= 19500.0f && std::abs (v.fenvAmt) < 0.01f);
+        if (wantF && ! v.filt) { for (int c = 0; c < 2; ++c) { v.ic1[c] = 0; v.ic2[c] = 0; } v.fCount = 0; }
         v.filt = wantF;
-        if (std::abs (v.fenvAmt) <= 0.005f) v.fg = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin ((double) v.cutBase, sr * 0.45) / sr);
     }
     // 1) voci nei bus dei pad
     for (int p = 0; p < kPads; ++p) if (chain[p].active > 0) { padBuf.clear (p * 2, 0, N); padBuf.clear (p * 2 + 1, 0, N); }
@@ -755,26 +800,45 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         float pk = 0; for (int i = 0; i < N; ++i) pk = juce::jmax (pk, std::abs (L[i]) + std::abs (R[i]));
         if (pk > padGlow[p].load()) padGlow[p] = pk;
         if (pk > 1e-5f) C.active = juce::jmax (C.active, (int) (sr * 0.5));
-        // EQ a 6 bande (i tagli 24 dB usano due stadi)
-        if (P.get (EQON) > 0.5f)
+        // EQ a 6 bande (i tagli 24 dB usano due stadi). Frequenza, gain e Q scivolano (coefficienti ogni 16 campioni);
+        // accendere/spegnere una banda o tutto l'EQ e cambiare tipo passano da una dissolvenza (cambio tipo: giu', cambio, su)
         {
+            const float a16 = 1.0f - std::pow (1.0f - smK, 16.0f), wStep = 1.0f / (float) (0.015 * sr);
+            const bool eqOn = P.get (EQON) > 0.5f;
             for (int bd = 0; bd < 6; ++bd)
             {
-                if (P.get (bandP (bd, 0)) < 0.5f) continue;
+                auto& B = C.bs[bd];
+                const bool on = eqOn && P.get (bandP (bd, 0)) > 0.5f;
                 const int t = juce::roundToInt (P.get (bandP (bd, 1)));
-                const float f = P.get (bandP (bd, 2)), gdb = P.get (bandP (bd, 3)), q = P.get (bandP (bd, 4));
-                const bool isCut = t == EQ_LC12 || t == EQ_LC24 || t == EQ_HC12 || t == EQ_HC24;
-                if (! isCut && t != EQ_NOTCH && std::abs (gdb) < 0.05f) continue;
-                auto& lb = C.lastBand[bd];
-                if (lb[0] != (float) t || lb[1] != f || lb[2] != gdb || lb[3] != q)
+                const float fT = P.get (bandP (bd, 2)), gT = P.get (bandP (bd, 3)), qT = P.get (bandP (bd, 4));
+                if (! on && B.w <= 0.0f) { B.init = false; B.t = -1; continue; }
+                if (! B.init) { B.f = fT; B.g = gT; B.q = qT; B.t = t; B.init = true; B.w = 0; for (auto& q : C.eq[bd]) q.reset(); }
+                for (int i0 = 0; i0 < N; i0 += 16)
                 {
-                    lb[0] = (float) t; lb[1] = f; lb[2] = gdb; lb[3] = q;
-                    const int rt = t == EQ_LSHELF ? 0 : t == EQ_BELL ? 1 : t == EQ_HSHELF ? 2 : t == EQ_NOTCH ? 5 : (t == EQ_LC12 || t == EQ_LC24) ? 4 : 3;
-                    C.eq[bd][0].set (rt, sr, f, gdb, isCut ? q : (t == EQ_NOTCH ? juce::jmax (q, 0.5f) * 2 : q));
-                    C.eq[bd][1].set (rt, sr, f, gdb, 0.54);
+                    const int n16 = juce::jmin (16, N - i0);
+                    if (B.w <= 0.0f && B.t != t) { B.t = t; for (auto& q : C.eq[bd]) q.reset(); }
+                    const float wT = (on && B.t == t) ? 1.0f : 0.0f;
+                    const float fo = B.f, go = B.g, qo = B.q;
+                    B.f *= std::pow (fT / B.f, a16); B.g += (gT - B.g) * a16; B.q *= std::pow (qT / B.q, a16);
+                    if (std::abs (B.f / fT - 1) < 1e-4f) B.f = fT; if (std::abs (B.g - gT) < 1e-3f) B.g = gT; if (std::abs (B.q / qT - 1) < 1e-4f) B.q = qT;
+                    auto& lb = C.lastBand[bd];
+                    if (lb[0] != (float) B.t || lb[1] != B.f || lb[2] != B.g || lb[3] != B.q || fo != B.f || go != B.g || qo != B.q)
+                    {
+                        lb[0] = (float) B.t; lb[1] = B.f; lb[2] = B.g; lb[3] = B.q;
+                        const int tt = B.t; const bool isCut = tt == EQ_LC12 || tt == EQ_LC24 || tt == EQ_HC12 || tt == EQ_HC24;
+                        const int rt = tt == EQ_LSHELF ? 0 : tt == EQ_BELL ? 1 : tt == EQ_HSHELF ? 2 : tt == EQ_NOTCH ? 5 : (tt == EQ_LC12 || tt == EQ_LC24) ? 4 : 3;
+                        C.eq[bd][0].set (rt, sr, B.f, B.g, isCut ? B.q : (tt == EQ_NOTCH ? juce::jmax (B.q, 0.5f) * 2 : B.q));
+                        C.eq[bd][1].set (rt, sr, B.f, B.g, 0.54);
+                    }
+                    const int st = (B.t == EQ_LC24 || B.t == EQ_HC24) ? 2 : 1;
+                    for (int i = i0; i < i0 + n16; ++i)
+                    {
+                        B.w = wT > B.w ? juce::jmin (wT, B.w + wStep) : juce::jmax (wT, B.w - wStep);
+                        float l = L[i], r = R[i];
+                        for (int k = 0; k < st; ++k) { l = C.eq[bd][k].run (l, 0); r = C.eq[bd][k].run (r, 1); }
+                        if (B.w >= 1.0f) { L[i] = l; R[i] = r; } else { L[i] += (l - L[i]) * B.w; R[i] += (r - R[i]) * B.w; }
+                    }
                 }
-                const int st = (t == EQ_LC24 || t == EQ_HC24) ? 2 : 1;
-                for (int k = 0; k < st; ++k) for (int i = 0; i < N; ++i) { L[i] = C.eq[bd][k].run (L[i], 0); R[i] = C.eq[bd][k].run (R[i], 1); }
             }
         }
         // SOLO di una banda: si sente solo la zona che la banda tocca
@@ -786,63 +850,126 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             if (C.solKey[0] != (float) ft || C.solKey[1] != f || C.solKey[2] != q) { C.solKey[0] = (float) ft; C.solKey[1] = f; C.solKey[2] = q; for (auto& bq : C.sol) bq.set (ft, sr, f, 0, q); }
             for (int i = 0; i < N; ++i) { L[i] = C.sol[1].run (C.sol[0].run (L[i], 0), 0); R[i] = C.sol[1].run (C.sol[0].run (R[i], 1), 1); }
         }
-        // compressore
-        const int cm = juce::roundToInt (P.get (CMODE));
-        if (cm > 0)
+        // compressore: soglia, makeup e mix scivolano; acceso/spento/cambio modo con dissolvenza del guadagno
         {
             struct CT { float ratio, att, rel, knee; };
             static const CT T[] = { { 1, 1, 1, 0 }, { 2.0f, 15, 160, 10 }, { 4.0f, 5, 100, 6 }, { 10.0f, 0.4f, 60, 1 } };
-            const auto& t = T[cm];
-            const float thr = -P.get (CAMT) * 36.0f, mk = juce::Decibels::decibelsToGain (P.get (CMAKEUP) + P.get (CAMT) * 36.0f * (1 - 1 / t.ratio) * 0.25f), mix = P.get (CMIX);
-            const float aA = (float) std::exp (-1.0 / (t.att * 0.001 * sr)), aR = (float) std::exp (-1.0 / (t.rel * 0.001 * sr));
-            float maxGr = 0;
-            for (int i = 0; i < N; ++i)
+            const int cm = juce::roundToInt (P.get (CMODE));
+            if (cm > 0 || C.cW > 0.0f)
             {
-                const float x = juce::jmax (std::abs (L[i]), std::abs (R[i]));
-                C.cEnv = x > C.cEnv ? aA * C.cEnv + (1 - aA) * x : aR * C.cEnv + (1 - aR) * x;
-                const float lev = juce::Decibels::gainToDecibels (C.cEnv + 1e-7f), over = lev - thr;
-                float gr = 0;
-                if (over > t.knee * 0.5f) gr = over * (1 - 1 / t.ratio);
-                else if (over > -t.knee * 0.5f) { const float o = over + t.knee * 0.5f; gr = (1 - 1 / t.ratio) * o * o / (2 * t.knee); }
-                maxGr = juce::jmax (maxGr, gr);
-                const float g = juce::Decibels::decibelsToGain (-gr) * mk;
-                L[i] = L[i] * (1 - mix) + L[i] * g * mix; R[i] = R[i] * (1 - mix) + R[i] * g * mix;
-            }
-            padGr[p] = maxGr;
-        }
-        else padGr[p] = 0;
-        // drive e lo-fi
-        const float dr = P.get (DRIVE), bits = P.get (BITS), rate = P.get (RATE);
-        if (dr > 0.001f)
-        {
-            const int dt = juce::roundToInt (P.get (DTYPE)); const float k = 1 + dr * dr * 30;
-            if (dr != C.lastDrv || dt != C.lastDType)
-            {   // stesso volume di una sinusoide a -6 dBFS prima e dopo
-                C.lastDrv = dr; C.lastDType = dt; double e = 0;
-                for (int j = 0; j < 64; ++j) { const float y = driveShape (dt, k * 0.5f * std::sin (6.2831853f * j / 64)); e += y * y; }
-                C.drvNorm = 0.3536f / (float) std::sqrt (e / 64 + 1e-12);
-            }
-            // overdrive, distorsione e fuzz: bassi tagliati prima, alti ammorbiditi dopo (come un pedale)
-            const float hpA = dt == 4 ? (float) std::exp (-6.2831853 * 350 / sr) : dt >= 5 ? (float) std::exp (-6.2831853 * 120 / sr) : 1.0f;
-            const float lpA = dt == 1 ? (float) std::exp (-6.2831853 * 11000 / sr) : dt == 4 ? (float) std::exp (-6.2831853 * 6000 / sr) : dt == 5 ? (float) std::exp (-6.2831853 * 4500 / sr) : dt == 6 ? (float) std::exp (-6.2831853 * 3800 / sr) : 0.0f;
-            float* io[2] = { L, R };
-            for (int c = 0; c < 2; ++c)
+                if (C.cW <= 0.0f) C.cCur = cm;
+                const auto& t = T[juce::jmax (1, C.cCur)];
+                const float thrT = -P.get (CAMT) * 36.0f, mkT = juce::Decibels::decibelsToGain (P.get (CMAKEUP) + P.get (CAMT) * 36.0f * (1 - 1 / t.ratio) * 0.25f), mixT = P.get (CMIX);
+                if (! C.cInit) { C.cThr = thrT; C.cMk = mkT; C.cMix = mixT; C.cInit = true; }
+                const float wT = (cm > 0 && cm == C.cCur) ? 1.0f : 0.0f, wStep = 1.0f / (float) (0.015 * sr);
+                const float aA = (float) std::exp (-1.0 / (t.att * 0.001 * sr)), aR = (float) std::exp (-1.0 / (t.rel * 0.001 * sr));
+                float maxGr = 0;
                 for (int i = 0; i < N; ++i)
                 {
-                    float x = io[c][i];
-                    if (hpA < 1.0f) { const float y = hpA * (C.dHp[c] + x - C.dHpX[c]); C.dHpX[c] = x; C.dHp[c] = y; x = y; }
-                    float y = driveShape (dt, x * k) * C.drvNorm;
-                    if (lpA > 0) { C.dLp[c] = y + lpA * (C.dLp[c] - y); y = C.dLp[c]; }
-                    io[c][i] = y;
+                    C.cThr += (thrT - C.cThr) * smK; C.cMk += (mkT - C.cMk) * smK; C.cMix += (mixT - C.cMix) * smK;
+                    C.cW = wT > C.cW ? juce::jmin (wT, C.cW + wStep) : juce::jmax (wT, C.cW - wStep);
+                    const float x = juce::jmax (std::abs (L[i]), std::abs (R[i]));
+                    C.cEnv = x > C.cEnv ? aA * C.cEnv + (1 - aA) * x : aR * C.cEnv + (1 - aR) * x;
+                    const float lev = juce::Decibels::gainToDecibels (C.cEnv + 1e-7f), over = lev - C.cThr;
+                    float gr = 0;
+                    if (over > t.knee * 0.5f) gr = over * (1 - 1 / t.ratio);
+                    else if (over > -t.knee * 0.5f) { const float o = over + t.knee * 0.5f; gr = (1 - 1 / t.ratio) * o * o / (2 * t.knee); }
+                    maxGr = juce::jmax (maxGr, gr * C.cW);
+                    const float g = juce::Decibels::decibelsToGain (-gr) * C.cMk;
+                    const float gm = 1.0f + (g - 1.0f) * C.cMix * C.cW;
+                    L[i] *= gm; R[i] *= gm;
                 }
+                padGr[p] = maxGr;
+                if (C.cW <= 0.0f && cm == 0) C.cInit = false;
+            }
+            else { padGr[p] = 0; C.cEnv = 0; }
         }
-        if (bits > 0.001f || rate > 0.001f)
+        // drive a 4x: quantita' che scivola, volume normalizzato aggiornato ogni 32 campioni, accensione e cambio tipo sfumati.
+        // Uscita = pulito + (saturato - pulito) * peso: a peso 0 e' il segnale identico
         {
-            const float q = std::pow (2.0f, 15.0f - bits * 11.0f); const double step = 1.0 - rate * 0.88;
-            for (int i = 0; i < N; ++i)
+            const float drT = P.get (DRIVE); const int dt = juce::roundToInt (P.get (DTYPE));
+            const bool want = drT > 0.001f;
+            if (want || C.dW > 0.0f)
             {
-                C.holdPh += step; if (C.holdPh >= 1.0) { C.holdPh -= 1.0; C.holdL = L[i]; C.holdR = R[i]; }
-                L[i] = std::round (C.holdL * q) / q; R[i] = std::round (C.holdR * q) / q;
+                if (C.dW <= 0.0f) { if (C.dCur != dt || C.lastDrv < 0) { C.dOs->reset(); C.aU[0] = C.aU[1] = 0; C.aF[0] = C.aF[1] = 0; } C.dCur = dt; C.dHp[0] = C.dHp[1] = C.dHpX[0] = C.dHpX[1] = C.dLp[0] = C.dLp[1] = 0; if (C.lastDrv < 0) C.dS = drT; }
+                const int ct = C.dCur;
+                const float wT = (want && dt == ct) ? 1.0f : 0.0f, wStep = 1.0f / (float) (0.015 * sr);
+                const float hpA = ct == 4 ? (float) std::exp (-6.2831853 * 350 / sr) : ct >= 5 ? (float) std::exp (-6.2831853 * 120 / sr) : 1.0f;
+                const float lpA = ct == 1 ? (float) std::exp (-6.2831853 * 11000 / sr) : ct == 4 ? (float) std::exp (-6.2831853 * 6000 / sr) : ct == 5 ? (float) std::exp (-6.2831853 * 4500 / sr) : ct == 6 ? (float) std::exp (-6.2831853 * 3800 / sr) : 0.0f;
+                float kArr[kDrvChunk], nArr[kDrvChunk], wArr[kDrvChunk];
+                for (int o = 0; o < N; o += kDrvChunk)
+                {
+                    const int n = juce::jmin (kDrvChunk, N - o);
+                    for (int i = 0; i < n; ++i)
+                    {
+                        C.dS += (drT - C.dS) * smK;
+                        C.dW = wT > C.dW ? juce::jmin (wT, C.dW + wStep) : juce::jmax (wT, C.dW - wStep);
+                        const float k = 1 + C.dS * C.dS * 30;
+                        if ((i & 31) == 0 || C.lastDrv < 0)
+                        {   // stesso volume di una sinusoide a -6 dBFS prima e dopo
+                            if (std::abs (C.dS - C.lastDrv) > 1e-5f || C.lastDType != ct)
+                            {
+                                C.lastDrv = C.dS; C.lastDType = ct; double e = 0;
+                                for (int j = 0; j < 64; ++j) { const float y = driveShape (ct, k * 0.5f * std::sin (6.2831853f * j / 64)); e += y * y; }
+                                C.drvNorm = 0.3536f / (float) std::sqrt (e / 64 + 1e-12);
+                            }
+                        }
+                        kArr[i] = k; nArr[i] = C.drvNorm; wArr[i] = C.dW;
+                        for (int c = 0; c < 2; ++c)
+                        {
+                            float x = (c ? R : L)[o + i];
+                            if (hpA < 1.0f) { const float y = hpA * (C.dHp[c] + x - C.dHpX[c]); C.dHpX[c] = x; C.dHp[c] = y; x = y; }
+                            drvTmp.setSample (c, i, x);
+                        }
+                    }
+                    float* ptr[2] = { drvTmp.getWritePointer (0), drvTmp.getWritePointer (1) };
+                    juce::dsp::AudioBlock<float> blk (ptr, 2, (size_t) n);
+                    auto up = C.dOs->processSamplesUp (blk);
+                    const auto& AD = DriveAD::get();
+                    for (int c = 0; c < 2; ++c)
+                    {   // ADAA del primo ordine sopra il 4x: (F(u) - F(u_prima)) / (u - u_prima)
+                        float* d = up.getChannelPointer ((size_t) c);
+                        for (int j = 0; j < n * 8; ++j)
+                        {
+                            const double u = (double) d[j] * kArr[j >> 3], u0 = C.aU[c], dU = u - u0;
+                            const double Fu = AD.at (ct, u);
+                            const double y = std::abs (dU) > 1e-4 ? (Fu - C.aF[c]) / dU : (double) driveShape (ct, (float) (0.5 * (u + u0)));
+                            C.aU[c] = u; C.aF[c] = Fu;
+                            d[j] = (float) y * nArr[j >> 3];
+                        }
+                    }
+                    C.dOs->processSamplesDown (blk);
+                    for (int c = 0; c < 2; ++c)
+                    {
+                        float* io = (c ? R : L) + o; const float* d = ptr[c];
+                        for (int i = 0; i < n; ++i)
+                        {
+                            float y = d[i];
+                            if (lpA > 0) { C.dLp[c] = y + lpA * (C.dLp[c] - y); y = C.dLp[c]; }
+                            io[i] += (y - io[i]) * wArr[i];
+                        }
+                    }
+                }
+                if (C.dW <= 0.0f && ! want) C.lastDrv = -1;
+            }
+        }
+        // lo-fi: bit e frequenza scivolano, entrata/uscita sfumate
+        {
+            const float bT = P.get (BITS), rT = P.get (RATE);
+            const bool want = bT > 0.001f || rT > 0.001f;
+            if (want || C.lW > 0.0f)
+            {
+                const float wT = want ? 1.0f : 0.0f, wStep = 1.0f / (float) (0.015 * sr);
+                if (C.lW <= 0.0f) { C.bS = bT; C.rS = rT; C.holdL = L[0]; C.holdR = R[0]; C.holdPh = 0; }
+                for (int i = 0; i < N; ++i)
+                {
+                    C.bS += (bT - C.bS) * smK; C.rS += (rT - C.rS) * smK;
+                    C.lW = wT > C.lW ? juce::jmin (wT, C.lW + wStep) : juce::jmax (wT, C.lW - wStep);
+                    const float q = std::exp2 (15.0f - C.bS * 11.0f); const double step = 1.0 - C.rS * 0.88;
+                    C.holdPh += step; if (C.holdPh >= 1.0) { C.holdPh -= 1.0; C.holdL = L[i]; C.holdR = R[i]; }
+                    const float l = std::round (C.holdL * q) / q, r = std::round (C.holdR * q) / q;
+                    L[i] += (l - L[i]) * C.lW; R[i] += (r - R[i]) * C.lW;
+                }
             }
         }
         // fader, pan, mute/solo
@@ -918,31 +1045,56 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         for (int i = 0; i < N; ++i) { cl[i] += revL[(size_t) i] * rr; cr[i] += revR[(size_t) i] * rr; }
         const int bm = juce::roundToInt (par ("busMode"));
         float maxGr = 0;
-        if (bm > 0)
-        {
+        if (bm > 0 || bW > 0.0f)
+        {   // soglia e makeup che scivolano; acceso/spento/cambio modo sfumati sul guadagno
             struct BT { float ratio, att, rel; };
             static const BT T[] = { { 1, 1, 1 }, { 2.0f, 10, 200 }, { 4.0f, 20, 90 }, { 12.0f, 0.5f, 60 } };
-            const auto& t = T[bm]; const float thr = -par ("busAmt") * 30.0f, mk = juce::Decibels::decibelsToGain (par ("busAmt") * 30.0f * (1 - 1 / t.ratio) * 0.4f);
+            if (bW <= 0.0f) bCur = bm;
+            const auto& t = T[juce::jmax (1, bCur)]; const float thrT = -par ("busAmt") * 30.0f, mkT = juce::Decibels::decibelsToGain (par ("busAmt") * 30.0f * (1 - 1 / t.ratio) * 0.4f);
+            if (! bInit) { bThr = thrT; bMk = mkT; bInit = true; }
+            const float wT = (bm > 0 && bm == bCur) ? 1.0f : 0.0f, wStep = 1.0f / (float) (0.015 * sr);
             const float aA = (float) std::exp (-1.0 / (t.att * 0.001 * sr)), aR = (float) std::exp (-1.0 / (t.rel * 0.001 * sr));
             for (int i = 0; i < N; ++i)
             {
+                bThr += (thrT - bThr) * smK; bMk += (mkT - bMk) * smK;
+                bW = wT > bW ? juce::jmin (wT, bW + wStep) : juce::jmax (wT, bW - wStep);
                 const float x = juce::jmax (std::abs (cl[i]), std::abs (cr[i]));
                 busEnv = x > busEnv ? aA * busEnv + (1 - aA) * x : aR * busEnv + (1 - aR) * x;
-                const float lev = juce::Decibels::gainToDecibels (busEnv + 1e-7f), gr = lev > thr ? (lev - thr) * (1 - 1 / t.ratio) : 0.0f;
-                maxGr = juce::jmax (maxGr, gr); const float g = juce::Decibels::decibelsToGain (-gr) * mk; cl[i] *= g; cr[i] *= g;
+                const float lev = juce::Decibels::gainToDecibels (busEnv + 1e-7f), gr = lev > bThr ? (lev - bThr) * (1 - 1 / t.ratio) : 0.0f;
+                maxGr = juce::jmax (maxGr, gr * bW); const float g = 1.0f + (juce::Decibels::decibelsToGain (-gr) * bMk - 1.0f) * bW; cl[i] *= g; cr[i] *= g;
             }
+            if (bW <= 0.0f && bm == 0) bInit = false;
         }
+        else busEnv = 0;
         busGr = maxGr;
-        // saturazione del kit: morbida, a guadagno unitario sui livelli bassi
-        if (const float sat = par ("satAmt"); sat > 0.001f)
+        // saturazione del kit a 4x: quantita' che scivola, entrata/uscita sfumate (prima a 1x e accesa di colpo)
         {
-            // spinta fino a +12 dB nella tanh, guadagno sui bassi livelli da 0 a +3 dB, un filo di pari (polarizzazione)
-            const float k = 1.0f + sat * 3.0f, mk = (1.0f + 0.41f * sat) / k, bias = sat * 0.06f, off = std::tanh (bias * k);
-            for (int i = 0; i < N; ++i)
+            const float satT = par ("satAmt"); const bool want = satT > 0.001f;
+            if (want || satW > 0.0f)
             {
-                cl[i] = (std::tanh ((cl[i] + bias) * k) - off) * mk; cr[i] = (std::tanh ((cr[i] + bias) * k) - off) * mk;
-                // blocco della continua introdotta dalla polarizzazione
-                satZ += 0.0005f * (0.5f * (cl[i] + cr[i]) - satZ); cl[i] -= satZ; cr[i] -= satZ;
+                if (satW <= 0.0f) { mOsSat->reset(); satS = satT; satZ = 0; }
+                const float wT = want ? 1.0f : 0.0f, wStep = 1.0f / (float) (0.015 * sr);
+                float sArr[kDrvChunk], wArr[kDrvChunk];
+                for (int o = 0; o < N; o += kDrvChunk)
+                {
+                    const int n = juce::jmin (kDrvChunk, N - o);
+                    for (int i = 0; i < n; ++i) { satS += (satT - satS) * smK; satW = wT > satW ? juce::jmin (wT, satW + wStep) : juce::jmax (wT, satW - wStep); sArr[i] = satS; wArr[i] = satW; drvTmp.setSample (0, i, cl[o + i]); drvTmp.setSample (1, i, cr[o + i]); }
+                    osRun (*mOsSat, drvTmp.getWritePointer (0), drvTmp.getWritePointer (1), n, [&] (float* d0, float* d1, int M, int f)
+                    {   // spinta fino a +12 dB nella tanh, guadagno sui bassi livelli da 0 a +3 dB, un filo di pari (polarizzazione)
+                        for (int j = 0; j < M; ++j)
+                        {
+                            const float sat = sArr[j / f], k = 1.0f + sat * 3.0f, mk = (1.0f + 0.41f * sat) / k, bias = sat * 0.06f, off = std::tanh (bias * k);
+                            d0[j] = (std::tanh ((d0[j] + bias) * k) - off) * mk; d1[j] = (std::tanh ((d1[j] + bias) * k) - off) * mk;
+                        }
+                    });
+                    for (int i = 0; i < n; ++i)
+                    {
+                        float l = drvTmp.getSample (0, i), r = drvTmp.getSample (1, i);
+                        // blocco della continua introdotta dalla polarizzazione
+                        satZ += 0.0005f * (0.5f * (l + r) - satZ); l -= satZ; r -= satZ;
+                        cl[o + i] += (l - cl[o + i]) * wArr[i]; cr[o + i] += (r - cr[o + i]) * wArr[i];
+                    }
+                }
             }
         }
         {   // effetti da performance (8 slot)
@@ -975,12 +1127,29 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         }
         const bool clip = par ("clip") > 0.5f; const float og = juce::Decibels::decibelsToGain (par ("out"));
         if (outSm < 0) outSm = og; const float dOg = (og - outSm) / N;
+        for (int i = 0; i < N; ++i) { outSm += dOg; cl[i] *= outSm; cr[i] *= outSm; }
+        outSm = og;
+        if (clip || clipW > 0.0f)
+        {   // CLIP a 4x (prima a 1x: aliasing), acceso/spento sfumato
+            if (clipW <= 0.0f) mOsClip->reset();
+            const float wT = clip ? 1.0f : 0.0f, wStep = 1.0f / (float) (0.015 * sr);
+            float wArr[kDrvChunk];
+            for (int o = 0; o < N; o += kDrvChunk)
+            {
+                const int n = juce::jmin (kDrvChunk, N - o);
+                for (int i = 0; i < n; ++i) { clipW = wT > clipW ? juce::jmin (wT, clipW + wStep) : juce::jmax (wT, clipW - wStep); wArr[i] = clipW; drvTmp.setSample (0, i, cl[o + i]); drvTmp.setSample (1, i, cr[o + i]); }
+                osRun (*mOsClip, drvTmp.getWritePointer (0), drvTmp.getWritePointer (1), n, [] (float* d0, float* d1, int M, int)
+                {
+                    auto sc = [] (float x) { const float a = std::abs (x); return a > 0.85f ? std::copysign (0.85f + 0.15f * std::tanh ((a - 0.85f) / 0.15f), x) : x; };
+                    for (int j = 0; j < M; ++j) { d0[j] = sc (d0[j]); d1[j] = sc (d1[j]); }
+                });
+                for (int i = 0; i < n; ++i) { cl[o + i] += (drvTmp.getSample (0, i) - cl[o + i]) * wArr[i]; cr[o + i] += (drvTmp.getSample (1, i) - cr[o + i]) * wArr[i]; }
+            }
+        }
         float pk[2] = { 0, 0 };
         for (int i = 0; i < N; ++i)
         {
-            outSm += dOg; float l = cl[i] * outSm, r = cr[i] * outSm;
-            if (clip) { auto sc = [] (float x) { const float a = std::abs (x); return a > 0.85f ? std::copysign (0.85f + 0.15f * std::tanh ((a - 0.85f) / 0.15f), x) : x; }; l = sc (l); r = sc (r); }
-            cl[i] = l; cr[i] = r; pk[0] = juce::jmax (pk[0], std::abs (l)); pk[1] = juce::jmax (pk[1], std::abs (r));
+            const float l = cl[i], r = cr[i]; pk[0] = juce::jmax (pk[0], std::abs (l)); pk[1] = juce::jmax (pk[1], std::abs (r));
             { const float kl = kw2.run (kw1.run (l, 0), 0), kr = kw2.run (kw1.run (r, 1), 1); lufsAcc += (double) kl * kl + (double) kr * kr; }
             if (++lufsN >= (int) (sr * 0.1))
             {   // short-term: media degli ultimi 3 s in blocchi da 100 ms
@@ -995,10 +1164,17 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 colPk = 0; colN = 0; colHits = 0; colVel = 0;
             }
         }
-        outSm = og;
         meterL = juce::jmax (pk[0], meterL.load() * 0.85f); meterR = juce::jmax (pk[1], meterR.load() * 0.85f);
         peakHold = juce::jmax (peakHold.load(), juce::jmax (pk[0], pk[1]));
     }
+}
+
+void Processor::osRun (juce::dsp::Oversampling<float>& os, float* l, float* r, int n, const std::function<void (float*, float*, int, int)>& fn)
+{
+    float* ptr[2] = { l, r }; juce::dsp::AudioBlock<float> blk (ptr, 2, (size_t) n);
+    auto up = os.processSamplesUp (blk); const int f = (int) os.getOversamplingFactor();
+    fn (up.getChannelPointer (0), up.getChannelPointer (1), (int) up.getNumSamples(), f);
+    os.processSamplesDown (blk);
 }
 
 // ---------------- campioni e BPM ----------------
