@@ -1,5 +1,6 @@
 #include "../Source/MixProcessor.h"
 #include "../Source/MixEditor.h"
+#include "TestLab.h"
 using namespace jmx;
 static void feed (Processor& p, int blocks, float amp, double freq, double& ph, std::vector<float>* out = nullptr, bool* nan = nullptr)
 {
@@ -17,6 +18,33 @@ static void pump (Processor& p) { p.forceRebuild(); }
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String (argv[1]) == "mods")
+    {   // elenco moduli
+        for (int t = 1; t < (int) mods().size(); ++t) std::printf ("%d %s | %s\n", t, mod (t).name.toRawUTF8(), catName (mod (t).cat));
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {   // un modulo da solo (JMOD) o un preset (JPRESET), come THE_LAB
+        const int mt = juce::SystemStats::getEnvironmentVariable ("JMOD", "0").getIntValue(), pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "0").getIntValue();
+        { Processor q; std::printf ("%s\n", mt > 0 ? (juce::String ("modulo: ") + mod (mt).name + " (" + mod (mt).inspired + ")").toRawUTF8() : (juce::String ("preset: ") + q.getProgramName (pr)).toRawUTF8()); }
+        testlab::run ([&] (double rate, int blk) -> std::unique_ptr<juce::AudioProcessor>
+        {
+            auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk);
+            if (mt > 0) { p->insertModule (0, mt); } else p->loadPreset (pr);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = p->apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+            p->forceRebuild();
+            return p;
+        }, std::getenv ("JNOCLICK") == nullptr, [mt] (juce::AudioProcessorParameter* q)
+        {
+            auto* r = dynamic_cast<juce::RangedAudioParameter*> (q); if (r == nullptr) return true;
+            const auto id = r->paramID;
+            if (auto* only = std::getenv ("JONLY")) return ! id.contains (only);
+            if (id == "n" || id == "eq_pos" || id == "target" || id == "live" || id.endsWith ("_type")) return true;
+            if (mt > 0) return ! (id.startsWith ("s1_") || id == "in" || id == "out" || id == "cmp");
+            return id.startsWith ("e") && id.contains ("_");   // nei preset: niente bande EQ (si provano a parte)
+        });
+        return 0;
+    }
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
         Processor p; p.prepareToPlay (44100, 512);
@@ -25,6 +53,7 @@ int main (int argc, char** argv)
         Editor ed (p); ed.setSize (Editor::W, Editor::H);
         if (auto* e = std::getenv ("JBAND")) { ed.graph.sel = atoi (e); ed.graph.updatePop(); }
         for (int i = 0; i < 40; ++i) { feed (p, 4, 0.3f, 220 + i * 13, ph); ed.timerCallback(); }
+        if (std::getenv ("JBROWSE")) ed.browser.open();
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;

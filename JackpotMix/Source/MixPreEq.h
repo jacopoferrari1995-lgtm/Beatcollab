@@ -241,7 +241,7 @@ public:
         for (auto& c : lc) c.reset();
         lastType = -1; eqInit = false; lastLc = -1;
     }
-    int latency (int type) const { return isPre (type) ? osLat : 0; }
+    int latency (int type) const { return type != 0 ? osLat : 0; }   // anche gli EQ: il colore gira a 4x
     // curva in frequenza del modulo (per lo schermo)
     static double curveDb (const SlotSet& S, double f, double sr)
     {
@@ -285,7 +285,7 @@ public:
     {
         if (S.type != lastType) { lastType = S.type; eqInit = false; dly.prepare (latency (S.type)); for (auto& c : lc) c.reset(); lastLc = -1; }
         if (S.type == 0) return;
-        if (S.byp) { if (isPre (S.type)) for (int i = 0; i < n; ++i) dly.run (L[i], R[i]); return; }   // stessa latenza anche in bypass
+        if (S.byp) { for (int i = 0; i < n; ++i) dly.run (L[i], R[i]); return; }   // stessa latenza anche in bypass
         const auto sp = modSpec (S.type); auto Rv = [&] (int i) { return specReal (sp[(size_t) i], S.v[i]); };
         float* ch[2] = { L, R };
         if (isPre (S.type))
@@ -313,30 +313,39 @@ public:
                 }
             return;
         }
-        // EQ di colore
-        float sig[kSlotParams + 1]; sig[0] = (float) S.type; for (int i = 0; i < kSlotParams; ++i) sig[i + 1] = S.v[i];
-        if (! eqInit || std::memcmp (sig, lastSig, sizeof (sig)) != 0)
-        {
-            jb::Bq nf[4]; int nb = 4; eqFilters (S, sr, nf, act, nb); nEq = nb;
-            for (int k = 0; k < 4; ++k) { auto keep = eq[k]; eq[k] = nf[k]; std::memcpy (eq[k].z1, keep.z1, sizeof (keep.z1)); std::memcpy (eq[k].z2, keep.z2, sizeof (keep.z2)); }
-            std::memcpy (lastSig, sig, sizeof (sig)); eqInit = true;
-        }
+        // EQ di colore: i comandi scivolano (filtri ricalcolati ogni 32 campioni, niente click girando le manopole),
+        // poi il colore del circuito a 4x con filtri a fase lineare (prima a 1x: armoniche ripiegate a -30 dB)
         const int e = eqOf (S.type); const bool tubeEq = e == E_EQP1A || e == E_MEQ5;
         const int colModel = tubeEq ? jb::AE_PE1C : aeOf (e);
-        const float drive = tubeEq ? Rv (e == E_EQP1A ? 8 : 6) : Rv (9);
-        for (int c = 0; c < 2; ++c) for (int i = 0; i < n; ++i)
+        const float k32 = (float) (1.0 - std::exp (-32.0 / (0.03 * sr)));
+        if (! eqInit) for (int i = 0; i < kSlotParams; ++i) svS[i] = S.v[i];
+        for (int off = 0; off < n; off += 32)
         {
-            float x = ch[c][i];
-            for (int k = 0; k < nEq; ++k) if (act[k]) x = eq[k].run (x, c);
-            ch[c][i] = colour.run (x, c, colModel, drive, sr);
+            const int m = juce::jmin (32, n - off);
+            SlotSet Sm = S; bool moved = ! eqInit;
+            for (int i = 0; i < kSlotParams; ++i) { const float t = S.v[i]; if (svS[i] != t) { svS[i] += (t - svS[i]) * k32; if (std::abs (t - svS[i]) < 1e-4f) svS[i] = t; moved = true; } Sm.v[i] = svS[i]; }
+            if (moved)
+            {
+                jb::Bq nf[4]; int nb = 4; eqFilters (Sm, sr, nf, act, nb); nEq = nb;
+                for (int k = 0; k < 4; ++k) { auto keep = eq[k]; eq[k] = nf[k]; std::memcpy (eq[k].z1, keep.z1, sizeof (keep.z1)); std::memcpy (eq[k].z2, keep.z2, sizeof (keep.z2)); }
+                eqInit = true;
+            }
+            for (int c = 0; c < 2; ++c) for (int i = off; i < off + m; ++i) { float x = ch[c][i]; for (int k = 0; k < nEq; ++k) if (act[k]) x = eq[k].run (x, c); ch[c][i] = x; }
         }
+        const auto spc = modSpec (S.type);
+        const float drive = specReal (spc[(size_t) (tubeEq ? (e == E_EQP1A ? 8 : 6) : 9)], svS[tubeEq ? (e == E_EQP1A ? 8 : 6) : 9]);
+        juce::dsp::AudioBlock<float> blk (ch, 2, (size_t) n);
+        auto up = os->processSamplesUp (blk);
+        const double sr4 = sr * 4;
+        for (int c = 0; c < 2; ++c) { float* d = up.getChannelPointer ((size_t) c); const int N = (int) up.getNumSamples(); for (int i = 0; i < N; ++i) d[i] = colour.run (d[i], c, colModel, drive, sr4); }
+        os->processSamplesDown (blk);
     }
     Preamp pre;
 private:
     double sr = 44100; int maxB = 2048, osLat = 0, lastType = -1, lastLc = -1, nEq = 4;
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
     DelayLine dly; std::vector<float> dry; jkit::Bq lc[4];
-    jb::Bq eq[4]; bool act[4] {}; bool eqInit = false; float lastSig[kSlotParams + 1] {};
+    jb::Bq eq[4]; bool act[4] {}; bool eqInit = false; float lastSig[kSlotParams + 1] {}, svS[kSlotParams] {};
     jb::AeColour colour;
 };
 

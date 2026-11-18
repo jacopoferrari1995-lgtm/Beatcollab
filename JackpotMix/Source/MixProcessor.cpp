@@ -102,10 +102,15 @@ void Processor::prepareToPlay (double s, int mb)
 }
 void Processor::timerCallback()
 {
+    // un modulo che cambia si sostituisce solo dopo che il vecchio e' sfumato via (o se l'audio e' fermo)
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    const bool audioIdle = now - lastAudioMs.load() > 250;
     for (int s = 0; s < kSlots; ++s)
     {
         const int t = slotType (s); const int have = eng[s] ? eng[s]->type : 0;
-        if (t != have) rebuild (s);
+        if (t == have) { pendSince[s] = 0; continue; }
+        if (pendSince[s] == 0) pendSince[s] = now;
+        if (have == 0 || audioIdle || swapOk[s].exchange (false) || now - pendSince[s] > 400) { rebuild (s); pendSince[s] = 0; }
     }
 }
 EqSet Processor::eqSettings() const
@@ -136,8 +141,12 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     scConnected = sc[0] != nullptr;
     Ctx ctx;
     if (auto* ph = getPlayHead()) if (auto pos = ph->getPosition()) { if (auto b = pos->getBpm()) ctx.bpm = *b; if (auto q = pos->getPpqPosition()) ctx.ppq = *q; ctx.playing = pos->getIsPlaying(); }
-    const float inG = juce::Decibels::decibelsToGain (value ("in"));
-    if (std::abs (inG - 1.0f) > 1e-5f) for (int i = 0; i < N; ++i) { L[i] *= inG; R[i] *= inG; }
+    lastAudioMs = juce::Time::getMillisecondCounterHiRes();
+    const float kS = (float) (1.0 - std::exp (-1.0 / (0.02 * sr))), step = 1.0f / (float) (0.02 * sr);
+    {   // INPUT che scivola
+        const float inG = juce::Decibels::decibelsToGain (value ("in"));
+        if (inSm != 1.0f || inG != 1.0f) for (int i = 0; i < N; ++i) { inSm += (inG - inSm) * kS; if (std::abs (inG - inSm) < 1e-6f) inSm = inG; L[i] *= inSm; R[i] *= inSm; }
+    }
     for (int i = 0; i < N; ++i) loudIn.push (L[i], R[i]);
     inS = loudIn.S;
     const bool cmp = value ("cmp") > 0.5f;
@@ -160,25 +169,56 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         {
             if (k == eqPos && eqOn) eq.process (l, r, m, E);
             if (k == n) break;
-            const int t = slotType (k); if (t == 0) continue;
+            const int t = slotType (k);
             const juce::SpinLock::ScopedTryLockType tl (engLock[k]);
-            if (! tl.isLocked() || ! eng[k] || eng[k]->type != t) continue;
-            auto* e = eng[k].get(); const int Lk = e->latency (vbuf[k]);
-            const bool byp = sp[k][1]->load() > 0.5f; const float mix = sp[k][2]->load(); const bool send = mod (t).send;
-            if (byp) { for (int i = 0; i < m; ++i) dryD[k].run (l[i], r[i], Lk); e->gr = 0; continue; }
-            const bool needDry = send || mix < 0.999f;
-            if (needDry) for (int i = 0; i < m; ++i) { float a = l[i], b = r[i]; dryD[k].run (a, b, Lk); scL[(size_t) i] = a; scR[(size_t) i] = b; }
-            e->process (l, r, m, vbuf[k], ctx);
-            if (send) { const float wg = mix * mod (t).wetGain; for (int i = 0; i < m; ++i) { l[i] = scL[(size_t) i] + l[i] * wg; r[i] = scR[(size_t) i] + r[i] * wg; } }
-            else if (needDry) for (int i = 0; i < m; ++i) { l[i] = scL[(size_t) i] + (l[i] - scL[(size_t) i]) * mix; r[i] = scR[(size_t) i] + (r[i] - scR[(size_t) i]) * mix; }
+            if (! tl.isLocked() || ! eng[k]) { if (t == 0) actS[k] = 0; continue; }
+            auto* e = eng[k].get(); const int et = e->type; const int Lk = e->latency (vbuf[k]);
+            const bool byp = sp[k][1]->load() > 0.5f; const float mixT = sp[k][2]->load(); const bool send = mod (et).send;
+            if (lastE[k] != e) { const bool fresh = lastE[k] == nullptr; lastE[k] = e; actS[k] = fresh ? (byp ? 0.0f : 1.0f) : 0.0f; mixS[k] = mixT; }   // modulo nuovo: entra sfumando
+            const float aT = (! byp && et == t) ? 1.0f : 0.0f;
+            if (actS[k] <= 0.0f && aT <= 0.0f)
+            {   // spento, in bypass o in attesa di cambio: passa il pulito con la stessa latenza
+                for (int i = 0; i < m; ++i) dryD[k].run (l[i], r[i], Lk);
+                e->gr = 0; if (et != t) swapOk[k] = true; continue;
+            }
+            for (int i = 0; i < m; ++i) { float a = l[i], b = r[i]; dryD[k].run (a, b, Lk); scL[(size_t) i] = a; scR[(size_t) i] = b; }
+            {   // i comandi continui scivolano (30 ms, aggiornati ogni 32 campioni); selettori e interruttori restano a scatti
+                const auto& spec = mod (et).spec; const float k32 = (float) (1.0 - std::exp (-32.0 / (0.03 * sr)));
+                if (! vInit[k] || lastE[k] != e) { for (int i = 0; i < kP; ++i) vS[k][i] = vbuf[k][i]; vInit[k] = true; }
+                bool moving = false;
+                for (int i = 0; i < kP; ++i) { if (i >= (int) spec.size()) { vS[k][i] = vbuf[k][i]; continue; } const auto& q = spec[(size_t) i]; if (q.fmt == F_ITEMS || q.fmt == F_BOOL || hidden (q)) vS[k][i] = vbuf[k][i]; else if (vS[k][i] != vbuf[k][i]) moving = true; }
+                if (! moving) e->process (l, r, m, vS[k], ctx);
+                else for (int o = 0; o < m; o += 32)
+                {
+                    const int mm = juce::jmin (32, m - o);
+                    for (int i = 0; i < kP; ++i) { const float t = vbuf[k][i]; float& x = vS[k][i]; if (x != t) { x += (t - x) * k32; if (std::abs (t - x) < 1e-5f) x = t; } }
+                    Ctx c2 = ctx; if (c2.scL) { c2.scL += o; c2.scR += o; }
+                    e->process (l + o, r + o, mm, vS[k], c2);
+                }
+            }
+            const float wg = mod (et).wetGain; float a = actS[k], mx = mixS[k];
+            for (int i = 0; i < m; ++i)
+            {
+                a = aT > a ? juce::jmin (1.0f, a + step) : aT < a ? juce::jmax (0.0f, a - step) : a;
+                mx += (mixT - mx) * kS; if (std::abs (mixT - mx) < 1e-6f) mx = mixT;
+                const float d0 = scL[(size_t) i], d1 = scR[(size_t) i];
+                if (send) { const float g = wg * mx * a; l[i] = d0 + l[i] * g; r[i] = d1 + r[i] * g; }
+                else { const float g = mx * a; if (g < 1.0f) { l[i] = d0 + (l[i] - d0) * g; r[i] = d1 + (r[i] - d1) * g; } }
+            }
+            actS[k] = a; mixS[k] = mx;
         }
         const float og = juce::Decibels::decibelsToGain (value ("out"));
-        for (int i = 0; i < m; ++i) { l[i] *= og; r[i] *= og; }
-        // confronto a pari volume: si sente il segnale originale portato allo stesso loudness
-        if (cmp)
+        if (outSm != 1.0f || og != 1.0f) for (int i = 0; i < m; ++i) { outSm += (og - outSm) * kS; if (std::abs (og - outSm) < 1e-6f) outSm = og; l[i] *= outSm; r[i] *= outSm; }
+        // confronto a pari volume: si sente il segnale originale portato allo stesso loudness (entra ed esce sfumando)
+        if (cmp || cmpX > 0.0f)
         {
             const float t = (loudIn.S > -70 && lufsS.load() > -70) ? juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, lufsS.load() - loudIn.S)) : 1.0f;
-            for (int i = 0; i < m; ++i) { cmpG += (t - cmpG) * 0.0005f; l[i] = dryL[(size_t) i] * cmpG; r[i] = dryR[(size_t) i] * cmpG; }
+            const float xT = cmp ? 1.0f : 0.0f;
+            for (int i = 0; i < m; ++i)
+            {
+                cmpG += (t - cmpG) * 0.0005f; cmpX = xT > cmpX ? juce::jmin (1.0f, cmpX + step) : juce::jmax (0.0f, cmpX - step);
+                l[i] += (dryL[(size_t) i] * cmpG - l[i]) * cmpX; r[i] += (dryR[(size_t) i] * cmpG - r[i]) * cmpX;
+            }
         }
         // meter in uscita
         if (resetMeter.exchange (false)) { loudOut.resetIntegrated(); tpHold = -100; }
@@ -215,7 +255,8 @@ void Processor::setModule (int s, int type)
     setP (sid (s, "type"), (float) type); setP (sid (s, "byp"), 0); setP (sid (s, "mix"), d.defMix);
     for (int i = 0; i < kP; ++i) { const auto& sp0 = d.spec[(size_t) i]; setP (sid (s, ("p" + juce::String (i + 1)).toRawUTF8()), hidden (sp0) ? 0.0f : specNorm (sp0, sp0.def)); }
     irPath[s] = {};
-    rebuild (s);
+    // con l'audio che gira il cambio lo fa il timer, dopo che il vecchio modulo e' sfumato via
+    if (! eng[s] || juce::Time::getMillisecondCounterHiRes() - lastAudioMs.load() > 250) rebuild (s);
 }
 void Processor::insertModule (int pos, int type)
 {

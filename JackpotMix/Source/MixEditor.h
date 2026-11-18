@@ -2,6 +2,7 @@
 #include "MixProcessor.h"
 #include "HwLook.h"
 #include "JackpotScale.h"
+#include "PresetBrowser.h"
 
 namespace jmx
 {
@@ -169,6 +170,7 @@ public:
     void insertAt (int pos, int type) { proc.insertModule (pos, type); rack.rebuild(); }
     void chainChanged() { rack.rebuild(); repaint(); }
     void presetMenu();
+    jbrowse::Browser browser; void setupBrowser();
     void slotMenu (int s, juce::Component* target);
     static juce::PopupMenu moduleMenu (int baseId, int current);
     void pickModule (int s, juce::Component* target);   // s = -1: nuovo modulo in fondo

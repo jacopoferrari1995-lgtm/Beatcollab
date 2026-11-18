@@ -132,7 +132,7 @@ private:
                         }
                         y = st.de (y); y = st.dip (st.bump (y)); y = st.air (y);
                         if (lpOn) y = st.lp (y);
-                        if (hiss > 0 && (i & 3) == 0) st.hz = st.nlp (st.nhp ((rng.nextFloat() * 2 - 1) * hiss * 2.0f));
+                        if (hiss > 0 && (i & 3) == 0) st.hz = st.nlp (st.nhp ((rngC[c].nextFloat() * 2 - 1) * hiss * 2.0f));   // un generatore per canale: il fruscio non dipende dai blocchi
                         if (hiss > 0) y += st.hz;
                         y = in + (y - in) * mm;
                         x[i] = S.delta ? y - in : y;
@@ -159,7 +159,7 @@ private:
     }
     static constexpr int kMax = 1024;
     struct Ch { Biquad pre, de, bump, dip, lp, air, nlp, nhp, aa1, aa2; AdaaTanh sat; float hz = 0, dc = 0; };
-    double sr = 48000; int lastModel = -1, lat = 0; float lastBias = 99, biasS = -99, gS = -1, mS = 0, dS = -1; Ch ch[2]; juce::Random rng { 77 };
+    double sr = 48000; int lastModel = -1, lat = 0; float lastBias = 99, biasS = -99, gS = -1, mS = 0, dS = -1; Ch ch[2]; juce::Random rng { 77 }, rngC[2] { juce::Random (77), juce::Random (78) };
     std::vector<float> ring[2], dryT[2]; int rw = 0, warm = 0; float gm = 0; bool running = false;
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
 };

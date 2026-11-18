@@ -808,6 +808,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     inChip = std::make_unique<GainChip> (P ("in"), "INPUT"); outChip = std::make_unique<GainChip> (P ("out"), "OUTPUT");
     addAndMakeVisible (*inChip); addAndMakeVisible (*outChip);
     addAndMakeVisible (sizeChip);
+    setupBrowser();
     scaler.setup();
     startTimerHz (30);
 }
@@ -818,6 +819,7 @@ void Editor::resized()
     rack.signature.clear(); rack.setSize (rack.getWidth(), 480 - 10); rack.rebuild();
     graph.setBounds (10, 548, 1130, 302);
     loud.setBounds (1148, 60, 242, 480); imager.setBounds (1148, 548, 242, 302);
+    browser.setBounds (0, 0, W, H);
     inChip->setBounds (1072, 12, 66, 34); outChip->setBounds (1144, 12, 66, 34);
     sizeChip.setBounds (1330, 22, 58, 16);
     jlook::scaleChildren (*this, scaler.s);
@@ -846,31 +848,43 @@ void Editor::paint (juce::Graphics& g)
         g.setFont (alook::serif (8.5f)); g.setColour (sc ? kTxt : kDim); g.drawFittedText (sc ? "SIDECHAIN\nCOLLEGATO" : "SIDECHAIN\nNON COLLEGATO", scR.withTrimmedLeft (22).toNearestInt(), juce::Justification::centredLeft, 2, 0.8f);
     }
 }
-void Editor::presetMenu()
+void Editor::presetMenu() { browser.open(); }
+// menu dei preset: browser con gruppi, ricerca e note (come Master, FX, Space, Tube Box)
+void Editor::setupBrowser()
 {
-    juce::PopupMenu m; std::map<juce::String, juce::PopupMenu> cats; juce::StringArray order;
-    const auto& F = factoryPresets();
-    for (int i = 0; i < (int) F.size(); ++i) { if (! order.contains (F[(size_t) i].cat)) order.add (F[(size_t) i].cat); cats[F[(size_t) i].cat].addItem (1 + i, F[(size_t) i].name, true, i == proc.preset); }
-    for (auto& c : order) m.addSubMenu (c, cats[c]);
-    m.addSeparator();
-    juce::PopupMenu mine; auto files = Processor::userPresetDir().findChildFiles (juce::File::findFiles, false, "*.xml"); files.sort();
-    for (int i = 0; i < files.size(); ++i) mine.addItem (5000 + i, files[i].getFileNameWithoutExtension());
-    if (files.isEmpty()) mine.addItem (4999, "(nessuno)", false);
-    m.addSubMenu ("I MIEI PRESET", mine);
-    m.addItem (4000, "Salva preset...");
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (scaler.map (presetR.toNearestInt()))), [this, files] (int r)
+    addChildComponent (browser);
+    browser.accent = juce::Colour (0xffd9a441); browser.title = "Preset";
+    auto userFiles = [] { auto f = Processor::userPresetDir().findChildFiles (juce::File::findFiles, false, "*.xml"); f.sort(); return f; };
+    browser.entries = [userFiles]
     {
-        if (r <= 0) return;
-        if (r == 4000)
-        {
-            auto* aw = new juce::AlertWindow ("Salva preset", "Nome del preset:", juce::MessageBoxIconType::NoIcon);
-            aw->addTextEditor ("n", proc.presetName.fromFirstOccurrenceOf ("| ", false, false)); aw->addButton ("Salva", 1, juce::KeyPress (juce::KeyPress::returnKey)); aw->addButton ("Annulla", 0);
-            aw->enterModalState (true, juce::ModalCallbackFunction::create ([this, aw] (int res) { if (res == 1) { proc.saveUserPreset (aw->getTextEditorContents ("n")); repaint(); } }), true);
-            return;
-        }
-        if (r >= 5000) proc.loadUserPreset (files[r - 5000]); else proc.loadPreset (r - 1);
-        graph.sel = graph.popBand = -1; graph.updatePop(); chainChanged();
-    });
+        std::vector<jbrowse::Entry> v; const auto& F = factoryPresets();
+        for (int i = 0; i < (int) F.size(); ++i) { jbrowse::Entry e; e.id = i; e.group = F[(size_t) i].cat; e.name = F[(size_t) i].name; e.note = F[(size_t) i].note; v.push_back (e); }
+        const auto fs = userFiles();
+        for (int i = 0; i < fs.size(); ++i) { jbrowse::Entry e; e.id = 100000 + i; e.user = true; e.group = "I MIEI"; e.name = fs[i].getFileNameWithoutExtension(); e.note = "Preset tuo, salvato in Musica / Jackpot Mixology / Preset."; v.push_back (e); }
+        return v;
+    };
+    browser.current = [this, userFiles]
+    {
+        if (proc.presetName.startsWith ("MIO | ")) { const auto nm = proc.presetName.fromFirstOccurrenceOf ("MIO | ", false, false); const auto fs = userFiles(); for (int i = 0; i < fs.size(); ++i) if (fs[i].getFileNameWithoutExtension() == nm) return 100000 + i; return -1; }
+        return proc.preset;
+    };
+    browser.load = [this, userFiles] (const jbrowse::Entry& e)
+    {
+        if (e.user) proc.loadUserPreset (Processor::userPresetDir().getChildFile (e.name + ".xml")); else proc.loadPreset (e.id);
+        graph.sel = graph.popBand = -1; graph.updatePop(); chainChanged(); repaint();
+    };
+    browser.save = [this]
+    {
+        auto* aw = new juce::AlertWindow ("Salva preset", "Nome del preset (finisce in Musica / Jackpot Mixology / Preset):", juce::MessageBoxIconType::NoIcon, this);
+        aw->addTextEditor ("n", proc.presetName.fromFirstOccurrenceOf ("| ", false, false)); aw->addButton ("SALVA", 1, juce::KeyPress (juce::KeyPress::returnKey)); aw->addButton ("ANNULLA", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        juce::Component::SafePointer<Editor> sp (this);
+        aw->enterModalState (true, juce::ModalCallbackFunction::create ([sp, aw] (int res) { if (sp != nullptr && res == 1) { sp->proc.saveUserPreset (aw->getTextEditorContents ("n")); sp->browser.refresh(); sp->repaint(); } }), true);
+    };
+    browser.canOverwrite = [this] { return proc.presetName.startsWith ("MIO | "); };
+    browser.overwrite = [this] { proc.saveUserPreset (proc.presetName.fromFirstOccurrenceOf ("MIO | ", false, false)); repaint(); };
+    browser.folder = [] { Processor::userPresetDir().startAsProcess(); };
+    browser.remove = [] (const jbrowse::Entry& e) { Processor::userPresetDir().getChildFile (e.name + ".xml").moveToTrash(); };
+    browser.onClose = [this] { repaint(); };
 }
 juce::PopupMenu Editor::moduleMenu (int base, int cur)
 {
@@ -934,6 +948,7 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
 }
 void Editor::timerCallback()
 {
+    if (browser.isVisible()) return;
     ++tick;
     loud.repaint(); imager.repaint();
     if (tick % 2 == 0) graph.tick();

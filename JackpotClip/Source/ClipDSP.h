@@ -148,7 +148,11 @@ public:
             for (int c = 0; c < 2; ++c)
             {
                 // tetto sicuro e uscita
-                float y = juce::jlimit (-1.0f, 1.0f, ch[c][i]) * ceil;
+                // tetto: niente taglio duro a 1x (tagliava le piccole sporgenze tra un campione e l'altro e ripiegava armoniche, -36 dB);
+                // sopra il tetto un ginocchio morbido che lascia al massimo +1 dB
+                float x = ch[c][i]; const float ax = std::abs (x);
+                if (ax > 1.0f) x = std::copysign (1.0f + 0.12f * std::tanh ((ax - 1.0f) / 0.12f), x);
+                float y = x * ceil;
                 const float d = dry.getSample (c, i);
                 if (S.delta) y = d * drive - y;            // quello che il clipper toglie
                 y = (y * S.mix + d * (1 - S.mix) * (S.link ? 1.0f : 1.0f)) * outG;

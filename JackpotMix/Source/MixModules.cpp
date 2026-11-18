@@ -304,13 +304,15 @@ namespace
 // rimette il volume a pari: confronta l'energia prima e dopo (lento, non pompa)
 struct AutoLevel
 {
-    double pin = 1e-6, pout = 1e-6; float g = 1; float a = 0.9995f;
-    void prepare (double sr) { a = (float) std::exp (-1.0 / (0.4 * sr)); pin = pout = 1e-6; g = 1; }
-    void measureIn (const float* L, const float* R, int n) { for (int i = 0; i < n; ++i) pin = pin * a + (1 - a) * (double) (L[i] * L[i] + R[i] * R[i]); }
+    // l'energia d'ingresso e' tenuta campione per campione: il guadagno non dipende dalla grandezza dei blocchi
+    double pin = 1e-6, pout = 1e-6; float g = 1; float a = 0.9995f; std::vector<float> e;
+    void prepare (double sr) { a = (float) std::exp (-1.0 / (0.4 * sr)); pin = pout = 1e-6; g = 1; e.assign (8192, 0.0f); }
+    void measureIn (const float* L, const float* R, int n) { if ((int) e.size() < n) e.resize ((size_t) n); for (int i = 0; i < n; ++i) e[(size_t) i] = L[i] * L[i] + R[i] * R[i]; }
     void apply (float* L, float* R, int n, bool on)
     {
         for (int i = 0; i < n; ++i)
         {
+            pin = pin * a + (1 - a) * (double) e[(size_t) i];
             pout = pout * a + (1 - a) * (double) (L[i] * L[i] + R[i] * R[i]);
             const float t = on ? (float) juce::jlimit (0.06, 4.0, std::sqrt (pin / juce::jmax (1e-9, pout))) : 1.0f;
             g += (t - g) * 0.0005f; L[i] *= g; R[i] *= g;
@@ -346,43 +348,96 @@ public:
     void process (float* L, float* R, int n, const float* v, const Ctx&) override { ds.process (L, R, n, set (v)); gr = ds.grUi; peakOut (*this, L, R, n); }
     DeEsser ds;
 };
-// saturazioni e distorsioni con i modelli dell'Alter Drive, sovracampionate 4x
+// saturazioni e distorsioni con i modelli dell'Alter Drive: 4x con filtri a fase lineare (latenza esatta), drive, uscita e filtri
+// che scivolano campione per campione (stesso suono con ogni buffer, niente click); fuzz, ottava, distorsione e ampli come nell'Alter:
+// gli acuti sopra 5 kHz non entrano nel transistor (niente aliasing), tornano puliti dopo
 class DriveEng : public Engine
 {
 public:
     void prepare (double s, int mb) override
     {
-        sr = s; os = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false); os->initProcessing ((size_t) mb);
-        for (auto& c : ch) c.prepare (sr * 4, 4); al.prepare (sr); for (auto& f : flt) f.reset(); last = -99;
+        sr = s; mbk = juce::jmax (64, mb);
+        os = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true); os->initProcessing ((size_t) mbk);
+        lat = juce::roundToInt (os->getLatencyInSamples());
+        for (auto& c : ch) c.prepare (sr * 4, 4); al.prepare (sr); for (auto& f : flt) f.reset();
+        for (auto& b : hiD) b.assign ((size_t) juce::jmax (1, lat), 0.0f); hw = 0; for (auto& b : hiOut) b.assign ((size_t) mbk, 0.0f);
+        gArr.assign ((size_t) mbk, 1.0f); dArr = gArr; first = true; cnt = 0;
+        for (auto& p : pre) p.reset();
+        const double w = juce::MathConstants<double>::pi * 5000.0 / sr; pg = (float) std::tan (w);
     }
-    int latency (const float*) const override { return os ? juce::roundToInt (os->getLatencyInSamples()) : 0; }
+    int latency (const float*) const override { return lat; }
     void process (float* L, float* R, int n, const float* v, const Ctx&) override
     {
         const bool decap = mod (type).kind == K_DECAP;
-        int model = mod (type).sub; float drive = rv (v, 0), tone = rv (v, decap ? 2 : 1), lo = rv (v, decap ? 3 : 2), hi = rv (v, decap ? 4 : 3), outDb = rv (v, decap ? 6 : 4); bool autoL = rv (v, decap ? 7 : 5) > 0.5f;
+        int model = mod (type).sub; const float drive = rv (v, 0), tone = rv (v, decap ? 2 : 1), lo = rv (v, decap ? 3 : 2), hi = rv (v, decap ? 4 : 3), outDb = rv (v, decap ? 6 : 4); const bool autoL = rv (v, decap ? 7 : 5) > 0.5f;
         float boost = 0;
         if (decap) { static const int st[] = { ja::TAPE, ja::TRASFORMATORE, ja::CONSOLE, ja::VALVOLA, ja::CLIPPER }; model = st[juce::jlimit (0, 4, (int) rv (v, 1))]; if (rv (v, 5) > 0.5f) boost = 20; }
-        for (auto& c : ch) { c.setModel (model); c.setDrive (drive); }
-        const float key = lo * 3 + hi * 7 + tone * 1000;
-        if (key != last)
-        {
-            last = key;
-            for (int c = 0; c < 2; ++c) { flt[c * 4].hp (sr, juce::jmax (10.0f, lo), 0.7071); flt[c * 4 + 1].lp (sr, juce::jmin ((double) hi, sr * 0.45), 0.7071); flt[c * 4 + 2].lowShelf (sr, 700, -tone * 6, 0.6); flt[c * 4 + 3].highShelf (sr, 1500, tone * 6, 0.6); }
-        }
+        for (auto& c : ch) c.setModel (model);
+        const bool pedal = model == ja::FUZZ || model == ja::OTTAVA || model == ja::AMP || model == ja::DISTORSIONE;
+        const float kS = (float) (1.0 - std::exp (-1.0 / (0.02 * sr))), k32 = (float) (1.0 - std::exp (-32.0 / (0.03 * sr)));
+        const float maxDb = ja::modelInfo (model).maxDb;
+        if (first) { dS = drive; bS = boost; oS = outDb; loS = lo; hiS = hi; toS = tone; first = false; setFilters(); }
         al.measureIn (L, R, n);
-        float* chp[2] = { L, R };
-        for (int c = 0; c < 2; ++c) if (lo > 10.5f) for (int i = 0; i < n; ++i) chp[c][i] = flt[c * 4].p (chp[c][i]);
-        juce::dsp::AudioBlock<float> blk (chp, 2, (size_t) n);
-        auto up = os->processSamplesUp (blk);
-        const float g = juce::Decibels::decibelsToGain (drive * ja::modelInfo (model).maxDb + boost);
-        for (int c = 0; c < 2; ++c) { float* d = up.getChannelPointer ((size_t) c); for (int i = 0; i < (int) up.getNumSamples(); ++i) d[i] = ch[c].process (d[i], g, drive); }
-        os->processSamplesDown (blk);
-        for (int c = 0; c < 2; ++c) for (int i = 0; i < n; ++i) { float y = chp[c][i]; if (hi < 21900) y = flt[c * 4 + 1].p (y); if (std::abs (tone) > 0.01f) y = flt[c * 4 + 3].p (flt[c * 4 + 2].p (y)); chp[c][i] = y; }
+        for (int off = 0; off < n; off += mbk)
+        {
+            const int m = juce::jmin (mbk, n - off);
+            float* cp[2] = { L + off, R + off };
+            for (int i = 0; i < m; ++i, ++cnt)
+            {
+                dS += (drive - dS) * kS; if (std::abs (drive - dS) < 1e-6f) dS = drive;
+                bS += (boost - bS) * kS; if (std::abs (boost - bS) < 1e-4f) bS = boost;
+                if ((cnt & 31) == 0)
+                {   // tagli e tono scivolano in 30 ms (ricalcolati ogni 32 campioni)
+                    auto sm = [k32] (float& x, float t, float eps) { x += (t - x) * k32; if (std::abs (t - x) < eps) x = t; };
+                    const float a = loS, b = hiS, c = toS; sm (loS, lo, 0.05f); sm (hiS, hi, 1.0f); sm (toS, tone, 1e-4f);
+                    if (a != loS || b != hiS || c != toS) setFilters();
+                }
+                gArr[(size_t) i] = juce::Decibels::decibelsToGain (dS * maxDb + bS); dArr[(size_t) i] = dS;
+                for (int c = 0; c < 2; ++c)
+                {
+                    float x = cp[c][i];
+                    if (loS > 10.5f) x = flt[c * 4].p (x);
+                    if (pedal)
+                    {   // solo la parte sotto 5 kHz entra nel pedale; gli acuti aspettano la latenza e tornano dopo
+                        const float xl = svfLp (pre[c * 2 + 1], svfLp (pre[c * 2], x, 0.541f), 1.307f);
+                        const float h = x - xl; auto& d = hiD[c]; const float old = d[(size_t) hw]; d[(size_t) hw] = h; hiOut[c][(size_t) i] = old; x = xl;
+                    }
+                    cp[c][i] = x;
+                }
+                if (pedal) { if (++hw >= juce::jmax (1, lat)) hw = 0; }
+            }
+            juce::dsp::AudioBlock<float> blk (cp, 2, (size_t) m);
+            auto up = os->processSamplesUp (blk);
+            for (int c = 0; c < 2; ++c)
+            {
+                float* d = up.getChannelPointer ((size_t) c); const int nu = (int) up.getNumSamples();
+                for (int i = 0; i < nu; ++i) { const float dd = dArr[(size_t) (i >> 2)]; ch[c].setDrive (dd); d[i] = ch[c].process (d[i], gArr[(size_t) (i >> 2)], dd); }
+            }
+            os->processSamplesDown (blk);
+            for (int c = 0; c < 2; ++c) for (int i = 0; i < m; ++i)
+            {
+                float y = cp[c][i];
+                if (pedal) y += hiOut[c][(size_t) i];
+                if (hiS < 21900) y = flt[c * 4 + 1].p (y);
+                if (std::abs (toS) > 0.01f) y = flt[c * 4 + 3].p (flt[c * 4 + 2].p (y));
+                cp[c][i] = y;
+            }
+        }
         al.apply (L, R, n, autoL);
-        const float og = juce::Decibels::decibelsToGain (outDb); for (int i = 0; i < n; ++i) { L[i] *= og; R[i] *= og; }
+        for (int i = 0; i < n; ++i) { oS += (outDb - oS) * kS; if (std::abs (outDb - oS) < 1e-4f) oS = outDb; const float og = juce::Decibels::decibelsToGain (oS); L[i] *= og; R[i] *= og; }
         peakOut (*this, L, R, n);
     }
-    double sr = 44100; std::unique_ptr<juce::dsp::Oversampling<float>> os; ja::DriveChannel ch[2]; AutoLevel al; jkit::Bq flt[8]; float last = -99;
+private:
+    struct Sv { float s1 = 0, s2 = 0; void reset() { s1 = s2 = 0; } };
+    inline float svfLp (Sv& z, float x, float q) const { const float k = 1.0f / q, g = pg; const float hp = (x - (k + g) * z.s1 - z.s2) / (1 + g * (k + g)), bp = g * hp + z.s1; z.s1 = g * hp + bp; const float l = g * bp + z.s2; z.s2 = g * bp + l; return l; }
+    void setFilters()
+    {
+        for (int c = 0; c < 2; ++c) { flt[c * 4].hp (sr, juce::jmax (10.0f, loS), 0.7071); flt[c * 4 + 1].lp (sr, juce::jmin ((double) hiS, sr * 0.45), 0.7071); flt[c * 4 + 2].lowShelf (sr, 700, -toS * 6, 0.6); flt[c * 4 + 3].highShelf (sr, 1500, toS * 6, 0.6); }
+    }
+    double sr = 44100; int mbk = 512, lat = 0, hw = 0; juce::uint32 cnt = 0; bool first = true;
+    std::unique_ptr<juce::dsp::Oversampling<float>> os; ja::DriveChannel ch[2]; AutoLevel al; jkit::Bq flt[8];
+    std::vector<float> hiD[2], gArr, dArr; std::vector<float> hiOut[2]; Sv pre[4]; float pg = 0.3f;
+    float dS = 0, bS = 0, oS = 0, loS = 10, hiS = 22000, toS = 0;
 };
 class TubeEng : public Engine
 {
@@ -411,19 +466,40 @@ public:
     }
     jms::Exciter e;
 };
+// compressori del nostro Studio Comp: a 4x con filtri a fase lineare come nello Studio Comp (prima giravano a 1x: rilevatore che
+// mancava i picchi veri e saturazioni COLOR che ripiegavano armoniche nell'udibile)
 class CompEng : public Engine
 {
 public:
-    void prepare (double s, int mb) override { st.prepare (s); dL.assign ((size_t) mb, 0); dR = dL; }
+    void prepare (double s, int mb) override
+    {
+        mbk = juce::jmax (64, mb);
+        for (auto* o : { &os, &osSc }) { *o = std::make_unique<juce::dsp::Oversampling<float>> (2, 2, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true); (*o)->initProcessing ((size_t) mbk); }
+        st.prepare (s * 4); lat = juce::roundToInt (os->getLatencyInSamples());
+        sc.setSize (2, mbk); dL.assign ((size_t) mbk * 4, 0); dR = dL;
+    }
+    int latency (const float*) const override { return lat; }
     void process (float* L, float* R, int n, const float* v, const Ctx& c) override
     {
         jc::StageParams p; p.on = true; p.model = mod (type).sub; p.drive = v[0]; p.ratio = (int) rv (v, 1); p.att = v[2]; p.rel = v[3]; p.color = rv (v, 4); p.outDb = rv (v, 5); p.mix = 1;
         const bool ext = rv (v, 7) > 0.5f && c.scL != nullptr;
-        for (int i = 0; i < n; ++i) { dL[(size_t) i] = ext ? c.scL[i] : L[i]; dR[(size_t) i] = ext ? c.scR[i] : R[i]; }
-        st.process (L, R, dL.data(), dR.data(), n, p, rv (v, 6) > 0.5f);
+        for (int off = 0; off < n; off += mbk)
+        {
+            const int m = juce::jmin (mbk, n - off);
+            float* ch[2] = { L + off, R + off }; juce::dsp::AudioBlock<float> blk (ch, 2, (size_t) m);
+            // il sidechain esterno passa dal suo sovracampionatore anche quando non serve: resta allineato e pronto
+            for (int i = 0; i < m; ++i) { sc.setSample (0, i, c.scL ? c.scL[off + i] : 0.0f); sc.setSample (1, i, c.scR ? c.scR[off + i] : 0.0f); }
+            juce::dsp::AudioBlock<float> sb (sc.getArrayOfWritePointers(), 2, (size_t) m);
+            auto su = osSc->processSamplesUp (sb);
+            auto up = os->processSamplesUp (blk);
+            const int n4 = (int) up.getNumSamples(); float* uL = up.getChannelPointer (0); float* uR = up.getChannelPointer (1);
+            for (int i = 0; i < n4; ++i) { dL[(size_t) i] = ext ? su.getSample (0, i) : uL[i]; dR[(size_t) i] = ext ? su.getSample (1, i) : uR[i]; }
+            st.process (uL, uR, dL.data(), dR.data(), n4, p, rv (v, 6) > 0.5f);
+            os->processSamplesDown (blk);
+        }
         gr = -std::abs (st.grNow()); peakOut (*this, L, R, n);
     }
-    jc::Stage st; std::vector<float> dL, dR;
+    jc::Stage st; std::vector<float> dL, dR; std::unique_ptr<juce::dsp::Oversampling<float>> os, osSc; juce::AudioBuffer<float> sc; int lat = 0, mbk = 512;
 };
 class ClipEng : public Engine
 {
@@ -481,11 +557,21 @@ public:
 class ConvEng : public Engine
 {
 public:
-    void prepare (double s, int mb) override { sr = s; conv.prepare ({ s, (juce::uint32) mb, 2 }); conv.reset(); lastIr = -1; lastDec = -1; for (auto& f : flt) f.reset(); lastF = -1; }
+    void prepare (double s, int mb) override
+    {   // la risposta di partenza si carica PRIMA di prepare: cosi' e' pronta dal primo campione (non arriva a meta' dal thread in background)
+        sr = s; mbk = juce::jmax (64, mb);
+        conv.loadImpulseResponse (makeIr (0, sr, 1.0f), sr, juce::dsp::Convolution::Stereo::yes, juce::dsp::Convolution::Trim::no, juce::dsp::Convolution::Normalise::no);
+        conv.prepare ({ s, (juce::uint32) mbk, 2 }); conv.reset(); lastIr = -2; lastDec = -1; for (auto& f : flt) f.reset(); lastF = -1;
+    }
     int latency (const float*) const override { return conv.getLatency(); }
     void process (float* L, float* R, int n, const float* v, const Ctx&) override
     {
         const int ir = (int) rv (v, 0); const float dec = 0.5f + v[1] * 1.5f;
+        if (lastIr == -2)
+        {   // primo blocco: se i comandi sono quelli di partenza la risposta e' gia' caricata; altrimenti si carica ora
+            lastIr = ir; lastDec = dec;
+            if (ir != 0 || std::abs (dec - 1.0f) > 0.02f) lastIr = -1;
+        }
         if (ir != lastIr || std::abs (dec - lastDec) > 0.02f)
         {
             lastIr = ir; lastDec = dec;
@@ -504,7 +590,7 @@ public:
         peakOut (*this, L, R, n);
     }
     void setUserIr (juce::AudioBuffer<float> b, double s) override { userIr = std::move (b); userSr = s; lastIr = -1; }
-    juce::dsp::Convolution conv; double sr = 44100, userSr = 44100; juce::AudioBuffer<float> userIr; int lastIr = -1; float lastDec = -1, lastF = -1; jkit::Bq flt[4];
+    juce::dsp::Convolution conv; int mbk = 512; double sr = 44100, userSr = 44100; juce::AudioBuffer<float> userIr; int lastIr = -1; float lastDec = -1, lastF = -1; jkit::Bq flt[4];
 };
 class DlyEng : public Engine
 {
@@ -544,6 +630,7 @@ class TapeEng : public Engine
 {
 public:
     void prepare (double s, int) override { t.prepare (s); }
+    int latency (const float*) const override { return t.latency(); }   // la macchina gira a 4x a fase lineare: la latenza va detta al DAW
     void process (float* L, float* R, int n, const float* v, const Ctx&) override
     { jms::TapeSettings S; S.model = (int) rv (v, 0); S.drive = rv (v, 1); S.bias = rv (v, 2); S.noise = rv (v, 3); S.mix = 1; t.process (L, R, n, S); peakOut (*this, L, R, n); }
     jms::TapeMachine t;

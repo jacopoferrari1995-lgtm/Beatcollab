@@ -213,7 +213,7 @@ struct DlySettings
 class Delay
 {
 public:
-    void prepare (double s) { sr = s; for (auto& l : ln) l.prepare ((int) (sr * 4.2)); for (auto& f : lp) f.reset(); for (auto& f : hp) f.reset(); tSm = -1; env = 0; ph = 0; ph2 = 0; nz = 0; }
+    void prepare (double s) { sr = s; for (auto& l : ln) l.prepare ((int) (sr * 4.2)); for (auto& f : lp) f.reset(); for (auto& f : hp) f.reset(); tSm = -1; env = 0; ph = 0; ph2 = 0; nz = 0; xf = 1; tOld = 0; rnd.setSeed (2290); }   // rumore del BBD ripetibile: ogni copia suona uguale
     void process (float* L, float* R, int n, const DlySettings& S, double bpm)
     {
         double t = S.sync ? S.beats * 60.0 / juce::jmax (30.0, bpm) : S.ms * 0.001;
@@ -228,7 +228,10 @@ public:
         const bool ping = S.kind == 3;
         for (int i = 0; i < n; ++i)
         {
-            tSm += (target - tSm) * (S.kind == 2 ? 0.002f : 0.00015f);   // cambiando tempo il nastro "scivola"
+            // cambiando tempo il nastro "scivola"; il digitale invece passa dal vecchio al nuovo tempo con una dissolvenza di 30 ms (niente fischio)
+            if (S.kind == 2) { if (std::abs (target - tSm) > 0.5f && xf >= 1.0f) { tOld = tSm; tSm = target; xf = 0; } }
+            else tSm += (target - tSm) * 0.00015f;
+            if (xf < 1.0f) xf = juce::jmin (1.0f, xf + (float) (1.0 / (0.03 * sr)));
             ph += (0.6 + S.mod * 1.4) / sr; if (ph > 1) ph -= 1; ph2 += 5.7 / sr; if (ph2 > 1) ph2 -= 1;
             const float m = (float) ((std::sin (ph * juce::MathConstants<double>::twoPi) * wowD + std::sin (ph2 * juce::MathConstants<double>::twoPi) * wowD * 0.15) * S.mod * sr);
             float y[2];
@@ -236,6 +239,7 @@ public:
             {
                 const float d = juce::jlimit (2.0f, (float) (sr * 4.1), tSm * (c == 1 && S.spread > 0 ? 1.0f + S.spread * 0.25f : 1.0f) + m * (c ? -1.0f : 1.0f));
                 y[c] = ln[c].frac (d);
+                if (xf < 1.0f) { const float d0 = juce::jlimit (2.0f, (float) (sr * 4.1), tOld * (c == 1 && S.spread > 0 ? 1.0f + S.spread * 0.25f : 1.0f)); const float w = 0.5f - 0.5f * std::cos (xf * juce::MathConstants<float>::pi); y[c] = ln[c].frac (d0) * (1 - w) + y[c] * w; }
             }
             const float inL = L[i], inR = R[i];
             float fl, fr;
@@ -259,7 +263,7 @@ public:
         }
     }
 private:
-    double sr = 44100, ph = 0, ph2 = 0; float tSm = -1, env = 0, nz = 0; Line ln[2]; OP lp[2], hp[2]; juce::Random rnd;
+    double sr = 44100, ph = 0, ph2 = 0; float tSm = -1, env = 0, nz = 0, tOld = 0, xf = 1; Line ln[2]; OP lp[2], hp[2]; juce::Random rnd;
 };
 
 // ======================================================================= de-esser

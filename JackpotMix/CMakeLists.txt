@@ -29,7 +29,7 @@ target_sources(JackpotMix PRIVATE ${MIX_SRC})
 target_include_directories(JackpotMix PRIVATE ${MIX_INC})
 target_compile_definitions(JackpotMix PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
 target_link_libraries(JackpotMix
-  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotMixArt
+  PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo JackpotMixArt
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 if(J60_TEST)
@@ -37,5 +37,5 @@ if(J60_TEST)
   target_include_directories(MixTest PRIVATE ${MIX_INC})
   target_sources(MixTest PRIVATE test/main.cpp ${MIX_SRC})
   target_compile_definitions(MixTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="JackpotMixology")
-  target_link_libraries(MixTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotMixArt)
+  target_link_libraries(MixTest PRIVATE juce::juce_audio_utils juce::juce_dsp JackpotFonts JackpotNeo JackpotMixArt)
 endif()
