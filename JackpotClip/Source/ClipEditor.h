@@ -1,6 +1,7 @@
 #pragma once
 #include "ClipProcessor.h"
 #include "Skin.h"
+#include "PresetBrowser.h"
 
 namespace jclp
 {
@@ -34,5 +35,8 @@ private:
     std::vector<std::unique_ptr<Switch>> switches;
     WaveView wave { *this }; CurveView curve { *this };
     PresetBar bar; int tick = 0;
+    jbrowse::Browser browser;
+    void setupBrowser();
+    void askPresetName();
 };
 }

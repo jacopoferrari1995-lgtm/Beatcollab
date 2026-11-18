@@ -19,7 +19,7 @@ void WaveView::paint (juce::Graphics& g)
     for (int k = 0; k < N; ++k)
     {
         const int i = (w + k) % N; const float vi = H.in[i].load(), vo = H.out[i].load(); const float x = r.getX() + k * cw;
-        const float hi = Y (vi), ho = Y (vo * ceil);
+        const float hi = Y (vi), ho = Y (vo);   // l'uscita registrata include gia' il tetto
         g.setColour (C::dim.withAlpha (0.35f)); g.fillRect (x, cy - hi, juce::jmax (1.0f, cw - 0.5f), 2 * hi);
         g.setColour (ed.acc2.withAlpha (0.75f)); g.fillRect (x, cy - ho, juce::jmax (1.0f, cw - 0.5f), 2 * ho);
         if (vi > ceil * 1.001f) { g.setColour (C::red); g.fillRect (x, cy - hi, juce::jmax (1.0f, cw - 0.5f), juce::jmax (1.5f, hi - ho)); g.fillRect (x, cy + ho, juce::jmax (1.0f, cw - 0.5f), juce::jmax (1.5f, hi - ho)); }
@@ -68,6 +68,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     auto sw = [&] (const char* id, juce::Colour c, const char* l) { switches.push_back (std::make_unique<Switch> (P (id), c, l)); addAndMakeVisible (*switches.back()); };
     sw ("split", C::phos, "SPLIT: BASSI SEPARATI"); sw ("link", acc2, "VOLUME COMPENSATO"); sw ("delta", C::red, "DELTA: ASCOLTA IL TAGLIATO");
     addAndMakeVisible (wave); addAndMakeVisible (curve); addAndMakeVisible (sizeChip);
+    setupBrowser();
     scaler.setup();
     startTimerHz (30);
 }
@@ -84,6 +85,7 @@ void Editor::resized()
     switches[1]->setBounds (742, 520, 220, 22);
     switches[2]->setBounds (742, 554, 260, 22);
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
+    browser.setBounds (0, 0, W, H);
     jlook::scaleChildren (*this, sc);
 }
 void Editor::paint (juce::Graphics& g)
@@ -92,7 +94,7 @@ void Editor::paint (juce::Graphics& g)
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     jlook::backdrop (g, { 0, 0, (float) W, (float) H }, acc, acc2);
     jlook::header (g, { 0, 0, (float) W, 64 }, "CLIP", acc, "JC-9  CLIPPER A 9 CURVE", acc, acc2);
-    bar.paint (g, proc.getProgramName (proc.preset), acc, proc.ab.cur == 1, proc.ab.label());
+    bar.paint (g, proc.currentName(), acc, proc.ab.cur == 1, proc.ab.label());
     titledCard (g, { 18, 76, 700, 300 }, "FORMA D'ONDA", "grigio entra, arancio esce, rosso tagliato", acc);
     titledCard (g, { 730, 76, 312, 300 }, "CURVA", "", acc);
     titledCard (g, { 18, 388, 700, 274 }, "MODO DI CLIPPING", "", acc);
@@ -112,7 +114,59 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
 {
     { const auto tp = e0.position / scaler.s; if (themeRect.toFloat().contains (tp)) { skin::cycle(); C::sync(); for (auto* ch : getChildren()) ch->repaint(); repaint(); return; } }
     const auto e = e0.withNewPosition (e0.position / scaler.s);
+    if (browser.isVisible()) return;
+    if (bar.preset.contains (e.getPosition())) { browser.open(); return; }
+    if (proc.preset < 0 && (bar.prev.contains (e.getPosition()) || bar.next.contains (e.getPosition()))) { proc.loadPreset (0); repaint(); return; }
     bar.click (*this, proc, presets(), e.getPosition(), localAreaToGlobal (scaler.map (bar.preset)));
+}
+void Editor::setupBrowser()
+{
+    addChildComponent (browser);
+    browser.accent = acc; browser.title = "Preset";
+    auto userFiles = [] { auto f = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jclip"); f.sort(); return f; };
+    browser.entries = [userFiles]
+    {
+        std::vector<jbrowse::Entry> v;
+        for (int i = 0; i < (int) presets().size(); ++i)
+        {
+            const juce::String n (presets()[(size_t) i].name);
+            jbrowse::Entry e; e.id = i; e.note = presets()[(size_t) i].note;
+            e.group = n.contains (" | ") ? n.upToFirstOccurrenceOf (" | ", false, false) : juce::String ("Base");
+            e.name = n.contains (" | ") ? n.fromFirstOccurrenceOf (" | ", false, false) : n;
+            v.push_back (e);
+        }
+        const auto fs = userFiles();
+        for (int i = 0; i < fs.size(); ++i) { jbrowse::Entry e; e.id = 100000 + i; e.user = true; e.group = "I MIEI"; e.name = fs[i].getFileNameWithoutExtension(); e.note = "Preset tuo, salvato in Musica / Jackpot / Clip Preset."; v.push_back (e); }
+        return v;
+    };
+    browser.current = [this, userFiles]
+    {
+        if (proc.userName.isEmpty()) return proc.preset;
+        const auto fs = userFiles(); for (int i = 0; i < fs.size(); ++i) if (fs[i].getFileNameWithoutExtension() == proc.userName) return 100000 + i;
+        return -1;
+    };
+    browser.load = [this] (const jbrowse::Entry& e)
+    {
+        if (e.user) proc.loadUserPreset (Processor::presetFolder().getChildFile (e.name + ".jclip")); else proc.loadPreset (e.id);
+        repaint();
+    };
+    browser.save = [this] { askPresetName(); };
+    browser.canOverwrite = [this] { return proc.userName.isNotEmpty(); };
+    browser.overwrite = [this] { proc.saveUserPreset (proc.userName); repaint(); };
+    browser.folder = [] { Processor::presetFolder().startAsProcess(); };
+    browser.remove = [this] (const jbrowse::Entry& e) { Processor::presetFolder().getChildFile (e.name + ".jclip").moveToTrash(); if (proc.userName == e.name) proc.userName = {}; repaint(); };
+    browser.onClose = [this] { repaint(); };
+}
+void Editor::askPresetName()
+{
+    auto* w = new juce::AlertWindow ("Salva preset", "Nome del preset (finisce in Musica / Jackpot / Clip Preset):", juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", proc.userName.isNotEmpty() ? proc.userName : proc.getProgramName (proc.preset).replace (" | ", " - "));
+    w->addButton ("SALVA", 1, juce::KeyPress (juce::KeyPress::returnKey)); w->addButton ("ANNULLA", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<Editor> sp (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([sp, w] (int r)
+    {
+        if (sp != nullptr && r == 1) { const auto n = w->getTextEditorContents ("name").trim(); if (n.isNotEmpty()) { sp->proc.saveUserPreset (n); sp->browser.refresh(); sp->repaint(); } }
+    }), true);
 }
 void Editor::timerCallback()
 {

@@ -1,11 +1,53 @@
 #include "../Source/ClipProcessor.h"
 #include "../Source/ClipEditor.h"
+#include "TestLab.h"
 using namespace jclp;
 static void setP (Processor& p, const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); }
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "osresp")
+    {
+        for (int k : { 2, 3 }) for (double fr : { 20000.0, 24000.0, 26000.0, 28000.0, 30000.0, 34000.0, 40000.0 })
+        {
+            juce::dsp::Oversampling<float> o (1, (size_t) k, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+            o.initProcessing (4096); juce::AudioBuffer<float> b (1, 4096); b.clear(); juce::dsp::AudioBlock<float> blk (b);
+            float pk = 0;
+            for (int it = 0; it < 4; ++it) { auto up = o.processSamplesUp (blk); float* d = up.getChannelPointer (0); const int N = (int) up.getNumSamples(); const double fs = 48000.0 * (1 << k);
+                for (int n = 0; n < N; ++n) d[n] = (float) std::sin (2 * juce::MathConstants<double>::pi * fr * (it * N + n) / fs);
+                o.processSamplesDown (blk); if (it == 3) for (int n = 0; n < 4096; ++n) pk = juce::jmax (pk, std::abs (b.getSample (0, n))); }
+            std::printf ("%dx %6.0f Hz -> %.1f dB\n", 1 << k, fr, juce::Decibels::gainToDecibels (pk));
+        }
+        return 0;
+    }
+
+    if (argc > 1 && juce::String (argv[1]) == "gate")
+    {
+        auto go = [] (bool fw, int mode) { jclp::Engine::forceWet = fw; Processor p; p.prepareToPlay (44100, 512); setP (p, "mode", (float) mode);
+            std::vector<float> o; juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; juce::Random r (3);
+            for (int k = 0; k < 400; ++k) { for (int i = 0; i < 512; ++i) { const int t = k * 512 + i; float x = 0.3f * std::sin (t * 0.031f) + 0.05f * std::sin (t * 0.43f); (void) r; if (t % 22050 < 300) x *= 4.0f * std::exp (-(t % 22050) / 80.0f) + 1.0f; b.setSample (0, i, x); b.setSample (1, i, x * 0.9f); } p.processBlock (b, m); for (int i = 0; i < 512; ++i) o.push_back (b.getSample (0, i)); }
+            return o; };
+        for (int mode : { 2, 6, 7, 0 })
+        {
+            auto a = go (false, mode), b = go (true, mode); double e = 0, s2 = 0, mx = 0; for (size_t i = 0; i < a.size(); ++i) { e += (a[i] - b[i]) * (a[i] - b[i]); s2 += b[i] * b[i]; mx = juce::jmax (mx, (double) std::abs (a[i] - b[i])); }
+            std::printf ("%-8s porta vs sempre acceso: %.1f dB (max %.1f dBFS)\n", jclp::modeName (mode), 10 * std::log10 (e / s2 + 1e-30), 20 * std::log10 (mx + 1e-12));
+        }
+        return 0;
+    }
+
     if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {
+        const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "0").getIntValue();
+        std::printf ("preset: %s\n", presets()[(size_t) pr].name);
+        testlab::run ([&] (double rate, int blk) -> std::unique_ptr<juce::AudioProcessor>
+        {
+            auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk); p->loadPreset (pr);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) setP (*p, kv.upToFirstOccurrenceOf ("=", false, false).toRawUTF8(), kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+            return p;
+        }, std::getenv ("JNOCLICK") == nullptr);
+        return 0;
+    }
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
         Processor p; p.prepareToPlay (44100, 512);

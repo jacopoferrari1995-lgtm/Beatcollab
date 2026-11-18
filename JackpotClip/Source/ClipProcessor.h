@@ -21,7 +21,7 @@ public:
     bool producesMidi() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
     int getNumPrograms() override { return (int) presets().size(); }
-    int getCurrentProgram() override { return preset; }
+    int getCurrentProgram() override { return juce::jmax (0, preset); }
     void setCurrentProgram (int i) override { loadPreset (i); }
     const juce::String getProgramName (int i) override { return juce::isPositiveAndBelow (i, (int) presets().size()) ? presets()[(size_t) i].name : ""; }
     void changeProgramName (int, const juce::String&) override {}
@@ -29,6 +29,11 @@ public:
     void setStateInformation (const void*, int) override;
 
     void loadPreset (int i);
+    static juce::File presetFolder() { auto f = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Clip Preset"); f.createDirectory(); return f; }
+    bool saveUserPreset (const juce::String& name);
+    bool loadUserPreset (const juce::File& f);
+    juce::String currentName() { return userName.isNotEmpty() ? "I miei - " + userName : getProgramName (preset); }
+    juce::String userName;   // preset tuo caricato (vuoto = preset di fabbrica)
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     Settings settings() const;
 

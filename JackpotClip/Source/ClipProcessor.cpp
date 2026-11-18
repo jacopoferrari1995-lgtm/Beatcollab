@@ -53,21 +53,34 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 void Processor::loadPreset (int i)
 {
     if (! juce::isPositiveAndBelow (i, (int) presets().size())) return;
-    preset = i; jkit::applyPreset (*this, apvts, presets()[(size_t) i], { "out" });
+    preset = i; userName = {}; jkit::applyPreset (*this, apvts, presets()[(size_t) i], { "out" });
 }
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
-    auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr);
+    auto s = apvts.copyState(); s.setProperty ("preset", preset, nullptr); s.setProperty ("uname", userName, nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
-    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); apvts.replaceState (t); } }
+    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { preset = t.getProperty ("preset", 0); userName = t.getProperty ("uname", "").toString(); apvts.replaceState (t); } }
+}
+bool Processor::saveUserPreset (const juce::String& name)
+{
+    auto x = apvts.copyState().createXml(); if (! x) return false;
+    const auto f = presetFolder().getChildFile (juce::File::createLegalFileName (name) + ".jclip");
+    if (! x->writeTo (f)) return false;
+    userName = f.getFileNameWithoutExtension(); preset = -1; return true;
+}
+bool Processor::loadUserPreset (const juce::File& f)
+{
+    auto x = juce::XmlDocument::parse (f); if (! x) return false;
+    auto t = juce::ValueTree::fromXml (*x); if (! t.isValid() || ! t.hasType (apvts.state.getType())) return false;
+    apvts.replaceState (t); userName = f.getFileNameWithoutExtension(); preset = -1; return true;
 }
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
 
 using jkit::PV;
-static PV P (int mode, float drive, float ceil = -0.3f, int os = 2) { return { { "mode", (float) mode }, { "drive", drive }, { "ceil", ceil }, { "os", (float) os } }; }
+static PV P (int mode, float drive, float ceil = -0.3f, int os = 3) { return { { "mode", (float) mode }, { "drive", drive }, { "ceil", ceil }, { "os", (float) os } }; }
 const std::vector<jkit::Preset>& presets()
 {
     static const std::vector<jkit::Preset> p = {
