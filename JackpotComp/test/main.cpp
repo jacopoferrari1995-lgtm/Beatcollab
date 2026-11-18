@@ -2,9 +2,42 @@
 #include "../Source/CompProcessor.h"
 #include "../Source/CompEditor.h"
 #include <cstdio>
+#include "TestLab.h"
 using namespace jc;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "grdbg")
+    {   // riduzione di guadagno nel tempo su un seno fermo
+        juce::ScopedJuceInitialiser_GUI gui2;
+        const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "11").getIntValue(); const double f = juce::SystemStats::getEnvironmentVariable ("JF", "6301").getDoubleValue();
+        Processor p; p.setPlayConfigDetails (2, 2, 48000, 64); p.prepareToPlay (48000, 64); p.loadPreset (pr);
+        juce::AudioBuffer<float> b (2, 64); juce::MidiBuffer m; long n = 0;
+        for (int k = 0; k < 48000 * 2 / 64; ++k)
+        {
+            for (int i = 0; i < 64; ++i, ++n) { const float v = 0.5f * (float) std::sin (6.283185307 * f * n / 48000.0); b.setSample (0, i, v); b.setSample (1, i, v); }
+            p.processBlock (b, m);
+            if (k > 1400 && k < 1440) std::printf ("%.4f ", p.gr[0].load());
+        }
+        std::printf ("\n"); return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {
+        juce::ScopedJuceInitialiser_GUI gui2;
+        const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "1").getIntValue();
+        { Processor q; std::printf ("preset: %s\n", q.getProgramName (pr).toRawUTF8()); }
+        testlab::run ([&] (double rate, int blk) -> std::unique_ptr<juce::AudioProcessor>
+        {
+            auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk); p->loadPreset (pr);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = p->apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+            return p;
+        }, std::getenv ("JNOCLICK") == nullptr, [] (juce::AudioProcessorParameter* q)
+        {
+            auto* r = dynamic_cast<juce::RangedAudioParameter*> (q); if (r == nullptr) return true;
+            if (auto* only = std::getenv ("JONLY")) return ! r->paramID.contains (only);
+            return r->paramID == "scSrc" || r->paramID == "scTo";
+        });
+        return 0;
+    }
     if (argc > 2 && juce::String (argv[1]) == "snap")
     {
         juce::ScopedJuceInitialiser_GUI gui2;
@@ -49,6 +82,22 @@ int main (int argc, char** argv)
         if (std::getenv ("JBROWSE")) ed.browser.open();
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "cpu")
+    {   // tempo di calcolo per preset: 4 s di audio a 48 kHz, blocchi da 512
+        juce::ScopedJuceInitialiser_GUI gui2;
+        Processor p0; const int np = p0.getNumPrograms();
+        for (int i = 0; i < np; ++i)
+        {
+            Processor p; p.prepareToPlay (48000, 512); p.loadPreset (i);
+            juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mi; juce::Random r (3);
+            for (int c = 0; c < 2; ++c) for (int k = 0; k < 512; ++k) b.setSample (c, k, 0.3f * std::sin (k * 0.05f) + 0.05f * r.nextFloat());
+            const auto t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int k = 0; k < 375; ++k) p.processBlock (b, mi);
+            int on = 0; for (int s = 0; s < kStages; ++s) on += p.stageParams (s).on ? 1 : 0;
+            std::printf ("%-44s %d stadi  %.1f%%\n", p.getProgramName (i).toRawUTF8(), on, (juce::Time::getMillisecondCounterHiRes() - t0) / 40.0);
+        }
         return 0;
     }
     if (argc > 1 && juce::String (argv[1]) == "alias")

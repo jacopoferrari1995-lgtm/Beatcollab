@@ -77,6 +77,9 @@ private:
     void delayDry (const float* L, const float* R, float* oL, float* oR, int N);
     juce::dsp::IIR::Filter<float> hp[kStages][2];  // per stadio, per canale
     float lastHp = -1; std::atomic<bool> extSc { false };
+    // dissolvenze (niente click): stadio acceso/spento o cambio modello, solo/delta, ascolto del sidechain, tutto spento = solo ritardo
+    juce::AudioBuffer<float> pre, wsum;
+    float fadeS[kStages] {}, soloF[kStages] {}, altG = 0, lsG = 0, gm = 0; int actModel[kStages] {};
     float colIn = 0, colOut = 0, colGr[kStages] {}; int colN = 0; float rmsIn = 0, rmsOut = 0;
 };
 }

@@ -1,2 +1,1 @@
-JackpotMotion
-JackpotTape
+JackpotComp

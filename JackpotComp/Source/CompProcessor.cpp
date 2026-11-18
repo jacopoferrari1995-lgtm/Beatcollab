@@ -109,7 +109,14 @@ void Processor::prepareToPlay (double s, int maxBlock)
     const int n4 = osMax * kOs;
     for (auto& x : st) x.prepare (s * kOs);
     cap.prepare (s);
-    for (auto* b : { &dry, &det, &aux, &acc, &dlt, &tmp }) b->setSize (2, n4);
+    for (auto* b : { &dry, &det, &aux, &acc, &dlt, &tmp, &pre }) b->setSize (2, n4);
+    wsum.setSize (1, n4);
+    for (int k = 0; k < kStages; ++k) { fadeS[k] = 0; soloF[k] = 0; actModel[k] = juce::roundToInt (pp[k].model->load()); }
+    altG = lsG = 0; gm = 0;
+    {   // si parte gia' a regime: niente dissolvenza all'apertura
+        bool any = false; for (int k = 0; k < kStages; ++k) if (pp[k].on->load() > 0.5f) { fadeS[k] = 1; any = true; }
+        if (any || gScListen->load() > 0.5f) gm = 1;
+    }
     inB.setSize (2, osMax); scB.setSize (2, osMax); dryD.setSize (2, osMax);
     dly.setSize (2, latency + osMax + 1); dly.clear(); dlyW = 0;
     for (auto& a : hp) for (auto& f : a) f.reset();
@@ -245,44 +252,77 @@ void Processor::processChunk (float* L, float* R, const float* eL0, const float*
     float* aL = acc.getWritePointer (0); float* aR = acc.getWritePointer (1);
     float* dlL = dlt.getWritePointer (0); float* dlR = dlt.getWritePointer (1);
     float* tmpL = tmp.getWritePointer (0); float* tmpR = tmp.getWritePointer (1);
-    if (anyS) { juce::FloatVectorOperations::clear (dlL, N4); juce::FloatVectorOperations::clear (dlR, N4); }
-    if (parallel && nOn > 0) { juce::FloatVectorOperations::clear (aL, N4); juce::FloatVectorOperations::clear (aR, N4); }
+    float* pL = pre.getWritePointer (0); float* pR = pre.getWritePointer (1); float* ws = wsum.getWritePointer (0);
+    const float step4 = 1.0f / (float) (0.02 * sr4);
+    juce::FloatVectorOperations::clear (dlL, N4); juce::FloatVectorOperations::clear (dlR, N4);
+    if (parallel) { juce::FloatVectorOperations::clear (aL, N4); juce::FloatVectorOperations::clear (aR, N4); juce::FloatVectorOperations::clear (ws, N4); }
+    bool anyLive = false;
     for (int s = 0; s < kStages; ++s)
     {
-        if (! sp[s].on) { st[s].reset(); stIn[s] = 0.0f; continue; }
+        // cambio modello: lo stadio sfuma via col vecchio, si azzera e rientra col nuovo
+        if (sp[s].on && sp[s].model != actModel[s] && fadeS[s] <= 0.0f) { actModel[s] = sp[s].model; st[s].resetKeepGr(); }
+        const float tgtF = sp[s].on && sp[s].model == actModel[s] ? 1.0f : 0.0f;
+        if (fadeS[s] <= 0.0f && tgtF <= 0.0f) { if (! sp[s].on) actModel[s] = sp[s].model; st[s].reset(); stIn[s] = 0.0f; soloF[s] = 0; continue; }
+        anyLive = true;
+        StageParams q = sp[s]; q.model = actModel[s]; q.ratio = juce::jlimit (0, info (q.model).ratios.size() - 1, q.ratio);
         float* pl = uL; float* pr = uR;
         if (parallel) { juce::FloatVectorOperations::copy (xL, dry4L, N4); juce::FloatVectorOperations::copy (xR, dry4R, N4); pl = xL; pr = xR; }
+        juce::FloatVectorOperations::copy (pL, pl, N4); juce::FloatVectorOperations::copy (pR, pr, N4);
         makeDet (s, pl, pr);
         {   // livello che entra nel rilevatore di questo stadio: serve per mostrare la soglia
             const auto ra = juce::FloatVectorOperations::findMinAndMax (det.getReadPointer (0), N4), rb = juce::FloatVectorOperations::findMinAndMax (det.getReadPointer (1), N4);
             const float pk = juce::jmax (ra.getEnd(), -ra.getStart(), juce::jmax (rb.getEnd(), -rb.getStart()));
             stIn[s] = juce::jmax (pk, stIn[s].load() * std::exp (-(float) N / (0.35f * (float) sr)));
         }
-        const bool wantD = solo[s];
-        st[s].process (pl, pr, det.getReadPointer (0), det.getReadPointer (1), N4, sp[s], autoG, wantD ? tmpL : nullptr, wantD ? tmpR : nullptr);
-        if (wantD) { juce::FloatVectorOperations::add (dlL, tmpL, N4); juce::FloatVectorOperations::add (dlR, tmpR, N4); }
-        if (parallel) { juce::FloatVectorOperations::add (aL, xL, N4); juce::FloatVectorOperations::add (aR, xR, N4); }
+        const float sT = solo[s] ? 1.0f : 0.0f;
+        const bool wantD = solo[s] || soloF[s] > 0.0f;
+        st[s].process (pl, pr, det.getReadPointer (0), det.getReadPointer (1), N4, q, autoG, wantD ? tmpL : nullptr, wantD ? tmpR : nullptr);
+        float f = fadeS[s], sf = soloF[s];
+        for (int i = 0; i < N4; ++i)
+        {
+            f = tgtF > f ? juce::jmin (1.0f, f + step4) : tgtF < f ? juce::jmax (0.0f, f - step4) : f;
+            sf = sT > sf ? juce::jmin (1.0f, sf + step4) : sT < sf ? juce::jmax (0.0f, sf - step4) : sf;
+            if (f < 1.0f) { pl[i] = pL[i] + (pl[i] - pL[i]) * f; pr[i] = pR[i] + (pr[i] - pR[i]) * f; }
+            if (wantD) { const float k = sf * f; dlL[i] += tmpL[i] * k; dlR[i] += tmpR[i] * k; }
+            if (parallel) { aL[i] += pl[i] * f; aR[i] += pr[i] * f; ws[i] += f; }
+        }
+        fadeS[s] = f; soloF[s] = sf;
     }
-    if (parallel && nOn > 0) { const float k = 1.0f / (float) nOn; for (int i = 0; i < N4; ++i) { uL[i] = aL[i] * k; uR[i] = aR[i] * k; } }
+    // parallelo: media pesata dalle dissolvenze (uno stadio che entra o esce non fa saltare il volume)
+    if (parallel && anyLive) for (int i = 0; i < N4; ++i) { const float w = ws[i]; uL[i] = (aL[i] + dry4L[i] * juce::jmax (0.0f, 1.0f - w)) / juce::jmax (1.0f, w); uR[i] = (aR[i] + dry4R[i] * juce::jmax (0.0f, 1.0f - w)) / juce::jmax (1.0f, w); }
     const bool listenSc = gScListen->load() > 0.5f;
-    if (listenSc)
+    // DELTA/solo e ascolto del sidechain entrano e escono sfumando
     {
-        makeDet (0, dry4L, dry4R);
-        juce::FloatVectorOperations::copy (uL, det.getReadPointer (0), N4); juce::FloatVectorOperations::copy (uR, det.getReadPointer (1), N4);
-    }
-    else if (anyS)
-    {   // solo: si sente solo cio che gli stadi in solo stanno togliendo
-        juce::FloatVectorOperations::copy (uL, dlL, N4); juce::FloatVectorOperations::copy (uR, dlR, N4);
+        const float aT = anyS ? 1.0f : 0.0f, lT = listenSc ? 1.0f : 0.0f;
+        if (lT > 0 || lsG > 0) makeDet (0, dry4L, dry4R);
+        const float* d0 = det.getReadPointer (0); const float* d1 = det.getReadPointer (1);
+        for (int i = 0; i < N4; ++i)
+        {
+            altG = aT > altG ? juce::jmin (1.0f, altG + step4) : aT < altG ? juce::jmax (0.0f, altG - step4) : altG;
+            lsG = lT > lsG ? juce::jmin (1.0f, lsG + step4) : lT < lsG ? juce::jmax (0.0f, lsG - step4) : lsG;
+            if (altG > 0) { uL[i] += (dlL[i] - uL[i]) * altG; uR[i] += (dlR[i] - uR[i]) * altG; }
+            if (lsG > 0) { uL[i] += (d0[i] - uL[i]) * lsG; uR[i] += (d1[i] - uR[i]) * lsG; }
+        }
     }
     // giu' a 1x, direttamente nel buffer di uscita
     float* outs[2] = { L, R ? R : tmpL };
     juce::dsp::AudioBlock<float> outBlk (outs, 2, (size_t) N);
     os->processSamplesDown (outBlk);
     float* oR = R ? R : tmpL;
-    if (! listenSc && ! anyS)
     {
-        sMix.setTargetValue (gMix->load()); sOut.setTargetValue (juce::Decibels::decibelsToGain (gOut->load()));
-        for (int i = 0; i < N; ++i) { const float m = sMix.getNextValue(), og = sOut.getNextValue(); L[i] = (dryOutL[i] * (1 - m) + L[i] * m) * og; oR[i] = (dryOutR[i] * (1 - m) + oR[i] * m) * og; }
+        // tutto spento: esce il pulito ritardato, identico al bit (l'oversampling gira comunque, pronto a rientrare)
+        const bool active = anyLive || listenSc || lsG > 0 || anyS || altG > 0;
+        const float step1 = 1.0f / (float) (0.02 * sr);
+        const bool special = listenSc || anyS;   // in ascolto/solo il MIX e l'OUTPUT generali non si applicano
+        sMix.setTargetValue (special ? 1.0f : gMix->load()); sOut.setTargetValue (special ? 1.0f : juce::Decibels::decibelsToGain (gOut->load()));
+        for (int i = 0; i < N; ++i)
+        {
+            gm = active ? juce::jmin (1.0f, gm + step1) : juce::jmax (0.0f, gm - step1);
+            float l = L[i], r = oR[i];
+            if (gm < 1.0f) { l = dryOutL[i] + (l - dryOutL[i]) * gm; r = dryOutR[i] + (r - dryOutR[i]) * gm; }
+            const float m = sMix.getNextValue(), og = sOut.getNextValue();
+            L[i] = (dryOutL[i] * (1 - m) + l * m) * og; oR[i] = (dryOutR[i] * (1 - m) + r * m) * og;
+        }
     }
 
     // misure

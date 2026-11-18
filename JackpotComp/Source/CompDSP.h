@@ -191,8 +191,9 @@ class Stage
 {
 public:
     void prepare (double s) { sr = s; reset(); }
-    void reset() { gr = fast = slow = charge = rms = 0; grAvg = 0; eIn = eOut = 0; autoC = 1; hpS[0] = hpS[1] = 0; dHp[0] = dHp[1] = 0; dc[0] = dc[1] = 0; for (int c = 0; c < 2; ++c) { g6[c] = f6[c] = s6[c] = c6[c] = lfLp[c] = hfLp[c] = bLp[c] = 0; } for (auto& e : mEnv) e = 0; sm = {}; smInit = false; }
+    void reset() { gr = fast = slow = charge = rms = 0; grAvg = 0; eIn = eOut = 0; autoC = 1; hpS[0] = hpS[1] = 0; dHp[0] = dHp[1] = 0; dc[0] = dc[1] = 0; for (int c = 0; c < 2; ++c) { g6[c] = f6[c] = s6[c] = c6[c] = lfLp[c] = hfLp[c] = bLp[c] = 0; } for (auto& e : mEnv) e = 0; sm = {}; smInit = false; mbInit = true; mbCnt = 0; }
     float grNow() const { return gr; }
+    void resetKeepGr() { const float g = gr; reset(); gr = fast = slow = g; for (auto& x : g6) x = g; for (auto& x : f6) x = g; for (auto& x : s6) x = g; }   // cambio modello: il nuovo parte dalla riduzione del vecchio, niente attacco brusco
     float grAvg = 0;
 
     // L/R in place; dL/dR = segnale del rilevatore (gia filtrato), stessa lunghezza
@@ -298,7 +299,7 @@ public:
                 }
                 default:
                 {
-                    if (tgt > gr) gr = a * gr + (1 - a) * tgt;
+                    if (rm > 0 && tgt > gr) gr = a * gr + (1 - a) * tgt;
                     else if (rm > 0)
                     {
                         float rc = rFixed;
@@ -307,7 +308,8 @@ public:
                         gr = rc * gr + (1 - rc) * tgt;
                     }
                     else
-                    {   // auto release del bus: doppia costante
+                    {   // auto release del bus: doppia costante (attacco e rilascio sempre sulle due memorie: prima l'attacco le saltava
+                        // e al primo rilascio la riduzione cadeva di colpo sui valori vecchi, 47 volte al secondo su un suono fermo)
                         const float rf = std::exp (-1.0f / (0.1f * (float) sr)), rs = std::exp (-1.0f / ((0.15f + 1.2f * charge) * (float) sr));
                         fast = tgt > fast ? a * fast + (1 - a) * tgt : rf * fast + (1 - rf) * tgt;
                         slow = tgt > slow ? a * slow + (1 - a) * tgt : rs * slow + (1 - rs) * tgt;
@@ -331,7 +333,7 @@ public:
             // auto gain: allinea l'energia d'uscita a quella d'ingresso (media su ~1 s)
             eOut = avgC2 * eOut + (1 - avgC2) * 0.5f * (yl * yl + yr * yr);
             if (autoGain && eIn > 1.0e-8f && eOut > 1.0e-10f) autoC += (juce::jlimit (0.02f, 16.0f, std::sqrt (eIn / eOut)) - autoC) * 0.0002f;
-            else if (! autoGain) autoC = 1;
+            else if (! autoGain) { autoC += (1.0f - autoC) * 0.0002f; if (std::abs (autoC - 1.0f) < 1.0e-5f) autoC = 1; }   // spento: torna a 1 piano
             yl *= autoC; yr *= autoC;
             L[i] = L[i] * (1 - sm.mix) + yl * sm.mix; R[i] = R[i] * (1 - sm.mix) + yr * sm.mix;
         }
@@ -382,7 +384,7 @@ private:
             eIn = avgC2 * eIn + (1 - avgC2) * 0.5f * (L[i] * L[i] + R[i] * R[i]);
             eOut = avgC2 * eOut + (1 - avgC2) * 0.5f * (yl * yl + yr * yr);
             if (autoGain && eIn > 1.0e-8f && eOut > 1.0e-10f) autoC += (juce::jlimit (0.06f, 16.0f, std::sqrt (eIn / eOut)) - autoC) * 0.0002f;
-            else if (! autoGain) autoC = 1;
+            else if (! autoGain) { autoC += (1.0f - autoC) * 0.0002f; if (std::abs (autoC - 1.0f) < 1.0e-5f) autoC = 1; }   // spento: torna a 1 piano
             yl *= og * autoC; yr *= og * autoC;
             L[i] = L[i] * (1 - sm.mix) + yl * sm.mix; R[i] = R[i] * (1 - sm.mix) + yr * sm.mix;
         }
@@ -452,7 +454,7 @@ private:
             eIn = avgC2 * eIn + (1 - avgC2) * 0.5f * (L[i] * L[i] + R[i] * R[i]);
             eOut = avgC2 * eOut + (1 - avgC2) * 0.5f * (yl * yl + yr * yr);
             if (autoGain && eIn > 1.0e-8f && eOut > 1.0e-10f) autoC += (juce::jlimit (0.06f, 16.0f, std::sqrt (eIn / eOut)) - autoC) * 0.0002f;
-            else if (! autoGain) autoC = 1;
+            else if (! autoGain) { autoC += (1.0f - autoC) * 0.0002f; if (std::abs (autoC - 1.0f) < 1.0e-5f) autoC = 1; }   // spento: torna a 1 piano
             yl *= og * autoC; yr *= og * autoC;
             L[i] = L[i] * (1 - sm.mix) + yl * sm.mix; R[i] = R[i] * (1 - sm.mix) + yr * sm.mix;
         }
@@ -466,7 +468,7 @@ private:
             a1 = -2 * cs / a0; a2 = (1 - al) / a0; } };
     struct Split { Bq2 lp[2], hp[2], ap[3]; float f = -1; void set (float fr, double sr) { if (fr == f) return; f = fr; for (auto& q : lp) q.set (0, fr, sr); for (auto& q : hp) q.set (1, fr, sr); for (auto& q : ap) q.set (2, fr, sr); }
         inline void run (float x, int c, float& lo, float& hi) { lo = lp[1].run (lp[0].run (x, c), c); hi = hp[1].run (hp[0].run (x, c), c); } };
-    Split xs[3]; float mEnv[4] {}, mG[4] {};
+    Split xs[3]; float mEnv[4] {}, mG[4] {}, fxS[3] {}, thS[4] {}, mkS[4] {}, wS[4] {}, bS[4] {}; bool mbInit = true; int mbNb = -1; juce::uint32 mbCnt = 0;
 public:
     std::atomic<float> bandGr[4] {};
 private:
@@ -479,7 +481,8 @@ private:
         float fx[3]; int nx = nb - 1;
         if (nb == 2) fx[0] = M.xo[1]; else if (nb == 3) { fx[0] = M.xo[0]; fx[1] = M.xo[2]; } else { fx[0] = M.xo[0]; fx[1] = M.xo[1]; fx[2] = M.xo[2]; }
         for (int k = 1; k < nx; ++k) fx[k] = juce::jmax (fx[k], fx[k - 1] * 1.2f);
-        for (int k = 0; k < nx; ++k) xs[k].set (fx[k], sr);
+        if (mbInit || nb != mbNb) { for (int k = 0; k < nx; ++k) { fxS[k] = fx[k]; xs[k].set (fx[k], sr); } }   // numero di bande cambiato: tagli subito al posto giusto
+        const float kX = 1.0f - std::exp (-1.0f / (0.12f * (float) sr));
         const float off = mbOffset (p.drive);   // la manopola grande sposta tutte le soglie insieme
         const float tScale = std::pow (4.0f, (p.att - 0.5f) * 2.0f), rScale = std::pow (4.0f, (p.rel - 0.5f) * 2.0f);
         const float warm = p.color;   // "warm" stile alpha: attacco piu morbido e un filo di saturazione
@@ -493,11 +496,17 @@ private:
         }
         const float avgC = std::exp (-1.0f / (1.5f * (float) sr)), avgC2 = std::exp (-1.0f / (0.8f * (float) sr));
         float bandMax[4] {};
+        // soglie, guadagni, solo e bypass delle bande scivolano (15 ms); i tagli in 120 ms
+        float wT[4], bT[4];
+        for (int b = 0; b < 4; ++b) { wT[b] = b < nb && ! (anySolo && ! M.solo[b]) ? 1.0f : 0.0f; bT[b] = M.byp[b] ? 1.0f : 0.0f; }
+        if (mbInit || nb != mbNb) { for (int b = 0; b < 4; ++b) { thS[b] = b < nb ? th[b] : 0; mkS[b] = b < nb ? mk[b] : 1; wS[b] = wT[b]; bS[b] = bT[b]; } mbInit = false; mbNb = nb; }
         for (int i = 0; i < N; ++i)
         {
             sm.out += (p.outDb - sm.out) * kS; sm.mix += (p.mix - sm.mix) * kS; sm.col += (warm - sm.col) * kS;
             const float og = juce::Decibels::decibelsToGain (sm.out);
             float band[4][2];
+            if ((mbCnt++ & 31) == 0) for (int k = 0; k < nx; ++k) { fxS[k] += (fx[k] - fxS[k]) * juce::jmin (1.0f, kX * 32.0f); if (std::abs (fx[k] - fxS[k]) < 0.01f) fxS[k] = fx[k]; xs[k].set (fxS[k], sr); }
+            for (int b = 0; b < nb; ++b) { thS[b] += (th[b] - thS[b]) * kS; mkS[b] += (mk[b] - mkS[b]) * kS; wS[b] += (wT[b] - wS[b]) * kS; bS[b] += (bT[b] - bS[b]) * kS; }
             for (int c = 0; c < 2; ++c)
             {
                 const float x = c ? R[i] : L[i];
@@ -516,11 +525,11 @@ private:
             {
                 const float lev = juce::jmax (std::abs (band[b][0]), std::abs (band[b][1]));
                 mEnv[b] = lev > mEnv[b] ? ca[b] * mEnv[b] + (1 - ca[b]) * lev : cr[b] * mEnv[b] + (1 - cr[b]) * lev;
-                const float db = 20.0f * std::log10 (mEnv[b] + 1.0e-9f), o = db - th[b];
+                const float db = 20.0f * std::log10 (mEnv[b] + 1.0e-9f), o = db - thS[b];
                 const float g = o <= -3 ? 0.0f : o < 3 ? sl[b] * (o + 3) * (o + 3) / 12.0f : sl[b] * o;   // ginocchio di 6 dB
                 mG[b] = g; mx = juce::jmax (mx, g); bandMax[b] = juce::jmax (bandMax[b], g);
-                if (anySolo && ! M.solo[b]) continue;
-                const float gg = M.byp[b] ? 1.0f : juce::Decibels::decibelsToGain (-g) * mk[b];
+                if (wS[b] < 1.0e-5f && wT[b] == 0.0f) continue;
+                const float gg = wS[b] * (bS[b] + (1.0f - bS[b]) * juce::Decibels::decibelsToGain (-g) * mkS[b]);
                 yl += band[b][0] * gg; yr += band[b][1] * gg;
             }
             if (sm.col > 0.001f) sat (yl, 0, OPTO2A, sm.col * 0.5f), sat (yr, 1, OPTO2A, sm.col * 0.5f);
@@ -529,7 +538,7 @@ private:
             eIn = avgC2 * eIn + (1 - avgC2) * 0.5f * (L[i] * L[i] + R[i] * R[i]);
             eOut = avgC2 * eOut + (1 - avgC2) * 0.5f * (yl * yl + yr * yr);
             if (autoGain && eIn > 1.0e-8f && eOut > 1.0e-10f) autoC += (juce::jlimit (0.06f, 16.0f, std::sqrt (eIn / eOut)) - autoC) * 0.0002f;
-            else if (! autoGain) autoC = 1;
+            else if (! autoGain) { autoC += (1.0f - autoC) * 0.0002f; if (std::abs (autoC - 1.0f) < 1.0e-5f) autoC = 1; }   // spento: torna a 1 piano
             yl *= og * autoC; yr *= og * autoC;
             L[i] = L[i] * (1 - sm.mix) + yl * sm.mix; R[i] = R[i] * (1 - sm.mix) + yr * sm.mix;
         }

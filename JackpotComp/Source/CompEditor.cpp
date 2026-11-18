@@ -151,7 +151,9 @@ void Knob::paintHw (juce::Graphics& g)
     // lettura in un piccolo display
     auto rr = Rectangle<float> (4, getHeight() - rh, getWidth() - 8.0f, rh - 1);
     g.setColour (Colour (0xe6050608)); g.fillRoundedRectangle (rr, 4); g.setColour (col.withAlpha (enabled ? 0.45f : 0.15f)); g.drawRoundedRectangle (rr.reduced (0.5f), 4, 1.0f);
-    g.setColour (enabled ? (drag ? col.brighter (0.4f) : col) : C::faint); g.setFont (mf (big ? 11.0f : 10.0f)); g.drawText (text ? text() : param->getCurrentValueAsText(), rr, Justification::centred);
+    // il display e' sempre scuro: sui temi con accenti scuri (CBRPNK, RETRO) la scritta si schiarisce
+    const auto vc = col.getPerceivedBrightness() < 0.55f ? col.interpolatedWith (Colours::white, 0.55f) : col;
+    g.setColour (enabled ? (drag ? vc.brighter (0.4f) : vc) : Colour (0xff5a5f6a)); g.setFont (mf (big ? 11.0f : 10.0f)); g.drawText (text ? text() : param->getCurrentValueAsText(), rr, Justification::centred);
 }
 void Knob::paint (juce::Graphics& g)
 {
@@ -605,8 +607,9 @@ void StageEditor::paintStatic (juce::Graphics& g)
         g.setColour (ink.withAlpha (0.9f)); g.drawText (juce::String (I.name) + "   " + F.plate, r, juce::Justification::centredLeft);
         g.setFont (mf (8.0f)); g.setColour (ink.withAlpha (0.5f)); g.drawText (juce::String ("JC-6 / STAGE 0") + juce::String (s + 1) + "   " + F.code, r.translated (0, 13), juce::Justification::centredLeft);
     }
-    glowText (g, "STADIO " + juce::String (s + 1), { 62, 10, 110, 28 }, on ? C::text : C::dim, uf (14.0f));
-    g.setColour (C::dim); g.setFont (uf (11.0f, false)); g.drawFittedText (I.inspired, juce::Rectangle<int> (170, 10, (int) b.getWidth() - 470, 28), juce::Justification::centredLeft, 2, 0.8f);
+    // il frontale dello stadio e' sempre scuro: scritte chiare fisse, leggibili con ogni tema
+    glowText (g, "STADIO " + juce::String (s + 1), { 62, 10, 110, 28 }, on ? juce::Colour (0xffe9e5da) : juce::Colour (0xff8a8f99), uf (14.0f));
+    g.setColour (juce::Colour (0xff9aa0ab)); g.setFont (uf (11.0f, false)); g.drawFittedText (I.inspired, juce::Rectangle<int> (170, 10, (int) b.getWidth() - 470, 28), juce::Justification::centredLeft, 2, 0.8f);
     jlook::button (g, modelRect().toFloat(), acc, true, false, juce::String (I.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), uf (13.0f));
     jlook::button (g, soloRect().toFloat(), C::amber, ed.sv (s, "solo") > 0.5f, false, "SOLO", uf (11.5f));
     if (m != MULTI)
@@ -657,8 +660,8 @@ void StageEditor::paintStatic (juce::Graphics& g)
     if (! on)
     {
         g.setColour (juce::Colour (0xd0060709)); g.fillRoundedRectangle (b.withTrimmedTop (44).reduced (5, 0).withTrimmedBottom (5), 10);
-        g.setColour (C::text); g.setFont (uf (15.0f)); g.drawText ("STADIO SPENTO", b.withTrimmedTop (44).translated (0, -14), juce::Justification::centred);
-        g.setColour (C::dim); g.setFont (uf (11.5f, false)); g.drawText ("accendilo con il pulsante in alto a sinistra: parte neutro, senza comprimere. Poi abbassa la SOGLIA.", b.withTrimmedTop (44).translated (0, 12), juce::Justification::centred);
+        g.setColour (juce::Colour (0xffe9e5da)); g.setFont (uf (15.0f)); g.drawText ("STADIO SPENTO", b.withTrimmedTop (44).translated (0, -14), juce::Justification::centred);
+        g.setColour (juce::Colour (0xff9aa0ab)); g.setFont (uf (11.5f, false)); g.drawText ("accendilo con il pulsante in alto a sinistra: parte neutro, senza comprimere. Poi abbassa la SOGLIA.", b.withTrimmedTop (44).translated (0, 12), juce::Justification::centred);
     }
 }
 void StageEditor::paintNeedle (juce::Graphics& g)
