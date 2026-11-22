@@ -8,7 +8,7 @@ namespace jds
 {
 struct Preset { const char* name; const char* note; std::vector<std::pair<const char*, float>> v; };
 const std::vector<Preset>& presets();
-constexpr int kGenresN = 8, kTargetsN = 5;
+constexpr int kGenresN = 9, kTargetsN = 5;
 const char* genreName (int g); const char* targetName (int t); const char* genreIdea (int g);
 int recipeIndex (int g, int t);
 
@@ -64,7 +64,7 @@ private:
     std::map<juce::String, std::atomic<float>*> raw;
     std::atomic<float> *pIn, *pSOn, *pSModel, *pSBits, *pSRate, *pSMix, *pDOn, *pDModel, *pDDrive, *pDTone, *pDMix, *pCOn, *pCStyle, *pCAmt, *pCAtt, *pCRel, *pCPunch, *pCMix,
         *pFOn, *pFHp, *pFLp, *pFRes, *pF24, *pFBoom, *pFCrack, *pFWarm, *pFAir, *pTOn, *pTAge, *pTWow, *pTFlut, *pTDrop, *pNOn, *pNVinyl, *pNPops, *pNHiss, *pNHum, *pNFollow,
-        *pROn, *pRSize, *pRDecay, *pRTone, *pRMix, *pRGate, *pAmount, *pMix, *pOut, *pMono, *pAuto;
+        *pROn, *pRSize, *pRDecay, *pRTone, *pRMix, *pRGate, *pAmount, *pMix, *pOut, *pMono, *pAuto, *pCal;
     double sr = 44100; int maxBlock = 512;
     std::vector<float> mono;
 };

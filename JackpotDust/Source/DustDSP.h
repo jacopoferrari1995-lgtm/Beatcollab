@@ -109,11 +109,11 @@ struct Settings
     bool tOn = false; float tAge = 0.4f, tWow = 0.2f, tFlut = 0.2f, tDrop = 0;
     bool nOn = false; float nVinyl = 0.4f, nPops = 0.3f, nHiss = 0.2f, nHum = 0; bool nFollow = true;
     bool rOn = false; float rSize = 0.4f, rDecay = 0.6f, rTone = 0.5f, rMix = 0.2f; bool rGate = false;
-    float amount = 1, mix = 1, outDb = 0; bool mono = false, autoGain = false;
+    float amount = 1, mix = 1, outDb = 0; bool mono = false, autoGain = false, cal = true;
 };
 
 // ---------------------------------------------------------------- motore
-// Ordine: sampler (1x, l'aliasing delle macchine e' voluto) -> [8x: saturazione, filtri, compressore, nastro] -> room -> polvere -> uscita.
+// Ordine: sampler (1x, l'aliasing delle macchine e' voluto) -> filtri/EQ -> [8x: saturazione, compressore, nastro] -> trasporto nastro -> room -> polvere -> uscita.
 // Le manopole che cambiano livello o colore sono smussate per campione (niente click), i filtri si aggiornano a piccoli passi.
 // cancello dell'oversampling: quando nessun modulo a 8x lavora, il segnale passa solo da un ritardo uguale (neutro al bit);
 // quando uno si accende l'8x si scalda per la sua latenza e poi entra con una dissolvenza
@@ -154,7 +154,7 @@ public:
         satDry.setSize (2, block * kOs);
         for (auto& c : ch) c = Ch();
         holdPh = 1; env = 0; inRms = outRms = 1e-6f; gr = 0; dropG = 1; dropT = 0; wowPh = flPh = fl2Ph = 0;
-        humPh = 0; noiseEnv = 0; crackLp[0] = crackLp[1] = popZ[0] = popZ[1] = 0; rms = envF = envS = 0; muCharge = 0;
+        humPh = 0; noiseEnv = 0; crackLp[0] = crackLp[1] = popZ[0] = popZ[1] = 0; rms = envF = envS = 0; muCharge = 0; grAvgC = 0; grNum = grDen = 0; tapeW = 0; filtW = 0; cCur = -1; sCur = -1;
         for (auto& e : ottEnv) e = 0;
         for (auto& v : smv) v = Sm1();
         lastRate = -1; lastModel = -1; for (auto& f : fk) f = -1;
@@ -163,6 +163,7 @@ public:
         for (int k = 0; k < 4; ++k) { fdn[k].prepare ((int) (sr * 0.2)); fdnLp[k] = 0; }
         roomEnv = 0; roomHold = 0; roomGate = 0; wetHp[0] = wetHp[1] = 0;
         ottSr = -1;
+        gRing.assign ((size_t) (latency() + block + 16), 1.0f); gRw = 0; calRms = 0; calLt = -100; calDb = 0;
     }
     // il nastro ha un ritardo fisso (centro del wow e del flutter) che c'e' sempre, anche a nastro spento: la latenza dichiarata e' quella vera
     int latency() const { return osLat + tapeD0; }
@@ -175,17 +176,38 @@ public:
         // copia asciutta per il MIX generale (ritardata della latenza dell'oversampling)
         for (int i = 0; i < n; ++i) { dryDl[0].push (L[i]); dryDl[1].push (R[i]); }
         float* io[2] = { L, R };
+        // LIVELLO AUTO: la catena lavora sempre allo stesso livello (parti forti della batteria a circa -14 dB RMS), qualsiasi sia
+        // il volume del campione; all'uscita il guadagno si toglie. Cosi' lo stesso preset spinge uguale su una cassa piano e su un bus forte
+        {
+            const bool active = S.sOn || S.dOn || S.cOn || S.fOn || S.tOn || S.nOn || S.rOn;
+            const float a300 = std::exp (-1.0f / (0.3f * (float) sr)), dec = 3.0f / (float) sr;
+            const float up = 1.0f - std::exp (-1.0f / (2.0f * (float) sr)), down = 1.0f - std::exp (-1.0f / (0.05f * (float) sr));
+            const int GL = (int) gRing.size();
+            for (int i = 0; i < n; ++i)
+            {
+                calRms = a300 * calRms + (1 - a300) * 0.5f * (L[i] * L[i] + R[i] * R[i]);
+                const float db = 10.0f * std::log10 (calRms + 1e-12f);
+                if (db > -60) calLt = std::max (db, calLt - dec);
+                const float tgt = (S.cal && active && calLt > -60) ? juce::jlimit (-12.0f, 18.0f, -14.0f - calLt) : 0.0f;
+                calDb += (tgt - calDb) * (tgt > calDb ? up : down);
+                if (std::abs (calDb) < 1e-4f && tgt == 0.0f) calDb = 0;
+                const float g = calDb == 0.0f ? 1.0f : dbToG (calDb);
+                L[i] *= g; R[i] *= g; gRing[(size_t) gRw] = g; if (++gRw >= GL) gRw = 0;
+            }
+        }
         double ein = 0; for (int i = 0; i < n; ++i) ein += 0.5 * (L[i] * L[i] + R[i] * R[i]);
 
         // 1) campionatore d'epoca (a 1x: e' la macchina vera, aliasing compreso)
-        const float sMixT = S.sOn ? std::min (1.0f, S.sMix * A) : 0.0f;
+        // cambio macchina: il campionatore esce, cambia, rientra (prima a scatto)
+        if (sCur != S.sModel && smv[1].v <= 0.0005f) { sCur = S.sModel; lastModel = -1; for (auto& C : ch) { for (auto& b : C.aa) b.reset(); for (auto& b : C.post) b.reset(); } }
+        const float sMixT = S.sOn && sCur == S.sModel ? std::min (1.0f, S.sMix * A) : 0.0f;
         if (S.sOn || smv[1].v > 0.0005f)
         {
-            const auto& M = sInfo (S.sModel);
+            const auto& M = sInfo (sCur);
             const float rate = std::min (S.sRate, (float) sr);
-            if (rate != lastRate || S.sModel != lastModel)
+            if (rate != lastRate || sCur != lastModel)
             {
-                lastRate = rate; lastModel = S.sModel;
+                lastRate = rate; lastModel = sCur;
                 for (int c = 0; c < 2; ++c)
                 {
                     for (int k = 0; k < 3; ++k) { ch[c].aa[k].lp (rate * 0.45, k == 0 ? 0.54 : k == 1 ? 1.31 : 0.71, sr); }
@@ -216,6 +238,9 @@ public:
         }
         else smv[1].step (0, 1);
 
+        // filtri ed EQ prima della saturazione e del compressore: boom e crack spingono dentro la macchina (piu' grosso),
+        // e il clipper resta l'ultimo a toccare i picchi (prima l'EQ dopo il clip rialzava i picchi tagliati)
+        processFilters (io, n, S);
         // 2-5) a 8x: niente aliasing da saturazione, clip, compressore e nastro
         // l'oversampling gira sempre (latenza costante, nessun salto quando accendi un modulo); i moduli spenti non costano nulla
         {   // solo se un modulo a 8x lavora; altrimenti un ritardo uguale (cosi' a moduli spenti il plugin non cambia il suono)
@@ -233,9 +258,8 @@ public:
             }
             gUp.mix (io, n, upAct);
         }
-        // a 1x: filtri ed EQ, poi il trasporto del nastro
-        processFilters (io, n, S);
-        if (S.tOn) processTape (io, n, S, A);
+        // a 1x: il trasporto del nastro
+        if (S.tOn || tapeW > 0.0f) processTape (io, n, S, A);   // acceso/spento con una dissolvenza di 20 ms (prima a scatto)
         else for (int c = 0; c < 2; ++c) for (int i = 0; i < n; ++i) { tapeDl[c].push (io[c][i]); io[c][i] = tapeDl[c].read ((float) tapeD0); }   // solo il ritardo fisso
 
         // 6) room: piccola stanza per batterie grandi (prime riflessioni + coda corta), con gate opzionale
@@ -244,9 +268,14 @@ public:
         if (S.nOn && A > 0.001f) processDust (io, n, S, A);
         // 8) uscita: mix parallelo, mono, guadagno automatico, volume
         double eout = 0;
+        const int GL = (int) gRing.size(), lat = latency();
         for (int i = 0; i < n; ++i)
         {
             float l = io[0][i], r = io[1][i];
+            {   // toglie il LIVELLO AUTO con lo stesso guadagno che aveva questo campione all'ingresso
+                int k = gRw - n + i - lat; while (k < 0) k += GL; const float g = gRing[(size_t) k];
+                if (g != 1.0f) { l /= g; r /= g; }
+            }
             const float mx = smv[2].step (S.mix, kS);
             if (mx < 0.9995f) { const float t = (float) (osLat + tapeD0 + n - 1 - i), dl = dryDl[0].read (t), dr = dryDl[1].read (t); l = dl + (l - dl) * mx; r = dr + (r - dr) * mx; }
             const float mo = smv[3].step (S.mono ? 1.0f : 0.0f, kS);
@@ -275,7 +304,7 @@ private:
     void processUp (float** io, int n, const Settings& S, float A, float kS)
     {
         // saturazione / clip
-        const float driveT = S.dOn ? S.dDrive * A : 0.0f, dMixT = S.dOn ? S.dMix : 0.0f;
+        const float driveT = S.dDrive * A, dMixT = S.dOn ? S.dMix : 0.0f;   // spegnendo esce solo il MIX: la spinta (e il suo makeup) restano fermi, niente salto di volume
         if (S.dOn || smv[5].v > 0.0005f)
         {
             if (S.dModel != lastDModel || std::abs (driveT - mkFor) > 0.25f) { lastDModel = S.dModel; mkFor = driveT; driveMk = makeup (S.dModel, driveT); }
@@ -283,7 +312,7 @@ private:
             const bool tilt = std::abs (S.dTone) > 0.01f;
             for (int i = 0; i < n; ++i)
             {
-                const float dr = smv[6].step (driveT, kS), mx = smv[5].step (dMixT, kS), g = dbToG (dr) * 1.0f;
+                const float dr = smv[6].step (driveT, kS), mx = smv[5].step (dMixT, kS * 0.4f), g = dbToG (dr) * 1.0f;   // entrata della saturazione in ~40 ms
                 for (int c = 0; c < 2; ++c)
                 {
                     const float x = io[c][i];
@@ -297,8 +326,11 @@ private:
         // compressore e punch
         if (S.cOn || smv[7].v > 0.0005f)
         {
-            if (S.cStyle == C_OTT) processOtt (io, n, S, A, kS);
-            else processComp (io, n, S, A, kS);
+            // cambio tipo: il compressore esce (mix a zero), cambia, e rientra
+            if (cCur != S.cStyle && smv[7].v < 0.001f) { cCur = S.cStyle; env = rms = envF = envS = muCharge = 0; grNum = grDen = grAvgC = 0; compG = 1; for (auto& e : ottEnv) e = 0; for (auto& g : ottG) g = 1; }
+            Settings C2 = S; C2.cStyle = cCur; if (cCur != S.cStyle) C2.cOn = false;
+            if (cCur == C_OTT) processOtt (io, n, C2, A, kS);
+            else processComp (io, n, C2, A, kS);
         }
         else { gr = 0; smv[7].step (0, 1); }
         // saturazione del nastro (il resto del nastro, che e' lineare, gira a 1x)
@@ -321,7 +353,8 @@ private:
     // filtri ed EQ da batteria a 1x (sono lineari: a 8x costavano otto volte tanto senza suonare diversi)
     void processFilters (float** io, int n, const Settings& S)
     {
-        if (! S.fOn) return;
+        if (! S.fOn && filtW <= 0.0f) return;
+        const float fStep = 1.0f / (0.02f * (float) sr);
         for (int o = 0; o < n; o += 32)
         {
             const int m = std::min (32, n - o);
@@ -335,8 +368,12 @@ private:
                 for (int i = o; i < o + m; ++i)
                 {
                     float v = io[c][i], lp, hp;
-                    if (F.fHp > 21) { C.hp1.tick (v, lp, hp); v = hp; if (S.f24) { C.hp2.tick (v, lp, hp); v = hp; } }
-                    if (F.fLp < 19900) { C.lp1.tick (v, lp, hp); v = lp; if (S.f24) { C.lp2.tick (v, lp, hp); v = lp; } }
+                    // i filtri girano sempre (stato caldo): quando entrano non c'e' il gradino di un filtro che parte da zero;
+                    // il secondo stadio (24 dB) entra sfumando
+                    if (c == 0) { w24 = S.f24 ? std::min (1.0f, w24 + fStep) : std::max (0.0f, w24 - fStep); w24a[i - o] = w24; }
+                    const float k24 = w24a[i - o];
+                    { float h1, h2, l2; C.hp1.tick (v, lp, h1); C.hp2.tick (h1, l2, h2); if (F.fHp > 21) v = h1 + (h2 - h1) * k24; }
+                    { float l1, l2, hh; C.lp1.tick (v, l1, hh); C.lp2.tick (l1, l2, hh); if (F.fLp < 19900) v = l1 + (l2 - l1) * k24; }
                     if (std::abs (F.fBoom) > 0.02f) v = C.boom.run (v);
                     if (std::abs (F.fCrack) > 0.02f) v = C.crack.run (v);
                     if (F.fWarm > 0.001f)
@@ -348,7 +385,9 @@ private:
                         C.wDc += (v - C.wDc) * 0.00005f; v -= C.wDc;
                     }
                     if (F.fAir > 0.001f) v = C.air.run (v);
-                    io[c][i] = v;
+                    const float w = c == 0 ? (filtW = S.fOn ? std::min (1.0f, filtW + fStep) : std::max (0.0f, filtW - fStep)) : fW1[i - o];
+                    if (c == 0) fW1[i - o] = w;
+                    io[c][i] = w >= 1.0f ? v : io[c][i] + (v - io[c][i]) * w;   // filtri accesi/spenti sfumati
                 }
             }
         }
@@ -369,15 +408,16 @@ private:
         {
             const int m = std::min (kOs, n - i0);
             const float amt = smv[8].step (std::min (1.0f, S.cAmt * A), kG), mixT = S.cOn ? S.cMix : 0.0f, punch = smv[9].step (S.cPunch, kG);
-            const float thr = st == C_FET ? -amt * 30 : st == C_BUS ? -amt * 24 : st == C_670 ? -amt * 30 : -amt * 36;
+            const float thr = st == C_FET ? -amt * 30 : st == C_BUS ? -4 - amt * 24 : st == C_670 ? -amt * 30 : -4 - amt * 32;   // BUS e PUMP sentono l'RMS: soglia piu' bassa (prima il BUS quasi non lavorava)
             const float knee = st == C_BUS ? 10.0f : st == C_670 ? 16.0f : 6.0f;
-            float makeupDb = 0;
-            {
-                const float ratio0 = st == C_FET ? 4 + amt * 16 : st == C_BUS ? 2 + 2 * amt : st == C_670 ? 3.0f : 10;
-                const float ov = -10.0f - thr;
-                if (ov > knee / 2) makeupDb = ov * (1 - 1 / ratio0); else if (ov > -knee / 2) { const float z = ov + knee / 2; makeupDb = (1 - 1 / ratio0) * z * z / (2 * knee); }
-                makeupDb *= 0.7f;
+            // makeup che segue la riduzione media (circa 1 s): il compressore ingrossa senza far scendere il volume
+            {   // media della riduzione pesata dall'energia: conta quanto comprime dove c'e' suono, non nei silenzi tra i colpi
+                const float k1 = 1.0f - std::exp (-(float) m / (1.0f * sc)); float e1 = 0;
+                for (int i = i0; i < i0 + m; ++i) e1 += 0.5f * (io[0][i] * io[0][i] + io[1][i] * io[1][i]);
+                grNum += (e1 * env - grNum) * k1; grDen += (e1 - grDen) * k1;
+                grAvgC = grDen > 1e-12f ? grNum / grDen : 0.0f;
             }
+            const float makeupDb = juce::jmin (18.0f, grAvgC * 0.9f);
             float a = 0, e2 = 0;
             for (int i = i0; i < i0 + m; ++i) { const float l = io[0][i], r = io[1][i]; a = std::max (a, std::max (std::abs (l), std::abs (r))); e2 += 0.5f * (l * l + r * r); }
             e2 /= (float) m;
@@ -399,7 +439,7 @@ private:
             else if (over > -knee / 2) { const float z = over + knee / 2; want = (1 - 1 / ratio) * z * z / (2 * knee); }
             if (st == C_670)
             {   // rilascio a due tempi come TC5: veloce sui colpi singoli, lento se continua a lavorare
-                const float aR2 = std::exp (-1.0f / (rel * (1.0f + 4.0f * muCharge) * sc));
+                const float aR2 = std::exp (-1.0f / (rel * (1.0f + 1.5f * muCharge) * sc));   // rilascio che si allunga quando lavora tanto (prima fino a 5 volte: la riduzione restava ferma e non ingrossava)
                 env = want > env ? aA * env + (1 - aA) * want : aR2 * env + (1 - aR2) * want;
                 muCharge += ((env > 2 ? 1.0f : 0.0f) - muCharge) * (1.0f / (2.0f * sc));
             }
@@ -476,7 +516,7 @@ private:
     // nastro a 1x: wow, flutter, eta (bump e alti chiusi), dropout. La saturazione del nastro e' gia' passata a 8x
     void processTape (float** io, int n, const Settings& S, float A)
     {
-        const float age = std::min (1.5f, S.tAge * A), wow = S.tWow * A, flut = S.tFlut * A, drop = S.tDrop * A;
+        const float age = std::min (1.5f, S.tAge * A), wow = S.tWow * A, flut = S.tFlut * A, drop = S.tDrop * A, tStep = 1.0f / (0.02f * (float) sr);
         if (std::abs (age - lastAge) > 0.002f) { lastAge = age; for (int c = 0; c < 2; ++c) { ch[c].bump.bell (85, 0.8, age * 2.5, sr); ch[c].tLp1.lp (20000 * (1 - 0.72f * std::min (1.0f, age)), 0.6, sr); } }
         const float wA = (float) (0.0087 * wow / (2 * kPi * 0.55) * sr), fA = (float) (0.0025 * flut / (2 * kPi * 6.3) * sr), f2A = (float) (0.001 * flut / (2 * kPi * 11.0) * sr);
         const double sw = std::sin (2 * kPi * 0.55 / sr), cw = std::cos (2 * kPi * 0.55 / sr), sf = std::sin (2 * kPi * 6.3 / sr), cf = std::cos (2 * kPi * 6.3 / sr), s2 = std::sin (2 * kPi * 11.0 / sr), c2 = std::cos (2 * kPi * 11.0 / sr);
@@ -498,13 +538,16 @@ private:
                 dropG += (tgt - dropG) * 0.005f;
             }
             else dropG += (1.0f - dropG) * 0.005f;
+            tapeW = S.tOn ? juce::jmin (1.0f, tapeW + tStep) : juce::jmax (0.0f, tapeW - tStep);
             for (int c = 0; c < 2; ++c)
             {
                 auto& C = ch[c];
                 tapeDl[c].push (io[c][i]);
                 float v = tapeDl[c].read (d + (c ? 0.3f : 0.0f) * juce::jmin (1.0f, wA_s + fA_s));   // il piccolo scarto fra i canali solo quando il nastro si muove
                 if (age > 0.001f) v = C.tLp1.run (C.bump.run (v));
-                io[c][i] = v * dropG;
+                v *= dropG;
+                if (tapeW < 1.0f) { const float plain = tapeDl[c].read ((float) tapeD0); v = plain + (v - plain) * tapeW; }
+                io[c][i] = v;
             }
         }
     }
@@ -602,13 +645,15 @@ private:
     double sr = 44100, sr4 = 44100 * 8, wowPh = 0, flPh = 0, fl2Ph = 0, humPh = 0, ottSr = -1;
     int maxBlock = 512, osLat = 0, lastModel = -1, dropT = 0, lastDModel = -1, tapeD0 = 8;
     float holdPh = 1, lastRate = -1, driveMk = 1, mkFor = -100, env = 0, rms = 0, envF = 0, envS = 0, inRms = 1e-6f, outRms = 1e-6f, dropG = 1, wowTarget = 0, wowDrift = 0, noiseEnv = 0, muCharge = 0, lastAge = -1;
-    float wA_s = 0, fA_s = 0, f2A_s = 0, compG = 1, ottG[3] { 1, 1, 1 }, lastTone = -100;
+    float tapeW = 0, filtW = 0, fW1[32] {}, w24 = 0, w24a[32] {}; int cCur = -1, sCur = -1;
+    float wA_s = 0, fA_s = 0, f2A_s = 0, compG = 1, grAvgC = 0, grNum = 0, grDen = 0, ottG[3] { 1, 1, 1 }, lastTone = -100;
     double oW[2] { 1, 0 }, oF[2] { 1, 0 }, oF2[2] { 1, 0 };
     float fk[7] { -1, -1, -1, -1, -1, -1, -1 }, crackLp[2] {}, popZ[2] {}, wLpA = 0.01f, ottEnv[3] {};
     Sm1 smv[12], fs[7];
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
     OsGate gUp; Dl dryDl[2], tapeDl[2], erDl[2], fdn[4], bypDl[2]; int upTail = 0; float fdnLp[4] {}, wetHp[2] {}, roomEnv = 0, roomHold = 0, roomGate = 0;
     Ch ch[2]; Rng rng;
+    std::vector<float> gRing; int gRw = 0; float calRms = 0, calLt = -100, calDb = 0;
     juce::AudioBuffer<float> satDry;
 };
 }

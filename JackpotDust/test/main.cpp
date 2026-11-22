@@ -1,3 +1,4 @@
+#include "TestLab.h"
 #include <cstdlib>
 #include <juce_dsp/juce_dsp.h>
 #include "../Source/DustProcessor.h"
@@ -28,6 +29,66 @@ static float bandDb (const std::vector<float>& x, int start, double sr, float f0
 
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {
+        juce::ScopedJuceInitialiser_GUI gui2;
+        const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "0").getIntValue();
+        { Processor q; std::printf ("preset: %s\n", q.getProgramName (pr).toRawUTF8()); }
+        testlab::run ([&] (double rate, int blk) -> std::unique_ptr<juce::AudioProcessor>
+        {
+            auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk); p->loadPreset (pr);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = p->apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+            return p;
+        }, std::getenv ("JNOCLICK") == nullptr, [] (juce::AudioProcessorParameter* q)
+        {
+            auto* r = dynamic_cast<juce::RangedAudioParameter*> (q); if (r == nullptr) return true;
+            if (auto* only = std::getenv ("JONLY")) return ! r->paramID.contains (only);
+            return false;
+        });
+        return 0;
+    }
+
+    if (argc > 1 && juce::String (argv[1]) == "drum")
+    {   // loop di batteria sintetico (cassa, rullante, hat) a 90 BPM; per ogni preset: quanto cambia il suono
+        juce::ScopedJuceInitialiser_GUI gi; const double sr = 48000; const int B = 512;
+        const int len = (int) (sr * 60.0 / 90.0 * 8);   // 2 battute
+        std::vector<float> in ((size_t) len, 0.0f); juce::Random rnd (7);
+        const int beat = (int) (sr * 60.0 / 90.0), e8 = beat / 2;
+        auto addKick = [&] (int at, float g) { double ph = 0; for (int i = 0; i < (int) (sr * 0.45) && at + i < len; ++i) { const double t = i / sr, f = 45 + 110 * std::exp (-t * 28); ph += 2 * juce::MathConstants<double>::pi * f / sr; in[(size_t) (at + i)] += g * (float) (std::sin (ph) * std::exp (-t * 6.5) + 0.3 * std::exp (-t * 300) * (rnd.nextFloat() - 0.5)); } };
+        auto addSnare = [&] (int at, float g) { float lp = 0; for (int i = 0; i < (int) (sr * 0.3) && at + i < len; ++i) { const double t = i / sr; const float nz = rnd.nextFloat() * 2 - 1; lp += 0.5f * (nz - lp); in[(size_t) (at + i)] += g * (float) (0.55 * (nz - lp) * std::exp (-t * 14) + 0.5 * std::sin (2 * juce::MathConstants<double>::pi * 190 * t) * std::exp (-t * 25)); } };
+        auto addHat = [&] (int at, float g) { float hp = 0; for (int i = 0; i < (int) (sr * 0.06) && at + i < len; ++i) { const double t = i / sr; const float nz = rnd.nextFloat() * 2 - 1; hp += 0.7f * (nz - hp); in[(size_t) (at + i)] += g * (nz - hp) * (float) std::exp (-t * 70); } };
+        for (int b = 0; b < 8; ++b) { if (b % 4 == 0 || b % 4 == 2) addKick (b * beat, 0.8f); if (b % 4 == 3) addKick (b * beat + e8, 0.5f); if (b % 2 == 1) addSnare (b * beat, 0.6f); for (int h = 0; h < 2; ++h) addHat (b * beat + h * e8, h ? 0.18f : 0.28f); }
+        { float pk = 0; for (float v : in) pk = std::max (pk, std::abs (v)); for (float& v : in) v *= 0.89f / pk; }   // picco a -1 dBFS
+        auto crest = [&] (const std::vector<float>& x, size_t a) { double e = 0; float pk = 0; for (size_t i = a; i < x.size(); ++i) { e += x[i] * x[i]; pk = std::max (pk, std::abs (x[i])); } const double rms = std::sqrt (e / (x.size() - a)); return std::make_pair (20 * std::log10 (pk + 1e-9), 20 * std::log10 (rms + 1e-9)); };
+        auto bands = [&] (const std::vector<float>& x, size_t a, double out[4]) {   // energia sotto 120, 120-1k, 1k-6k, sopra 6k
+            const double fc[3] = { 120, 1000, 6000 }; double lp[3] = { 0, 0, 0 }, e[4] = { 0, 0, 0, 0 };
+            for (size_t i = 0; i < x.size(); ++i) { double prev = 0, v = x[i]; double parts[4]; double rest = v;
+                for (int k = 0; k < 3; ++k) { const double al = 1 - std::exp (-2 * juce::MathConstants<double>::pi * fc[k] / sr); lp[k] += al * (v - lp[k]); }
+                parts[0] = lp[0]; parts[1] = lp[1] - lp[0]; parts[2] = lp[2] - lp[1]; parts[3] = v - lp[2]; (void) prev; (void) rest;
+                if (i >= a) for (int k = 0; k < 4; ++k) e[k] += parts[k] * parts[k]; }
+            for (int k = 0; k < 4; ++k) out[k] = 10 * std::log10 (e[k] / (x.size() - a) + 1e-20); };
+        const auto ci = crest (in, (size_t) beat); double bi[4]; bands (in, (size_t) beat, bi);
+        std::printf ("ingresso: picco %.1f  rms %.1f  crest %.1f   bande %.1f %.1f %.1f %.1f\n", ci.first, ci.second, ci.first - ci.second, bi[0], bi[1], bi[2], bi[3]);
+        const int np = Processor().getNumPrograms();
+        for (int pr = 1; pr < np; ++pr)
+        {
+            if (auto* o = std::getenv ("JPRESET")) if (std::atoi (o) != pr) continue;
+            Processor p; p.setPlayConfigDetails (2, 2, sr, B); p.prepareToPlay (sr, B); p.loadPreset (pr);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = p.apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+            const int lat = p.getLatencySamples(); std::vector<float> out; juce::AudioBuffer<float> b (2, B); juce::MidiBuffer m; float maxGr = 0;
+            for (int rep = 0; rep < 2; ++rep) for (int o = 0; o < len; o += B) { const int n = std::min (B, len - o); b.setSize (2, n, false, false, true); for (int i = 0; i < n; ++i) { b.setSample (0, i, in[(size_t) (o + i)]); b.setSample (1, i, in[(size_t) (o + i)]); } p.processBlock (b, m); if (rep == 1) for (int i = 0; i < n; ++i) out.push_back (b.getSample (0, i)); maxGr = std::max (maxGr, p.eng.gr.load()); }
+            // allinea la latenza: confronta l'uscita del secondo giro con l'ingresso
+            std::vector<float> al ((size_t) len, 0.0f); for (int i = 0; i < len; ++i) { const int k = i + lat; al[(size_t) i] = k < len ? out[(size_t) k] : 0.0f; }
+            const auto co = crest (al, (size_t) beat); double bo[4]; bands (al, (size_t) beat, bo);
+            // quanto e' diverso: residuo dopo il miglior guadagno
+            double xy = 0, xx = 0, yy = 0; for (int i = beat; i < len - lat; ++i) { xy += in[(size_t) i] * al[(size_t) i]; xx += in[(size_t) i] * in[(size_t) i]; yy += al[(size_t) i] * al[(size_t) i]; }
+            const double g = xy / (xx + 1e-20), res = yy - 2 * g * xy + g * g * xx;
+            std::printf ("%2d %-24s livello %+5.1f  crest %+5.1f  GR %4.1f  bande %+5.1f %+5.1f %+5.1f %+5.1f  cambia %+6.1f dB\n", pr, p.getProgramName (pr).toRawUTF8(), co.second - ci.second, (co.first - co.second) - (ci.first - ci.second), maxGr,
+                         bo[0] - bi[0] - (co.second - ci.second), bo[1] - bi[1] - (co.second - ci.second), bo[2] - bi[2] - (co.second - ci.second), bo[3] - bi[3] - (co.second - ci.second), 10 * std::log10 (res / (yy + 1e-20) + 1e-20));
+        }
+        return 0;
+    }
+
     if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
     juce::ScopedJuceInitialiser_GUI gui;
     const double sr = 48000;

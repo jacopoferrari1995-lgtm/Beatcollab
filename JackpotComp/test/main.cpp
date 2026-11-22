@@ -6,6 +6,30 @@
 using namespace jc;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "thd")
+    {   // distorsione armonica per modello: seno a 150 Hz, riduzione circa 3/6/10 dB, colore 0
+        juce::ScopedJuceInitialiser_GUI gui2; const double sr = 48000; const double F = std::getenv ("JF") ? std::atof (std::getenv ("JF")) : 150.0;
+        const float amp = std::getenv ("JA") ? (float) std::atof (std::getenv ("JA")) : 0.3f;
+        auto run = [&] (int model, float drive, float& grOut) {
+            Processor p; p.setPlayConfigDetails (2, 2, sr, 512); p.prepareToPlay (sr, 512);
+            auto set = [&] (const juce::String& id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
+            set ("a_on", 1); set ("a_model", (float) model); set ("a_drive", drive);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) set (kv.upToFirstOccurrenceOf ("=", false, false), kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+            juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; std::vector<float> o; long n = 0;
+            for (int k = 0; k < (int) (sr * 2.5 / 512); ++k) { for (int i = 0; i < 512; ++i, ++n) { const float v = amp * (float) std::sin (6.283185307 * F * n / sr); b.setSample (0, i, v); b.setSample (1, i, v); } p.processBlock (b, m); for (int i = 0; i < 512; ++i) o.push_back (b.getSample (0, i)); }
+            grOut = p.gr[0].load();
+            // DFT diretta sulle armoniche (finestra di Hann su 1 s)
+            const int N = (int) sr; const size_t st = o.size() - (size_t) N; double h[11] {};
+            for (int k = 1; k <= 10; ++k) { double re = 0, im = 0; for (int i = 0; i < N; ++i) { const double w = 0.5 - 0.5 * std::cos (6.283185307 * i / (N - 1)); re += o[st + i] * w * std::cos (6.283185307 * F * k * i / sr); im += o[st + i] * w * std::sin (6.283185307 * F * k * i / sr); } h[k] = std::sqrt (re * re + im * im); }
+            double e = 0; for (int k = 2; k <= 10; ++k) e += h[k] * h[k];
+            double e2 = h[2] * h[2], e3 = h[3] * h[3];
+            std::printf ("  drive %.2f  GR %5.1f dB  THD %6.2f%%  (2a %5.1f dB, 3a %5.1f dB)\n", drive, grOut, 100 * std::sqrt (e) / h[1], 10 * std::log10 (e2 / (h[1] * h[1]) + 1e-20), 10 * std::log10 (e3 / (h[1] * h[1]) + 1e-20));
+        };
+        const char* names[] = { "OPTO 2A", "OPTO 3A", "FET 76", "VCA BUS", "VARI-MU", "RMS 160", "DISTRESS", "OTT", "670", "MULTI", "SSL" };
+        for (int mdl : { 0, 1, 2, 3, 4, 5, 8, 10 }) { if (std::getenv ("JM") && std::atoi (std::getenv ("JM")) != mdl) continue; std::printf ("%s\n", names[mdl]); for (float d : { 0.3f, 0.5f, 0.7f }) { float g; run (mdl, d, g); } }
+        return 0;
+    }
+
     if (argc > 1 && juce::String (argv[1]) == "grdbg")
     {   // riduzione di guadagno nel tempo su un seno fermo
         juce::ScopedJuceInitialiser_GUI gui2;

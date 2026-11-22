@@ -326,6 +326,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     sw ("n_follow", modCol (M_DUST), juce::Colour (face (M_DUST).ink), "SOLO MENTRE SUONA");
     sw ("mono", C::amber, juce::Colour (0xffe9e2cf), "MONO");
     sw ("auto", C::amber, juce::Colour (0xffe9e2cf), "VOLUME AUTOMATICO");
+    sw ("cal", C::amber, juce::Colour (0xffe9e2cf), "LIVELLO AUTO");
     for (int m = 0; m < kMods; ++m) { views.push_back (std::make_unique<ModView> (*this, m)); addAndMakeVisible (*views.back()); }
     addAndMakeVisible (scope);
     addAndMakeVisible (sizeChip);
@@ -364,8 +365,9 @@ void Editor::resized()
     kAmount->setBounds (juce::Rectangle<float> (oc.getX() + 46, oc.getY() + 82, 180, 180 + 33).toNearestInt());
     std::vector<Knob*> outs; for (auto& [k, mm] : knobMod) if (mm < 0 && k != kAmount) outs.push_back (k);
     for (size_t i = 0; i < outs.size(); ++i) outs[i]->setBounds (juce::Rectangle<float> (oc.getX() + 10 + i * 84.0f, oc.getY() + 330, 84, 96).toNearestInt());
-    switches[3]->setBounds (juce::Rectangle<float> (oc.getX() + 20, oc.getY() + 440, 100, 20).toNearestInt());
-    switches[4]->setBounds (juce::Rectangle<float> (oc.getX() + 120, oc.getY() + 440, 150, 20).toNearestInt());
+    switches[3]->setBounds (juce::Rectangle<float> (oc.getX() + 20, oc.getY() + 437, 100, 20).toNearestInt());
+    switches[4]->setBounds (juce::Rectangle<float> (oc.getX() + 120, oc.getY() + 437, 150, 20).toNearestInt());
+    switches[5]->setBounds (juce::Rectangle<float> (oc.getX() + 20, oc.getY() + 461, 130, 20).toNearestInt());
     scope.setBounds (juce::Rectangle<float> (oc.getX() + 22, oc.getY() + 566, oc.getWidth() - 44, 96).toNearestInt());
     sizeChip.setBounds (W - 76, H - 16, 58, 14);
     browser.setBounds (0, 0, W, H);
@@ -445,9 +447,9 @@ void Editor::paintStatic (juce::Graphics& g)
         g.setColour (juce::Colour (0xffe9e2cf).withAlpha (0.7f)); g.setFont (uf (9.5f, false));
         g.drawFittedText ("CARATTERE alza o abbassa tutto insieme: macchina, drive, compressione, nastro e polvere.", juce::Rectangle<int> ((int) oc.getX() + 18, (int) oc.getY() + 40, (int) oc.getWidth() - 36, 34), juce::Justification::centredLeft, 2);
         hw::bezel (g, juce::Rectangle<float> (oc.getX() + 22, oc.getY() + 566, oc.getWidth() - 44, 96), 7);
-        for (int i = 0; i < 2; ++i) { auto mr = juce::Rectangle<float> (oc.getX() + 22, oc.getY() + 486 + i * 30.0f, oc.getWidth() - 44, 20); lcd (g, mr, 4); g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText (i ? "OUT" : "IN", mr.translated (0, -11).withHeight (10), juce::Justification::centredLeft); }
+        for (int i = 0; i < 2; ++i) { auto mr = juce::Rectangle<float> (oc.getX() + 22, oc.getY() + 502 + i * 30.0f, oc.getWidth() - 44, 20); lcd (g, mr, 4); g.setColour (C::dim); g.setFont (mf (8.5f)); g.drawText (i ? "OUT" : "IN", mr.translated (0, -11).withHeight (10), juce::Justification::centredLeft); }
         g.setColour (C::dim); g.setFont (uf (9.0f, false));
-        g.drawFittedText ("Ordine: sampler, saturazione, filtri, compressore, nastro, room, polvere. Tutto a 8x tranne il sampler. Latenza " + juce::String (proc.getLatencySamples()) + " campioni, compensata.",
+        g.drawFittedText ("Ordine: sampler, filtri, saturazione, compressore, nastro, room, polvere. LIVELLO AUTO: spinge uguale a ogni volume d'ingresso. Latenza " + juce::String (proc.getLatencySamples()) + " campioni, compensata.",
                           juce::Rectangle<int> ((int) oc.getX() + 18, (int) oc.getY() + 672, (int) oc.getWidth() - 36, 48), juce::Justification::topLeft, 4);
     }
 }
@@ -461,7 +463,7 @@ void Editor::paint (juce::Graphics& g)
     const auto oc = outCard();
     for (int i = 0; i < 2; ++i)
     {
-        auto mr = juce::Rectangle<float> (oc.getX() + 22, oc.getY() + 486 + i * 30.0f, oc.getWidth() - 44, 20).reduced (4, 4);
+        auto mr = juce::Rectangle<float> (oc.getX() + 22, oc.getY() + 502 + i * 30.0f, oc.getWidth() - 44, 20).reduced (4, 4);
         const float l = i ? proc.outPk[0].load() : proc.inPk[0].load(), r = i ? proc.outPk[1].load() : proc.inPk[1].load();
         for (int c = 0; c < 2; ++c)
         {
@@ -568,7 +570,7 @@ void Editor::timerCallback()
     {
         const float pk[4] = { proc.inPk[0].load(), proc.inPk[1].load(), proc.outPk[0].load(), proc.outPk[1].load() };
         bool ch = false; for (int i = 0; i < 4; ++i) if (std::abs (pk[i] - mShown[i]) > 0.003f) { mShown[i] = pk[i]; ch = true; }
-        if (ch) { const auto oc = outCard(); repaint (scaler.map (juce::Rectangle<float> (oc.getX() + 20, oc.getY() + 480, oc.getWidth() - 40, 56).toNearestInt())); }
+        if (ch) { const auto oc = outCard(); repaint (scaler.map (juce::Rectangle<float> (oc.getX() + 20, oc.getY() + 494, oc.getWidth() - 40, 56).toNearestInt())); }
         if (pk[2] > 0.0005f || pk[3] > 0.0005f) scope.repaint();
     }
     if (++tick % 8 == 0) { const auto k = staticKey(); if (k != lastKey) { lastKey = k; repaint(); } }

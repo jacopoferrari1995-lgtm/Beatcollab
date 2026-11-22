@@ -96,7 +96,7 @@ public:
     static juce::Rectangle<float> unit (int u) { return { 18.0f + (u % 4) * 223.0f, 172.0f + (u / 4) * 322.0f, 213, 312 }; }
     static juce::Rectangle<float> outCard() { return { 910, 72, 272, 732 }; }
     static juce::Rectangle<float> genreCard() { return { 18, 72, 882, 92 }; }
-    static juce::Rectangle<float> genreChip (int g) { return { 132.0f + g * 95.0f, 84, 89, 28 }; }
+    static juce::Rectangle<float> genreChip (int g) { return { 132.0f + g * 85.0f, 84, 80, 28 }; }
     static juce::Rectangle<float> targetChip (int t) { return { 132.0f + t * 110.0f, 124, 104, 28 }; }
     static const char* onId (int m) { static const char* ids[] = { "s_on", "d_on", "f_on", "c_on", "t_on", "r_on", "n_on" }; return ids[m]; }
     bool isOn (int m) const { return proc.value (onId (m)) > 0.5f; }

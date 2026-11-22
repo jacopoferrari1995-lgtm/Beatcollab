@@ -1,1 +1,2 @@
-JackpotPad
+JackpotComp
+JackpotDust

@@ -25,7 +25,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     B ("t_on", "Nastro on", false); F ("t_age", "Eta nastro", { 0, 1 }, 0.4f); F ("t_wow", "Wow", { 0, 1 }, 0.2f); F ("t_flut", "Flutter", { 0, 1 }, 0.2f); F ("t_drop", "Dropout", { 0, 1 }, 0);
     B ("n_on", "Polvere on", false); F ("n_vinyl", "Vinile", { 0, 1 }, 0.4f); F ("n_pops", "Pop", { 0, 1 }, 0.3f); F ("n_hiss", "Hiss", { 0, 1 }, 0.2f); F ("n_hum", "Ronzio", { 0, 1 }, 0); B ("n_follow", "Segue la batteria", true);
     B ("r_on", "Room on", false); F ("r_size", "Room grandezza", { 0, 1 }, 0.4f); F ("r_decay", "Room coda", { 0, 1 }, 0.4f); F ("r_tone", "Room tono", { 0, 1 }, 0.5f); F ("r_mix", "Room mix", { 0, 1 }, 0.2f); B ("r_gate", "Room gate", false);
-    F ("amount", "Carattere", { 0, 1.5f }, 1); F ("mix", "Mix", { 0, 1 }, 1); F ("out", "Output", { -12, 12 }, 0); B ("mono", "Mono", false); B ("auto", "Volume automatico", false);
+    F ("amount", "Carattere", { 0, 1.5f }, 1); F ("mix", "Mix", { 0, 1 }, 1); F ("out", "Output", { -12, 12 }, 0); B ("mono", "Mono", false); B ("auto", "Volume automatico", false); B ("cal", "Livello auto", true);
     return l;
 }
 
@@ -43,7 +43,7 @@ Processor::Processor()
     pTOn = R ("t_on"); pTAge = R ("t_age"); pTWow = R ("t_wow"); pTFlut = R ("t_flut"); pTDrop = R ("t_drop");
     pNOn = R ("n_on"); pNVinyl = R ("n_vinyl"); pNPops = R ("n_pops"); pNHiss = R ("n_hiss"); pNHum = R ("n_hum"); pNFollow = R ("n_follow");
     pROn = R ("r_on"); pRSize = R ("r_size"); pRDecay = R ("r_decay"); pRTone = R ("r_tone"); pRMix = R ("r_mix"); pRGate = R ("r_gate");
-    pAmount = R ("amount"); pMix = R ("mix"); pOut = R ("out"); pMono = R ("mono"); pAuto = R ("auto");
+    pAmount = R ("amount"); pMix = R ("mix"); pOut = R ("out"); pMono = R ("mono"); pAuto = R ("auto"); pCal = R ("cal");
 }
 
 bool Processor::isBusesLayoutSupported (const BusesLayout& l) const
@@ -67,7 +67,7 @@ Settings Processor::settings() const
     S.tOn = b (pTOn); S.tAge = v (pTAge); S.tWow = v (pTWow); S.tFlut = v (pTFlut); S.tDrop = v (pTDrop);
     S.nOn = b (pNOn); S.nVinyl = v (pNVinyl); S.nPops = v (pNPops); S.nHiss = v (pNHiss); S.nHum = v (pNHum); S.nFollow = b (pNFollow);
     S.rOn = b (pROn); S.rSize = v (pRSize); S.rDecay = v (pRDecay); S.rTone = v (pRTone); S.rMix = v (pRMix); S.rGate = b (pRGate);
-    S.amount = v (pAmount); S.mix = v (pMix); S.outDb = v (pOut); S.mono = b (pMono); S.autoGain = b (pAuto);
+    S.amount = v (pAmount); S.mix = v (pMix); S.outDb = v (pOut); S.mono = b (pMono); S.autoGain = b (pAuto); S.cal = b (pCal);
     return S;
 }
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -130,7 +130,7 @@ juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this
 
 // ---------------------------------------------------------------- ricette per genere e per parte del kit
 // Ogni ricetta e' una catena completa pensata per quel suono; CARATTERE (amount) la dosa tutta insieme.
-static const char* kGenres[kGenresN] = { "BOOM BAP", "LO-FI", "DUSTY SOUL", "TRAP", "DRILL", "PHONK", "JAZZ HOP", "TRIP HOP" };
+static const char* kGenres[kGenresN] = { "BOOM BAP", "LO-FI", "DUSTY SOUL", "TRAP", "DRILL", "PHONK", "JAZZ HOP", "TRIP HOP", "GROSSA" };
 static const char* kTargets[kTargetsN] = { "BUS", "CASSA", "RULLANTE", "HAT", "BREAK" };
 const char* genreName (int g) { return kGenres[juce::jlimit (0, kGenresN - 1, g)]; }
 const char* targetName (int t) { return kTargets[juce::jlimit (0, kTargetsN - 1, t)]; }
@@ -144,7 +144,8 @@ const char* genreIdea (int g)
         "Scura ma definita: clipper, FET con punch, crack e boom tenuti, niente sporco. Kick e snare che tagliano.",
         "Cassetta Memphis: crush, spinta forte, FET schiacciato, nastro rovinato e fruscio.",
         "Kit acustico morbido: nastro, bus lento, stanza piccola e calore. Spazzole e rullante jazz.",
-        "Lenta e enorme: pompa, scura, valvola, stanza grande e mono. Il suono di Bristol." };
+        "Lenta e enorme: pompa, scura, valvola, stanza grande e mono. Il suono di Bristol.",
+        "Batteria enorme per qualsiasi genere: valvola spinta, FET a tutti i bottoni in parallelo (meta' schiacciato, meta' vivo), boom sotto, crack e una stanza corta." };
     return d[juce::jlimit (0, kGenresN - 1, g)];
 }
 namespace
@@ -165,21 +166,24 @@ Rc baseRecipe (int g)
     Rc R;
     switch (g)
     {
-        case 0: R.sM = S_SP12; R.sB = 12; R.sR = 26040; R.sMix = 0.7f; R.dM = D_TAPE; R.dD = 6; R.f = true; R.hp = 30; R.lp = 14000; R.boom = 2; R.crack = 1.5f; R.warm = 0.3f;
-                R.cS = C_670; R.cA = 0.45f; R.cAt = 8; R.cR = 150; R.cP = 0.3f; R.t = true; R.age = 0.25f; R.wow = 0.08f; R.flut = 0.12f; R.n = true; R.vin = 0.2f; R.pops = 0.1f; R.hiss = 0.08f; break;
-        case 1: R.sM = S_CLEAN; R.sB = 12; R.sR = 22050; R.sMix = 0.5f; R.dM = D_TAPE; R.dD = 5; R.dT = -0.3f; R.f = true; R.hp = 60; R.lp = 6500; R.warm = 0.4f;
-                R.cS = C_BUS; R.cA = 0.35f; R.cAt = 20; R.cR = 250; R.t = true; R.age = 0.7f; R.wow = 0.45f; R.flut = 0.35f; R.drop = 0.05f; R.r = true; R.rSize = 0.3f; R.rDec = 0.3f; R.rTone = 0.3f; R.rMix = 0.12f;
+        case 0: R.sM = S_SP12; R.sB = 12; R.sR = 26040; R.sMix = 0.85f; R.dM = D_TAPE; R.dD = 9; R.f = true; R.hp = 30; R.lp = 14000; R.boom = 2; R.crack = 1.5f; R.warm = 0.3f;
+                R.cS = C_670; R.cA = 0.6f; R.cAt = 6; R.cR = 80; R.cP = 0.1f; R.t = true; R.age = 0.3f; R.wow = 0.08f; R.flut = 0.12f; R.n = true; R.vin = 0.2f; R.pops = 0.1f; R.hiss = 0.08f; break;
+        case 1: R.sM = S_CLEAN; R.sB = 12; R.sR = 22050; R.sMix = 0.6f; R.dM = D_TAPE; R.dD = 9; R.dT = -0.3f; R.f = true; R.hp = 60; R.lp = 6500; R.warm = 0.4f;
+                R.cS = C_BUS; R.cA = 0.6f; R.cAt = 12; R.cR = 180; R.t = true; R.age = 0.7f; R.wow = 0.45f; R.flut = 0.35f; R.drop = 0.05f; R.r = true; R.rSize = 0.3f; R.rDec = 0.3f; R.rTone = 0.3f; R.rMix = 0.12f;
                 R.n = true; R.vin = 0.5f; R.pops = 0.2f; R.hiss = 0.3f; break;
-        case 2: R.sM = S_S950; R.sB = 12; R.sR = 32000; R.dM = D_TUBE; R.dD = 7; R.f = true; R.hp = 40; R.lp = 11000; R.warm = 0.5f; R.crack = 1;
-                R.cS = C_670; R.cA = 0.5f; R.cAt = 10; R.cR = 200; R.cP = 0.15f; R.t = true; R.age = 0.4f; R.wow = 0.15f; R.flut = 0.15f;
+        case 2: R.sM = S_S950; R.sB = 12; R.sR = 32000; R.dM = D_TUBE; R.dD = 10; R.f = true; R.hp = 40; R.lp = 11000; R.warm = 0.5f; R.crack = 1;
+                R.cS = C_670; R.cA = 0.6f; R.cAt = 8; R.cR = 100; R.cP = 0; R.t = true; R.age = 0.45f; R.wow = 0.15f; R.flut = 0.15f;
                 R.r = true; R.rSize = 0.45f; R.rDec = 0.45f; R.rTone = 0.45f; R.rMix = 0.18f; R.n = true; R.vin = 0.45f; R.pops = 0.25f; R.hiss = 0.1f; break;
-        case 3: R.dM = D_CLIP; R.dD = 4; R.f = true; R.hp = 25; R.boom = 1.5f; R.air = 0.4f; R.cS = C_OTT; R.cA = 0.3f; R.cAt = 10; R.cR = 150; R.cMix = 0.45f; break;
-        case 4: R.dM = D_CLIP; R.dD = 5; R.f = true; R.hp = 25; R.boom = 1.5f; R.crack = 1.5f; R.air = 0.25f; R.cS = C_FET; R.cA = 0.4f; R.cAt = 6; R.cR = 80; R.cP = 0.4f; break;
-        case 5: R.sM = S_CRUSH; R.sB = 10; R.sR = 18000; R.sMix = 0.6f; R.dM = D_PUSH; R.dD = 10; R.f = true; R.hp = 30; R.lp = 9000; R.boom = 3;
+        case 3: R.dM = D_CLIP; R.dD = 6; R.f = true; R.hp = 25; R.boom = 1.5f; R.air = 0.4f; R.cS = C_OTT; R.cA = 0.3f; R.cAt = 10; R.cR = 150; R.cMix = 0.45f; break;
+        case 4: R.dM = D_CLIP; R.dD = 7; R.f = true; R.hp = 25; R.boom = 1.5f; R.crack = 1.5f; R.air = 0.25f; R.cS = C_FET; R.cA = 0.5f; R.cAt = 4; R.cR = 70; R.cP = 0.15f; break;
+        case 5: R.sM = S_CRUSH; R.sB = 10; R.sR = 18000; R.sMix = 0.6f; R.dM = D_PUSH; R.dD = 12; R.f = true; R.hp = 30; R.lp = 9000; R.boom = 3;
                 R.cS = C_FET; R.cA = 0.65f; R.cAt = 3; R.cR = 90; R.cP = 0.2f; R.t = true; R.age = 0.6f; R.wow = 0.3f; R.flut = 0.25f; R.drop = 0.12f; R.n = true; R.vin = 0.1f; R.pops = 0.05f; R.hiss = 0.5f; break;
-        case 6: R.dM = D_TAPE; R.dD = 4; R.f = true; R.hp = 50; R.lp = 10000; R.warm = 0.5f; R.cS = C_BUS; R.cA = 0.3f; R.cAt = 20; R.cR = 250;
+        case 6: R.dM = D_TAPE; R.dD = 6; R.f = true; R.hp = 50; R.lp = 10000; R.warm = 0.5f; R.cS = C_BUS; R.cA = 0.45f; R.cAt = 20; R.cR = 250;
                 R.t = true; R.age = 0.4f; R.wow = 0.25f; R.flut = 0.2f; R.r = true; R.rSize = 0.5f; R.rDec = 0.5f; R.rTone = 0.4f; R.rMix = 0.15f; R.n = true; R.vin = 0.5f; R.pops = 0.2f; R.hiss = 0.15f; break;
-        default: R.sM = S_S950; R.sB = 12; R.sR = 24000; R.dM = D_TUBE; R.dD = 10; R.dT = -0.5f; R.f = true; R.hp = 35; R.lp = 7000; R.boom = 4; R.res = 0.15f;
+        case 8: R.dM = D_TUBE; R.dD = 11; R.f = true; R.hp = 28; R.lp = 18000; R.boom = 3; R.crack = 1.5f; R.warm = 0.3f;
+                R.air = 0.3f; R.cS = C_FET; R.cA = 0.75f; R.cAt = 1.5f; R.cR = 90; R.cMix = 0.55f; R.t = true; R.age = 0.2f; R.wow = 0.02f; R.flut = 0.04f;
+                R.r = true; R.rSize = 0.35f; R.rDec = 0.3f; R.rTone = 0.55f; R.rMix = 0.12f; break;
+        default: R.sM = S_S950; R.sB = 12; R.sR = 24000; R.dM = D_TUBE; R.dD = 12; R.dT = -0.5f; R.f = true; R.hp = 35; R.lp = 7000; R.boom = 4; R.res = 0.15f;
                 R.cS = C_PUMP; R.cA = 0.6f; R.cAt = 25; R.cR = 300; R.t = true; R.age = 0.6f; R.wow = 0.15f; R.flut = 0.15f; R.r = true; R.rSize = 0.8f; R.rDec = 0.7f; R.rTone = 0.35f; R.rMix = 0.2f;
                 R.n = true; R.vin = 0.4f; R.pops = 0.2f; R.hiss = 0.25f; R.mono = true; break;
     }

@@ -190,11 +190,12 @@ inline float inputGainDb (const StageParams& p) { return inputDb (p.model, p.dri
 class Stage
 {
 public:
-    void prepare (double s) { sr = s; reset(); }
-    void reset() { gr = fast = slow = charge = rms = 0; grAvg = 0; eIn = eOut = 0; autoC = 1; hpS[0] = hpS[1] = 0; dHp[0] = dHp[1] = 0; dc[0] = dc[1] = 0; for (int c = 0; c < 2; ++c) { g6[c] = f6[c] = s6[c] = c6[c] = lfLp[c] = hfLp[c] = bLp[c] = 0; } for (auto& e : mEnv) e = 0; sm = {}; smInit = false; mbInit = true; mbCnt = 0; }
+    void prepare (double s) { sr = s; holdN = (int) (0.008 * s); holdDec = std::exp (-1.0f / (0.002f * (float) s)); reset(); }
+    void reset() { gr = fast = slow = charge = rms = 0; grAvg = 0; eIn = eOut = 0; autoC = 1; hpS[0] = hpS[1] = 0; dHp[0] = dHp[1] = 0; dc[0] = dc[1] = 0; for (int c = 0; c < 2; ++c) { g6[c] = f6[c] = s6[c] = c6[c] = lfLp[c] = hfLp[c] = bLp[c] = 0; } for (auto& e : mEnv) e = 0; sm = {}; smInit = false; mbInit = true; mbCnt = 0; levH = 0; holdC = 0; lh6[0] = lh6[1] = 0; hc6[0] = hc6[1] = 0; }
     float grNow() const { return gr; }
     void resetKeepGr() { const float g = gr; reset(); gr = fast = slow = g; for (auto& x : g6) x = g; for (auto& x : f6) x = g; for (auto& x : s6) x = g; }   // cambio modello: il nuovo parte dalla riduzione del vecchio, niente attacco brusco
     float grAvg = 0;
+    float levH = 0, holdDec = 0.99f, lh6[2] {}; int holdC = 0, holdN = 384, hc6[2] {};
 
     // L/R in place; dL/dR = segnale del rilevatore (gia filtrato), stessa lunghezza
     void process (float* L, float* R, const float* dL, const float* dR, int N, const StageParams& p0, bool autoGain, float* deltaL = nullptr, float* deltaR = nullptr)
@@ -244,6 +245,12 @@ public:
                 lev = m2 * inG;
             }
             else lev = juce::jmax (std::abs (dL[i]), std::abs (dR[i])) * inG;
+            // tenuta del rilevatore (8 ms, piu' di mezzo periodo a 80 Hz): il picco resta fermo dentro l'onda, cosi' la riduzione
+            // non segue ogni semionda della voce (era quello che faceva "grattare": guadagno che oscillava 200 volte al secondo)
+            if (lev >= levH) { levH = lev; holdC = holdN; }
+            else if (holdC > 0) --holdC;
+            else levH = juce::jmax (lev, levH * holdDec);
+            lev = levH;
             // OPTO e FET sono a retroazione come gli originali: il rilevatore sente l'uscita (gia' compressa).
             const bool fb = p.model == OPTO2A || p.model == OPTO3A || p.model == FET76;
             if (fb) lev *= juce::Decibels::decibelsToGain (-gr);
@@ -414,6 +421,7 @@ private:
             if (ms) { const float m = 0.7071f * (a + b), s2 = 0.7071f * (a - b); a = m; b = s2; const float dm = 0.7071f * (da + db), dsd = 0.7071f * (da - db); da = dm; db = dsd; }
             float lev[2] = { std::abs (da), std::abs (db) };
             if (! ms && p.link) lev[0] = lev[1] = juce::jmax (lev[0], lev[1]);   // L/R collegati
+            for (int c = 0; c < 2; ++c) { if (lev[c] >= lh6[c]) { lh6[c] = lev[c]; hc6[c] = holdN; } else if (hc6[c] > 0) --hc6[c]; else lh6[c] = juce::jmax (lev[c], lh6[c] * holdDec); lev[c] = lh6[c]; }   // tenuta come gli altri modelli
             for (int c = 0; c < 2; ++c)
             {
                 const float tgt = gainComputer (pc[c], 20.0f * std::log10 (lev[c] + 1.0e-9f));
@@ -440,10 +448,10 @@ private:
             {
                 float x = y[c];
                 lfLp[c] += (x - lfLp[c]) * aLf; const float lo = lfLp[c], kd = 1.0f + col * 2.5f;
-                x += (std::tanh (lo * kd * 1.6f) / (kd * 1.6f) - lo) * 0.9f * (0.25f + 0.75f * col);
+                x += (std::tanh (lo * kd * 1.6f) / (kd * 1.6f) - lo) * 0.9f * (0.08f + 0.92f * col);   // a COLOR 0 solo un velo (prima sporcava gia' la voce)
                 const float bias = 0.04f + 0.22f * col + 0.012f * juce::jmin (gr, 15.0f), d = 1.0f + col * 1.4f;
                 const float n = d * (1 - std::tanh (bias) * std::tanh (bias));
-                const float tube = 1.4f * (std::tanh (d * x / 1.4f + bias) - std::tanh (bias)) / n, wt = 0.3f + 0.7f * col;
+                const float tube = 1.4f * (std::tanh (d * x / 1.4f + bias) - std::tanh (bias)) / n, wt = 0.12f + 0.88f * col;
                 x += (tube - x) * wt;
                 bLp[c] += (x - bLp[c]) * 0.0005f; x -= bLp[c];
                 hfLp[c] += (x - hfLp[c]) * aHf; x += (x - hfLp[c]) * (0.06f + 0.14f * col);
