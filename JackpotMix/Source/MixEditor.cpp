@@ -3,22 +3,74 @@
 namespace jmx
 {
 using namespace hw;
-static const juce::Colour kBg (0xff121211), kTxt (0xffe9e4d8), kDim (0xff8f897c), kLine (0xff34322e), kAmber (0xffffb347), kBlue (0xff4dabf7), kRed (0xffff5a4e), kGreen (0xff7dde5a);
+// colori della cornice (i frontali dei moduli restano quelli dell'hardware): cambiano col tema della serie
+static juce::Colour kBg (0xff121211), kTxt (0xffe9e4d8), kDim (0xff8f897c), kLine (0xff34322e), kAmber (0xffffb347), kBlue (0xff4dabf7), kRed (0xffff5a4e), kGreen (0xff7dde5a);
+static juce::Colour kBg2 (0xff1f1e1c), kHead0 (0xff2b2a27), kHead1 (0xff1a1918), kHeadInk (0xffe9e4d8), kLcd (0xff0b0b0a), kFrame0 (0xff2c2b29), kFrame1 (0xff181716), kPill0 (0xff2e2d2a), kPill1 (0xff1f1e1c), kPillLine (0xff4a4843), kRack0 (0xff1b1a19), kRack1 (0xff0e0e0d);
+static juce::Colour kMeterA (0xff4f8fd6), kMeterB (0xffffc23d);
+static bool kFlat = false;   // CBRPNK e HUD: forme piatte, niente metallo
+// temi chiari esclusi: misure e spettro vivono su schermi scuri
+static bool mixThemeOk (int t) { return t == 1 || t == 3 || t == 4 || t == 9 || t == 10; }
+static void syncChrome()
+{
+    using namespace neo;
+    const int t = K::theme;
+    if (t == 1 || ! mixThemeOk (t))
+    {   // SCURO: il metallo caldo originale
+        kBg = juce::Colour (0xff121211); kTxt = juce::Colour (0xffe9e4d8); kDim = juce::Colour (0xff8f897c); kLine = juce::Colour (0xff34322e); kAmber = juce::Colour (0xffffb347);
+        kBlue = juce::Colour (0xff4dabf7); kRed = juce::Colour (0xffff5a4e); kGreen = juce::Colour (0xff7dde5a);
+        kBg2 = juce::Colour (0xff1f1e1c); kHead0 = juce::Colour (0xff2b2a27); kHead1 = juce::Colour (0xff1a1918); kHeadInk = kTxt; kLcd = juce::Colour (0xff0b0b0a);
+        kFrame0 = juce::Colour (0xff2c2b29); kFrame1 = juce::Colour (0xff181716); kPill0 = juce::Colour (0xff2e2d2a); kPill1 = juce::Colour (0xff1f1e1c); kPillLine = juce::Colour (0xff4a4843);
+        kRack0 = juce::Colour (0xff1b1a19); kRack1 = juce::Colour (0xff0e0e0d); kFlat = false; kMeterA = juce::Colour (0xff4f8fd6); kMeterB = juce::Colour (0xffffc23d); return;
+    }
+    if (t == 9)
+    {   // CBRPNK: nero pesante e schede pastello
+        const auto c0 = skin::card0();
+        kBg = juce::Colour (0xff101010); kBg2 = juce::Colour (0xff161616); kTxt = juce::Colour (0xfff1ede4); kDim = c0.withMultipliedBrightness (0.85f); kLine = c0.withAlpha (0.55f);
+        kAmber = c0; kBlue = skin::cards().size() > 1 ? skin::cards()[1] : c0; kRed = skin::CBRED; kGreen = skin::cards().size() > 2 ? skin::cards()[2] : c0;
+        kHead0 = c0; kHead1 = c0; kHeadInk = skin::INK; kLcd = juce::Colour (0xff0c0c0c);
+        kFrame0 = c0; kFrame1 = c0; kPill0 = juce::Colour (0xff1c1c1c); kPill1 = juce::Colour (0xff1c1c1c); kPillLine = skin::INK;
+        kRack0 = juce::Colour (0xff141414); kRack1 = juce::Colour (0xff0a0a0a); kFlat = true; kMeterA = kBlue; kMeterB = c0; return;
+    }
+    if (t == 10)
+    {   // HUD: nero, linee bianche, un colore acceso
+        kBg = juce::Colour (0xff060608); kBg2 = juce::Colour (0xff0b0b0e); kTxt = juce::Colour (0xffececec); kDim = juce::Colour (0xff9a9aa0); kLine = juce::Colour (0x66ffffff);
+        kAmber = K::accent; kBlue = juce::Colour (0xffdedede); kRed = K::accent; kGreen = juce::Colour (0xffe6e6e6);
+        kHead0 = juce::Colour (0xff0b0b0e); kHead1 = juce::Colour (0xff060608); kHeadInk = kTxt; kLcd = juce::Colour (0xff030304);
+        kFrame0 = juce::Colour (0xff0a0a0c); kFrame1 = juce::Colour (0xff0a0a0c); kPill0 = juce::Colour (0xff0d0d10); kPill1 = juce::Colour (0xff0d0d10); kPillLine = juce::Colour (0x88ffffff);
+        kRack0 = juce::Colour (0xff09090b); kRack1 = juce::Colour (0xff050506); kFlat = true; kMeterA = juce::Colour (0xffbdbdc2); kMeterB = juce::Colour (0xffe6e6e6); return;
+    }
+    // CYBER, ROSSO: la tavolozza neon della serie
+    kBg = K::bg0; kBg2 = K::bg1; kTxt = K::ink; kDim = K::sub; kLine = K::faint.withAlpha (0.7f); kAmber = K::accent; kBlue = K::cyan; kRed = K::red; kGreen = K::mint;
+    kHead0 = K::bg1; kHead1 = K::bg0; kHeadInk = K::ink; kLcd = K::disp1.darker (0.6f);
+    kFrame0 = K::panel0; kFrame1 = K::panel1; kPill0 = K::panel0; kPill1 = K::panel1; kPillLine = K::faint;
+    kRack0 = K::bg1; kRack1 = K::bg0; kFlat = false; kMeterA = K::cyan; kMeterB = K::amber;
+}
 static juce::Colour bandCol (int b) { static const juce::uint32 c[kBands] = { 0xffff6b6b, 0xffffa94d, 0xffffd43b, 0xffa9e34b, 0xff51cf66, 0xff38d9a9, 0xff3bc9db, 0xff4dabf7, 0xff748ffc, 0xffb197fc, 0xfff783ac, 0xffe599f7 }; return juce::Colour (c[b % kBands]); }
 static juce::String hzT (float f) { return f >= 1000 ? juce::String (f / 1000.0f, f >= 10000 ? 1 : 2) + " kHz" : juce::String (juce::roundToInt (f)) + " Hz"; }
 static void glassBox (juce::Graphics& g, juce::Rectangle<float> r, float rad = 6)
 {   // cornice di uno strumento da misura: metallo scuro, vetro nero
     g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillRoundedRectangle (r.translated (0, 2), rad);
-    juce::ColourGradient fr (juce::Colour (0xff2c2b29), r.getX(), r.getY(), juce::Colour (0xff181716), r.getX(), r.getBottom(), false); g.setGradientFill (fr); g.fillRoundedRectangle (r, rad);
+    if (kFlat)
+    {   // CBRPNK / HUD: scheda piatta con bordo pieno
+        g.setColour (kLcd); g.fillRect (r); g.setColour (kFrame0); g.drawRect (r, neo::K::theme == 9 ? 3.0f : 1.0f);
+        if (neo::K::theme == 9) { g.fillRect (r.getX(), r.getY(), 26.0f, 5.0f); g.fillRect (r.getRight() - 26, r.getBottom() - 5, 26.0f, 5.0f); }
+        return;
+    }
+    juce::ColourGradient fr (kFrame0, r.getX(), r.getY(), kFrame1, r.getX(), r.getBottom(), false); g.setGradientFill (fr); g.fillRoundedRectangle (r, rad);
     auto in = r.reduced (5);
-    g.setColour (juce::Colour (0xff070707)); g.fillRoundedRectangle (in, rad - 2);
+    g.setColour (kLcd.darker (0.4f)); g.fillRoundedRectangle (in, rad - 2);
     g.setColour (juce::Colours::white.withAlpha (0.07f)); g.drawRoundedRectangle (r.reduced (0.5f), rad, 1.0f);
 }
 static void pill (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& t, bool on, juce::Colour c, float fs = 10.0f)
 {
-    juce::ColourGradient bg (on ? c.withAlpha (0.35f) : juce::Colour (0xff2e2d2a), r.getX(), r.getY(), on ? c.withAlpha (0.18f) : juce::Colour (0xff1f1e1c), r.getX(), r.getBottom(), false);
+    if (kFlat)
+    {
+        g.setColour (on ? c : kPill0); g.fillRect (r); g.setColour (on ? c : kLine); g.drawRect (r, 1.2f);
+        g.setFont (alook::serif (fs)); g.setColour (on ? (neo::K::theme == 9 ? skin::INK : juce::Colours::black) : kTxt.withAlpha (0.9f)); g.drawText (t, r, juce::Justification::centred); return;
+    }
+    juce::ColourGradient bg (on ? c.withAlpha (0.35f) : kPill0, r.getX(), r.getY(), on ? c.withAlpha (0.18f) : kPill1, r.getX(), r.getBottom(), false);
     g.setGradientFill (bg); g.fillRoundedRectangle (r, 4);
-    g.setColour (on ? c : juce::Colour (0xff4a4843)); g.drawRoundedRectangle (r.reduced (0.5f), 4, on ? 1.4f : 1.0f);
+    g.setColour (on ? c : kPillLine); g.drawRoundedRectangle (r.reduced (0.5f), 4, on ? 1.4f : 1.0f);
     g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + 3, r.getRight() - 3);
     g.setFont (alook::serif (fs)); g.setColour (on ? c.brighter (0.3f) : kTxt.withAlpha (0.85f)); g.drawText (t, r, juce::Justification::centred);
 }
@@ -372,7 +424,7 @@ void RackContent::layoutTiles (int height)
 void RackContent::paint (juce::Graphics& g)
 {   // telaio lunchbox: fondo scuro, guide in alto e in basso con i fori
     auto b = getLocalBounds().toFloat();
-    juce::ColourGradient bg (juce::Colour (0xff1b1a19), 0, 0, juce::Colour (0xff0e0e0d), 0, b.getBottom(), false); g.setGradientFill (bg); g.fillRect (b);
+    juce::ColourGradient bg (kRack0, 0, 0, kRack1, 0, b.getBottom(), false); g.setGradientFill (bg); g.fillRect (b);
     for (float y : { 2.0f, b.getBottom() - 8 })
     {
         juce::ColourGradient rg (juce::Colour (0xff5a5853), 0, y, juce::Colour (0xff2a2926), 0, y + 6, false); g.setGradientFill (rg); g.fillRect (0.0f, y, b.getWidth(), 6.0f);
@@ -415,7 +467,7 @@ void LoudPanel::paint (juce::Graphics& g)
     resetR = { b.getRight() - 58, b.getY() + 10, 44, 18 }; pill (g, resetR, "RESET", false, kAmber, 8.5f);
     in.removeFromTop (4);
     targetR = in.removeFromTop (24);
-    g.setColour (juce::Colour (0xff17160f)); g.fillRoundedRectangle (targetR, 4); g.setColour (kAmber.withAlpha (0.6f)); g.drawRoundedRectangle (targetR, 4, 1);
+    g.setColour (kLcd); g.fillRoundedRectangle (targetR, 4); g.setColour (kAmber.withAlpha (0.6f)); g.drawRoundedRectangle (targetR, 4, 1);
     g.setFont (alook::serif (10.0f)); g.setColour (kAmber); g.drawFittedText (juce::String (T.name) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), targetR.reduced (8, 0).toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
     in.removeFromTop (8);
     const float S = P.lufsS.load(), M = P.lufsM.load(), I = P.lufsI.load(), tp = P.tp.load(), tpH = P.tpHold.load();
@@ -439,13 +491,13 @@ void LoudPanel::paint (juce::Graphics& g)
     for (int k = 0; k < 4; ++k)
     {
         auto r = juce::Rectangle<float> (bars.getX() + k * (bw + 4), bars.getY(), bw, bars.getHeight() - 14);
-        g.setColour (juce::Colour (0xff111110)); g.fillRoundedRectangle (r, 2);
+        g.setColour (kLcd); g.fillRoundedRectangle (r, 2);
         if (bs[k].lufs) { g.setColour (kGreen.withAlpha (0.12f)); g.fillRect (juce::Rectangle<float>::leftTopRightBottom (r.getX(), yL (T.lufsHi, r), r.getRight(), yL (T.lufsLo, r))); }
         const int nSeg = 40; const float sh = r.getHeight() / nSeg;
         for (int i = 0; i < nSeg; ++i)
         {
             const float db = lo + (hi - lo) * (i + 0.5f) / nSeg; const bool on = bs[k].v > -69 && db <= bs[k].v;
-            juce::Colour c = bs[k].lufs ? (db > T.lufsHi ? kRed : db >= T.lufsLo ? kGreen : juce::Colour (0xff4f8fd6)) : (db > T.peak ? kRed : juce::Colour (0xffffc23d));
+            juce::Colour c = bs[k].lufs ? (db > T.lufsHi ? kRed : db >= T.lufsLo ? kGreen : kMeterA) : (db > T.peak ? kRed : kMeterB);
             g.setColour (c.withAlpha (on ? 0.95f : 0.07f)); g.fillRect (r.getX() + 2, r.getBottom() - (i + 1) * sh + 1, r.getWidth() - 4, sh - 1.5f);
         }
         if (! bs[k].lufs) { g.setColour (juce::Colours::white); g.fillRect (r.getX() - 2, yL (T.peak, r) - 1, r.getWidth() + 4, 2.0f); g.setColour (kRed.withAlpha (0.9f)); g.fillRect (r.getX(), yL (tpH, r) - 1, r.getWidth(), 2.0f); }
@@ -500,7 +552,7 @@ void ImagerPanel::paint (juce::Graphics& g)
     }
     const float c = ed.proc.corr.load(), w = ed.proc.width.load();
     auto cb = bottom.removeFromTop (12).reduced (4, 2);
-    g.setColour (juce::Colour (0xff111110)); g.fillRoundedRectangle (cb, 2);
+    g.setColour (kLcd); g.fillRoundedRectangle (cb, 2);
     const float xc = cb.getCentreX() + c * cb.getWidth() * 0.5f;
     g.setColour (c < 0 ? kRed : kGreen); g.fillRect (juce::jmin (cb.getCentreX(), xc), cb.getY() + 1, std::abs (xc - cb.getCentreX()), cb.getHeight() - 2);
     g.setColour (kTxt.withAlpha (0.5f)); g.fillRect (cb.getCentreX() - 0.5f, cb.getY() - 2, 1.0f, cb.getHeight() + 4);
@@ -730,7 +782,7 @@ void BandPop::paint (juce::Graphics& g)
     auto val = [&] (float w, const juce::String& lab, const juce::String& s, bool en, int id)
     {
         auto rr = juce::Rectangle<float> (x, y, w, 24); x += w + 4;
-        g.setColour (juce::Colour (0xff0d0d0e)); g.fillRoundedRectangle (rr, 4); g.setColour (en ? c.withAlpha (0.4f) : kLine); g.drawRoundedRectangle (rr, 4, 1);
+        g.setColour (kLcd); g.fillRoundedRectangle (rr, 4); g.setColour (en ? c.withAlpha (0.4f) : kLine); g.drawRoundedRectangle (rr, 4, 1);
         g.setFont (alook::serif (7.5f)); g.setColour (kDim); g.drawText (lab, rr.withTrimmedLeft (6).withHeight (10).translated (0, 1), juce::Justification::centredLeft);
         g.setFont (alook::typed (10.0f)); g.setColour (en ? kTxt : kDim); g.drawText (s, rr.withTrimmedTop (9).withTrimmedRight (6), juce::Justification::centredRight);
         if (en) hots.push_back ({ rr, id });
@@ -791,7 +843,7 @@ void BandPop::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelD
 void GainChip::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
-    g.setColour (juce::Colour (0xff0f0e0d)); g.fillRoundedRectangle (b, 4); g.setColour (kLine.brighter (0.3f)); g.drawRoundedRectangle (b.reduced (0.5f), 4, 1);
+    g.setColour (kLcd); g.fillRoundedRectangle (b, 4); g.setColour (kLine.brighter (0.3f)); g.drawRoundedRectangle (b.reduced (0.5f), 4, 1);
     const float v = param->convertFrom0to1 (param->getValue());
     g.setFont (alook::serif (8.0f)); g.setColour (kDim); g.drawText (label, b.withHeight (13).translated (0, 2), juce::Justification::centred);
     g.setFont (alook::typed (11.0f)); g.setColour (std::abs (v) > 0.05f ? kAmber : kTxt); g.drawText ((v > 0 ? "+" : "") + juce::String (v, 1) + " dB", b.withTrimmedTop (13), juce::Justification::centred);
@@ -800,6 +852,9 @@ void GainChip::paint (juce::Graphics& g)
 // ======================================================================= editor
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    skin::init ("mixology", { 0xffe9a260, 0xff8fc9c0, 0xffe3d3a8, 0xffd6a0c8 }, 0xffff3b30);
+    if (! mixThemeOk (skin::cur())) { skin::cur() = 1; neo::K::theme = -1; skin::apply(); }
+    syncChrome();
     setLookAndFeel (&lnf);
     lnf.setColour (juce::ScrollBar::thumbColourId, juce::Colour (0xff5d5b56));
     rackView.setViewedComponent (&rack, false); rackView.setScrollBarsShown (false, true); rackView.setScrollBarThickness (9);
@@ -827,14 +882,15 @@ void Editor::resized()
 void Editor::paint (juce::Graphics& g)
 {
     g.addTransform (juce::AffineTransform::scale (scaler.s));
-    juce::ColourGradient bg (juce::Colour (0xff1f1e1c), 0, 0, kBg, 0, (float) H, false); g.setGradientFill (bg); g.fillRect (0, 0, W, H);
+    juce::ColourGradient bg (kBg2, 0, 0, kBg, 0, (float) H, false); g.setGradientFill (bg); g.fillRect (0, 0, W, H);
     jlook::grain (g, { 0, 0, W, H }, 0.03f);
     // testata
-    { juce::ColourGradient hg (juce::Colour (0xff2b2a27), 0, 0, juce::Colour (0xff1a1918), 0, 54, false); g.setGradientFill (hg); g.fillRect (0, 0, W, 54); g.setColour (juce::Colours::black.withAlpha (0.6f)); g.drawHorizontalLine (54, 0, (float) W); }
-    alook::engrave (g, "JACKPOT", { 18, 7, 160, 20 }, alook::wide (15.0f), juce::Justification::centredLeft, kAmber);
-    alook::engrave (g, "MIXOLOGY", { 18, 26, 300, 24 }, alook::wide (21.0f), juce::Justification::centredLeft, kTxt);
+    { juce::ColourGradient hg (kHead0, 0, 0, kHead1, 0, 54, false); g.setGradientFill (hg); g.fillRect (0, 0, W, 54); g.setColour (juce::Colours::black.withAlpha (0.6f)); g.drawHorizontalLine (54, 0, (float) W); }
+    alook::engrave (g, "JACKPOT", { 18, 7, 160, 20 }, alook::wide (15.0f), juce::Justification::centredLeft, neo::K::theme == 9 ? skin::INK : kAmber);
+    alook::engrave (g, "MIXOLOGY", { 18, 26, 300, 24 }, alook::wide (21.0f), juce::Justification::centredLeft, kHeadInk);
+    skin::chipDraw (g, themeR);
     {
-        auto r = presetR; g.setColour (juce::Colour (0xff0b0b0a)); g.fillRoundedRectangle (r, 5); g.setColour (kLine.brighter (0.3f)); g.drawRoundedRectangle (r, 5, 1);
+        auto r = presetR; g.setColour (kLcd); g.fillRoundedRectangle (r, 5); g.setColour (kLine.brighter (0.3f)); g.drawRoundedRectangle (r, 5, 1);
         g.setFont (alook::typed (12.5f)); g.setColour (kTxt); g.drawFittedText (proc.presetName.toUpperCase() + juce::String::fromUTF8 ("  \xe2\x96\xbe"), r.reduced (10, 0).toNearestInt(), juce::Justification::centred, 1, 0.7f);
         for (auto bb : { prevR, nextR }) { pill (g, bb, bb == prevR ? juce::String::fromUTF8 ("\xe2\x80\xb9") : juce::String::fromUTF8 ("\xe2\x80\xba"), false, kTxt, 16.0f); }
         pill (g, abA, "A", proc.ab.cur == 0, kAmber, 11.0f); pill (g, abB, "B", proc.ab.cur == 1, kAmber, 11.0f);
@@ -843,7 +899,7 @@ void Editor::paint (juce::Graphics& g)
     pill (g, cmpR, "CONFRONTA", proc.value ("cmp") > 0.5f, kBlue);
     {
         const bool sc = proc.scConnected.load();
-        g.setColour (juce::Colour (0xff0f0e0d)); g.fillRoundedRectangle (scR, 4); g.setColour (kLine); g.drawRoundedRectangle (scR, 4, 1);
+        g.setColour (kLcd); g.fillRoundedRectangle (scR, 4); g.setColour (kLine); g.drawRoundedRectangle (scR, 4, 1);
         hw::led (g, scR.getX() + 12, scR.getCentreY(), 4, kGreen, sc);
         g.setFont (alook::serif (8.5f)); g.setColour (sc ? kTxt : kDim); g.drawFittedText (sc ? "SIDECHAIN\nCOLLEGATO" : "SIDECHAIN\nNON COLLEGATO", scR.withTrimmedLeft (22).toNearestInt(), juce::Justification::centredLeft, 2, 0.8f);
     }
@@ -945,6 +1001,13 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     if (abB.contains (e.position)) { if (proc.ab.cur != 1) proc.ab.toggle (proc); after(); return; }
     if (liveR.contains (e.position)) { auto* p = P ("live"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
     if (cmpR.contains (e.position)) { auto* p = P ("cmp"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
+    if (themeR.contains (e.position))
+    {   // tema della serie (solo quelli scuri: misure e spettro stanno su schermi neri)
+        do skin::cur() = skin::next (skin::cur()); while (! mixThemeOk (skin::cur()));
+        skin::save (skin::plug(), skin::cur()); neo::K::theme = -1; skin::apply(); syncChrome();
+        std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* k : c->getChildren()) all (k); };
+        all (this); return;
+    }
 }
 void Editor::timerCallback()
 {

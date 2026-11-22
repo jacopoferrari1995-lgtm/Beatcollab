@@ -114,7 +114,7 @@ const std::vector<ModDef>& mods()
                 d.look = look (I.face, dark ? 0xffeeeeee : 0xff1e1b17, I.accent, dark ? 1 : 2, 1, dark);
                 d.spec = { S (I.driveLabel, 0, 1, 0.3f, F_CUSTOM), S (I.ratioLabel, 0, (float) (I.ratios.size() - 1), 0, F_ITEMS, I.ratios),
                            I.attKnob ? S ("ATTACK", 0, 1, 0.5f, F_CUSTOM) : H(), I.relKnob ? S ("RELEASE", 0, 1, 0.5f, F_CUSTOM) : H(),
-                           S ("COLORE", 0, 1, 0.3f, F_PCT), S ("OUTPUT", -12, 12, 0, F_DB), S ("AUTO GAIN", 0, 1, 1, F_BOOL), S ("SIDECHAIN", 0, 1, 0, F_ITEMS, { "INTERNO", "ESTERNO" }) };
+                           S ("COLORE", 0, 1, 0.15f, F_PCT), S ("OUTPUT", -12, 12, 0, F_DB), S ("AUTO GAIN", 0, 1, 1, F_BOOL), S ("SIDECHAIN", 0, 1, 0, F_ITEMS, { "INTERNO", "ESTERNO" }) };
                 d.spec.resize (kP);
                 d.custom = [m] (int i, float v) -> juce::String
                 {
@@ -270,8 +270,8 @@ const std::vector<ModDef>& mods()
             u.spec.resize (kP); add (u);
         }
         // effetto tarato: con MANDATA al 100% il ritorno suona forte quanto il dry (delay un filo sotto)
-        static const std::map<juce::String, float> trim { { "PLATE 140", 0.0f }, { "LUSH PLATE", 0.9f }, { "HALL 480", 2.3f }, { "ROOM", -7.0f }, { "CHAMBER", 1.0f },
-            { "BLACKHOLE", 3.9f }, { "SPRING", 10.0f }, { "CONVOLUTION", 10.4f }, { "TAPE ECHO", 2.4f }, { "BBD ECHO", 3.6f }, { "DIGITAL 2290", -1.3f },
+        static const std::map<juce::String, float> trim { { "PLATE 140", 8.4f }, { "LUSH PLATE", 8.4f }, { "HALL 480", 9.0f }, { "ROOM", 6.4f }, { "CHAMBER", 8.9f },
+            { "BLACKHOLE", 8.7f }, { "SPRING", 10.0f }, { "CONVOLUTION", 10.4f }, { "TAPE ECHO", 2.4f }, { "BBD ECHO", 3.6f }, { "DIGITAL 2290", -1.3f },
             { "PING PONG", 0.6f }, { "DUB DELAY", 2.5f }, { "SLAPBACK", 3.3f } };
         for (auto& d : v) if (d.send) { auto it = trim.find (d.name); d.wetGain = juce::Decibels::decibelsToGain (it != trim.end() ? it->second : 0.0f); d.defMix = 0.3f; }
         return v;
@@ -519,17 +519,37 @@ public:
 class LimEng : public Engine
 {
 public:
-    void prepare (double s, int mb) override { e.prepare (s, mb); }
-    int latency (const float*) const override { return e.latency(); }
+    void prepare (double s, int mb) override
+    {
+        sr = s; e = std::make_unique<jms::Maximizer>(); e2 = std::make_unique<jms::Maximizer>(); e->prepare (s, mb); e2->prepare (s, mb);
+        for (auto* b : { &a0, &a1, &b0, &b1 }) b->assign ((size_t) juce::jmax (mb, 4096), 0.0f); cur = pend = -1; warm = 0; xf = 0;
+    }
+    int latency (const float*) const override { return e->latency(); }
     void process (float* L, float* R, int n, const float* v, const Ctx&) override
     {
         jms::MaxSettings S; S.style = (int) rv (v, 0); S.gainDb = rv (v, 1); S.ceilDb = rv (v, 2); S.clip = rv (v, 3); S.character = rv (v, 4);
         float pin = 0; for (int i = 0; i < n; ++i) pin = juce::jmax (pin, std::abs (L[i]), std::abs (R[i]));
-        e.process (L, R, n, S);
+        if (cur < 0) cur = S.style;
+        // cambio di STILE: il nuovo limiter gira accanto al vecchio, si scalda per la sua latenza e poi si passa in dissolvenza (prima a scatto)
+        if (S.style != cur && pend != S.style && n <= (int) a0.size()) { pend = S.style; warm = e2->latency() + (int) (0.15 * sr); xf = 0; }   // niente allocazioni qui: il secondo limiter e' gia' pronto, si scalda con il segnale
+        if (pend >= 0 && n <= (int) a0.size())
+        {
+            std::copy (L, L + n, b0.begin()); std::copy (R, R + n, b1.begin());
+            auto S2 = S; S2.style = pend; S.style = cur;
+            e->process (L, R, n, S); e2->process (b0.data(), b1.data(), n, S2);
+            const float st = 1.0f / (0.03f * (float) sr);
+            for (int i = 0; i < n; ++i)
+            {
+                if (warm > 0) --warm; else xf = juce::jmin (1.0f, xf + st);
+                L[i] += (b0[(size_t) i] - L[i]) * xf; R[i] += (b1[(size_t) i] - R[i]) * xf;
+            }
+            if (xf >= 1.0f) { std::swap (e, e2); cur = pend; pend = -1; }
+        }
+        else { S.style = cur; e->process (L, R, n, S); }
         const float pd = pin * juce::Decibels::decibelsToGain (S.gainDb), ceil = juce::Decibels::decibelsToGain (S.ceilDb);
         const float t = pd > ceil ? -g2db (pd / ceil) : 0.0f; gr = juce::jmin (t, gr.load() * 0.85f); peakOut (*this, L, R, n);
     }
-    jms::Maximizer e;
+    std::unique_ptr<jms::Maximizer> e, e2; std::vector<float> a0, a1, b0, b1; double sr = 44100; int cur = -1, pend = -1, warm = 0; float xf = 0;
 };
 class RevEng : public Engine
 {

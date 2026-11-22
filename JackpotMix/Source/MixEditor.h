@@ -3,6 +3,7 @@
 #include "HwLook.h"
 #include "JackpotScale.h"
 #include "PresetBrowser.h"
+#include "Skin.h"
 
 namespace jmx
 {
@@ -158,6 +159,7 @@ public:
 // --------------------------------------------------------------------- editor
 class Editor : public juce::AudioProcessorEditor, public juce::DragAndDropContainer, private juce::Timer
 {
+    skin::Keep keepSkin;   // primo membro: i caratteri dei temi restano caricati (niente sfarfallio)
 public:
     explicit Editor (Processor&);
     ~Editor() override { setLookAndFeel (nullptr); }
@@ -184,7 +186,7 @@ public:
     std::unique_ptr<GainChip> inChip, outChip;
     jlook::SizeChip sizeChip { scaler };
     int tick = 0;
-    const juce::Rectangle<float> presetR { 372, 11, 380, 34 }, prevR { 336, 13, 30, 30 }, nextR { 758, 13, 30, 30 }, abA { 808, 15, 26, 26 }, abB { 840, 15, 26, 26 },
+    const juce::Rectangle<float> themeR { 1330, 3, 58, 17 }, presetR { 372, 11, 380, 34 }, prevR { 336, 13, 30, 30 }, nextR { 758, 13, 30, 30 }, abA { 808, 15, 26, 26 }, abB { 840, 15, 26, 26 },
                                  liveR { 884, 12, 62, 32 }, cmpR { 952, 12, 104, 32 }, scR { 1218, 12, 104, 32 };
 };
 }

@@ -76,6 +76,7 @@ public:
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     float valueS (const juce::String& id) const { return apvts.getRawParameterValue (id)->load(); }
     void setP (const juce::String& id, float real) { if (auto* p = apvts.getParameter (id)) p->setValueNotifyingHost (p->convertTo0to1 (real)); }
+    float getP (const juce::String& id) const { if (auto* p = apvts.getParameter (id)) return p->convertFrom0to1 (p->getValue()); return 0.0f; }
     EqSet eqSettings() const;
     double sampleRate() const { return sr; }
     Engine* engine (int s) { return eng[s].get(); }

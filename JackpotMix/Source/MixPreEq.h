@@ -22,27 +22,27 @@ inline const PreInfo& preInfo (int m)
 {
     static const PreInfo I[kPreModels] = {
         { "73", "Neve 1073: classe A e trasformatori Marinair. Bassi spessi, medi in faccia, seconda e terza armonica. Il suono dei dischi.",
-          1.0f, 0.16f, 1.0f, false, 18, 16, 24000, 70, 0.7f, 1600, 0.4f, 0.8f, 18000, -0.4f },
+          1.0f, 0.16f, 1.0f, false, 18, 12, 24000, 70, 0.7f, 1600, 0.4f, 0.8f, 18000, -0.4f },
         { "81", "Neve 1081 (Lindell 81): stessa famiglia del 73 con piu margine. Rotondo ma piu pulito e aperto.",
           0.65f, 0.11f, 0.95f, false, 22, 14, 30000, 60, 0.4f, 2500, 0.2f, 0.7f, 20000, 0.0f },
         { "V76", "Telefunken V76 a valvole: tanta seconda armonica, medio-bassi pieni e alti morbidi. Caldo da broadcast tedesco.",
           0.7f, 0.42f, 0.7f, true, 14, 25, 17000, 220, 0.9f, 3500, -0.3f, 0.6f, 12000, -1.2f },
         { "610", "UA 610 a valvole: grasso nei bassi e nei medi bassi, si comprime dolcemente quando lo spingi. Voci e bassi.",
-          0.85f, 0.34f, 0.75f, true, 15, 22, 19000, 140, 1.0f, 800, 0.3f, 0.7f, 14000, -0.6f },
+          0.85f, 0.34f, 0.75f, true, 15, 15, 19000, 140, 1.0f, 800, 0.3f, 0.7f, 14000, -0.6f },
         { "API 312", "API 312 con l'op-amp 2520: punch e medi davanti, terza armonica, basso stretto. Batterie e chitarre.",
-          0.5f, 0.05f, 1.45f, false, 20, 28, 26000, 100, 0.3f, 2800, 0.9f, 0.9f, 15000, 0.2f },
+          0.5f, 0.05f, 1.45f, false, 20, 12, 26000, 100, 0.3f, 2800, 0.9f, 0.9f, 15000, 0.2f },
         { "SSL E", "Pre della console SSL E: pulito e brillante, non colora finche non lo spingi forte, poi morde.",
-          0.18f, 0.03f, 1.7f, false, 24, 18, 30000, 80, 0.0f, 4000, 0.3f, 0.8f, 12000, 0.6f },
+          0.18f, 0.03f, 1.7f, false, 24, 10, 30000, 80, 0.0f, 4000, 0.3f, 0.8f, 12000, 0.6f },
         { "TG2", "EMI TG2 di Abbey Road: trasformatori pesanti, si rompe presto in una saturazione grossa e granulosa.",
-          1.35f, 0.2f, 1.25f, false, 12, 20, 18000, 90, 0.6f, 1200, 0.7f, 0.7f, 16000, -0.6f },
+          1.35f, 0.2f, 1.25f, false, 12, 14, 18000, 90, 0.6f, 1200, 0.7f, 0.7f, 16000, -0.6f },
         { "737", "Avalon 737 a valvole in classe A: pulito, arioso, alti setosi. Voci moderne.",
           0.3f, 0.24f, 0.8f, true, 22, 12, 32000, 120, 0.2f, 3000, 0.0f, 0.7f, 14000, 0.9f },
         { "1272", "Neve 1272: il pre da broadcast con il trasformatore Marinair spinto. Piu crudo e mediaso del 73, si rompe prima.",
-          1.15f, 0.2f, 1.15f, false, 15, 18, 22000, 110, 0.9f, 1000, 0.9f, 0.7f, 16000, -0.8f },
+          1.15f, 0.2f, 1.15f, false, 15, 14, 22000, 110, 0.9f, 1000, 0.9f, 0.7f, 16000, -0.8f },
         { "HELIOS", "Helios 69 (Island, Stones): medi alti in avanti e bassi asciutti, saturazione con tanta terza. Rock e batterie.",
-          0.75f, 0.08f, 1.35f, false, 17, 35, 22000, 100, -0.6f, 3200, 1.3f, 0.8f, 14000, -0.4f },
+          0.75f, 0.08f, 1.35f, false, 17, 20, 22000, 100, -0.6f, 3200, 1.3f, 0.8f, 14000, -0.4f },
         { "TRIDENT", "Trident A-Range: medi morbidi e aperti, alti dolci e un po' di grasso sotto. Il suono dei 70 inglesi.",
-          0.6f, 0.14f, 0.9f, false, 20, 20, 24000, 90, 0.8f, 2200, -0.3f, 0.6f, 11000, 0.8f } };
+          0.6f, 0.14f, 0.9f, false, 20, 14, 24000, 90, 0.8f, 2200, -0.3f, 0.6f, 11000, 0.8f } };
     return I[juce::jlimit (0, kPreModels - 1, m)];
 }
 
@@ -99,13 +99,13 @@ inline std::vector<PSpec> modSpec (int t)
         {
             S (0, "LOW FREQ", 0, 3, 1, F_ITEMS, { "20", "30", "60", "100" }); S (1, "BOOST", 0, 10, 0, F_NUM); S (2, "ATTEN", 0, 10, 0, F_NUM);
             S (3, "HIGH FREQ", 0, 6, 3, F_ITEMS, { "3k", "4k", "5k", "8k", "10k", "12k", "16k" }); S (4, "BOOST", 0, 10, 0, F_NUM); S (5, "BANDWIDTH", 0, 10, 5, F_NUM);
-            S (6, "ATTEN SEL", 0, 2, 1, F_ITEMS, { "5k", "10k", "20k" }); S (7, "ATTEN", 0, 10, 0, F_NUM); S (8, "TUBE", 0, 1, 0.3f, F_PCT, {}, 0);
+            S (6, "ATTEN SEL", 0, 2, 1, F_ITEMS, { "5k", "10k", "20k" }); S (7, "ATTEN", 0, 10, 0, F_NUM); S (8, "TUBE", 0, 1, 0.15f, F_PCT, {}, 0);
         }
         else if (e == E_MEQ5)
         {
             S (0, "LOW PEAK", 0, 4, 1, F_ITEMS, { "200", "300", "500", "700", "1k" }); S (1, "PEAK", 0, 10, 0, F_NUM);
             S (2, "DIP", 0, 10, 4, F_ITEMS, { "200", "300", "500", "700", "1k", "1.5k", "2k", "3k", "4k", "5k", "7k" }); S (3, "DIP", 0, 10, 0, F_NUM);
-            S (4, "HIGH PEAK", 0, 4, 2, F_ITEMS, { "1.5k", "2k", "3k", "4k", "5k" }); S (5, "PEAK", 0, 10, 0, F_NUM); S (6, "TUBE", 0, 1, 0.3f, F_PCT, {}, 0);
+            S (4, "HIGH PEAK", 0, 4, 2, F_ITEMS, { "1.5k", "2k", "3k", "4k", "5k" }); S (5, "PEAK", 0, 10, 0, F_NUM); S (6, "TUBE", 0, 1, 0.15f, F_PCT, {}, 0);
         }
         else
         {
@@ -118,7 +118,7 @@ inline std::vector<PSpec> modSpec (int t)
                 if (! sharedF && (B.freqs.size() > 1 || B.type == jb::Bq::HP)) { S (4 + k, B.type == jb::Bq::HP ? B.name : "FREQ", 0, 1, 0.5f, F_AEF, {}, 1); v[(size_t) (4 + k)].aeBand = k; if (B.type == jb::Bq::HP) v[(size_t) (4 + k)].def = 0; }
             }
             if (e == E_SSL || e == E_NEVE84 || e == E_LIND81 || e == E_PE1C) S (8, e == E_PE1C ? "BANDWIDTH" : e == E_NEVE84 ? "HI-Q" : "Q", 0, 1, 0.5f, F_PCT, {}, 1);
-            S (9, "DRIVE", 0, 1, 0.3f, F_PCT, {}, 0);
+            S (9, "DRIVE", 0, 1, 0.15f, F_PCT, {}, 0);
         }
     }
     return v;
@@ -195,7 +195,7 @@ struct Preamp
     // x gia sovracampionato e moltiplicato per il gain del pre
     inline float run (float x, int c, const PreInfo& I, float sre)
     {
-        const float H = juce::Decibels::decibelsToGain (I.headroom) * 0.5f;   // livello a cui lo stadio inizia a piegare
+        const float H = juce::Decibels::decibelsToGain (I.headroom) * 0.7f;   // livello a cui lo stadio inizia a piegare (+3 dB di margine: a GAIN 0 colora senza graffiare)
         // trasformatore d'ingresso: le basse saturano prima (nucleo che si satura)
         const float aLf = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 110.0f / sre);
         lfLp[c] += (x - lfLp[c]) * aLf; const float lo = lfLp[c], Hl = H * 0.35f;

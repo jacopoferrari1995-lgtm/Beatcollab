@@ -18,6 +18,81 @@ static void pump (Processor& p) { p.forceRebuild(); }
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String (argv[1]) == "presets2")
+    {   // ogni preset su un segnale musicale (rumore rosa a impulsi, -18 dBFS RMS): volume, picco, latenza, CPU
+        const double sr = 44100; const auto& F = factoryPresets();
+        juce::Random r (5); std::vector<float> in ((size_t) sr * 6); float b0 = 0, b1 = 0, b2 = 0;
+        for (size_t i = 0; i < in.size(); ++i) { const float w = r.nextFloat() * 2 - 1; b0 = 0.99765f * b0 + w * 0.099f; b1 = 0.963f * b1 + w * 0.2965f; b2 = 0.57f * b2 + w * 1.0527f; const float pink = (b0 + b1 + b2 + w * 0.1848f) * 0.05f;
+            const double t = i / sr; const float env = 0.35f + 0.65f * (float) std::pow (std::max (0.0, std::sin (juce::MathConstants<double>::pi * t * 3.1)), 2.0); in[i] = pink * env; }
+        { double e = 0; for (float v : in) e += v * v; const float g = juce::Decibels::decibelsToGain (-18.0f) / (float) std::sqrt (e / in.size()); for (float& v : in) v *= g; }
+        for (int pr = 0; pr < (int) F.size(); ++pr)
+        {
+            Processor p; p.prepareToPlay (sr, 512); p.loadPreset (pr); pump (p);
+            juce::AudioBuffer<float> b (4, 512); juce::MidiBuffer m; double ei = 0, eo = 0; float pk = 0; bool nan = false;
+            const auto t0 = juce::Time::getMillisecondCounterHiRes();
+            for (size_t o = 0; o + 512 <= in.size(); o += 512)
+            {
+                b.clear(); for (int i = 0; i < 512; ++i) { b.setSample (0, i, in[o + i]); b.setSample (1, i, in[o + i]); }
+                juce::AudioBuffer<float> io (b.getArrayOfWritePointers(), 2, 512); p.processBlock (io, m);
+                if (o > sr * 2) for (int i = 0; i < 512; ++i) { const float y = b.getSample (0, i); if (! std::isfinite (y)) nan = true; eo += y * y; ei += in[o + i] * in[o + i]; pk = std::max (pk, std::abs (y)); }
+            }
+            const double cpu = (juce::Time::getMillisecondCounterHiRes() - t0) / 60.0;
+            const float lv = (float) (10 * std::log10 (eo / ei)); const int lat = p.getLatencySamples();
+            const bool master = F[(size_t) pr].cat.contains ("MASTER");
+            const bool bad = nan || (! master && std::abs (lv) > 3.0f) || lat > 1000 || pk > 1.0f;
+            std::printf ("%s %-9s %-34s %+5.1f dB  picco %5.2f  lat %4d  CPU %4.1f%%\n", bad ? "!!" : "  ", F[(size_t) pr].cat.toRawUTF8(), F[(size_t) pr].name.toRawUTF8(), lv, pk, lat, cpu);
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "rt")
+    {   // riverberi: tempo di decadimento misurato (T30 x 2, curva di Schroeder) contro il DECAY dichiarato, e livello della coda
+        const double sr = 44100;
+        for (int t = 1; t < (int) mods().size(); ++t)
+        {
+            if (mod (t).cat != C_REV && ! (std::getenv ("JDLY") && mod (t).cat == C_DLY)) continue;
+            Processor p; p.prepareToPlay (sr, 512); p.insertModule (0, t); p.setP ("s1_mix", 1.0f);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) p.setP (kv.upToFirstOccurrenceOf ("=", false, false), kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+            pump (p);
+            juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; std::vector<float> o;
+            for (int k = 0; k < (int) (sr * 14 / 512); ++k) { b.clear(); if (k == 2) { b.setSample (0, 0, 0.5f); b.setSample (1, 0, 0.5f); } p.processBlock (b, m); for (int i = 0; i < 512; ++i) o.push_back (0.5f * (b.getSample (0, i) + b.getSample (1, i))); }
+            { juce::String lv; for (int sec = 0; sec < 13; ++sec) { double e = 0; for (int i = (int) (sec * sr); i < (int) ((sec + 1) * sr) && i < (int) o.size(); ++i) e += (double) o[i] * o[i]; lv << juce::String (10 * std::log10 (e / sr + 1e-30), 0) << " "; } std::printf ("  livello per secondo: %s\n", lv.toRawUTF8()); }
+            std::vector<double> sch (o.size()); double acc = 0; for (size_t i = o.size(); i-- > 0;) { acc += (double) o[i] * o[i]; sch[i] = acc; }
+            const double e0 = sch[0]; double t5 = -1, t35 = -1;
+            for (size_t i = 0; i < sch.size(); ++i) { const double db = 10 * std::log10 (sch[i] / e0 + 1e-30); if (t5 < 0 && db < -5) t5 = i / sr; if (t35 < 0 && db < -35) { t35 = i / sr; break; } }
+            // decadimento a bande: 250 Hz, 1 kHz, 4 kHz tramite energia in finestre
+            const float dec = juce::String (mod (t).spec[0].label) == "PRE-DELAY" ? p.getP ("s1_p2") : p.getP ("s1_p1");
+            std::printf ("%-12s DECAY dichiarato %.2f s  misurato RT60 %.2f s  energia coda %.1f dB\n", mod (t).name.toRawUTF8(), dec / 1000.0, t35 > 0 && t5 > 0 ? (t35 - t5) * 2 : -1.0, 10 * std::log10 (e0 / 0.25 + 1e-30));
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "audit")
+    {   // ogni modulo a valori di default: livello, risposta, distorsione, aliasing, latenza
+        const double sr = 44100; juce::dsp::FFT fft (14);
+        auto render = [&] (int t, double f, float amp, int blocks, std::vector<float>& o, int& lat) {
+            Processor p; p.prepareToPlay (sr, 512); p.insertModule (0, t);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) p.setP (kv.upToFirstOccurrenceOf ("=", false, false), kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+            pump (p); double ph = 0; feed (p, blocks, amp, f, ph, &o); lat = p.getLatencySamples(); };
+        auto harm = [&] (const std::vector<float>& o, double f, int k) { const int N = 16384; const size_t st = o.size() - N; double re = 0, im = 0; for (int i = 0; i < N; ++i) { const double w = 0.5 - 0.5 * std::cos (6.283185307 * i / (N - 1)); re += o[st + i] * w * std::cos (6.283185307 * f * k * i / sr); im += o[st + i] * w * std::sin (6.283185307 * f * k * i / sr); } return std::sqrt (re * re + im * im) / (N * 0.25); };
+        for (int t = 1; t < (int) mods().size(); ++t)
+        {
+            if (auto* o = std::getenv ("JMOD")) if (! mod (t).name.containsIgnoreCase (o)) continue;
+            int lat = 0; juce::String line;
+            // risposta a -24 dBFS (lineare): rispetto all'ingresso
+            const double fr[] = { 30, 100, 300, 1000, 3000, 6000, 10000, 15000 };
+            for (double f : fr) { std::vector<float> o; render (t, f, 0.063f, 70, o, lat); line << juce::String (juce::Decibels::gainToDecibels (harm (o, f, 1) / 0.063, -99.0), 1) << " "; }
+            // distorsione a -12 dBFS, 100 Hz e 1 kHz
+            juce::String th;
+            for (double f : { 100.0, 1000.0 }) { std::vector<float> o; render (t, f, 0.25f, 70, o, lat); const double h1 = harm (o, f, 1); double e = 0; for (int k = 2; k <= 7; ++k) { const double h = harm (o, f, k); e += h * h; } th << juce::String (100 * std::sqrt (e) / (h1 + 1e-12), 2) << "% "; }
+            // aliasing a -6 dBFS 6.3 kHz: picco non armonico
+            double worst = 0, wf = 0;
+            { std::vector<float> o; render (t, 6301, 0.5f, 70, o, lat); const int N = 16384; std::vector<float> w (2 * N, 0.0f); for (int i = 0; i < N; ++i) w[(size_t) i] = o[o.size() - N + i] * (float) (0.5 - 0.5 * std::cos (6.283185307 * i / (N - 1))); fft.performFrequencyOnlyForwardTransform (w.data());
+              float ref = 0; for (int k = 1; k < N / 2; ++k) { const double fq = k * sr / N; if (std::abs (fq - 6301) < 30) ref = std::max (ref, w[(size_t) k]); }
+              for (int k = 20; k < N / 2; ++k) { const double fq = k * sr / N, hn = fq / 6301; if (std::abs (hn - std::round (hn)) * 6301 < 40) continue; if (w[(size_t) k] > worst) { worst = w[(size_t) k]; wf = fq; } } worst /= (ref + 1e-12); }
+            std::printf ("%-14s risp[30..15k] %s | THD100/1k %s| alias %.0f dB@%.0f | lat %d\n", mod (t).name.toRawUTF8(), line.toRawUTF8(), th.toRawUTF8(), 20 * std::log10 (worst + 1e-9), wf, lat);
+            std::fflush (stdout);
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "mods")
     {   // elenco moduli
         for (int t = 1; t < (int) mods().size(); ++t) std::printf ("%d %s | %s\n", t, mod (t).name.toRawUTF8(), catName (mod (t).cat));
@@ -50,6 +125,7 @@ int main (int argc, char** argv)
         Processor p; p.prepareToPlay (44100, 512);
         p.loadPreset (juce::SystemStats::getEnvironmentVariable ("JPRESET", "0").getIntValue()); pump (p);
         double ph = 0; juce::Random r;
+        if (auto* th = std::getenv ("JTHEME")) skin::cur() = std::atoi (th);
         Editor ed (p); ed.setSize (Editor::W, Editor::H);
         if (auto* e = std::getenv ("JBAND")) { ed.graph.sel = atoi (e); ed.graph.updatePop(); }
         for (int i = 0; i < 40; ++i) { feed (p, 4, 0.3f, 220 + i * 13, ph); ed.timerCallback(); }

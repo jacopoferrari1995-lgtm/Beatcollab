@@ -98,6 +98,9 @@ struct AeColour
     inline float run (float x, int c, int model, float drive, double sr)
     {
         if (drive < 0.001f) return x;
+        // margine dell'hardware: la curva lavora su x / H. Un EQ vero satura verso +24 dBu: a -12 dBFS la distorsione resta
+        // sotto lo 0.3% (prima 1-1.5% gia' a DRIVE 30%), e la manopola DRIVE porta dentro la curva fino a +12 dB
+        const float H = 3.0f / (1.0f + drive * 5.0f); x /= H;
         const float aLf = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * 90.0 / sr));
         auto asym = [] (float v, float d, float b) { const float n = d * (1 - std::tanh (b) * std::tanh (b)); return (std::tanh (d * v + b) - std::tanh (b)) / n; };
         float y = x;
@@ -125,7 +128,8 @@ struct AeColour
             }
             default: break;
         }
-        dc[c] += (y - dc[c]) * 0.0004f; return y - dc[c];
+        y *= H;
+        dc[c] += (y - dc[c]) * 0.00005f; return y - dc[c];   // blocco della continua sotto i 2 Hz (prima toglieva mezzo dB a 30 Hz)
     }
 };
 

@@ -334,9 +334,16 @@ public:
             if (deltaL) { deltaL[i] = xl * (1 - g); deltaR[i] = xr * (1 - g); }   // cio che lo stadio toglie
             eIn = avgC2 * eIn + (1 - avgC2) * 0.5f * (L[i] * L[i] + R[i] * R[i]);
             yl *= og; yr *= og;
-            // colore: satura dove satura l'hardware (dopo il guadagno: piu' INPUT = piu' carattere)
-            if (p.model == DISTRESS) { satDist (yl, 0, p.mode, sm.col); satDist (yr, 1, p.mode, sm.col); }
-            else { sat (yl, 0, satM, sm.col); sat (yr, 1, satM, sm.col); }
+            // colore: satura dove satura l'hardware (dopo il guadagno: piu' INPUT = piu' carattere), ma riportato in buona parte al
+            // livello d'ingresso: prima +14 dB di INPUT facevano arrivare la curva a 8-9% di distorsione gia' con COLORE al 30%
+            if (sm.col > 0.001f)
+            {
+                const float net = juce::jmax (1.0f, inG * g * og), nk = std::pow (net, -0.8f);
+                yl *= nk; yr *= nk;
+                if (p.model == DISTRESS) { satDist (yl, 0, p.mode, sm.col); satDist (yr, 1, p.mode, sm.col); }
+                else { sat (yl, 0, satM, sm.col); sat (yr, 1, satM, sm.col); }
+                yl /= nk; yr /= nk;
+            }
             // auto gain: allinea l'energia d'uscita a quella d'ingresso (media su ~1 s)
             eOut = avgC2 * eOut + (1 - avgC2) * 0.5f * (yl * yl + yr * yr);
             if (autoGain && eIn > 1.0e-8f && eOut > 1.0e-10f) autoC += (juce::jlimit (0.02f, 16.0f, std::sqrt (eIn / eOut)) - autoC) * 0.0002f;

@@ -40,31 +40,35 @@ public:
         er[0].prepare ((int) (sr * 0.12)); er[1].prepare ((int) (sr * 0.12));
         shim.prepare ((int) (sr * 0.2));
         for (auto& f : dmp) f.reset(); for (auto& f : lowS) f.reset(); for (auto& c : hp) c.reset(); for (auto& c : lp) c.reset();
-        lastKey = -1; env = 0; ph = 0; shPh = 0;
+        lastKey = -1; env = 0; ph = 0; shPh = 0; glInit = false;
     }
     void process (float* L, float* R, int n, const RevSettings& S)
     {
         configure (S);
         const float g8 = 0.25f;  // matrice di Householder: I - 2/N
+        const float kGl = 1.0f - std::exp (-1.0f / (0.08f * (float) sr));
+        if (! glInit) { preS = (float) preD; for (int k = 0; k < 8; ++k) dlS[k] = dl[k]; for (int k = 0; k < 6; ++k) erS[k] = (float) erT[k]; glInit = true; }
         const float aDuck = 1.0f - std::exp (-1.0f / (0.25f * (float) sr));
         for (int i = 0; i < n; ++i)
         {
             const float inL = L[i], inR = R[i];
+            // PRE-DELAY, SIZE (lunghezze della rete e delle prime riflessioni) scivolano: prima saltavano e facevano click
+            preS += (preD - preS) * kGl; for (int k = 0; k < 8; ++k) dlS[k] += (dl[k] - dlS[k]) * kGl; for (int k = 0; k < 6; ++k) erS[k] += ((float) erT[k] - erS[k]) * kGl;
             pre[0].push (inL); pre[1].push (inR);
-            float xl = pre[0].tap (preD), xr = pre[1].tap (preD);
+            float xl = pre[0].frac (preS), xr = pre[1].frac (preS);
             for (int k = 0; k < 4; ++k) { xl = inAp[0][k].run (xl); xr = inAp[1][k].run (xr); }
             // riflessioni primarie (stanza, chamber)
             er[0].push (inL); er[1].push (inR);
-            float el = 0, erv = 0; for (int k = 0; k < 6; ++k) { el += er[0].tap (erT[k]) * erG[k]; erv += er[1].tap (erT[(k + 3) % 6]) * erG[k]; }
+            float el = 0, erv = 0; for (int k = 0; k < 6; ++k) { el += er[0].frac (erS[k]) * erG[k]; erv += er[1].frac (erS[(k + 3) % 6]) * erG[k]; }
             // rete
             float o[8], s = 0;
             ph += modHz / sr; if (ph > 1) ph -= 1;
             for (int k = 0; k < 8; ++k)
             {
                 const float m = modDepth * std::sin ((float) juce::MathConstants<double>::twoPi * (float) (ph + k * 0.137));
-                o[k] = fdn[k].frac (dl[k] + m);
+                o[k] = fdn[k].frac (dlS[k] + m);
                 o[k] = dmp[k].run (o[k]);                                  // gli alti muoiono prima
-                const float lo = lowS[k].run (o[k]); o[k] = (o[k] - lo) + lo * lowMulG;   // i bassi durano LOW volte
+                const float lo = lowS[k].run (o[k]); o[k] = (o[k] - lo) + lo * lowMulG[k];   // i bassi durano BASSI x volte (guadagno per giro che resta sotto 1)
                 s += o[k];
             }
             s *= g8;
@@ -80,7 +84,9 @@ public:
             for (int k = 0; k < 8; ++k)
             {
                 const float in = (k & 1 ? xr : xl) * 0.5f + (k < 2 ? shimIn : 0.0f);
-                fdn[k].push (std::tanh ((o[k] - s * 2.0f) * fbG[k] + in));
+                // matrice di Householder 8x8: I - (2/8) J. Prima era I - (4/8) J, che ha un autovalore -3: la rete non decadeva mai
+                // (il riverbero restava acceso all'infinito, tenuto solo dalla tanh)
+                fdn[k].push (std::tanh ((o[k] - s) * fbG[k] + in));
             }
             float wl = o[0] + o[2] + o[4] + o[6] * 0.7f - o[5] * 0.4f, wr = o[1] + o[3] + o[5] + o[7] * 0.7f - o[4] * 0.4f;
             wl = wl * 0.42f + el * S.er; wr = wr * 0.42f + erv * S.er;
@@ -103,10 +109,10 @@ private:
         for (int k = 0; k < 8; ++k)
         {
             dl[k] = (float) (base[k] * sc * sr);
-            fbG[k] = std::pow (10.0f, -3.0f * (dl[k] / (float) sr) / juce::jmax (0.1f, S.decay));
+            fbG[k] = std::pow (10.0f, -3.0f * (dl[k] / (float) sr) / juce::jmax (0.1f, S.decay * 1.55f));   // x1.55: lo smorzamento degli alti accorcia la coda, cosi il DECAY dichiarato e quello che si misura
             dmp[k].lp (sr, S.damp); lowS[k].lp (sr, 250);
         }
-        lowMulG = juce::jlimit (0.5f, 1.25f, 1.0f + (S.lowMul - 1.0f) * 0.12f);
+        for (int k = 0; k < 8; ++k) lowMulG[k] = std::pow (fbG[k], 1.0f / juce::jlimit (0.5f, 2.0f, S.lowMul) - 1.0f);   // RT dei bassi = DECAY x BASSI
         static const float ad[4] = { 0.0047f, 0.0036f, 0.0127f, 0.0093f };
         const float diffScale = S.kind == 0 ? 1.4f : S.kind == 1 ? 1.0f : 0.6f;
         for (int c = 0; c < 2; ++c) for (int k = 0; k < 4; ++k) { inAp[c][k].d = juce::jmax (2, (int) (ad[k] * diffScale * (1 + 0.07f * c) * sr)); inAp[c][k].g = 0.35f + 0.4f * S.diff; }
@@ -116,9 +122,9 @@ private:
         modHz = 0.25 + S.mod * 0.9; modDepth = (float) (S.mod * 0.0018 * sr * (S.kind == 4 ? 2.5 : 1.0));
         for (int c = 0; c < 2; ++c) { hpF[c].lp (sr, S.loCut); lpF[c].lp (sr, S.hiCut); }
     }
-    double sr = 44100, ph = 0, shPh = 0, modHz = 0.5; float modDepth = 0, lowMulG = 1, env = 0;
+    double sr = 44100, ph = 0, shPh = 0, modHz = 0.5; float modDepth = 0, lowMulG[8] { 1, 1, 1, 1, 1, 1, 1, 1 }, env = 0;
     Line pre[2], fdn[8], er[2], shim; AP inAp[2][4]; OP dmp[8], lowS[8], hp[2], lp[2], hpF[2], lpF[2];
-    float dl[8] {}, fbG[8] {}; int preD = 0, erT[6] {}; float erG[6] {}; int lastKey = -1;
+    float dl[8] {}, fbG[8] {}, dlS[8] {}, erS[6] {}, preS = 0; bool glInit = false; int preD = 0, erT[6] {}; float erG[6] {}; int lastKey = -1;
 };
 
 // ======================================================================= molla (spring): catena di allpass dispersivi + ritorno
@@ -251,7 +257,7 @@ public:
                 x = lp[c].run (x); x = x - hp[c].run (x);
                 const float dr = 1.0f + S.drive * 4.0f;
                 if (S.kind == 0 || S.kind == 4) x = std::tanh (x * dr) / dr * (1.0f + 0.3f * S.drive);
-                else if (S.kind == 1) { x = juce::jlimit (-1.0f, 1.0f, x * dr) / dr; nz = nz * 0.97f + (rnd.nextFloat() - 0.5f) * 0.0004f * S.drive; x += nz; }
+                else if (S.kind == 1) { x = juce::jlimit (-1.0f, 1.0f, x * dr) / dr; nz = nz * 0.97f + (rnd.nextFloat() - 0.5f) * 0.0004f * S.drive; bbdE = juce::jmax (std::abs (x), bbdE * 0.9995f); x += nz * juce::jmin (1.0f, bbdE * 40.0f); }   // il fruscio del BBD vive sopra le ripetizioni: nel silenzio si spegne (prima restava a -75 dB per sempre)
                 else if (S.kind == 5) x = std::tanh (x * dr) / dr;
                 return x;
             };
@@ -263,7 +269,7 @@ public:
         }
     }
 private:
-    double sr = 44100, ph = 0, ph2 = 0; float tSm = -1, env = 0, nz = 0, tOld = 0, xf = 1; Line ln[2]; OP lp[2], hp[2]; juce::Random rnd;
+    double sr = 44100, ph = 0, ph2 = 0; float tSm = -1, env = 0, nz = 0, tOld = 0, xf = 1, bbdE = 0; Line ln[2]; OP lp[2], hp[2]; juce::Random rnd;
 };
 
 // ======================================================================= de-esser
@@ -378,25 +384,29 @@ struct WideSettings { float width = 1, fromHz = 300, outDb = 0; bool monoBass = 
 class Wider
 {
 public:
-    void prepare (double s) { sr = s; for (auto& f : xo) f.reset(); last = -1; hd.prepare ((int) (sr * 0.03)); }
+    void prepare (double s) { sr = s; for (auto& f : xo) f.reset(); last = -1; hd.prepare ((int) (sr * 0.03)); smInit = false; }
     void process (float* L, float* R, int n, const WideSettings& S)
     {
         if (std::abs (S.fromHz - last) > 0.5f) { last = S.fromHz; for (int k = 0; k < 4; ++k) { if (k < 2) xo[k].lp (sr, juce::jmax (20.0f, S.fromHz), 0.7071); else xo[k].lp (sr, juce::jmax (20.0f, S.fromHz), 0.7071); } }
-        const float og = db2g (S.outDb); const int hD = (int) (S.haas * 0.012 * sr);
+        const float og = db2g (S.outDb), kS = 1.0f - std::exp (-1.0f / (0.03f * (float) sr));
+        if (! smInit) { wS = S.width; hS = (float) (S.haas * 0.012 * sr); mbS = S.monoBass ? 1.0f : 0.0f; smInit = true; }
         for (int i = 0; i < n; ++i)
         {
+            // larghezza, HAAS (ritardo frazionario) e MONO SOTTO scivolano: prima il ritardo saltava a campioni interi (click)
+            wS += (S.width - wS) * kS; hS += ((float) (S.haas * 0.012 * sr) - hS) * kS; mbS += ((S.monoBass ? 1.0f : 0.0f) - mbS) * kS;
             float m = 0.5f * (L[i] + R[i]), s = 0.5f * (L[i] - R[i]);
             // lato diviso in sotto/sopra la frequenza (crossover a due poli, somma piatta in ampiezza)
             const float sLo = xo[1].p (xo[0].p (s)), sHi = s - sLo;
-            float sOut = (S.monoBass ? 0.0f : sLo) + sHi * S.width;
-            if (hD > 0) { hd.push (m); sOut += (m - hd.tap (hD)) * 0.35f * juce::jmin (1.0f, S.width - 1.0f + 0.3f); }
+            float sOut = sLo * (1.0f - mbS) + sHi * wS;
+            hd.push (m);
+            if (hS > 0.01f) sOut += (m - hd.frac (juce::jmax (1.0f, hS))) * 0.35f * juce::jmin (1.0f, wS - 1.0f + 0.3f) * juce::jmin (1.0f, hS / 8.0f);
             // un filo di compensazione: allargando molto il centro resta presente
-            const float mg = S.width > 1 ? 1.0f / std::sqrt (1.0f + (S.width - 1.0f) * 0.25f) : 1.0f;
+            const float mg = wS > 1 ? 1.0f / std::sqrt (1.0f + (wS - 1.0f) * 0.25f) : 1.0f;
             L[i] = (m * mg + sOut) * og; R[i] = (m * mg - sOut) * og;
         }
     }
 private:
-    double sr = 44100; jkit::Bq xo[4]; float last = -1; Line hd;
+    double sr = 44100; jkit::Bq xo[4]; float last = -1, wS = 1, hS = 0, mbS = 0; bool smInit = false; Line hd;
 };
 
 // ======================================================================= utility

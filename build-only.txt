@@ -1,2 +1,3 @@
+JackpotMix
 JackpotComp
-JackpotDust
+JackpotButter
