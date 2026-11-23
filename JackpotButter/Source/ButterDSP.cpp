@@ -303,6 +303,8 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
             const float tr = trW[(size_t) i]; boom = boomR.at (i);
             acidEnv = jmax (tr, acidEnv * 0.9995f);
             // IMPACT: su ogni colpo parte un sub accordato su FREQ che scende di pitch (thump) + spinta dei transienti sotto 140 Hz
+            if (boom <= 0 && punch <= 0) { thEnv = 0; thArmed = true; }   // spento: niente colpo rimasto in sospeso che riparte quando lo riaccendi
+            if (boom <= 0) { bIc1[0] = bIc1[1] = bIc2[0] = bIc2[1] = 0; }
             if (boom > 0 || punch > 0)
             {
                 if (thArmed && tr > 0.5f) { thArmed = false; thPh = 0; thEnv = 1; thPitch = 1; }

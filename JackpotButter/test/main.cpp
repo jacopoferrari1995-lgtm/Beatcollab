@@ -5,6 +5,68 @@
 using namespace jb;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "torture")
+    {   // caccia all'esplosione: preset a caso, comandi che saltano, blocchi irregolari, segnali da live (colpi, sinusoidi, silenzio, picchi)
+        const double sr = std::getenv ("JSR") ? std::atof (std::getenv ("JSR")) : 48000; const int runs = std::getenv ("JRUNS") ? std::atoi (std::getenv ("JRUNS")) : 40;
+        const int seed0 = std::getenv ("JSEED") ? std::atoi (std::getenv ("JSEED")) : 1;
+        int bad = 0;
+        for (int run = 0; run < runs; ++run)
+        {
+            juce::Random r (seed0 * 1000 + run);
+            auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 1024); p->prepareToPlay (sr, 1024);
+            const int np = p->getNumPrograms(); const int pr = (run * 7 + seed0 * 13) % np; p->loadPreset (pr);
+            auto& params = p->getParameters();
+            juce::AudioBuffer<float> buf (2, 1024); juce::MidiBuffer mb;
+            const int total = (int) (sr * (std::getenv ("JLEN") ? std::atof (std::getenv ("JLEN")) : 40.0)); int pos = 0; float worst = 0; juce::String last; double ph = 0; float env = 0;
+            int nextMove = 0, kind = 0, silStart = 0; juce::StringArray hist;
+            while (pos < total)
+            {
+                const int n = 1 + r.nextInt (1024);
+                if (pos >= nextMove)
+                {   // ogni ~0.3 s: 1-4 comandi a valori a caso (anche estremi), a volte un preset nuovo
+                    nextMove = pos + (int) (sr * (0.05 + r.nextFloat() * 0.5));
+                    if (r.nextFloat() < 0.03f) { const int q = r.nextInt (np); p->loadPreset (q); last = "preset " + juce::String (q); }
+                    for (int k = 0, m = 1 + r.nextInt (4); k < m; ++k)
+                    {
+                        auto* q = params[r.nextInt (params.size())]; const float v = r.nextFloat() < 0.3f ? (r.nextBool() ? 0.0f : 1.0f) : r.nextFloat();
+                        q->setValueNotifyingHost (v); last = q->getName (40) + "=" + juce::String (v, 2); hist.add (juce::String ((pos) / sr, 2) + "s " + last); if (hist.size() > 25) hist.remove (0);
+                    }
+                    const int nk = r.nextInt (5); if (nk != kind || nk != 2) silStart = pos; kind = nk;
+                    if (kind == 2) nextMove = pos + (int) (sr * 4);   // silenzio lungo, comandi fermi: deve spegnersi
+                }
+                for (int i = 0; i < n; ++i)
+                {
+                    float x = 0; const double t = (pos + i) / sr;
+                    switch (kind)
+                    {
+                        case 0: x = (r.nextFloat() * 2 - 1) * (std::fmod (t, 0.25) < 0.02 ? 0.9f : 0.05f); break;   // colpi
+                        case 1: ph += 55.0 / sr; x = 0.8f * (float) std::sin (juce::MathConstants<double>::twoPi * ph); break; // 808
+                        case 2: x = 0; break;                                                                          // silenzio
+                        case 3: x = (r.nextFloat() * 2 - 1) * 0.99f; break;                                            // rumore pieno
+                        default: ph += 3000.0 / sr; x = 0.5f * (float) std::sin (juce::MathConstants<double>::twoPi * ph); break;
+                    }
+                    buf.setSample (0, i, x); buf.setSample (1, i, kind == 3 ? -x : x);
+                }
+                juce::AudioBuffer<float> view (buf.getArrayOfWritePointers(), 2, n);
+                p->processBlock (view, mb);
+                for (int c = 0; c < 2; ++c) for (int i = 0; i < n; ++i)
+                {
+                    const float y = view.getSample (c, i);
+                    const bool selfOsc = kind == 2 && (pos + i - silStart) > (int) (sr * 3.5) && std::abs (y) > 0.3f;
+                    if (! std::isfinite (y) || std::abs (y) > 2.0f || selfOsc)
+                    {
+                        std::printf ("ESPLOSO%s run %d preset %d a %.2f s: %s (ultimo: %s)\n", selfOsc ? " (si autoalimenta nel silenzio)" : "", run, pr, (pos + i) / sr, std::isfinite (y) ? juce::String (y).toRawUTF8() : "NaN/inf", last.toRawUTF8());
+                        ++bad; pos = total; c = 2; if (std::getenv ("JV")) { std::printf ("%s\n", hist.joinIntoString ("\n").toRawUTF8()); for (auto* q : params) if (std::abs (q->getValue() - q->getDefaultValue()) > 1e-3f) std::printf ("  %s = %s\n", q->getName (40).toRawUTF8(), q->getCurrentValueAsText().toRawUTF8()); } break;
+                    }
+                    worst = std::max (worst, std::abs (y));
+                }
+                pos += n;
+            }
+            if (std::getenv ("JV") || p->panics.load() > 0) std::printf ("run %d preset %d picco %.2f protezioni %d\n", run, pr, worst, p->panics.load());
+        }
+        std::printf ("esplosioni: %d su %d\n", bad, runs);
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "loud")
     {   // rumore rosa a picco -1 e 20 dB sotto: guadagno RMS uscita/ingresso
         const double sr = 48000; const int pr = std::getenv ("JPRESET") ? std::atoi (std::getenv ("JPRESET")) : -1;

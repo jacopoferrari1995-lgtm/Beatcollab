@@ -5,11 +5,14 @@
 
 namespace jb
 {
-class Processor : public juce::AudioProcessor
+class Processor : public juce::AudioProcessor, private juce::AsyncUpdater
 {
 public:
     Processor();
-    void prepareToPlay (double sr, int block) override { maxBlock = juce::jmax (64, block); dsp.prepare (sr, maxBlock); setLatencySamples (dsp.latency()); gIn.reset (sr, 0.02); gOut.reset (sr, 0.02); }
+    void prepareToPlay (double sr, int block) override { curSr = sr; maxBlock = juce::jmax (64, block); dsp.prepare (sr, maxBlock); setLatencySamples (dsp.latency()); gIn.reset (sr, 0.02); gOut.reset (sr, 0.02); runaway = 0; muteLeft = 0; fadeIn = 1; }
+    // protezione da live: un valore rotto (NaN) o un'autoalimentazione si spengono subito e il plugin riparte pulito
+    std::atomic<int> panics { 0 };
+    void safety (float* l, float* r, int n, float inPk);
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& l) const override
     { return l.getMainOutputChannelSet() == juce::AudioChannelSet::stereo() && l.getMainInputChannelSet() == juce::AudioChannelSet::stereo(); }
@@ -36,6 +39,8 @@ public:
     std::atomic<bool> locked[7];
     void randomize();
     int preset = 0, maxBlock = 512;
+    void handleAsyncUpdate() override { suspendProcessing (true); dsp.prepare (curSr, maxBlock); suspendProcessing (false); }
+    double curSr = 44100; int runaway = 0, muteLeft = 0; float fadeIn = 1;
     juce::SmoothedValue<float> gIn { 1.0f }, gOut { 1.0f };
     std::atomic<float>* pIn = nullptr; std::atomic<float>* pOut = nullptr;
     juce::String userName;

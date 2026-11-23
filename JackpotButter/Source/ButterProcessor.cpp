@@ -58,6 +58,23 @@ void Processor::loadPreset (int i)
     if (hasAe) aeToBands (ae, [this] (const char* id, float v) { if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 (v)); });
 }
 
+void Processor::safety (float* l, float* r, int n, float inPk)
+{
+    // 1) un valore rotto (NaN/inf) o un'uscita enorme sul silenzio per mezzo secondo: muto, e lo stato si ricostruisce fuori dall'audio
+    bool broken = false; float pk = 0;
+    for (int i = 0; i < n; ++i) { if (! std::isfinite (l[i]) || ! std::isfinite (r[i])) { broken = true; break; } pk = juce::jmax (pk, std::abs (l[i]), std::abs (r[i])); }
+    if (! broken && pk > 1.4f && inPk < 0.05f) { runaway += n; if (runaway > (int) (curSr * 0.5)) broken = true; } else runaway = juce::jmax (0, runaway - n);
+    if (broken) { ++panics; runaway = 0; muteLeft = (int) (curSr * 0.15); fadeIn = 0; triggerAsyncUpdate(); }
+    if (muteLeft > 0) { const int m = juce::jmin (n, muteLeft); std::fill (l, l + m, 0.0f); std::fill (r, r + m, 0.0f); muteLeft -= m; if (m == n) return; }
+    // 2) tetto: sotto +3 dBFS non tocca niente, poi curva morbida fino a +6 dBFS che non si supera mai
+    constexpr float k = 1.4125f, c = 1.9953f;
+    const float fs = 1.0f / (float) (0.05 * curSr);
+    for (int i = 0; i < n; ++i)
+    {
+        if (fadeIn < 1.0f) { fadeIn = juce::jmin (1.0f, fadeIn + fs); l[i] *= fadeIn; r[i] *= fadeIn; }
+        for (float* x : { l + i, r + i }) { const float a = std::abs (*x); if (a > k) *x = std::copysign (k + (c - k) * std::tanh ((a - k) / (c - k)), *x); }
+    }
+}
 void Processor::processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals nd;
@@ -70,11 +87,15 @@ void Processor::processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&)
     {
         const int n = juce::jmin (maxBlock, N - o); float* l = L + o; float* r = R + o;
         float p0 = 0, p1 = 0;
+        for (int i = 0; i < n; ++i) { if (! std::isfinite (l[i])) l[i] = 0; if (! std::isfinite (r[i])) r[i] = 0; }   // un NaN da un plugin prima non entra
         for (int i = 0; i < n; ++i) { const float g = gIn.getNextValue(); l[i] *= g; r[i] *= g; p0 = juce::jmax (p0, std::abs (l[i])); p1 = juce::jmax (p1, std::abs (r[i])); }
         inL = juce::jmax (p0, inL.load() * 0.85f); inR = juce::jmax (p1, inR.load() * 0.85f);
         dsp.process (l, r, n, apvts);
         p0 = p1 = 0;
-        for (int i = 0; i < n; ++i) { const float g = gOut.getNextValue(); l[i] *= g; r[i] *= g; p0 = juce::jmax (p0, std::abs (l[i])); p1 = juce::jmax (p1, std::abs (r[i])); }
+        const float inPk = juce::jmax (inL.load(), inR.load());
+        for (int i = 0; i < n; ++i) { const float g = gOut.getNextValue(); l[i] *= g; r[i] *= g; }
+        safety (l, r, n, inPk);
+        for (int i = 0; i < n; ++i) { p0 = juce::jmax (p0, std::abs (l[i])); p1 = juce::jmax (p1, std::abs (r[i])); }
         outL = juce::jmax (p0, outL.load() * 0.85f); outR = juce::jmax (p1, outR.load() * 0.85f);
     }
 }
