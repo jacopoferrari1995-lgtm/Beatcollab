@@ -188,10 +188,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 bool moving = false;
                 for (int i = 0; i < kP; ++i) { if (i >= (int) spec.size()) { vS[k][i] = vbuf[k][i]; continue; } const auto& q = spec[(size_t) i]; if (q.fmt == F_ITEMS || q.fmt == F_BOOL || hidden (q)) vS[k][i] = vbuf[k][i]; else if (vS[k][i] != vbuf[k][i]) moving = true; }
                 if (! moving) e->process (l, r, m, vS[k], ctx);
-                else for (int o = 0; o < m; o += 32)
-                {
-                    const int mm = juce::jmin (32, m - o);
-                    for (int i = 0; i < kP; ++i) { const float t = vbuf[k][i]; float& x = vS[k][i]; if (x != t) { x += (t - x) * k32; if (std::abs (t - x) < 1e-5f) x = t; } }
+                else for (int o = 0, mm = 0; o < m; o += mm)
+                {   // sotto-blocchi allineati al contatore libero vPh: lo scivolamento non dipende dal buffer
+                    mm = juce::jmin ((int) (32u - ((vPh + (unsigned) o) & 31u)), m - o);
+                    const float kk = mm == 32 ? k32 : (float) (1.0 - std::exp (-(double) mm / (0.03 * sr)));
+                    for (int i = 0; i < kP; ++i) { const float t = vbuf[k][i]; float& x = vS[k][i]; if (x != t) { x += (t - x) * kk; if (std::abs (t - x) < 1e-5f) x = t; } }
                     Ctx c2 = ctx; if (c2.scL) { c2.scL += o; c2.scR += o; }
                     e->process (l + o, r + o, mm, vS[k], c2);
                 }
@@ -207,6 +208,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             }
             actS[k] = a; mixS[k] = mx;
         }
+        vPh += (unsigned) m;
         const float og = juce::Decibels::decibelsToGain (value ("out"));
         if (outSm != 1.0f || og != 1.0f) for (int i = 0; i < m; ++i) { outSm += (og - outSm) * kS; if (std::abs (og - outSm) < 1e-6f) outSm = og; l[i] *= outSm; r[i] *= outSm; }
         // confronto a pari volume: si sente il segnale originale portato allo stesso loudness (entra ed esce sfumando)

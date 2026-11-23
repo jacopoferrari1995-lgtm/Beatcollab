@@ -73,7 +73,7 @@ public:
     static constexpr int kView = 256;
     void prepare (double s, int maxBlock)
     {
-        sr = s; for (auto& b : st) { for (auto& f : b.f) f.reset(); for (auto& f : b.det) f.reset(); b.solo.reset(); b.env = 0; b.dyn = 0; b.key = -1; }
+        sr = s; tick = 0; for (auto& b : st) { for (auto& f : b.f) f.reset(); for (auto& f : b.det) f.reset(); b.solo.reset(); b.env = 0; b.dyn = 0; b.key = -1; }
         order = sr > 60000 ? 12 : 11; N = 1 << order; H = N / 4; fft = std::make_unique<juce::dsp::FFT> (order);
         win.resize ((size_t) N); for (int i = 0; i < N; ++i) win[(size_t) i] = std::sqrt (0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) N));
         for (int c = 0; c < 2; ++c) { inQ[c].assign ((size_t) N, 0.0f); outQ[c].assign ((size_t) N, 0.0f); spec[c].assign ((size_t) N, {}); }
@@ -86,8 +86,8 @@ public:
     {
         int solo = -1; for (int k = 0; k < kBands; ++k) if (S.b[k].on && S.b[k].solo) solo = k;
         const float aA = 1.0f - std::exp (-1.0f / (0.001f * S.att * (float) sr)), aR = 1.0f - std::exp (-1.0f / (0.001f * S.rel * (float) sr));
-        // frequenza, guadagno e Q scivolano verso il valore nuovo (circa 10 ms): niente click quando si muovono o si automatizzano
-        const float gk = 1.0f - std::exp (-16.0f / (0.010f * (float) sr));
+        // frequenza, guadagno e Q scivolano verso il valore nuovo (circa 30 ms, contatore libero: indipendente dal buffer): niente click quando si muovono o si automatizzano
+        const float gk = 1.0f - std::exp (-8.0f / (0.030f * (float) sr));
         for (int k = 0; k < kBands; ++k)
         {
             const auto& B = S.b[k]; auto& T = st[k];
@@ -116,7 +116,7 @@ public:
                     const float tgt = B.range * amt;
                     T.dyn += (tgt - T.dyn) * 0.01f;
                 }
-                if ((i & 15) == 0)
+                if (((tick + (unsigned) i) & 7u) == 0)
                 {
                     const bool mv = std::abs (B.g - T.sg) > 0.002f || std::abs (B.f - T.sf) > T.sf * 0.0005f || std::abs (B.q - T.sq) > T.sq * 0.0005f;
                     if (mv)
@@ -139,6 +139,7 @@ public:
             }
             L[i] = l; R[i] = r;
         }
+        tick += (unsigned) n;
         for (int k = 0; k < kBands; ++k) dynUi[k] = st[k].dyn;
         if (spectralOn (S)) spectral (L, R, n, S);
         else for (auto& v : specView) v = v * 0.9f;
@@ -213,6 +214,7 @@ private:
         }
         for (int v = 0; v < kView; ++v) { const float f = 20.0f * std::pow (1000.0f, (float) v / (kView - 1)); specView[v] = red[(size_t) juce::jlimit (1, nb - 1, (int) (f / binHz))]; }
     }
+    unsigned tick = 0;
     struct St { BQ f[8]; BQ det[2]; BQ solo; int n = 1, key = -1, dk = -1, ty = -1, sl = -1; float env = 0, dyn = 0, dynC = 0, sf = 1000, sg = 0, sq = 1; } st[kBands];
     double sr = 44100; int order = 11, N = 2048, H = 512, w = 0;
     std::unique_ptr<juce::dsp::FFT> fft; std::vector<float> win, inQ[2], outQ[2], red; std::vector<std::complex<float>> spec[2], cb;

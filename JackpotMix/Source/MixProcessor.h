@@ -105,7 +105,7 @@ private:
     juce::String irPath[kSlots];
     std::atomic<float>* sp[kSlots][kP + 3] {};
     // dissolvenze: modulo che entra/esce/cambia, bypass, mix, ingresso/uscita, confronto (niente click)
-    float vS[kSlots][kP] {}; bool vInit[kSlots] {};
+    float vS[kSlots][kP] {}; bool vInit[kSlots] {}; unsigned vPh = 0;
     float actS[kSlots] {}, mixS[kSlots] {}, inSm = 1, outSm = 1, cmpX = 0; Engine* lastE[kSlots] {};
     std::atomic<bool> swapOk[kSlots] {}; std::atomic<double> lastAudioMs { 0 }; double pendSince[kSlots] {};
 };

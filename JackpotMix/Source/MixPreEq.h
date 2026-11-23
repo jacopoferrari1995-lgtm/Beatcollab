@@ -317,11 +317,11 @@ public:
         // poi il colore del circuito a 4x con filtri a fase lineare (prima a 1x: armoniche ripiegate a -30 dB)
         const int e = eqOf (S.type); const bool tubeEq = e == E_EQP1A || e == E_MEQ5;
         const int colModel = tubeEq ? jb::AE_PE1C : aeOf (e);
-        const float k32 = (float) (1.0 - std::exp (-32.0 / (0.03 * sr)));
         if (! eqInit) for (int i = 0; i < kSlotParams; ++i) svS[i] = S.v[i];
-        for (int off = 0; off < n; off += 32)
-        {
-            const int m = juce::jmin (32, n - off);
+        for (int off = 0, m = 0; off < n; off += m, ph32 += (unsigned) m)
+        {   // sotto-blocchi allineati a un contatore libero: stesso suono con qualsiasi buffer
+            m = juce::jmin ((int) (32u - (ph32 & 31u)), n - off);
+            const float k32 = (float) (1.0 - std::exp (-(double) m / (0.03 * sr)));
             SlotSet Sm = S; bool moved = ! eqInit;
             for (int i = 0; i < kSlotParams; ++i) { const float t = S.v[i]; if (svS[i] != t) { svS[i] += (t - svS[i]) * k32; if (std::abs (t - svS[i]) < 1e-4f) svS[i] = t; moved = true; } Sm.v[i] = svS[i]; }
             if (moved)
@@ -342,6 +342,7 @@ public:
     }
     Preamp pre;
 private:
+    unsigned ph32 = 0;
     double sr = 44100; int maxB = 2048, osLat = 0, lastType = -1, lastLc = -1, nEq = 4;
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
     DelayLine dly; std::vector<float> dry; jkit::Bq lc[4];
@@ -528,7 +529,7 @@ public:
                     target = over > 0 ? juce::jmax (B.g, -over * 0.75f) : 0.0f;
                 }
                 D.cut += (target - D.cut) * 0.002f;
-                if ((i & 15) == 0 && std::abs (D.cut - D.coefCut) > 0.05f) { for (int c = 0; c < 2; ++c) D.flt[c].peak (sr, B.f, B.q, D.cut); D.coefCut = D.cut; }
+                if (((ph16 + (unsigned) i) & 15u) == 0 && std::abs (D.cut - D.coefCut) > 0.05f) { for (int c = 0; c < 2; ++c) D.flt[c].peak (sr, B.f, B.q, D.cut); D.coefCut = D.cut; }
                 if (soloB < 0)
                 {
                     if (B.ms != 2) om = D.flt[0].p (om);
@@ -539,10 +540,12 @@ public:
             L[i] = om + os2; R[i] = om - os2;
         }
         for (int k = 0; k < 4; ++k) gr[k] = bd[k].grUi;
+        ph16 += (unsigned) n;
     }
     std::atomic<float> gr[4] {};
     Resonance res;
 private:
+    unsigned ph16 = 0;
     static void cp (jkit::Bq& d, const jkit::Bq& s) { d.b0 = s.b0; d.b1 = s.b1; d.b2 = s.b2; d.a1 = s.a1; d.a2 = s.a2; }
     void bp (jkit::Bq& f, float fc, float q)
     {   // passa banda a guadagno unitario al centro

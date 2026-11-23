@@ -18,6 +18,50 @@ static void pump (Processor& p) { p.forceRebuild(); }
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String (argv[1]) == "glide")
+    {   // dopo il caricamento: livello ogni 0.5 s su rumore rosa costante (JSLOT isola uno slot)
+        const double sr = 48000; const int pr = std::getenv ("JPRESET") ? std::atoi (std::getenv ("JPRESET")) : 1;
+        juce::Random r (9); std::vector<float> in ((size_t) sr * 12); float b0 = 0, b1 = 0, b2 = 0;
+        for (auto& v : in) { const float w = r.nextFloat() * 2 - 1; b0 = 0.99765f * b0 + w * 0.099f; b1 = 0.963f * b1 + w * 0.2965f; b2 = 0.57f * b2 + w * 1.0527f; v = (b0 + b1 + b2 + w * 0.1848f) * 0.12f; }
+        auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); p->loadPreset (pr);
+        if (auto* o = std::getenv ("JSLOT")) { const int keep = std::atoi (o); for (int s2 = 0; s2 < 8; ++s2) if (s2 + 1 != keep) p->setP ("s" + juce::String (s2 + 1) + "_byp", 1.0f); }
+        if (std::getenv ("JNOEQ")) p->setP ("eq_on", 0.0f);
+        auto o1 = testlab::render (*p, (int) in.size(), [&] (int k) { return in[(size_t) k]; }, 512, false);
+        for (int q = 0; q < 24; ++q) { double e = 0; for (size_t i = (size_t) (q * sr / 2); i < (size_t) ((q + 1) * sr / 2); ++i) e += (double) o1[i] * o1[i]; std::printf ("%.1f ", 10 * std::log10 (e / (sr / 2) + 1e-30)); }
+        std::printf ("\n"); return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "blk")
+    {   // blocchi irregolari 1..512 contro 512 su rumore rosa forte, preset scelto; JSLOT=n spegne tutti gli slot tranne n
+        const double sr = 48000; const int pr = std::getenv ("JPRESET") ? std::atoi (std::getenv ("JPRESET")) : 1;
+        juce::Random r (9); std::vector<float> in ((size_t) sr * 4); float b0 = 0, b1 = 0, b2 = 0;
+        for (auto& v : in) { const float w = r.nextFloat() * 2 - 1; b0 = 0.99765f * b0 + w * 0.099f; b1 = 0.963f * b1 + w * 0.2965f; b2 = 0.57f * b2 + w * 1.0527f; v = (b0 + b1 + b2 + w * 0.1848f) * 0.12f; }
+        auto mk = [&] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); p->loadPreset (pr);
+            if (auto* o = std::getenv ("JSLOT")) { const int keep = std::atoi (o); for (int s2 = 0; s2 < 8; ++s2) if (s2 + 1 != keep) p->setP ("s" + juce::String (s2 + 1) + "_byp", 1.0f); }
+            if (std::getenv ("JNOEQ")) p->setP ("eq_on", 0.0f);
+            return p; };
+        auto a = mk(); auto b = mk();
+        auto o1 = testlab::render (*a, (int) in.size(), [&] (int k) { return in[(size_t) k]; }, 512, false);
+        auto o2 = testlab::render (*b, (int) in.size(), [&] (int k) { return in[(size_t) k]; }, 512, true);
+        double e = 0, d = 0; for (size_t i = (size_t) sr; i < in.size(); ++i) { e += (double) o1[i] * o1[i]; d += std::pow ((double) o1[i] - o2[i], 2.0); }
+        std::printf ("irregolari 1..512 vs 512: %.1f dB\n", 10 * std::log10 (d / (e + 1e-30) + 1e-30));
+        for (int sec = 0; sec < 4; ++sec) { double e2 = 0, d2 = 0; for (size_t i = (size_t) (sec * sr); i < (size_t) ((sec + 1) * sr); ++i) { e2 += (double) o1[i] * o1[i]; d2 += std::pow ((double) o1[i] - o2[i], 2.0); } std::printf ("  secondo %d: %.1f dB\n", sec, 10 * std::log10 (d2 / (e2 + 1e-30) + 1e-30)); }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "findp")
+    {   // trova il preset dai valori normalizzati del report
+        const auto& F = factoryPresets();
+        for (int pr = 0; pr < (int) F.size(); ++pr)
+        {
+            Processor p; p.prepareToPlay (48000, 512); p.loadPreset (pr);
+            auto v = [&] (const char* id) { auto* r = p.apvts.getParameter (id); return r ? r->getValue() : -1.0f; };
+            if (std::abs (v ("s1_p7") - 0.4771213f) < 1e-4f && std::abs (v ("s6_p2") - 0.3890756f) < 1e-4f)
+            {
+                std::printf ("%d %s | %s\n", pr, F[(size_t) pr].cat.toRawUTF8(), F[(size_t) pr].name.toRawUTF8());
+                for (int s = 0; s < 8; ++s) std::printf ("  slot %d: %s\n", s + 1, mod (p.slotType (s)).name.toRawUTF8());
+            }
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "presets2")
     {   // ogni preset su un segnale musicale (rumore rosa a impulsi, -18 dBFS RMS): volume, picco, latenza, CPU
         const double sr = 44100; const auto& F = factoryPresets();

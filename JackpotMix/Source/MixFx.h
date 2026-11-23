@@ -414,24 +414,50 @@ struct UtilSettings { float gainDb = 0, pan = 0, loHz = 10, hiHz = 22000; bool p
 class Utility
 {
 public:
-    void prepare (double s) { sr = s; for (auto& f : hp) f.reset(); for (auto& f : lp) f.reset(); lh = ll = -1; }
+    void prepare (double s)
+    {
+        sr = s; for (auto& f : hp) f.reset(); for (auto& f : lp) f.reset(); init = false; ph = 0;
+        kG = 1.0f - std::exp (-1.0f / (0.050f * (float) sr)); kF = 1.0f - std::exp (-8.0f / (0.040f * (float) sr)); kW = 1.0f / (0.020f * (float) sr); kX = 1.0f / (0.010f * (float) sr);
+    }
     void process (float* L, float* R, int n, const UtilSettings& S)
     {
-        if (S.loHz != lh) { lh = S.loHz; for (int c = 0; c < 4; ++c) hp[c].hp (sr, juce::jmax (10.0f, S.loHz), c % 2 ? 1.3066 : 0.5412); }
-        if (S.hiHz != ll) { ll = S.hiHz; for (int c = 0; c < 4; ++c) lp[c].lp (sr, juce::jmin ((double) S.hiHz, sr * 0.45), c % 2 ? 1.3066 : 0.5412); }
-        const float g = db2g (S.gainDb); const float pa = (S.pan + 1) * juce::MathConstants<float>::pi * 0.25f; const float gl = std::cos (pa) * 1.41421f, gr = std::sin (pa) * 1.41421f;
-        const bool hpOn = S.loHz > 10.5f, lpOn = S.hiHz < 21900;
+        const float pa = (S.pan + 1) * juce::MathConstants<float>::pi * 0.25f;
+        const float tg = db2g (S.gainDb), tl = std::cos (pa) * 1.41421f * tg, tr = std::sin (pa) * 1.41421f * tg;
+        const float lpMax = (float) juce::jmin (22000.0, sr * 0.45);
+        const float tLo = std::log (juce::jlimit (10.0f, 1000.0f, S.loHz)), tHi = std::log (juce::jlimit (1000.0f, lpMax, S.hiHz));
+        const float hpT = S.loHz > 10.5f ? 1.0f : 0.0f, lpT = S.hiHz < 21900 ? 1.0f : 0.0f;
+        const int mx = (S.phL ? 1 : 0) | (S.phR ? 2 : 0) | (S.mono ? 4 : 0) | (S.swap ? 8 : 0);
+        if (! init) { init = true; gl = tl; gr = tr; lo = tLo; hi = tHi; hpW = hpT; lpW = lpT; cur = old = mx; xf = 1; design(); }
+        if (mx != cur) { old = xf < 0.5f ? old : cur; cur = mx; xf = 0; }
         for (int i = 0; i < n; ++i)
         {
-            float l = L[i] * (S.phL ? -1.0f : 1.0f), r = R[i] * (S.phR ? -1.0f : 1.0f);
-            if (S.swap) std::swap (l, r);
-            if (S.mono) l = r = 0.5f * (l + r);
-            if (hpOn) { l = hp[1].p (hp[0].p (l)); r = hp[3].p (hp[2].p (r)); }
-            if (lpOn) { l = lp[1].p (lp[0].p (l)); r = lp[3].p (lp[2].p (r)); }
-            L[i] = l * g * gl; R[i] = r * g * gr;
+            gl += (tl - gl) * kG; gr += (tr - gr) * kG;
+            hpW = hpT > hpW ? juce::jmin (1.0f, hpW + kW) : juce::jmax (hpT, hpW - kW);
+            lpW = lpT > lpW ? juce::jmin (1.0f, lpW + kW) : juce::jmax (lpT, lpW - kW);
+            if (((ph++) & 7u) == 0 && (std::abs (tLo - lo) > 1e-4f || std::abs (tHi - hi) > 1e-4f))
+            {   // le frequenze di taglio scivolano (40 ms, in scala logaritmica)
+                lo += (tLo - lo) * kF; hi += (tHi - hi) * kF; if (std::abs (tLo - lo) < 1e-4f) lo = tLo; if (std::abs (tHi - hi) < 1e-4f) hi = tHi; design();
+            }
+            float l = L[i], r = R[i];
+            // i filtri girano sempre (caldi): accenderli o spegnerli e' una dissolvenza, mai un salto
+            { const float hl = hp[1].p (hp[0].p (l)), hr = hp[3].p (hp[2].p (r)); l += (hl - l) * hpW; r += (hr - r) * hpW; }
+            { const float ll2 = lp[1].p (lp[0].p (l)), lr = lp[3].p (lp[2].p (r)); l += (ll2 - l) * lpW; r += (lr - r) * lpW; }
+            float ol, orr; mat (cur, l, r, ol, orr);
+            if (xf < 1.0f) { float pl, pr; mat (old, l, r, pl, pr); xf = juce::jmin (1.0f, xf + kX); const float w = 0.5f - 0.5f * std::cos (xf * juce::MathConstants<float>::pi); ol = pl + (ol - pl) * w; orr = pr + (orr - pr) * w; }
+            L[i] = ol * gl; R[i] = orr * gr;
         }
     }
 private:
-    double sr = 44100; jkit::Bq hp[4], lp[4]; float lh = -1, ll = -1;
+    static void mat (int m, float l, float r, float& ol, float& orr)
+    {   // fase, scambio e mono: semplici e lineari, si possono dissolvere tra due stati
+        if (m & 1) l = -l; if (m & 2) r = -r; if (m & 8) std::swap (l, r); if (m & 4) l = r = 0.5f * (l + r); ol = l; orr = r;
+    }
+    void design()
+    {
+        const double f1 = std::exp ((double) lo), f2 = std::exp ((double) hi);
+        for (int c = 0; c < 4; ++c) { hp[c].hp (sr, f1, c % 2 ? 1.3066 : 0.5412); lp[c].lp (sr, f2, c % 2 ? 1.3066 : 0.5412); }
+    }
+    double sr = 44100; jkit::Bq hp[4], lp[4]; bool init = false; unsigned ph = 0; int cur = 0, old = 0;
+    float gl = 1, gr = 1, lo = 2.3f, hi = 10.0f, hpW = 0, lpW = 0, xf = 1, kG = 0.001f, kF = 0.01f, kW = 0.001f, kX = 0.002f;
 };
 }
