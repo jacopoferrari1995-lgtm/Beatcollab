@@ -44,7 +44,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
     add ("tech", "TECNICA", C::green, pct, "Nel LEAD: bend, vibrato, scivolate, legati e doppie note.");
     add ("borrow", "INTERSCAMBIO", C::red, [] (float v) { return v < 0.005f ? juce::String ("OFF") : juce::String (juce::roundToInt (v * 100)) + "%"; }, "Accordi presi in prestito (il V maggiore in minore, il iv minore in maggiore). Spento: la scala si rispetta sempre.");
     add ("pos", "POSIZIONE", C::violet, [] (float v) { return v < 0.5f ? juce::String ("APERTA") : juce::String ("TASTO ") + juce::String (juce::roundToInt (v)); }, "Dove sta la mano sul manico: accordi e lead si cercano attorno a questo tasto.");
-    add ("color", "COLORE", C::violet, [] (float v) { static const char* n[5] = { "AUTO", "TRIADI", "SETTIME", "NONE", "SUS/ADD9" }; return juce::String (n[juce::jlimit (0, 4, juce::roundToInt (v))]); }, "Che accordi: AUTO segue il genere.");
+    add ("color", "COLORE BASE", C::violet, [] (float v) { static const char* n[5] = { "AUTO", "TRIADI", "SETTIME", "NONE", "SUS/ADD9" }; return juce::String (n[juce::jlimit (0, 4, juce::roundToInt (v))]); }, "Colore di partenza per tutti gli accordi (AUTO segue genere e mood). Ogni accordo puo' avere il suo: clic sull'accordo, voce COLORE.");
     add ("tone", "TONO", C::phos, pct, "Brillantezza della corda e del suono.");
     add ("bodyAmt", "CORPO", C::phos, pct, "Quanto si sente la cassa (acustiche) o il carattere del pickup (elettriche).");
     add ("drive", "DRIVE", C::phos, pct, "Distorsione del CRUNCH.");
@@ -63,26 +63,29 @@ void Editor::resized()
     for (int i = 0; i < 12; ++i) keyR[i] = { 44.0f + i * 47, 114, 43, 24 };
     for (int i = 0; i < kScales; ++i) scaleR[i] = { 44.0f + i * 94, 146, 90, 24 };
     genreR = { 44, 186, 106, 24 }; moodR = { 156, 186, 106, 24 };
-    for (int i = 0; i < 4; ++i) barsR[i] = { 276.0f + i * 36, 186, 32, 24 };
+    for (int i = 0; i < 2; ++i) barsR[i] = { 276.0f + i * 44, 186, 40, 24 };
     for (int i = 0; i < 3; ++i) perBarR[i] = { 428.0f + i * 38, 186, 34, 24 };
     remR = { 560, 186, 28, 24 }; addR = { 592, 186, 28, 24 };
     for (int i = 0; i < 8; ++i) slotR[i] = { 44.0f + i * 73, 228, 68, 66 };
     fretR = { 672, 134, 470, 120 }; tuningR = { 1052, 100, 90, 24 };
     for (int i = 0; i < kVStyles; ++i) vstyleR[i] = { 672.0f + i * 95, 270, 90, 24 };
-    for (int i = 0; i < kModes; ++i) modeR[i] = { 44, 346.0f + i * 40, 140, 34 };
-    for (int i = 0; i < 9; ++i) patR[i] = { 204.0f + (i % 5) * 112, 344.0f + (i / 5) * 30, 106, 26 };
-    rollR = { 204, 410, 640, 116 };
-    dragR = { 866, 344, 272, 78 };
-    genR = { 866, 432, 134, 30 }; varR = { 1004, 432, 134, 30 };
-    playR = { 866, 470, 134, 26 }; liveR = { 1004, 470, 134, 26 }; midiR = { 866, 502, 134, 26 }; csR = { 1004, 502, 134, 26 };
+    for (int i = 0; i < kModes; ++i) modeR[i] = { 44, 344.0f + i * 38, 140, 32 };
+    for (int i = 0; i < 12; ++i) patR[i] = { 204.0f + (i % 6) * 106, 344.0f + (i / 6) * 30, 100, 26 };
+    for (int i = 0; i < 3; ++i) { layR[i] = { 204.0f + i * 212, 344, 170, 26 }; diceR[i] = { 378.0f + i * 212, 344, 32, 26 }; editLayR[i] = { 300.0f + i * 80, 378, 76, 22 }; }
+    rollR = { 204, 424, 640, 212 };
+    dragR = { 866, 344, 272, 70 };
+    for (int i = 0; i < 3; ++i) layDragR[i] = { 866.0f + i * 92, 420, 88, 24 };
+    genR = { 866, 452, 134, 30 }; varR = { 1004, 452, 134, 30 };
+    playR = { 866, 490, 134, 26 }; liveR = { 1004, 490, 134, 26 }; midiR = { 866, 522, 134, 26 }; csR = { 1004, 522, 134, 26 };
+    snapR = { 866, 568, 134, 24 }; resetEditR = { 1004, 568, 134, 24 };
     auto put = [this] (const char* id, int x, int y) { if (auto* k = knobById (knobs, id)) k->setBounds (x, y, 74, 100); };
-    int x = 44; for (auto* id : { "density", "dyn", "strum", "human", "swing", "rest" }) { put (id, x, 582); x += 80; }
-    x += 16; for (auto* id : { "ring", "emb", "tech" }) { put (id, x, 582); x += 80; }
-    x += 16; for (auto* id : { "borrow", "pos", "color" }) { put (id, x, 582); x += 80; }
-    for (int i = 0; i < kBodies; ++i) bodyR[i] = { 44.0f + i * 96, 726, 90, 28 };
-    listenR = { 44, 762, 186, 24 };
-    x = 450; for (auto* id : { "tone", "bodyAmt", "drive", "space", "width" }) { put (id, x, 694); x += 80; }
-    put ("vol", 1050, 694);
+    int x = 44; for (auto* id : { "density", "dyn", "strum", "human", "swing", "rest" }) { put (id, x, 696); x += 80; }
+    x += 16; for (auto* id : { "ring", "emb", "tech" }) { put (id, x, 696); x += 80; }
+    x += 16; for (auto* id : { "borrow", "pos", "color" }) { put (id, x, 696); x += 80; }
+    for (int i = 0; i < kBodies; ++i) bodyR[i] = { 44.0f + i * 96, 840, 90, 28 };
+    listenR = { 44, 876, 186, 24 };
+    x = 450; for (auto* id : { "tone", "bodyAmt", "drive", "space", "width" }) { put (id, x, 808); x += 80; }
+    put ("vol", 1050, 808);
     undoR = { 700, 22, 70, 32 }; redoR = { 774, 22, 70, 32 }; themeR = { 1066, 24, 90, 28 };
     prevR = { 316, 22, 28, 32 }; presetR = { 346, 22, 316, 32 }; nextR = { 664, 22, 28, 32 };
     browser.setBounds (0, 0, W, H);
@@ -97,12 +100,12 @@ void Editor::paintStatic (juce::Graphics& g)
     jlook::header (g, { 0, 0, Wf, 72 }, "GUITAR", C::amber, U ("GIRI DI CHITARRA  /  ACCORDI RITMICA ARPEGGIO LEAD"), C::green, C::violet);
     panel (g, { 24, 88, 604, 214 }, C::amber, U ("GIRO"), U ("TONALITA' / SCALA / GENERE / ACCORDI"));
     panel (g, { 644, 88, 512, 214 }, C::green, U ("TASTIERA"), U (""));
-    panel (g, { 24, 318, 1132, 220 }, C::violet, U ("CLIP"), U (""));
-    panel (g, { 24, 554, 1132, 250 }, C::phos, U (""), U ("IL SUONO E' SOLO PER ASCOLTARE: IL MIDI ESCE UGUALE"));
-grp (g, 276, 172, 140, U ("BATTUTE")); grp (g, 428, 172, 110, U ("ACC. PER BATT.")); grp (g, 560, 172, 60, U ("ACCORDI")); grp (g, 156, 172, 106, U ("MOOD"));
+    panel (g, { 24, 318, 1132, 334 }, C::violet, U ("CLIP"), U ("PIANO ROLL MODIFICABILE: CLIC SUGLI ACCORDI IN ALTO PER CAMBIARLI"));
+    panel (g, { 24, 668, 1132, 250 }, C::phos, U (""), U ("IL SUONO E' SOLO PER ASCOLTARE: IL MIDI ESCE UGUALE"));
+grp (g, 276, 172, 84, U ("BATTUTE")); grp (g, 428, 172, 110, U ("ACC. PER BATT.")); grp (g, 560, 172, 60, U ("ACCORDI")); grp (g, 156, 172, 106, U ("MOOD"));
     grp (g, 44, 172, 106, U ("GENERE")); grp (g, 44, 213, 580, U ("GIRO (CLIC PER CAMBIARE L'ACCORDO)"));
-    grp (g, 44, 568, 474, U ("SUONATA")); grp (g, 540, 568, 232, U ("CORDE")); grp (g, 796, 568, 232, U ("ARMONIA E MANO"));
-    grp (g, 44, 708, 380, U ("CHITARRA")); grp (g, 450, 680, 392, U ("SUONO")); grp (g, 1050, 680, 74, U ("USCITA"));
+    grp (g, 44, 682, 474, U ("SUONATA")); grp (g, 540, 682, 232, U ("CORDE")); grp (g, 796, 682, 232, U ("ARMONIA E MANO"));
+    grp (g, 44, 822, 380, U ("CHITARRA")); grp (g, 450, 794, 392, U ("SUONO")); grp (g, 1050, 794, 74, U ("USCITA"));
 }
 void Editor::drawFretboard (juce::Graphics& g, const Part& P, int slot)
 {
@@ -148,33 +151,102 @@ void Editor::drawFretboard (juce::Graphics& g, const Part& P, int slot)
         g.setColour (C::bg); g.setFont (jkit::uf (7.5f)); g.drawText (noteName (pc), juce::Rectangle<float> (x - 10, y - 6, 20, 12), juce::Justification::centred);
     }
 }
+static juce::Colour layerCol (int l) { return l == 0 ? C::amber : l == 1 ? C::green : C::violet; }
 void Editor::drawRoll (juce::Graphics& g, const Part& P)
 {
-    const auto r = rollR; const double L = P.len();
+    const auto r = rollR; const double L = P.len(); const bool comp = proc.vi ("mode") == COMPOSIZIONE;
     g.setColour (C::bg.withAlpha (0.6f)); g.fillRoundedRectangle (r.expanded (4), 6);
-    int lo = 127, hi = 0; for (auto& e : P.ev) { lo = juce::jmin (lo, e.note); hi = juce::jmax (hi, e.note); }
-    if (lo > hi) { lo = 40; hi = 76; }
-    lo -= 2; hi += 2; const float nh = r.getHeight() / (float) (hi - lo + 1);
-    auto bx = [&] (double b) { return r.getX() + (float) (b / L) * r.getWidth(); };
-    for (int b = 0; b <= (int) L; ++b) { g.setColour (C::dim.withAlpha (b % 4 == 0 ? 0.45f : 0.15f)); g.fillRect (bx (b), r.getY(), 1.0f, r.getHeight()); }
-    g.setFont (jkit::mf (9));
+    if (! editing)
+    {   // estensione verticale: si fissa durante una modifica
+        int lo = 127, hi = 0; for (auto& e : P.ev) { lo = juce::jmin (lo, e.note); hi = juce::jmax (hi, e.note); }
+        if (lo > hi) { lo = 48; hi = 72; }
+        rollLo = lo - 3; rollHi = hi + 3; if (rollHi - rollLo < 18) { const int c = (rollLo + rollHi) / 2; rollLo = c - 9; rollHi = c + 9; }
+    }
+    // righe: le note della scala piu' chiare
+    const auto S = proc.settings(); const auto sset = scaleSet (S.key, S.scale);
+    const float nh = r.getHeight() / (float) (rollHi - rollLo + 1);
+    for (int n = rollLo; n <= rollHi; ++n) if (sset[(size_t) (n % 12)]) { g.setColour (C::text.withAlpha (n % 12 == S.key ? 0.07f : 0.03f)); g.fillRect (r.getX(), ny (n), r.getWidth(), nh); }
+    const double gd = grid() > 0 ? grid() : 0.25;
+    for (double b = 0; b <= L + 1e-6; b += gd) { const bool bar = std::abs (std::fmod (b, 4.0)) < 1e-6, beat = std::abs (b - std::round (b)) < 1e-6; g.setColour (C::dim.withAlpha (bar ? 0.5f : beat ? 0.2f : 0.07f)); g.fillRect (bx (b, L), r.getY(), 1.0f, r.getHeight()); }
+    // accordi sopra: si cliccano
+    chordLabels.clear(); g.setFont (jkit::uf (9.5f));
     for (size_t i = 0; i < P.chords.size(); ++i)
     {
-        const float x = bx (P.chordAt[i]); g.setColour (P.chords[i].borrowed ? C::red : C::amber); g.drawText (P.chords[i].name, juce::Rectangle<float> (x + 3, r.getY() - 15, 70, 12), juce::Justification::centredLeft);
+        const float x = bx (P.chordAt[i], L), x2 = i + 1 < P.chords.size() ? bx (P.chordAt[i + 1], L) : r.getRight();
+        juce::Rectangle<float> cr (x + 1, r.getY() - 20, juce::jmax (20.0f, x2 - x - 2), 16);
+        const bool hov = cr.contains (getMouseXYRelative().toFloat() / scaler.s);
+        g.setColour ((P.chords[i].borrowed ? C::red : C::amber).withAlpha (hov ? 0.35f : 0.12f)); g.fillRoundedRectangle (cr, 4);
+        g.setColour (P.chords[i].borrowed ? C::red : C::amber); g.drawText (P.chords[i].name, cr.reduced (4, 0), juce::Justification::centredLeft);
+        chordLabels.push_back ({ cr, (int) i });
     }
-    for (auto& e : P.ev)
+    resolveSel (P);
+    std::vector<bool> isSel (P.ev.size(), false); for (int i : sel) if (i >= 0 && i < (int) P.ev.size()) isSel[(size_t) i] = true;
+    for (size_t i = 0; i < P.ev.size(); ++i)
     {
-        const float x = bx (e.beat), w = juce::jmax (2.0f, bx (e.beat + e.len) - x), y = r.getBottom() - (e.note - lo + 1) * nh;
-        g.setColour (strCol (e.str).withAlpha (e.mute ? 0.35f : 0.35f + 0.6f * e.vel)); g.fillRect (x, y, w, juce::jmax (2.0f, nh - 1));
+        const auto& e = P.ev[i]; const auto nr = noteRect (e, L);
+        const auto c = comp ? layerCol (e.layer) : strCol (e.str);
+        g.setColour (c.withAlpha (e.mute ? 0.3f : 0.35f + 0.6f * e.vel)); g.fillRect (nr);
+        if (isSel[i]) { g.setColour (C::text); g.drawRect (nr.expanded (1), 1.5f); }
     }
     if (! P.bend.empty())
-    {   // curva dei bend sotto
-        juce::Path pb; bool st = false; float py = 0; for (auto& b : P.bend) { const float x = bx (b.beat), y = r.getBottom() - 8 - b.semis * 6; if (! st) { pb.startNewSubPath (x, y); st = true; } else { pb.lineTo (x, py); pb.lineTo (x, y); } py = y; }
-        g.setColour (C::green.withAlpha (0.7f)); g.strokePath (pb, juce::PathStrokeType (1.2f));
+    {   // curva dei bend
+        juce::Path pb; bool st = false; float py = 0; for (auto& b : P.bend) { const float x = bx (b.beat, L), y = r.getBottom() - 8 - b.semis * 6; if (! st) { pb.startNewSubPath (x, y); st = true; } else { pb.lineTo (x, py); pb.lineTo (x, y); } py = y; }
+        g.setColour (C::green.withAlpha (0.6f)); g.strokePath (pb, juce::PathStrokeType (1.2f));
     }
+    if (editMode == 3) { g.setColour (C::text.withAlpha (0.15f)); g.fillRect (marquee); g.setColour (C::text.withAlpha (0.6f)); g.drawRect (marquee, 1.0f); }
     const double pb = proc.uiBeat.load();
-    if (pb >= 0) { g.setColour (C::text); g.fillRect (bx (pb), r.getY() - 2, 1.5f, r.getHeight() + 4); }
+    if (pb >= 0) { g.setColour (C::text); g.fillRect (bx (pb, L), r.getY() - 2, 1.5f, r.getHeight() + 4); }
 }
+void Editor::storeSig (const Part& P) { selSig.clear(); for (int i : sel) if (i >= 0 && i < (int) P.ev.size()) selSig.push_back ({ P.ev[(size_t) i].beat, P.ev[(size_t) i].note, P.ev[(size_t) i].layer }); }
+void Editor::resolveSel (const Part& P)
+{
+    sel.clear();
+    for (auto& sg : selSig) for (int i = 0; i < (int) P.ev.size(); ++i) { const auto& e = P.ev[(size_t) i]; if (std::abs (e.beat - sg.beat) < 1e-6 && e.note == sg.note && e.layer == sg.layer) { sel.push_back (i); break; } }
+}
+void Editor::fixString (Ev& e) const
+{
+    const auto tun = tuning (proc.vi ("tuning")); const int pos = proc.vi ("pos");
+    int f = e.note - tun[(size_t) e.str];
+    if (f >= 0 && f <= 20) { e.fret = f; return; }
+    int best = 0; float bc = 1e9f;
+    for (int s = 0; s < kStr; ++s) { const int ff = e.note - tun[(size_t) s]; if (ff < 0 || ff > 20) continue; const float c = std::abs ((float) ff - (float) pos - 2.0f); if (c < bc) { bc = c; best = s; } }
+    e.str = best; e.fret = juce::jmax (0, e.note - tun[(size_t) best]);
+}
+int Editor::scaleShift (int note, int steps) const
+{
+    const auto S = proc.settings(); const auto ss = scaleSet (S.key, S.scale);
+    int n = note; const int dir = steps > 0 ? 1 : -1;
+    for (int k = 0; k < std::abs (steps); ++k) { do { n += dir; } while (n > 0 && n < 127 && ! ss[(size_t) (n % 12)]); }
+    return juce::jlimit (0, 127, n);
+}
+int Editor::stepsBetween (int a, int b) const
+{
+    const auto S = proc.settings(); const auto ss = scaleSet (S.key, S.scale);
+    int k = 0; const int dir = b > a ? 1 : -1; for (int n = a; n != b; n += dir) if (ss[(size_t) ((n + dir) % 12)]) k += dir;
+    return k;
+}
+void Editor::commitEdit()
+{
+    storeSig (edPart);
+    std::stable_sort (edPart.ev.begin(), edPart.ev.end(), [] (const Ev& a, const Ev& b) { return a.beat < b.beat; });
+    proc.commitEdit (edPart);
+    resolveSel (edPart);
+    repaint();
+}
+void Editor::deleteSelected()
+{
+    auto P = proc.part(); if (P == nullptr) return;
+    edPart = *P; resolveSel (edPart); if (sel.empty()) return;
+    std::vector<bool> del (edPart.ev.size(), false); for (int i : sel) del[(size_t) i] = true;
+    std::vector<Ev> keep; for (size_t i = 0; i < edPart.ev.size(); ++i)
+    {
+        if (! del[i]) { keep.push_back (edPart.ev[i]); continue; }
+        const auto& e = edPart.ev[i];   // via anche i bend di quella nota
+        if (e.lead) edPart.bend.erase (std::remove_if (edPart.bend.begin(), edPart.bend.end(), [&] (const Bend& b) { return b.beat > e.beat - 0.02 && b.beat < e.beat + e.len && b.str == e.str; }), edPart.bend.end());
+    }
+    edPart.ev = keep; sel.clear(); selSig.clear(); commitEdit();
+}
+
 void Editor::paint (juce::Graphics& g)
 {
     g.addTransform (juce::AffineTransform::scale (scaler.s));
@@ -202,7 +274,7 @@ void Editor::paint (juce::Graphics& g)
     for (int i = 0; i < kScales; ++i) chipBtn (g, scaleR[i], scaleName (i), S.scale == i, C::amber, 10.0f, hoverId == 120 + i);
     chipBtn (g, genreR, juce::String (genreName (S.genre)) + U (" \xe2\x96\xbe"), true, C::yellow, 9.5f, hoverId == 130);
     chipBtn (g, moodR, juce::String (moodName (S.mood)) + U (" \xe2\x96\xbe"), true, C::yellow, 9.5f, hoverId == 132);
-    for (int i = 0; i < 4; ++i) chipBtn (g, barsR[i], juce::String (barsOf (i)), proc.vi ("bars") == i, C::amber, 10.5f, hoverId == 140 + i);
+    for (int i = 0; i < 2; ++i) chipBtn (g, barsR[i], juce::String (barsOf (i + 2)), proc.vi ("bars") == i + 2, C::amber, 10.5f, hoverId == 140 + i);
     { static const char* pb[3] = { "1", "2", "1/2" }; for (int i = 0; i < 3; ++i) chipBtn (g, perBarR[i], pb[i], proc.vi ("perBar") == i, C::amber, 10.5f, hoverId == 150 + i); }
     const auto pr = proc.prog();
     chipBtn (g, remR, "-", false, pr.size() > 1 ? C::amber : C::dim, 13, hoverId == 160); chipBtn (g, addR, "+", false, pr.size() < 8 ? C::amber : C::dim, 13, hoverId == 161);
@@ -235,18 +307,38 @@ void Editor::paint (juce::Graphics& g)
     {
         const int m = proc.vi ("mode");
         for (int i = 0; i < kModes; ++i) chipBtn (g, modeR[i], modeName (i), m == i, C::violet, 12.5f, hoverId == 200 + i);
-        const auto& pn = patternNames (m); const int pat = juce::jlimit (0, pn.size() - 1, proc.vi ("pat"));
-        for (int i = 0; i < 9; ++i) if (i < pn.size()) chipBtn (g, patR[i], pn[i], pat == i, C::violet, 9.5f, hoverId == 210 + i);
-        if (P != nullptr) drawRoll (g, *P);
+        if (m == COMPOSIZIONE)
+        {   // tre strati: BASE, ARPEGGIO, LEAD (menu + dado per rifare solo quello strato)
+            static const char* ids[3] = { "lyBase", "lyArp", "lyLead" }; static const char* nm[3] = { "BASE", "ARPEGGIO", "LEAD" };
+            for (int i = 0; i < 3; ++i)
+            {
+                auto* prm = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (ids[i]));
+                const juce::String cur = prm != nullptr ? prm->getCurrentChoiceName() : juce::String();
+                chipBtn (g, layR[i], juce::String (nm[i]) + ": " + cur + U (" \xe2\x96\xbe"), cur != "OFF", layerCol (i), 8.8f, hoverId == 240 + i);
+                chipBtn (g, diceR[i], U ("\xe2\x86\xbb"), false, layerCol (i), 12, hoverId == 243 + i);
+                chipBtn (g, editLayR[i], nm[i], editLayer == i, layerCol (i), 8.5f, hoverId == 250 + i);
+            }
+            g.setFont (jkit::mf (9)); g.setColour (C::dim); g.drawText (U ("NOTE NUOVE IN:"), juce::Rectangle<float> (204, 378, 94, 22), juce::Justification::centredLeft);
+        }
+        else
+        {
+            const auto& pn = patternNames (m); const int pat = juce::jlimit (0, pn.size() - 1, proc.vi ("pat"));
+            for (int i = 0; i < 12; ++i) if (i < pn.size()) chipBtn (g, patR[i], pn[i], pat == i, C::violet, 9.0f, hoverId == 210 + i);
+        }
+        if (P != nullptr) drawRoll (g, editing ? edPart : *P);
         // trascina
         {
             const auto c = dragging ? C::green : C::amber;
             jlook::button (g, dragR, c, dragging, hoverId == 230, "", jkit::uf (10));
-            g.setFont (jkit::uf (13)); g.setColour (c); g.drawText (U ("TRASCINA IL CLIP MIDI"), dragR.withHeight (30).translated (0, 10), juce::Justification::centred);
+            g.setFont (jkit::uf (13)); g.setColour (c); g.drawText (m == COMPOSIZIONE ? U ("TRASCINA TUTTO") : U ("TRASCINA IL CLIP MIDI"), dragR.withHeight (30).translated (0, 8), juce::Justification::centred);
             g.setFont (jkit::mf (9.5f)); g.setColour (C::dim);
             const int nb = barsOf (proc.vi ("bars"));
-            g.drawText (juce::String (nb) + (nb == 1 ? " battuta" : " battute") + U (" - nella traccia di Ableton"), dragR.withTrimmedTop (42).withHeight (14), juce::Justification::centred);
+            g.drawText (juce::String (nb) + " battute" + (m == COMPOSIZIONE ? U (" - una traccia per chitarra") : U (" - nella traccia di Ableton")), dragR.withTrimmedTop (40).withHeight (14), juce::Justification::centred);
+            if (m == COMPOSIZIONE) { static const char* nm[3] = { "BASE", "ARPEGGIO", "LEAD" }; for (int i = 0; i < 3; ++i) chipBtn (g, layDragR[i], U ("\xe2\x87\xa2 ") + nm[i], false, layerCol (i), 8.5f, hoverId == 260 + i); }
         }
+        { static const char* sn[4] = { "GRIGLIA 1/16", "GRIGLIA 1/8", "GRIGLIA TERZINE", "GRIGLIA LIBERA" }; chipBtn (g, snapR, sn[snapIdx], false, C::violet, 9, hoverId == 270); }
+        const bool ed = proc.edited();
+        chipBtn (g, resetEditR, ed ? U ("TORNA AL GENERATO") : U ("NON MODIFICATO"), ed, ed ? C::red : C::dim, 9, hoverId == 271);
         chipBtn (g, genR, U ("GENERA GIRO"), false, C::yellow, 10.5f, hoverId == 231); chipBtn (g, varR, U ("VARIA"), false, C::yellow, 10.5f, hoverId == 232);
         chipBtn (g, playR, proc.v ("play") > 0.5f ? U ("\xe2\x96\xa0 FERMA") : U ("\xe2\x96\xb6 PROVA"), proc.v ("play") > 0.5f, C::green, 10, hoverId == 233);
         chipBtn (g, liveR, U ("GIRO IN PLAY"), proc.v ("live") > 0.5f, C::green, 10, hoverId == 234);
@@ -261,23 +353,47 @@ void Editor::paint (juce::Graphics& g)
     g.drawText (info.isNotEmpty() ? info : U ("Clic su un accordo per cambiarlo. GENERA GIRO = nuovo giro dal genere, VARIA = stessa armonia suonata in un altro modo. Cmd+Z annulla."), juce::Rectangle<float> (30, (float) H - 24, 1030, 14), juce::Justification::centredLeft);
 }
 void Editor::repaintAll() { std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* q : c->getChildren()) all (q); }; all (this); }
-void Editor::slotMenu (int i)
+void Editor::slotMenu (int i, juce::Rectangle<float> at)
 {
     const auto S = proc.settings(); const auto pr = proc.prog(); if (i >= (int) pr.size()) return;
+    const int cur = pr[(size_t) i], curDeg = codeDeg (cur), curCol = codeCol (cur);
     juce::PopupMenu m; m.addSectionHeader (U ("ACCORDI DELLA SCALA"));
-    for (int d = 0; d < 7; ++d) { const auto c = slotChord (S, d); m.addItem (1 + d, degreeRoman (d, S.scale, S.key) + "   " + c.name, true, pr[(size_t) i] == d); }
+    for (int d = 0; d < 7; ++d) { const auto c = slotChord (S, withCol (d, curCol)); m.addItem (1 + d, degreeRoman (d, S.scale, S.key) + "   " + c.name, true, curDeg == d); }
     bool any = false; for (int d = 0; d < 7; ++d) any |= canBorrow (S.scale, d);
     if (any)
     {
         m.addSectionHeader (U ("PRESI IN PRESTITO (CON CAUTELA)"));
-        for (int d = 0; d < 7; ++d) if (canBorrow (S.scale, d)) { const auto c = slotChord (S, 10 + d); m.addItem (11 + d, degreeRoman (10 + d, S.scale, S.key) + "   " + c.name, true, pr[(size_t) i] == 10 + d); }
+        for (int d = 0; d < 7; ++d) if (canBorrow (S.scale, d)) { const auto c = slotChord (S, withCol (10 + d, curCol)); m.addItem (11 + d, degreeRoman (10 + d, S.scale, S.key) + "   " + c.name, true, curDeg == 10 + d); }
     }
+    // colore di questo accordo (solo note della scala: se il colore non c'e', resta la triade)
+    m.addSectionHeader (U ("COLORE DI QUESTO ACCORDO"));
+    m.addItem (99, juce::String ("AUTO (colore base)"), true, curCol < 0);
+    for (int c = 0; c < kColors; ++c) if (c != 3) { const auto ch = slotChord (S, withCol (curDeg, c)); m.addItem (100 + c, juce::String (colorName (c)) + "   " + ch.name, true, curCol == c); }
     juce::Component::SafePointer<Editor> sp (this);
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (slotR[i].toNearestInt()))), [sp, i] (int r)
+    const auto area = at.isEmpty() ? slotR[i] : at;
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (area.toNearestInt()))), [sp, i] (int r)
     {
         if (sp == nullptr || r <= 0) return;
         auto p = sp->proc.prog(); if (i >= (int) p.size()) return;
-        sp->proc.undo.beginNewTransaction(); p[(size_t) i] = r <= 7 ? r - 1 : 10 + (r - 11); sp->proc.setProg (p); sp->proc.curPreset = -1; sp->selSlot = i; sp->repaint();
+        sp->proc.undo.beginNewTransaction();
+        const int col = codeCol (p[(size_t) i]);
+        if (r >= 99) p[(size_t) i] = withCol (p[(size_t) i], r == 99 ? -1 : r - 100);
+        else p[(size_t) i] = withCol (r <= 7 ? r - 1 : 10 + (r - 11), col);
+        sp->proc.setProg (p); sp->proc.curPreset = -1; sp->selSlot = i; sp->repaint();
+    });
+}
+void Editor::layerMenu (int ly)
+{
+    static const char* ids[3] = { "lyBase", "lyArp", "lyLead" };
+    auto* prm = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (ids[ly])); if (prm == nullptr) return;
+    juce::PopupMenu m; m.addSectionHeader (ly == 0 ? U ("BASE (A SINISTRA)") : ly == 1 ? U ("ARPEGGIO (SECONDA CHITARRA, A DESTRA)") : U ("LEAD (AL CENTRO)"));
+    for (int k = 0; k < prm->choices.size(); ++k) m.addItem (1 + k, prm->choices[k], true, prm->getIndex() == k);
+    juce::Component::SafePointer<Editor> sp (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (layR[ly].toNearestInt()))), [sp, ly] (int r)
+    {
+        if (sp == nullptr || r <= 0) return;
+        static const char* ids2[3] = { "lyBase", "lyArp", "lyLead" };
+        sp->proc.undo.beginNewTransaction(); sp->proc.setV (ids2[ly], (float) (r - 1)); sp->proc.curPreset = -1; sp->repaint();
     });
 }
 void Editor::genreMenu()
@@ -309,7 +425,7 @@ void Editor::mouseDown (const juce::MouseEvent& e)
     for (int i = 0; i < 12; ++i) if (keyR[i].contains (p)) { proc.setV ("key", (float) i); proc.curPreset = -1; repaint(); return; }
     for (int i = 0; i < kScales; ++i) if (scaleR[i].contains (p)) { proc.setV ("scale", (float) i); proc.curPreset = -1; repaint(); return; }
     if (genreR.contains (p)) { genreMenu(); return; }
-    for (int i = 0; i < 4; ++i) if (barsR[i].contains (p)) { proc.setV ("bars", (float) i); repaint(); return; }
+    for (int i = 0; i < 2; ++i) if (barsR[i].contains (p)) { proc.setV ("bars", (float) (i + 2)); repaint(); return; }
     for (int i = 0; i < 3; ++i) if (perBarR[i].contains (p)) { proc.setV ("perBar", (float) i); repaint(); return; }
     if (moodR.contains (p)) { moodMenu(); return; }
     if (addR.contains (p) || remR.contains (p))
@@ -322,8 +438,36 @@ void Editor::mouseDown (const juce::MouseEvent& e)
     for (int i = 0; i < 8; ++i) if (slotR[i].contains (p)) { selSlot = i; slotMenu (i); repaint(); return; }
     if (tuningR.contains (p)) { proc.setV ("tuning", (float) ((proc.vi ("tuning") + 1) % kTunings)); repaint(); return; }
     for (int i = 0; i < kVStyles; ++i) if (vstyleR[i].contains (p)) { proc.setV ("vstyle", (float) i); repaint(); return; }
-    for (int i = 0; i < kModes; ++i) if (modeR[i].contains (p)) { proc.setV ("mode", (float) i); proc.setV ("pat", 0); proc.curPreset = -1; repaint(); return; }
-    for (int i = 0; i < 9; ++i) if (patR[i].contains (p) && i < patternNames (proc.vi ("mode")).size()) { proc.setV ("pat", (float) i); proc.curPreset = -1; repaint(); return; }
+    for (int i = 0; i < kModes; ++i) if (modeR[i].contains (p)) { proc.setV ("mode", (float) i); if (i != COMPOSIZIONE) proc.setV ("pat", 0); proc.curPreset = -1; sel.clear(); selSig.clear(); repaint(); return; }
+    const bool comp = proc.vi ("mode") == COMPOSIZIONE;
+    if (comp)
+    {
+        for (int i = 0; i < 3; ++i) if (layR[i].contains (p)) { layerMenu (i); return; }
+        for (int i = 0; i < 3; ++i) if (diceR[i].contains (p)) { proc.rerollLayer (i); repaint(); return; }
+        for (int i = 0; i < 3; ++i) if (editLayR[i].contains (p)) { editLayer = i; repaint(); return; }
+        for (int i = 0; i < 3; ++i) if (layDragR[i].contains (p)) return;   // trascinamento in mouseDrag
+    }
+    else for (int i = 0; i < 12; ++i) if (patR[i].contains (p) && i < patternNames (proc.vi ("mode")).size()) { proc.setV ("pat", (float) i); proc.curPreset = -1; repaint(); return; }
+    if (snapR.contains (p)) { snapIdx = (snapIdx + 1) % 4; repaint(); return; }
+    if (resetEditR.contains (p)) { if (proc.edited()) { proc.clearEdit(); sel.clear(); selSig.clear(); } repaint(); return; }
+    for (auto& cl : chordLabels) if (cl.first.contains (p)) { const auto pr = proc.prog(); slotMenu (cl.second % (int) pr.size(), cl.first); return; }
+    if (rollR.contains (p))
+    {   // piano roll: seleziona, sposta, allunga, rettangolo di selezione
+        auto P = proc.part(); if (P == nullptr) return;
+        grabKeyboardFocus();
+        edPart = *P; resolveSel (edPart); downPos = p; orig = edPart.ev;
+        hitIdx = hitNote (edPart, p);
+        if (hitIdx >= 0)
+        {
+            const bool isSel = std::find (sel.begin(), sel.end(), hitIdx) != sel.end();
+            if (e.mods.isShiftDown()) { if (isSel) sel.erase (std::find (sel.begin(), sel.end(), hitIdx)); else sel.push_back (hitIdx); }
+            else if (! isSel) sel = { hitIdx };
+            const auto nr = noteRect (edPart.ev[(size_t) hitIdx], edPart.len());
+            editMode = p.x > nr.getRight() - 6 ? 2 : 1;
+        }
+        else { if (! e.mods.isShiftDown()) sel.clear(); editMode = 3; marquee = { p, p }; }
+        editing = true; storeSig (edPart); repaint(); return;
+    }
     if (genR.contains (p)) { proc.generaGiro(); repaint(); return; }
     if (varR.contains (p)) { proc.varia(); repaint(); return; }
     if (playR.contains (p)) { tog ("play"); return; }
@@ -340,12 +484,85 @@ void Editor::mouseDown (const juce::MouseEvent& e)
 }
 void Editor::mouseDrag (const juce::MouseEvent& e)
 {
-    const auto p = e.getMouseDownPosition().toFloat() / scaler.s;
-    if (! dragR.contains (p) || dragging || e.getDistanceFromDragStart() < 6) return;
-    auto f = proc.exportMidi(); if (! f.existsAsFile()) return;
+    const auto p = e.position / scaler.s, d0 = e.getMouseDownPosition().toFloat() / scaler.s;
+    if (editing)
+    {
+        const double L = edPart.len();
+        if (editMode == 3)
+        {
+            marquee = juce::Rectangle<float> (d0, p);
+            sel.clear(); for (int i = 0; i < (int) edPart.ev.size(); ++i) if (noteRect (edPart.ev[(size_t) i], L).intersects (marquee)) sel.push_back (i);
+            storeSig (edPart); repaint(); return;
+        }
+        if (hitIdx < 0 || sel.empty()) return;
+        const auto& a = orig[(size_t) hitIdx];
+        if (editMode == 1)
+        {   // sposta: tempo sulla griglia, altezza per gradi della scala (gli intervalli fra le note selezionate restano quelli della scala)
+            const double nb = snapB (a.beat + xb (p.x, L) - xb (d0.x, L)), db = juce::jlimit (-a.beat, L - 0.05 - a.beat, nb - a.beat);
+            int target = yn (p.y); const auto S = proc.settings(); const auto ss = scaleSet (S.key, S.scale);
+            for (int k = 0; k < 12 && ! ss[(size_t) (((target % 12) + 12) % 12)]; ++k) target += (k % 2 == 0 ? k + 1 : -(k + 1));
+            const int steps = stepsBetween (a.note, target);
+            for (int i : sel)
+            {
+                auto& ev = edPart.ev[(size_t) i]; const auto& o = orig[(size_t) i];
+                ev.beat = juce::jlimit (0.0, L - 0.02, o.beat + db);
+                ev.note = ss[(size_t) (o.note % 12)] ? scaleShift (o.note, steps) : o.note + (target - a.note);
+                ev.str = o.str; fixString (ev);
+            }
+        }
+        else
+        {   // allunga / accorcia dal bordo destro
+            const double end = snapB (a.beat + a.len + xb (p.x, L) - xb (d0.x, L)), dl = end - (a.beat + a.len);
+            for (int i : sel) { auto& ev = edPart.ev[(size_t) i]; const auto& o = orig[(size_t) i]; ev.len = juce::jlimit (0.03, L - o.beat, o.len + dl); }
+        }
+        storeSig (edPart); repaint(); return;
+    }
+    if (dragging || e.getDistanceFromDragStart() < 6) return;
+    int layer = -2;
+    if (dragR.contains (d0)) layer = -1;
+    if (proc.vi ("mode") == COMPOSIZIONE) for (int i = 0; i < 3; ++i) if (layDragR[i].contains (d0)) layer = i;
+    if (layer < -1) return;
+    auto f = proc.exportMidi (layer); if (! f.existsAsFile()) return;
     dragging = true; repaint();
     juce::Component::SafePointer<Editor> sp (this);
     performExternalDragDropOfFiles ({ f.getFullPathName() }, false, this, [sp] { if (sp != nullptr) { sp->dragging = false; sp->repaint(); } });
+}
+void Editor::mouseUp (const juce::MouseEvent& e)
+{
+    if (! editing) return;
+    editing = false;
+    if ((editMode == 1 || editMode == 2) && e.getDistanceFromDragStart() > 2)
+    {
+        // i bend delle note del lead spostate non hanno piu' senso: si tolgono
+        for (int i : sel) { const auto& o = orig[(size_t) i]; if (o.lead) edPart.bend.erase (std::remove_if (edPart.bend.begin(), edPart.bend.end(), [&] (const Bend& b) { return b.beat > o.beat - 0.02 && b.beat < o.beat + o.len && b.str == o.str; }), edPart.bend.end()); }
+        commitEdit();
+    }
+    editMode = 0; repaint();
+}
+void Editor::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    const auto p = e.position / scaler.s; if (! rollR.contains (p)) return;
+    auto P = proc.part(); if (P == nullptr) return;
+    editing = false; editMode = 0;
+    edPart = *P; const int h = hitNote (edPart, p);
+    if (h >= 0) { sel = { h }; storeSig (edPart); deleteSelected(); return; }
+    // nota nuova: sulla griglia, sulla nota della scala piu' vicina
+    const auto S = proc.settings(); const auto ss = scaleSet (S.key, S.scale);
+    int n = yn (p.y); for (int k = 0; k < 12 && ! ss[(size_t) (((n % 12) + 12) % 12)]; ++k) n += (k % 2 == 0 ? k + 1 : -(k + 1));
+    Ev ev; ev.beat = juce::jlimit (0.0, edPart.len() - 0.1, grid() > 0 ? std::floor (xb (p.x, edPart.len()) / grid()) * grid() : xb (p.x, edPart.len()));
+    ev.len = grid() > 0 ? grid() * 2 : 0.5; ev.note = n; ev.vel = 0.7f; ev.str = 3;
+    const bool comp = S.mode == COMPOSIZIONE; ev.layer = comp ? editLayer : 0; ev.lead = S.mode == LEAD || (comp && editLayer == 2);
+    ev.slot = edPart.chordAt.empty() ? 0 : juce::jlimit (0, (int) edPart.chordAt.size() - 1, (int) std::floor (ev.beat / (edPart.len() / (double) edPart.chordAt.size())));
+    fixString (ev);
+    edPart.ev.push_back (ev); sel = { (int) edPart.ev.size() - 1 }; commitEdit();
+}
+void Editor::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
+{
+    const auto p = e.position / scaler.s; if (! rollR.contains (p)) return;
+    auto P = proc.part(); if (P == nullptr) return;
+    edPart = *P; resolveSel (edPart); if (sel.empty()) return;
+    for (int i : sel) edPart.ev[(size_t) i].vel = juce::jlimit (0.06f, 1.0f, edPart.ev[(size_t) i].vel + (w.deltaY > 0 ? 0.04f : -0.04f));   // rotella = forza
+    commitEdit();
 }
 void Editor::mouseMove (const juce::MouseEvent& e)
 {
@@ -353,9 +570,12 @@ void Editor::mouseMove (const juce::MouseEvent& e)
     auto chk = [&] (const juce::Rectangle<float>& r, int id) { if (r.contains (p)) h = id; };
     for (int i = 0; i < 12; ++i) chk (keyR[i], 100 + i);
     for (int i = 0; i < kScales; ++i) chk (scaleR[i], 120 + i);
-    chk (genreR, 130); for (int i = 0; i < 4; ++i) chk (barsR[i], 140 + i); for (int i = 0; i < 3; ++i) chk (perBarR[i], 150 + i); chk (moodR, 132); chk (remR, 160); chk (addR, 161);
+    chk (genreR, 130); for (int i = 0; i < 2; ++i) chk (barsR[i], 140 + i); for (int i = 0; i < 3; ++i) chk (perBarR[i], 150 + i); chk (moodR, 132); chk (remR, 160); chk (addR, 161);
     chk (tuningR, 170); for (int i = 0; i < kVStyles; ++i) chk (vstyleR[i], 180 + i);
-    for (int i = 0; i < kModes; ++i) chk (modeR[i], 200 + i); for (int i = 0; i < 9; ++i) chk (patR[i], 210 + i);
+    for (int i = 0; i < kModes; ++i) chk (modeR[i], 200 + i);
+    if (proc.vi ("mode") == COMPOSIZIONE) for (int i = 0; i < 3; ++i) { chk (layR[i], 240 + i); chk (diceR[i], 243 + i); chk (editLayR[i], 250 + i); chk (layDragR[i], 260 + i); }
+    else for (int i = 0; i < 12; ++i) chk (patR[i], 210 + i);
+    chk (snapR, 270); chk (resetEditR, 271);
     chk (dragR, 230); chk (genR, 231); chk (varR, 232); chk (playR, 233); chk (liveR, 234); chk (midiR, 235); chk (csR, 236);
     for (int i = 0; i < kBodies; ++i) chk (bodyR[i], 300 + i); chk (listenR, 310); chk (themeR, 900);
     for (int i = 0; i < 8; ++i) if (slotR[i].contains (p)) hs = i;
@@ -370,12 +590,20 @@ void Editor::mouseMove (const juce::MouseEvent& e)
         { 182, "TRIADI ALTE: tre o quattro corde acute, per funk, R&B, afro." }, { 183, "POWER: fondamentale e quinta, per rock, punk e palm mute." }, { 184, "JAZZ: voicing di settima e nona anche senza fondamentale al basso." },
         { 200, "ACCORDI: accordi tenuti, colpi, stab, neo soul." }, { 201, "RITMICA: pennate su e giu' corda per corda, stoppate, palm mute." },
         { 202, "ARPEGGIO: fingerpicking, una corda alla volta, le note si lasciano suonare." }, { 203, "LEAD: melodia con bend, vibrato, scivolate e legati nel box della POSIZIONE." },
-        { 230, "Trascina nella traccia: il clip MIDI e' gia' in tempo e lungo quanto il giro." }, { 231, "Nuovo giro dal genere e nuova suonata." }, { 232, "Stesso giro, suonato in un altro modo." },
+        { 230, "Trascina nella traccia: il clip MIDI e' gia' in tempo e lungo quanto il giro. In composizione: un file con una traccia per chitarra." }, { 231, "Nuovo giro (per funzione armonica, dal genere e dal mood), nuovo pattern adatto al genere, nuova suonata." }, { 232, "Stesso giro e stessi pattern, suonati in un altro modo." },
         { 233, "Ascolta il giro anche a trasporto fermo." }, { 234, "Acceso: il giro suona con il play della DAW. Spento: la chitarra suona solo il MIDI che arriva (per esempio il clip trascinato)." },
         { 235, "Manda le note fuori dal plugin (per suonare un'altra chitarra o un sampler)." }, { 236, "Ogni corda su un canale (2-7): i bend restano sulla corda giusta in un'altra chitarra virtuale." },
-        { 310, "Spenta: nessun suono, esce solo il MIDI." } };
+        { 310, "Spenta: nessun suono, esce solo il MIDI." },
+        { 204, "COMPOSIZIONE: tre chitarre sullo stesso giro. BASE a sinistra, ARPEGGIO (seconda chitarra, in alto) a destra, LEAD al centro. Si ascoltano: l'arpeggio lascia spazio alla melodia." },
+        { 240, "Come suona la base (accordi o ritmica). OFF la toglie." }, { 241, "Che arpeggio fa la seconda chitarra. OFF lo toglie." }, { 242, "Che melodia fa il lead. OFF lo toglie." },
+        { 243, "Rifa' solo la base, il resto resta." }, { 244, "Rifa' solo l'arpeggio." }, { 245, "Rifa' solo la melodia." },
+        { 250, "Le note aggiunte con il doppio clic vanno alla base." }, { 251, "Le note aggiunte vanno all'arpeggio." }, { 252, "Le note aggiunte vanno al lead." },
+        { 260, "Trascina solo la base." }, { 261, "Trascina solo l'arpeggio." }, { 262, "Trascina solo il lead." },
+        { 270, "Griglia del piano roll per spostare e aggiungere note." }, { 271, "Le modifiche a mano restano finche' non cambi il giro o le manopole della parte. Qui le togli." } };
     juce::String ni; auto it = tips.find (h); if (it != tips.end()) ni = U (it->second);
-    if (hs >= 0) ni = U ("Clic per scegliere l'accordo: sopra quelli della scala, sotto quelli presi in prestito.");
+    if (hs >= 0) ni = U ("Clic per scegliere l'accordo e il suo colore: sopra quelli della scala, poi quelli presi in prestito, in fondo il colore.");
+    for (auto& cl : chordLabels) if (cl.first.contains (p)) ni = U ("Clic per cambiare questo accordo o il suo colore.");
+    if (rollR.contains (p)) ni = U ("Clic seleziona (Maiusc aggiunge), trascina sposta, bordo destro allunga, doppio clic aggiunge o toglie, rotella = forza, frecce = grado / griglia, Canc cancella.");
     if (ni != info) { info = ni; repaint(); }
     setMouseCursor (h >= 0 || hs >= 0 || presetR.contains (p) || prevR.contains (p) || nextR.contains (p) || undoR.contains (p) || redoR.contains (p) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
@@ -427,6 +655,22 @@ bool Editor::keyPressed (const juce::KeyPress& k)
 {
     if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Z' || k.getKeyCode() == 'z')) { doUndo (k.getModifiers().isShiftDown()); return true; }
     if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Y' || k.getKeyCode() == 'y')) { doUndo (true); return true; }
+    if (k.getKeyCode() == juce::KeyPress::deleteKey || k.getKeyCode() == juce::KeyPress::backspaceKey) { if (! selSig.empty()) { deleteSelected(); return true; } return false; }
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'A' || k.getKeyCode() == 'a')) { if (auto P = proc.part()) { sel.clear(); for (int i = 0; i < (int) P->ev.size(); ++i) sel.push_back (i); storeSig (*P); repaint(); } return true; }
+    const int kc = k.getKeyCode();
+    if (! selSig.empty() && (kc == juce::KeyPress::upKey || kc == juce::KeyPress::downKey || kc == juce::KeyPress::leftKey || kc == juce::KeyPress::rightKey))
+    {   // frecce: su / giu' di un grado della scala, sinistra / destra di un passo di griglia
+        auto P = proc.part(); if (P == nullptr) return false;
+        edPart = *P; resolveSel (edPart);
+        const double g = grid() > 0 ? grid() : 0.25;
+        for (int i : sel)
+        {
+            auto& ev = edPart.ev[(size_t) i];
+            if (kc == juce::KeyPress::upKey || kc == juce::KeyPress::downKey) { ev.note = scaleShift (ev.note, kc == juce::KeyPress::upKey ? 1 : -1); fixString (ev); }
+            else ev.beat = juce::jlimit (0.0, edPart.len() - 0.02, ev.beat + (kc == juce::KeyPress::rightKey ? g : -g));
+        }
+        commitEdit(); return true;
+    }
     return false;
 }
 void Editor::doUndo (bool redo)

@@ -47,11 +47,17 @@ inline Chord diatonic (int key, int scale, int deg, int color)
     juce::String q = i3 == 3 ? (i5 == 6 ? "dim" : "m") : (i5 == 8 ? "aug" : "");
     if (color == 1 || color == 2) { c.tones.push_back (t7); q = q == "m" ? (i7 == 10 ? "m7" : "m(maj7)") : q == "dim" ? (i7 == 9 ? "dim7" : "m7b5") : (i7 == 11 ? "maj7" : "7"); }
     if (color == 2 && i9 == 2) { c.tones.push_back (t9); q = q.replace ("7", "9"); if (q == "maj9" || q == "m9" || q == "9") {} else q += "(9)"; }
+    const int s4 = pcOf (deg + 3), t6 = pcOf (deg + 5), i4 = (s4 - c.root + 12) % 12, i6 = (t6 - c.root + 12) % 12;
     if (color == 3)
     {
         if (i9 == 2 && i5 == 7) { c.tones.push_back (t9); q += "add9"; }
-        else if (i5 == 7) { const int s4 = pcOf (deg + 3); if ((s4 - c.root + 12) % 12 == 5) { c.tones = { c.root, s4, t5 }; c.third = -1; q = "sus4"; } }
+        else if (i5 == 7 && i4 == 5) { c.tones = { c.root, s4, t5 }; c.third = -1; q = "sus4"; }
     }
+    // colori scelti accordo per accordo; se la nota non e' nella scala resta la triade
+    if (color == 4 && i9 == 2 && i5 == 7) { c.tones = { c.root, t9, t5 }; c.third = -1; q = "sus2"; }
+    if (color == 5 && i4 == 5 && i5 == 7) { c.tones = { c.root, s4, t5 }; c.third = -1; q = "sus4"; }
+    if (color == 6 && i9 == 2 && i5 == 7) { c.tones.push_back (t9); q = q == "m" ? "m(add9)" : q + "add9"; }
+    if (color == 7 && i6 == 9 && i5 == 7) { c.tones.push_back (t6); q += "6"; }
     c.name = juce::String (noteName (c.root)) + q;
     return c;
 }
@@ -209,7 +215,7 @@ inline Voicing findVoicing (const Chord& ch, const std::array<int, kStr>& tun, i
                 if (topTarget >= 0)
                 {   // la nota alta canta la linea: si premia il voicing che la mette in cima
                     int top = -1; for (int i = kStr - 1; i >= 0; --i) if (cur[(size_t) i] >= 0) { top = tun[(size_t) i] + cur[(size_t) i]; break; }
-                    if (top == topTarget) sc += 4.5f; else if (top % 12 == topTarget % 12) sc += 1.0f; else sc -= (float) std::abs (top - topTarget) * 0.3f;
+                    if (top == topTarget) sc += 1.8f; else if (top % 12 == topTarget % 12) sc += 0.5f; else sc -= (float) juce::jmin (6, std::abs (top - topTarget)) * 0.12f;
                 }
                 if (rndAmt > 0) sc += rnd.nextFloat() * rndAmt;
                 if (sc > best.score) { best.fret = cur; best.score = sc; best.lo = minF == 99 ? 0 : minF; best.hi = maxF; best.barre = barre; }
@@ -231,6 +237,7 @@ struct Ev
     bool pm = false;                // palm mute
     int art = 0;                    // 0 pizzicata, 1 legato (hammer-on / pull-off), 2 scivolata
     bool lead = false; int slot = 0, grp = 0;
+    int layer = 0;                  // composizione: 0 base, 1 arpeggio, 2 lead
 };
 struct Bend { double beat = 0; float semis = 0; int str = 0; };   // curva di pitch bend del lead (canale unico)
 struct Part
@@ -243,8 +250,11 @@ struct Part
 };
 
 // ------------------------------------------------------------------------------------------------ impostazioni
-enum Mode { ACCORDI, RITMICA, ARPEGGIO, LEAD, kModes };
-inline const char* modeName (int m) { static const char* n[kModes] = { "ACCORDI", "RITMICA", "ARPEGGIO", "LEAD" }; return n[juce::jlimit (0, kModes - 1, m)]; }
+enum Mode { ACCORDI, RITMICA, ARPEGGIO, LEAD, COMPOSIZIONE, kModes };
+inline const char* modeName (int m) { static const char* n[kModes] = { "ACCORDI", "RITMICA", "ARPEGGIO", "LEAD", "COMPOSIZIONE" }; return n[juce::jlimit (0, kModes - 1, m)]; }
+// colori dell'accordo (nel menu di ogni accordo)
+constexpr int kColors = 8;
+inline const char* colorName (int c) { static const char* n[kColors] = { "TRIADE", "SETTIMA", "NONA", "SUS / ADD9", "SUS2", "SUS4", "ADD9", "SESTA" }; return n[juce::jlimit (0, kColors - 1, c)]; }
 struct Settings
 {
     int key = 9, scale = MINORE, genre = TRAP, mode = ARPEGGIO, pattern = 0, vstyle = V_OPEN, tuning = STANDARD;
@@ -254,6 +264,8 @@ struct Settings
     float human = 0.35f, swing = 0.0f, strum = 0.35f, dyn = 0.6f, borrow = 0.0f, ring = 0.7f, emb = 0.3f, tech = 0.5f;
     double bpm = 120;
     int mood = 0;                        // 0 = dal genere
+    int lyBase = 1, lyArp = 1, lyLead = 0;   // composizione: pattern di ogni strato (-1 spento; base: 0..5 accordi, 100+ ritmica)
+    juce::uint32 seedB = 1, seedA = 2, seedL = 3;
     float space = 0.3f;                  // pause: quanto respira la parte
     std::vector<int> prog;               // gradi scelti a mano (vuoto = dal genere)
     juce::uint32 seed = 1;
@@ -262,10 +274,11 @@ struct Settings
 inline const juce::StringArray& patternNames (int mode)
 {
     static const juce::StringArray P[kModes] = {
-        { "TENUTI", "COLPI 1 E 3", "STAB R&B", "NEO SOUL", "ROLL LENTO", "SPINTE" },
-        { "POP 8", "BALLATA", "REGGAE", "REGGAETON", "FUNK 16", "PALM MUTE", "AFRO", "6/8", "FOLK" },
-        { "SALITA", "TRAP TRISTE", "TRAVIS", "PIMA", "6/8 EMO", "TERZINE DRILL", "R&B ROLL", "HIGHLIFE", "CLASSICO" },
-        { "MELODIA", "TRAP SCURO", "DRILL", "R&B RUN", "BLUES", "LATIN" } };
+        { "TENUTI", "COLPI 1 E 3", "STAB R&B", "NEO SOUL", "ROLL LENTO", "SPINTE", "PIZZICATI" },
+        { "POP 8", "BALLATA", "REGGAE", "REGGAETON", "FUNK 16", "PALM MUTE", "AFRO", "6/8", "FOLK", "TRAP STRUM", "R&B 16" },
+        { "SALITA", "TRAP TRISTE", "TRAVIS", "PIMA", "6/8 EMO", "TERZINE DRILL", "R&B ROLL", "HIGHLIFE", "CLASSICO", "CASCATA", "PEDALE", "DIADI" },
+        { "MELODIA", "TRAP SCURO", "DRILL", "R&B RUN", "BLUES", "LATIN" },
+        { "-" } };
     return P[juce::jlimit (0, kModes - 1, mode)];
 }
 }

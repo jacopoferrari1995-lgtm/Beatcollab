@@ -44,12 +44,19 @@ public:
     void setProg (const std::vector<int>& p);
     juce::uint32 seed() const { return (juce::uint32) (int) apvts.state.getProperty ("seed", 1); }
     void setSeed (juce::uint32 s) { apvts.state.setProperty ("seed", (int) (s & 0x7fffffff), &undo); }
+    juce::uint32 seedOf (const char* k) const { return (juce::uint32) (int) apvts.state.getProperty (k, 1); }
     void generaGiro();      // nuovo giro dal genere + nuovo seme
     void varia();           // stesso giro, nuova suonata
     Settings settings() const;
     void regenerate();      // subito (thread dei messaggi o test)
     std::shared_ptr<const Part> part() const { return std::atomic_load (&partPtr); }
-    juce::File exportMidi();
+    juce::File exportMidi (int layer = -1);   // -1 tutto (in composizione: una traccia per strato)
+    // modifiche fatte a mano nel piano roll: valgono finche' le impostazioni del giro restano quelle
+    juce::String settingsKey() const;
+    void commitEdit (const Part&);
+    void clearEdit();
+    bool edited() const { return apvts.state.getProperty ("edit").toString().isNotEmpty() && apvts.state.getProperty ("editKey").toString() == settingsKey(); }
+    void rerollLayer (int layer);
     juce::String clipName() const;
 
     void loadPreset (int i);
@@ -58,7 +65,7 @@ public:
 
     std::atomic<double> uiBeat { -1 }, uiBpm { 120 }; std::atomic<bool> uiPlaying { false };
     std::atomic<int> uiSlot { -1 };
-    Strings syn;
+    std::array<Strings, 3> syn;   // tre chitarre (in composizione: base a sinistra, arpeggio a destra, lead al centro)
     std::atomic<bool> allOffReq { false };
 
 private:

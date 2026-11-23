@@ -8,7 +8,7 @@ juce::File presetFolder()
     auto d = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Guitar Preset");
     d.createDirectory(); return d;
 }
-static const char* kGenIds[] = { "key", "scale", "genre", "mode", "pat", "vstyle", "tuning", "bars", "perBar", "color", "pos", "density", "dyn", "strum", "human", "swing", "ring", "emb", "tech", "borrow", "mood", "rest" };
+static const char* kGenIds[] = { "key", "scale", "genre", "mode", "pat", "vstyle", "tuning", "bars", "perBar", "color", "pos", "density", "dyn", "strum", "human", "swing", "ring", "emb", "tech", "borrow", "mood", "rest", "lyBase", "lyArp", "lyLead" };
 
 // preset: gruppo | nome. Ogni preset e' una parte completa (giro, modo, suonata, suono); il giro parte dal grado indicato
 const std::vector<GPreset>& presets()
@@ -16,6 +16,12 @@ const std::vector<GPreset>& presets()
     using V = std::vector<std::pair<const char*, float>>;
     static const std::vector<GPreset> P = {
         { "INIT | Giro base", "Arpeggio trap su La minore, i - VI - III - VII, nylon. Il punto di partenza neutro.", V {}, { 0, 5, 2, 6 } },
+        { "COMPOSIZIONE | Trap a tre chitarre", "Accordi pizzicati a sinistra, arpeggio triste in alto a destra, melodia cantabile al centro. 8 battute.",
+          V { { "key", 9 }, { "scale", MINORE }, { "genre", TRAP }, { "mood", MALINCONICO }, { "mode", COMPOSIZIONE }, { "lyBase", 7 }, { "lyArp", 2 }, { "lyLead", 1 }, { "bars", 3 }, { "vstyle", V_OPEN }, { "pos", 2 }, { "ring", 0.75f }, { "body", NYLON }, { "space", 0.3f } }, { 0, 5, 2, 6 } },
+        { "COMPOSIZIONE | R&B notte", "Neo soul a sinistra, roll morbido a destra, run al centro. Fa maggiore ii - V - I.",
+          V { { "key", 5 }, { "scale", MAGGIORE }, { "genre", RNB }, { "mood", CALDO }, { "mode", COMPOSIZIONE }, { "lyBase", 4 }, { "lyArp", 7 }, { "lyLead", 4 }, { "bars", 3 }, { "vstyle", V_JAZZ }, { "pos", 3 }, { "color", 3 }, { "swing", 0.2f }, { "body", PULITA }, { "space", 0.35f } }, { 1, 4, 0, 0 } },
+        { "COMPOSIZIONE | Pop acustico", "Pennata pop a sinistra, fingerpicking in alto a destra, melodia al centro. Sol maggiore.",
+          V { { "key", 7 }, { "scale", MAGGIORE }, { "genre", POP }, { "mood", APERTO }, { "mode", COMPOSIZIONE }, { "lyBase", 8 }, { "lyArp", 4 }, { "lyLead", 1 }, { "bars", 3 }, { "vstyle", V_OPEN }, { "pos", 2 }, { "body", ACUSTICA } }, { 0, 4, 5, 3 } },
         { "MELODIA | Cantabile", "Melodia da cantare su 8 battute: domanda e risposta, il motivo torna, note d'arrivo sugli accordi, respiri. Elettrica pulita.",
           V { { "key", 9 }, { "scale", MINORE }, { "genre", POP }, { "mood", MALINCONICO }, { "mode", LEAD }, { "pat", 0 }, { "bars", 3 }, { "pos", 5 }, { "tech", 0.35f }, { "density", 0.5f }, { "rest", 0.35f }, { "body", PULITA }, { "space", 0.3f }, { "width", 0.3f } }, { 0, 5, 2, 6 } },
         { "MELODIA | Aperta in maggiore", "Linea cantabile in Sol maggiore, arco che sale nella seconda frase. Nylon.",
@@ -101,7 +107,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     StringArray tu; for (int i = 0; i < kTunings; ++i) tu.add (tuningName (i));
     StringArray bd; for (int i = 0; i < kBodies; ++i) bd.add (bodyName (i));
     ch ("key", "Tonalita'", keys, 9); ch ("scale", "Scala", sc, MINORE); ch ("genre", "Genere", gn, TRAP); ch ("mode", "Modo", md, ARPEGGIO);
-    ch ("pat", "Pattern", { "1", "2", "3", "4", "5", "6", "7", "8", "9" }, 1);
+    ch ("pat", "Pattern", { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12" }, 1);
+    { StringArray b { "OFF" }; for (auto& n : patternNames (ACCORDI)) b.add ("ACCORDI " + n); for (auto& n : patternNames (RITMICA)) b.add ("RITMICA " + n); ch ("lyBase", "Base", b, 2); }
+    { StringArray a { "OFF" }; for (auto& n : patternNames (ARPEGGIO)) a.add (n); ch ("lyArp", "Arpeggio", a, 2); }
+    { StringArray l { "OFF" }; for (auto& n : patternNames (LEAD)) l.add (n); ch ("lyLead", "Lead", l, 1); }
     ch ("vstyle", "Voicing", vs, V_OPEN); ch ("tuning", "Accordatura", tu, STANDARD);
     ch ("bars", "Battute", { "1", "2", "4", "8" }, 2); ch ("perBar", "Accordi per battuta", { "1", "2", "1/2" }, 0);
     { StringArray mo; for (int i = 0; i < kMoods; ++i) mo.add (moodName (i)); ch ("mood", "Mood", mo, 0); }
@@ -122,6 +131,7 @@ Processor::Processor()
 {
     for (auto* id : kGenIds) apvts.addParameterListener (id, this);
     apvts.state.setProperty ("prog", "0,5,2,6", nullptr); apvts.state.setProperty ("seed", 1, nullptr);
+    apvts.state.setProperty ("seedB", 1, nullptr); apvts.state.setProperty ("seedA", 2, nullptr); apvts.state.setProperty ("seedL", 3, nullptr);
     apvts.state.addListener (this);
     inStr.fill (-1);
     regenerate();
@@ -131,7 +141,7 @@ void Processor::parameterChanged (const juce::String&, float) { triggerAsyncUpda
 
 std::vector<int> Processor::prog() const
 {
-    std::vector<int> r; for (auto& t : juce::StringArray::fromTokens (apvts.state.getProperty ("prog", "0,5,2,6").toString(), ",", "")) if (t.trim().isNotEmpty()) r.push_back (juce::jlimit (0, 16, t.getIntValue()));
+    std::vector<int> r; for (auto& t : juce::StringArray::fromTokens (apvts.state.getProperty ("prog", "0,5,2,6").toString(), ",", "")) if (t.trim().isNotEmpty()) r.push_back (juce::jlimit (0, 899, t.getIntValue()));
     if (r.empty()) r = { 0, 5, 2, 6 };
     if (r.size() > 8) r.resize (8);
     return r;
@@ -148,8 +158,45 @@ void Processor::generaGiro()
     const auto np = newProgression (vi ("genre"), vi ("mood"), vi ("scale"), barsOf (vi ("bars")), (juce::uint32) s);
     setProg (np.prog); setSeed ((juce::uint32) s); curPreset = -1;
     setV ("perBar", np.perBar == 2 ? 1.0f : np.perBar == 0 ? 2.0f : 0.0f);
+    // anche il modo di suonare: un pattern adatto al genere (e in composizione i tre strati)
+    juce::Random R ((juce::int64) s);
+    const int g = vi ("genre"), mode = vi ("mode");
+    struct GP { std::vector<int> acc, rit, arp, lead; };
+    static const GP gp[kGenres] = {
+        { { 0, 6, 4 }, { 9, 1 }, { 1, 0, 10, 9 }, { 1, 0 } },          // TRAP
+        { { 6, 0 }, { 9, 5 }, { 5, 1, 10 }, { 2, 1 } },                // DRILL
+        { { 0, 4 }, { 7, 0, 1 }, { 4, 1, 0 }, { 0, 1 } },              // EMO
+        { { 3, 2, 4 }, { 10, 4 }, { 6, 11, 10 }, { 3, 0 } },           // R&B
+        { { 0, 1, 5 }, { 0, 1 }, { 3, 0, 9 }, { 0 } },                 // POP
+        { { 6, 2 }, { 3 }, { 7, 11 }, { 5, 0 } },                      // REGGAETON
+        { { 2, 6 }, { 6, 10 }, { 7, 11 }, { 0, 5 } },                  // AFRO
+        { { 1, 3 }, { 4, 10 }, { 6, 2 }, { 4, 3 } },                   // BOOM BAP
+        { { 4, 3 }, { 10, 1 }, { 6, 10, 3 }, { 0, 3 } },               // LO-FI
+        { { 1, 0 }, { 5, 0 }, { 0, 3 }, { 4, 0 } },                    // ROCK
+        { { 2 }, { 4 }, { 11, 7 }, { 3, 4 } },                         // FUNK
+        { { 0, 4 }, { 8, 0 }, { 2, 3 }, { 0 } },                       // FOLK
+        { { 6, 0 }, { 3, 7 }, { 8, 9 }, { 5, 0 } } };                  // LATIN
+    const auto& G = gp[juce::jlimit (0, kGenres - 1, g)];
+    auto pick = [&R] (const std::vector<int>& v) { return v[(size_t) R.nextInt ((int) v.size())]; };
+    if (mode == ACCORDI) setV ("pat", (float) pick (G.acc));
+    else if (mode == RITMICA) setV ("pat", (float) pick (G.rit));
+    else if (mode == ARPEGGIO) setV ("pat", (float) pick (G.arp));
+    else if (mode == LEAD) setV ("pat", (float) pick (G.lead));
+    else
+    {
+        const int na = patternNames (ACCORDI).size();
+        setV ("lyBase", R.nextBool() ? (float) (1 + pick (G.acc)) : (float) (1 + na + pick (G.rit)));
+        setV ("lyArp", (float) (1 + pick (G.arp))); setV ("lyLead", (float) (1 + pick (G.lead)));
+        for (auto* k : { "seedB", "seedA", "seedL" }) apvts.state.setProperty (k, R.nextInt (0x7ffffff) | 1, &undo);
+    }
 }
-void Processor::varia() { undo.beginNewTransaction(); setSeed ((juce::uint32) (juce::Random::getSystemRandom().nextInt (0x7ffffff) | 1)); }
+void Processor::varia()
+{
+    // stesso giro e stessi pattern, nuova suonata (in composizione cambiano tutti e tre gli strati)
+    undo.beginNewTransaction(); auto& R = juce::Random::getSystemRandom();
+    setSeed ((juce::uint32) (R.nextInt (0x7ffffff) | 1));
+    for (auto* k : { "seedB", "seedA", "seedL" }) apvts.state.setProperty (k, R.nextInt (0x7ffffff) | 1, &undo);
+}
 
 Settings Processor::settings() const
 {
@@ -158,53 +205,113 @@ Settings Processor::settings() const
     S.pattern = juce::jlimit (0, patternNames (S.mode).size() - 1, vi ("pat"));
     S.vstyle = vi ("vstyle"); S.tuning = vi ("tuning"); S.bars = barsOf (vi ("bars")); { static const int pb[3] = { 1, 2, 0 }; S.perBar = pb[juce::jlimit (0, 2, vi ("perBar"))]; }
     S.mood = vi ("mood"); S.space = v ("rest");
+    { const int b = vi ("lyBase"), na = patternNames (ACCORDI).size(); S.lyBase = b == 0 ? -1 : b <= na ? b - 1 : 100 + (b - 1 - na); }
+    S.lyArp = vi ("lyArp") - 1; S.lyLead = vi ("lyLead") - 1;
+    S.seedB = seedOf ("seedB"); S.seedA = seedOf ("seedA"); S.seedL = seedOf ("seedL");
     S.color = (float) (vi ("color") - 1); S.pos = vi ("pos");
     S.density = v ("density"); S.dyn = v ("dyn"); S.strum = v ("strum"); S.human = v ("human"); S.swing = v ("swing");
     S.ring = v ("ring"); S.emb = v ("emb"); S.tech = v ("tech"); S.borrow = v ("borrow");
     S.prog = prog(); S.seed = seed(); S.bpm = genBpm;
     return S;
 }
+juce::String Processor::settingsKey() const
+{
+    const auto S = settings(); juce::String k;
+    auto f = [] (float x) { return juce::String (juce::roundToInt (x * 1000.0f)); };   // arrotondati: annulla / ripeti ridanno lo stesso valore
+    k << S.key << "|" << S.scale << "|" << S.genre << "|" << S.mode << "|" << S.pattern << "|" << S.vstyle << "|" << S.tuning << "|" << S.bars << "|" << S.perBar << "|" << f (S.color) << "|" << S.pos
+      << "|" << f (S.density) << "|" << f (S.dyn) << "|" << f (S.strum) << "|" << f (S.human) << "|" << f (S.swing) << "|" << f (S.ring) << "|" << f (S.emb) << "|" << f (S.tech) << "|" << f (S.borrow) << "|" << S.mood << "|" << f (S.space)
+      << "|" << S.lyBase << "|" << S.lyArp << "|" << S.lyLead << "|" << (int) S.seed << "|" << (int) S.seedB << "|" << (int) S.seedA << "|" << (int) S.seedL << "|" << apvts.state.getProperty ("prog").toString();
+    return k;
+}
+static juce::String serialize (const Part& P)
+{
+    juce::String s;
+    for (auto& e : P.ev) s << "n" << e.beat << "," << e.len << "," << e.note << "," << e.vel << "," << e.str << "," << e.fret << "," << ((e.mute ? 1 : 0) | (e.pm ? 2 : 0) | (e.lead ? 4 : 0) | (e.art << 3)) << "," << e.layer << "," << e.slot << ";";
+    for (auto& b : P.bend) s << "b" << b.beat << "," << b.semis << "," << b.str << ";";
+    return s;
+}
+static void deserialize (const juce::String& s, Part& P)
+{
+    P.ev.clear(); P.bend.clear();
+    for (auto& t : juce::StringArray::fromTokens (s, ";", ""))
+    {
+        if (t.isEmpty()) continue;
+        const auto v = juce::StringArray::fromTokens (t.substring (1), ",", "");
+        if (t[0] == 'n' && v.size() >= 9)
+        {
+            Ev e; e.beat = v[0].getDoubleValue(); e.len = v[1].getDoubleValue(); e.note = v[2].getIntValue(); e.vel = v[3].getFloatValue(); e.str = juce::jlimit (0, kStr - 1, v[4].getIntValue()); e.fret = v[5].getIntValue();
+            const int f = v[6].getIntValue(); e.mute = f & 1; e.pm = f & 2; e.lead = f & 4; e.art = (f >> 3) & 3; e.layer = juce::jlimit (0, 2, v[7].getIntValue()); e.slot = v[8].getIntValue();
+            if (e.len > 0 && e.beat >= 0) P.ev.push_back (e);
+        }
+        else if (t[0] == 'b' && v.size() >= 3) P.bend.push_back ({ v[0].getDoubleValue(), v[1].getFloatValue(), v[2].getIntValue() });
+    }
+    std::stable_sort (P.ev.begin(), P.ev.end(), [] (const Ev& a, const Ev& b) { return a.beat < b.beat; });
+}
+void Processor::commitEdit (const Part& p)
+{
+    undo.beginNewTransaction();
+    apvts.state.setProperty ("editKey", settingsKey(), &undo);
+    apvts.state.setProperty ("edit", serialize (p), &undo);
+    auto np = std::make_shared<Part> (p); std::atomic_store (&partPtr, std::shared_ptr<const Part> (np));
+}
+void Processor::clearEdit() { undo.beginNewTransaction(); apvts.state.setProperty ("edit", "", &undo); }
+void Processor::rerollLayer (int layer)
+{
+    static const char* k[3] = { "seedB", "seedA", "seedL" };
+    undo.beginNewTransaction(); apvts.state.setProperty (k[juce::jlimit (0, 2, layer)], juce::Random::getSystemRandom().nextInt (0x7ffffff) | 1, &undo);
+}
 void Processor::regenerate()
 {
-    auto p = std::make_shared<Part> (generate (settings()));
+    auto p = std::make_shared<Part> (generateAny (settings()));
+    if (edited()) deserialize (apvts.state.getProperty ("edit").toString(), *p);
     std::atomic_store (&partPtr, std::shared_ptr<const Part> (p));
 }
 void Processor::prepareToPlay (double s, int block)
 {
     sr = s; maxBlock = juce::jmax (block, 512);
-    syn.body = vi ("body"); syn.prepare (sr, 4096); acts.reserve (4096);
+    for (auto& y : syn) { y.body = vi ("body"); y.prepare (sr, 4096); } acts.reserve (4096);
     np = 0; lastEnd = -1; ownPpq = 0; inStr.fill (-1);
 }
 
 juce::String Processor::clipName() const
 {
     const auto S = settings();
-    return juce::String ("Guitar ") + noteName (S.key) + (isMinorScale (S.scale) ? "m " : " ") + genreName (S.genre) + " " + modeName (S.mode) + " " + patternNames (S.mode)[S.pattern];
+    return juce::String ("Guitar ") + noteName (S.key) + (isMinorScale (S.scale) ? "m " : " ") + genreName (S.genre) + " " + modeName (S.mode) + (S.mode == COMPOSIZIONE ? juce::String() : " " + patternNames (S.mode)[S.pattern]);
 }
-juce::File Processor::exportMidi()
+juce::File Processor::exportMidi (int layer)
 {
-    auto P = part(); const double T = 960; const bool cs = v ("chStr") > 0.5f;
+    auto P = part(); const double T = 960; const bool comp = vi ("mode") == COMPOSIZIONE, cs = v ("chStr") > 0.5f && ! comp;
     juce::MidiFile mf; mf.setTicksPerQuarterNote ((int) T);
     juce::MidiMessageSequence meta;
     meta.addEvent (juce::MidiMessage::tempoMetaEvent ((int) (60000000.0 / juce::jmax (40.0, uiBpm.load()))), 0);
     meta.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0); mf.addTrack (meta);
-    juce::MidiMessageSequence seq; seq.addEvent (juce::MidiMessage::textMetaEvent (3, clipName()), 0);
-    for (int c = 1; c <= 7; ++c) seq.addEvent (juce::MidiMessage::pitchWheel (c, 8192), 0);
-    for (auto& e : P->ev)
+    static const char* ln[3] = { "Base", "Arpeggio", "Lead" };
+    // in composizione ogni strato e' una traccia (trascinato in Arrangement diventa tre tracce); un solo strato se richiesto
+    const int l0 = comp ? (layer >= 0 ? layer : 0) : 0, l1 = comp ? (layer >= 0 ? layer : 2) : 0;
+    for (int ly = l0; ly <= l1; ++ly)
     {
-        const int c = cs ? 2 + e.str : 1, vel = juce::jlimit (1, 127, juce::roundToInt (e.vel * 127));
-        seq.addEvent (juce::MidiMessage::noteOn (c, e.note, (juce::uint8) vel), e.beat * T);
-        seq.addEvent (juce::MidiMessage::noteOff (c, e.note), juce::jmax (e.beat * T + 6, (e.beat + e.len) * T));
+        juce::MidiMessageSequence seq; seq.addEvent (juce::MidiMessage::textMetaEvent (3, comp ? juce::String ("Guitar ") + ln[ly] : clipName()), 0);
+        int n = 0;
+        for (auto& e : P->ev)
+        {
+            if (comp && e.layer != ly) continue;
+            const int c = comp ? 1 + ly : cs ? 2 + e.str : 1, vel = juce::jlimit (1, 127, juce::roundToInt (e.vel * 127));
+            seq.addEvent (juce::MidiMessage::noteOn (c, e.note, (juce::uint8) vel), e.beat * T);
+            seq.addEvent (juce::MidiMessage::noteOff (c, e.note), juce::jmax (e.beat * T + 6, (e.beat + e.len) * T)); ++n;
+        }
+        if (! comp || ly == 2)
+            for (auto& b : P->bend)
+            {
+                const int pw = juce::jlimit (0, 16383, 8192 + juce::roundToInt (b.semis / 2.0f * 8191.0f));
+                seq.addEvent (juce::MidiMessage::pitchWheel (comp ? 3 : cs ? 2 + b.str : 1, pw), b.beat * T);
+            }
+        if (n == 0 && comp && layer < 0) continue;
+        seq.addEvent (juce::MidiMessage::endOfTrack(), P->len() * T);
+        seq.updateMatchedPairs(); seq.sort(); mf.addTrack (seq);
     }
-    for (auto& b : P->bend)
-    {
-        const int pw = juce::jlimit (0, 16383, 8192 + juce::roundToInt (b.semis / 2.0f * 8191.0f));
-        seq.addEvent (juce::MidiMessage::pitchWheel (cs ? 2 + b.str : 1, pw), b.beat * T);
-    }
-    seq.addEvent (juce::MidiMessage::endOfTrack(), P->len() * T);
-    seq.updateMatchedPairs(); seq.sort(); mf.addTrack (seq);
     auto dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Guitar"); dir.createDirectory();
-    auto f = dir.getChildFile (juce::File::createLegalFileName (clipName() + " " + juce::String ((int) (seed() % 1000)) + ".mid"));
+    const juce::String suffix = comp && layer >= 0 ? juce::String (" ") + ln[layer] : juce::String();
+    auto f = dir.getChildFile (juce::File::createLegalFileName (clipName() + suffix + " " + juce::String ((int) (seed() % 1000)) + ".mid"));
     f.deleteFile(); juce::FileOutputStream os (f); if (os.openedOk()) { mf.writeTo (os); os.flush(); }
     return f;
 }
@@ -214,8 +321,15 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     juce::ScopedNoDenormals nd;
     buffer.clear(); const int N = buffer.getNumSamples(); if (N <= 0) return;
     // suono
-    syn.body = vi ("body"); syn.tone = v ("tone"); syn.bodyAmt = v ("bodyAmt"); syn.drive = v ("drive"); syn.space = v ("space"); syn.width = v ("width");
-    syn.vol = v ("listen") > 0.5f ? juce::Decibels::decibelsToGain (v ("vol"), -36.0f) : 0.0f;
+    const bool comp = vi ("mode") == COMPOSIZIONE;
+    for (int y = 0; y < 3; ++y)
+    {
+        auto& sy = syn[(size_t) y];
+        sy.body = vi ("body"); sy.tone = v ("tone"); sy.bodyAmt = v ("bodyAmt"); sy.drive = v ("drive"); sy.space = v ("space");
+        sy.width = comp ? v ("width") * 0.4f : v ("width");
+        sy.pan = comp ? (y == 0 ? -0.55f : y == 1 ? 0.55f : 0.0f) : 0.0f;   // doppia traccia
+        sy.vol = v ("listen") > 0.5f ? juce::Decibels::decibelsToGain (v ("vol"), -36.0f) * (comp ? 0.8f : 1.0f) : 0.0f;
+    }
     const bool midiOn = v ("midiOut") > 0.5f, live = v ("live") > 0.5f, cs = v ("chStr") > 0.5f;
     const auto tun = tuning (vi ("tuning")); const int pos = vi ("pos");
     acts.clear(); out.clear();
@@ -226,12 +340,12 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         const auto& msg = m.getMessage(); const int at = juce::jlimit (0, N - 1, m.samplePosition), c = msg.getChannel();
         if (msg.isNoteOn())
         {
-            const int s = c >= 2 && c <= 7 ? c - 2 : syn.pickString (msg.getNoteNumber(), tun, pos);
+            const int s = ! comp && c >= 2 && c <= 7 ? c - 2 : syn[0].pickString (msg.getNoteNumber(), tun, pos);
             inStr[(size_t) msg.getNoteNumber()] = s; Hit h; h.str = s; h.note = msg.getNoteNumber(); h.vel = msg.getFloatVelocity();
-            acts.push_back ({ at, 0, h, 0, 0 });
+            acts.push_back ({ at, 0, h, comp && c <= 3 ? c - 1 : 0, 0 });
         }
-        else if (msg.isNoteOff()) { const int s = inStr[(size_t) msg.getNoteNumber()]; if (s >= 0) { Hit h; h.str = s; h.note = msg.getNoteNumber(); acts.push_back ({ at, 1, h, 0, 0 }); inStr[(size_t) msg.getNoteNumber()] = -1; } }
-        else if (msg.isPitchWheel()) { const float b = (msg.getPitchWheelValue() - 8192) / 8192.0f * 2.0f; Hit h; h.str = c >= 2 && c <= 7 ? c - 2 : -1; acts.push_back ({ at, 2, h, 0, b }); }
+        else if (msg.isNoteOff()) { const int s = inStr[(size_t) msg.getNoteNumber()]; if (s >= 0) { Hit h; h.str = s; h.note = msg.getNoteNumber(); acts.push_back ({ at, 1, h, comp && c <= 3 ? c - 1 : 0, 0 }); inStr[(size_t) msg.getNoteNumber()] = -1; } }
+        else if (msg.isPitchWheel()) { const float b = (msg.getPitchWheelValue() - 8192) / 8192.0f * 2.0f; Hit h; h.str = comp ? -1 : c >= 2 && c <= 7 ? c - 2 : -1; acts.push_back ({ at, 2, h, comp && c <= 3 ? c - 1 : 0, b }); }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff()) { Hit h; h.str = -1; acts.push_back ({ at, 3, h, 0, 0 }); }
     }
     midi.clear();
@@ -280,9 +394,9 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                     for (auto& e : P->ev)
                     {
                         const double t = off + e.beat + e.len; if (! inBlk (t)) continue;
-                        const int at = atOf (t), c = cs ? 2 + e.str : 1;
+                        const int at = atOf (t), c = comp ? 1 + e.layer : cs ? 2 + e.str : 1;
                         out.addEvent (juce::MidiMessage::noteOff (c, e.note), at);
-                        Hit h; h.str = e.str; h.note = e.note; acts.push_back ({ at, 1, h, 0, 0 });
+                        Hit h; h.str = e.str; h.note = e.note; acts.push_back ({ at, 1, h, e.layer, 0 });
                         for (int i = 0; i < np; ++i) if (pend[(size_t) i].ch == c && pend[(size_t) i].note == e.note) { pend[(size_t) i] = pend[(size_t) --np]; break; }
                     }
                 else if (pass == 1)
@@ -290,16 +404,16 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                     {
                         const double t = off + b.beat; if (! inBlk (t)) continue;
                         const int at = atOf (t);
-                        out.addEvent (juce::MidiMessage::pitchWheel (cs ? 2 + b.str : 1, juce::jlimit (0, 16383, 8192 + juce::roundToInt (b.semis / 2.0f * 8191.0f))), at);
-                        Hit h; h.str = cs ? b.str : -1; acts.push_back ({ at, 2, h, 0, b.semis });
+                        out.addEvent (juce::MidiMessage::pitchWheel (comp ? 3 : cs ? 2 + b.str : 1, juce::jlimit (0, 16383, 8192 + juce::roundToInt (b.semis / 2.0f * 8191.0f))), at);
+                        Hit h; h.str = cs ? b.str : -1; acts.push_back ({ at, 2, h, comp ? 2 : 0, b.semis });
                     }
                 else
                     for (auto& e : P->ev)
                     {
                         const double t = off + e.beat; if (! inBlk (t)) continue;
-                        const int at = atOf (t), c = cs ? 2 + e.str : 1;
+                        const int at = atOf (t), c = comp ? 1 + e.layer : cs ? 2 + e.str : 1;
                         out.addEvent (juce::MidiMessage::noteOn (c, e.note, vel7 (e.vel)), at);
-                        Hit h; h.str = e.str; h.note = e.note; h.vel = e.vel; h.mute = e.mute; h.pm = e.pm; h.art = e.art; acts.push_back ({ at, 0, h, c, 0 });
+                        Hit h; h.str = e.str; h.note = e.note; h.vel = e.vel; h.mute = e.mute; h.pm = e.pm; h.art = e.art; acts.push_back ({ at, 0, h, e.layer, 0 });
                         if (np < (int) pend.size()) pend[(size_t) np++] = { t + e.len, c, e.note, e.str };   // solo per chiudere tutto se il trasporto salta
                     }
             }
@@ -308,16 +422,17 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     std::stable_sort (acts.begin(), acts.end(), [] (const Act& a, const Act& b) { static const int pr[4] = { 3, 0, 2, 1 }; return a.at != b.at ? a.at < b.at : pr[a.type] < pr[b.type]; });   // prima i rilasci, poi i bend, poi le nuove note
     float* L = buffer.getWritePointer (0); float* R = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : L;
     int cur = 0;
-    auto renderTo = [&] (int to) { while (cur < to) { const int n = juce::jmin (to - cur, 4096); syn.render (L + cur, R + cur, n); cur += n; } };
+    auto renderTo = [&] (int to) { while (cur < to) { const int n = juce::jmin (to - cur, 4096); for (int y = 0; y < (comp ? 3 : 1); ++y) syn[(size_t) y].render (L + cur, R + cur, n); cur += n; } };
     for (auto& a : acts)
     {
         renderTo (a.at);
+        auto& sy = syn[(size_t) juce::jlimit (0, comp ? 2 : 0, a.ch)];
         switch (a.type)
         {
-            case 0: syn.hit (a.h); break;
-            case 1: syn.off (a.h.str, a.h.note); break;
-            case 2: if (a.h.str >= 0) syn.bend (a.h.str, a.bend); else syn.bendAll (a.bend); break;
-            default: syn.allOff(); syn.bendAll (0); break;
+            case 0: sy.hit (a.h); break;
+            case 1: sy.off (a.h.str, a.h.note); break;
+            case 2: if (a.h.str >= 0) sy.bend (a.h.str, a.bend); else sy.bendAll (a.bend); break;
+            default: for (auto& y : syn) { y.allOff(); y.bendAll (0); } break;
         }
     }
     renderTo (N);

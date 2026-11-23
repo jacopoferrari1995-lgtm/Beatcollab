@@ -16,11 +16,17 @@ struct Rng
 };
 
 // accordo di uno slot: grado 0..6 diatonico, 10..16 preso in prestito
+// codice dello slot: grado (0..6, +10 se preso in prestito) + 100 * (colore + 1) se il colore e' scelto per quell'accordo
+inline int codeDeg (int code) { return code % 100; }
+inline int codeCol (int code) { return code >= 100 ? code / 100 - 1 : -1; }
+inline int withCol (int code, int col) { return codeDeg (code) + (col >= 0 ? 100 * (col + 1) : 0); }
 inline Chord slotChord (const Settings& S, int code)
 {
-    const int col = S.color < 0 ? genreColor (S.genre) : juce::jlimit (0, 3, (int) S.color);
-    if (code >= 10) return borrowedChord (S.key, S.scale, code - 10, col);
-    return diatonic (S.key, S.scale, juce::jlimit (0, 6, code), col);
+    int col = codeCol (code);
+    if (col < 0) col = S.color < 0 ? genreColor (S.genre) : juce::jlimit (0, kColors - 1, (int) S.color);
+    const int d = codeDeg (code);
+    if (d >= 10) return borrowedChord (S.key, S.scale, d - 10, col);
+    return diatonic (S.key, S.scale, juce::jlimit (0, 6, d), col);
 }
 // il prestito e' possibile su questo grado?
 inline bool canBorrow (int scale, int deg)
@@ -186,6 +192,20 @@ struct Gen
                     if (dens > 0.6f && L >= 4) { ++grpN; for (size_t q = 0; q < all.size(); ++q) { const size_t r = all.size() - 1 - q; add (t0 + 2.5 + st * 0.7 * (double) q, L - 2.5, all[r], P.voic[(size_t) i].fret[(size_t) all[r]], vAcc (false) * 0.75f, i); } }
                     break;
                 }
+                case 6:   // PIZZICATI: accordo pizzicato tutto insieme (dita), ritmo trap 1 - 2.5(e) - 4
+                {
+                    static const double pos[] = { 0, 1.5, 3.0, 2.5, 3.75 }; static const float pr[] = { 1.0f, 0.9f, 0.7f, 0.4f, 0.3f };
+                    for (int k = 0; k < 5; ++k)
+                    {
+                        if (pos[k] >= L - 1e-6) continue;
+                        Rng kr (S.seed * 41u + (juce::uint32) k * 7u + (juce::uint32) (i % 2) * 3u);
+                        if (k > 0 && ! kr.p (pr[k] * (0.4f + dens))) continue;
+                        const double t = sw (t0 + pos[k], 0.25); ++grpN; const double h = hum(); const float gv = hv();
+                        const auto use = k == 0 ? all : top (3);
+                        for (size_t q = 0; q < use.size(); ++q) add (juce::jmax (0.0, t + h + ms (2.0 * (double) q)), k == 0 ? L : 1.2, use[q], P.voic[(size_t) i].fret[(size_t) use[q]], vAcc (k == 0) * (k == 0 ? 1.0f : 0.85f) + gv, i);
+                    }
+                    break;
+                }
                 default:  // SPINTE: l'accordo arriva un ottavo prima della battuta
                 {
                     const double t = i == 0 ? 0.0 : t0 - 0.5;
@@ -211,8 +231,10 @@ struct Gen
             { 16, { "p-p-p-p-p-p-p-p-", "p-p-p-p-D---p-p-", "p-ppp-ppp-ppD---" } },          // PALM MUTE
             { 16, { "D--U----D--U----", "D--U--U-D-U--U--", "D-gU-gU-D-UgdU-g" } },          // AFRO
             { 12, { "D-----D-----", "D--D-UD--D-U", "D-uDuUD-uDuU" } },                      // 6/8
-            { 16, { "b---D---B---D---", "b---D-U-B---D-U-", "b---D-UuB-u-D-U-" } } };        // FOLK
-        return R[juce::jlimit (0, 8, p)];
+            { 16, { "b---D---B---D---", "b---D-U-B---D-U-", "b---D-UuB-u-D-U-" } },          // FOLK
+            { 16, { "D-------D-----u-", "D-----u--g-U----", "D--u--g-D-u-gU--" } },          // TRAP STRUM: pochi colpi, spazio, un levare
+            { 16, { "D---d-u---u-d-u-", "D-uUd-u-D-u-d-uU", "D-uUd-uUD-uUd-uU" } } };        // R&B 16: sedicesimi leggeri
+        return R[juce::jlimit (0, 10, p)];
     }
     void ritmica()
     {
@@ -226,7 +248,7 @@ struct Gen
             if (rl == 1 && ! same) var = juce::jlimit (0, 2, var + (br.p (0.5f) ? 1 : -1));                 // risposta: un'altra versione del pattern
             if (lifted (b) && rl != 3 && br.p (mk.lift * 0.6f)) var = juce::jmin (2, var + 1);              // seconda frase del giro di 8: un po' piu' piena
             double breath = 1e9;                                                                             // fine frase: o si riempie o si respira
-            if (rl == 3 && P.bars > 1 && ! br.p (mk.repeat - 0.4f)) { if (br.p (0.25f + space)) breath = space > 0.6f ? 3.0 : 3.5; else var = juce::jmin (2, var + 1); }
+            if (rl == 3 && P.bars > 1 && ! br.p (mk.repeat - 0.4f)) { if (S.space > 0.35f && br.p (S.space)) breath = S.space > 0.7f ? 3.0 : 3.5; else var = juce::jmin (2, var + 1); }
             const char* pat = R.v[var];
             if (breath < 1e8) P.chokes.push_back ({ b * 4.0 + breath + ms (6) });
             for (int k = 0; k < R.steps; ++k)
@@ -269,8 +291,11 @@ struct Gen
             { 12, "B 3 2 - 3 1 A 3 2 - 3 1" },              // TERZINE DRILL
             { 16, "B 1 2 3 - - 3 2 - - 1 - A - 2 -" },      // R&B ROLL
             { 16, "B - 3 2 - 3 1 - A - 3 2 - 3 1 -" },      // HIGHLIFE
-            { 16, "B 2 3 2 A 2 3 2 B 2 3 2 A 2 3 2" } };    // CLASSICO
-        return A[juce::jlimit (0, 8, p)];
+            { 16, "B 2 3 2 A 2 3 2 B 2 3 2 A 2 3 2" },      // CLASSICO
+            { 16, "3 2 1 B 3 2 1 A 3 2 1 B 3 2 1 A" },      // CASCATA (dall'acuto al grave)
+            { 16, "B 3 2 3 1 3 2 3 A 3 2 3 1 3 2 3" },      // PEDALE (la nota alta torna sempre)
+            { 8,  "B 23 - 23 A 23 - 23" } };                // DIADI (due corde insieme)
+        return A[juce::jlimit (0, 11, p)];
     }
     void arpeggio()
     {
@@ -298,7 +323,7 @@ struct Gen
             }
             return m;
         };
-        const auto base = makeMask (1, dens);
+        const auto base = makeMask (1, S.density);   // i buchi nell arpeggio solo se la DENSITA la abbassi tu
         auto lifted1 = base; { Rng lr (S.seed * 17u + 3u); for (int k = 0; k < n; ++k) if (lifted1[(size_t) k] == 0 && tok[k] != "-" && lr.p (mk.lift * 0.6f)) lifted1[(size_t) k] = 1; }
         for (int b = 0; b < P.bars; ++b)
         {
@@ -309,8 +334,9 @@ struct Gen
             if ((rl == 1 || rl == 2) && ! same) { m = vary (m, (juce::uint32) (11 + b * 3)); vid = 10 + b; }
             // respiro: a fine frase le note acute tacciono e l'ultima resta a suonare; con SPAZI alti anche a meta' frase
             double breath = 1e9;
-            if (rl == 3 && space > 0.15f && br.p ((0.3f + space) * (1.0f - mk.repeat * 0.6f))) breath = space > 0.6f ? 2.0 : 3.0;
-            else if (rl == 1 && space > 0.5f && br.p (space - 0.35f)) breath = 3.0;
+            // l'arpeggio scorre: si ferma solo se lo chiedi con PAUSE (sopra il 45%)
+            if (rl == 3 && S.space > 0.45f && br.p ((S.space - 0.2f) * (1.0f - mk.repeat * 0.6f))) breath = S.space > 0.75f ? 2.0 : 3.0;
+            else if (rl == 1 && S.space > 0.7f && br.p (S.space - 0.55f)) breath = 3.0;
             if (P.bars == 1) breath = 1e9;
             int lastTreble = -1; for (int k = 0; k < n; ++k) if (k * st < breath - 1e-6 && m[(size_t) k] != 0 && ! isBass (k)) lastTreble = k;
             for (int k = 0; k < n; ++k)
@@ -700,9 +726,9 @@ inline Part generate (const Settings& S)
     {
         int code = prog[(size_t) (i % (int) prog.size())];
         // interscambio automatico (solo se alzato): il V maggiore in minore, il iv minore in maggiore
-        if (code < 10 && S.borrow > 0.001f && canBorrow (S.scale, code))
+        if (codeDeg (code) < 10 && S.borrow > 0.001f && canBorrow (S.scale, codeDeg (code)))
         {
-            const int nxt = prog[(size_t) ((i + 1) % (int) prog.size())] % 10;
+            const int nxt = codeDeg (prog[(size_t) ((i + 1) % (int) prog.size())]) % 10;
             const float pr = S.borrow * (nxt == 0 ? 0.9f : 0.45f);
             if (G.mr.p (pr)) code += 10;
         }
@@ -727,7 +753,13 @@ inline Part generate (const Settings& S)
             }
             topPrev = top;
         }
-        Voicing v = findVoicing (c, tun, S.vstyle, S.pos, pv, vr, 0.0f, top);
+        Voicing v; bool reused = false;
+        if (i > 0 && prog[(size_t) (i % (int) prog.size())] == prog[(size_t) ((i - 1) % (int) prog.size())] && ! c.borrowed && ! P.chords.back().borrowed) { v = P.voic.back(); reused = true; }   // stesso accordo: stessa forma
+        // arpeggio e ritmica: lo stesso accordo torna sempre con la stessa forma, cosi' il pattern resta riconoscibile giro dopo giro
+        if (! reused && (S.mode == ARPEGGIO || S.mode == RITMICA))
+            for (size_t j = 0; j < P.chords.size(); ++j) if (P.chords[j].name == c.name && P.chords[j].borrowed == c.borrowed) { v = P.voic[j]; reused = true; break; }
+        if (reused) {}
+        else v = findVoicing (c, tun, S.vstyle, S.pos, pv, vr, 0.0f, top);
         if (v.score < -1e8) v = findVoicing (c, tun, V_JAZZ, S.pos, pv, vr);
         if (v.score < -1e8) { Chord t = c; t.tones.resize (3); v = findVoicing (t, tun, V_OPEN, S.pos, pv, vr); }
         if (v.score < -1e8) v = findVoicing (c, tun, V_POWER, S.pos, pv, vr);
@@ -742,6 +774,148 @@ inline Part generate (const Settings& S)
     switch (S.mode) { case ACCORDI: G.accordi(); break; case RITMICA: G.ritmica(); break; case ARPEGGIO: G.arpeggio(); break; default: G.lead(); break; }
     G.finish();
     return P;
+}
+
+// --------------------------------------------------------------------------------------------- COMPOSIZIONE
+// tre chitarre sullo stesso giro: BASE (accordi o ritmica, a sinistra), ARPEGGIO (seconda chitarra in alto, a destra), LEAD (al centro).
+// Si ascoltano fra loro: l'arpeggio sta sopra la base, si dirada quando il lead canta e lascia libere le note vicine alla melodia;
+// la base si alleggerisce quando c'e' l'arpeggio.
+inline Part generateComposition (const Settings& S)
+{
+    const bool hasB = S.lyBase >= 0, hasA = S.lyArp >= 0, hasL = S.lyLead >= 0;
+    if (! hasB && ! hasA && ! hasL) { Settings a = S; a.mode = ARPEGGIO; return generate (a); }
+    Part out; out.bars = juce::jlimit (1, 8, S.bars);
+    Part pb, pa, pl;
+    // l'armonia e' una sola per tutte e tre le chitarre: i prestiti si decidono qui, una volta
+    Settings H = S;
+    {
+        const double slotLen = juce::jmin ((double) out.len(), S.perBar >= 2 ? 2.0 : S.perBar == 0 ? 8.0 : 4.0);
+        const int n = juce::jmax (1, (int) std::round (out.len() / slotLen));
+        std::vector<int> prog = S.prog; if (prog.empty()) prog = progressions (S.genre).front();
+        Rng br (S.seed * 97u + 5u); std::vector<int> res;
+        for (int i = 0; i < n; ++i)
+        {
+            int code = prog[(size_t) (i % (int) prog.size())];
+            if (codeDeg (code) < 10 && S.borrow > 0.001f && canBorrow (S.scale, codeDeg (code)))
+            {
+                const int nxt = codeDeg (prog[(size_t) ((i + 1) % (int) prog.size())]) % 10;
+                if (br.p (S.borrow * (nxt == 0 ? 0.9f : 0.45f))) code += 10;
+            }
+            res.push_back (code);
+        }
+        H.prog = res; H.borrow = 0.0f;
+    }
+    if (hasB)
+    {
+        Settings b = H; b.mode = S.lyBase >= 100 ? RITMICA : ACCORDI; b.pattern = S.lyBase >= 100 ? S.lyBase - 100 : S.lyBase;
+        b.pattern = juce::jlimit (0, patternNames (b.mode).size() - 1, b.pattern);
+        b.seed = S.seed * 7u + S.seedB * 13u; if (hasA) b.density = juce::jmax (0.0f, S.density - 0.2f);
+        pb = generate (b);
+    }
+    if (hasA)
+    {
+        Settings a = H; a.mode = ARPEGGIO; a.pattern = juce::jlimit (0, patternNames (ARPEGGIO).size() - 1, S.lyArp);
+        a.seed = S.seed * 11u + S.seedA * 17u;
+        if (hasB) { a.vstyle = V_TRIAD; a.pos = juce::jmin (12, S.pos + 5); }   // doppia traccia: la seconda chitarra suona le triadi in alto
+        pa = generate (a);
+    }
+    if (hasL)
+    {
+        Settings l = H; l.mode = LEAD; l.pattern = juce::jlimit (0, patternNames (LEAD).size() - 1, S.lyLead);
+        l.seed = S.seed * 19u + S.seedL * 23u; l.pos = juce::jmin (12, S.pos + (hasA ? 6 : 4));   // la melodia sta sopra gli accordi
+        pl = generate (l);
+    }
+    // l'arpeggio lascia spazio alla melodia
+    if (hasA && hasL)
+    {
+        Rng r (S.seed * 29u + S.seedA);
+        std::vector<Ev> keep;
+        for (auto& e : pa.ev)
+        {
+            bool drop = false;
+            const bool bass = e.str <= 1;
+            for (auto& m : pl.ev)
+            {
+                const bool overlap = m.beat < e.beat + 0.25 && m.beat + m.len > e.beat;
+                if (! overlap) continue;
+                if (! bass && std::abs (m.note - e.note) <= 2 && m.note != e.note) { drop = true; break; }        // seconda contro la melodia
+                if (! bass && e.note > m.note) { drop = true; break; }                                             // mai sopra la melodia
+            }
+            // dove il lead e' fitto (due attacchi nel battito) l'arpeggio si dirada
+            if (! drop && ! bass)
+            {
+                int on = 0; for (auto& m : pl.ev) if (m.beat >= std::floor (e.beat) && m.beat < std::floor (e.beat) + 1) ++on;
+                if (on >= 2 && r.p (0.55f)) drop = true;
+            }
+            if (! drop) keep.push_back (e);
+        }
+        pa.ev = keep;
+    }
+    auto addAll = [&] (Part& p, int layer, float vel)
+    {
+        for (auto e : p.ev) { e.layer = layer; e.vel = juce::jlimit (0.06f, 1.0f, e.vel * vel); out.ev.push_back (e); }
+        for (auto c : p.chokes) out.chokes.push_back (c);
+    };
+    if (hasB) addAll (pb, 0, 0.88f);
+    if (hasA) addAll (pa, 1, 0.82f);
+    if (hasL) { addAll (pl, 2, 1.0f); out.bend = pl.bend; }
+    const Part& ref = hasB ? pb : hasA ? pa : pl;
+    out.chords = ref.chords; out.voic = ref.voic; out.chordAt = ref.chordAt;
+    std::stable_sort (out.ev.begin(), out.ev.end(), [] (const Ev& a, const Ev& b) { return a.beat < b.beat; });
+    return out;
+}
+inline Part generateAny (const Settings& S) { return S.mode == COMPOSIZIONE ? generateComposition (S) : generate (S); }
+
+// giri per funzione armonica: catena di accordi con le mosse tipiche (tonica -> predominante -> dominante -> tonica),
+// pesata dal genere; l'ultimo accordo deve tornare bene sul primo (il giro gira)
+inline std::vector<int> markovProg (bool minor, int genre, int mood, int len, Rng& r)
+{
+    // pesi di passaggio fra i gradi 0..6 (righe: da, colonne: a)
+    static const float MI[7][7] = {
+        { 0.3f, 0.2f, 1.0f, 2.0f, 1.0f, 3.0f, 2.0f },   // i
+        { 1.0f, 0.0f, 0.5f, 0.5f, 2.0f, 0.5f, 1.0f },   // ii dim
+        { 1.0f, 0.0f, 0.0f, 1.5f, 0.5f, 2.0f, 3.0f },   // III
+        { 2.0f, 0.3f, 0.5f, 0.0f, 1.5f, 1.5f, 2.0f },   // iv
+        { 3.0f, 0.0f, 0.3f, 1.0f, 0.0f, 2.0f, 0.5f },   // v
+        { 1.5f, 0.3f, 2.0f, 1.5f, 0.5f, 0.0f, 3.0f },   // VI
+        { 3.0f, 0.0f, 2.0f, 0.5f, 0.5f, 1.5f, 0.0f } }; // VII
+    static const float MA[7][7] = {
+        { 0.3f, 1.0f, 0.7f, 2.5f, 2.5f, 2.0f, 0.0f },   // I
+        { 0.5f, 0.0f, 0.5f, 1.0f, 3.0f, 0.5f, 0.0f },   // ii
+        { 0.5f, 0.5f, 0.0f, 2.0f, 0.5f, 3.0f, 0.0f },   // iii
+        { 2.5f, 1.0f, 0.5f, 0.0f, 2.5f, 1.0f, 0.0f },   // IV
+        { 3.0f, 0.3f, 0.5f, 1.5f, 0.0f, 2.5f, 0.0f },   // V
+        { 1.0f, 2.0f, 1.0f, 3.0f, 1.5f, 0.0f, 0.0f },   // vi
+        { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f } };
+    // gradi preferiti dal genere (piu' peso in arrivo)
+    auto fav = [&] (int d)
+    {
+        switch (genre)
+        {
+            case TRAP: case EMO: case DRILL: return d == 5 || d == 6 || d == 2 ? 1.4f : 1.0f;
+            case RNB: case LOFI: case BOOMBAP: return d == 1 || d == 4 || d == 3 ? 1.5f : 1.0f;
+            case POP: case FOLK: return d == 0 || d == 3 || d == 4 || d == 5 ? 1.3f : 1.0f;
+            case AFRO: case REGGAETON: case LATIN: return d == 3 || d == 4 || d == 5 ? 1.3f : 1.0f;
+            default: return 1.0f;
+        }
+    };
+    const auto& T = minor ? MI : MA;
+    std::vector<int> best;
+    for (int attempt = 0; attempt < 40; ++attempt)
+    {
+        std::vector<int> p; int cur = r.p (0.7f) ? 0 : (minor ? (r.p (0.5f) ? 5 : 3) : (r.p (0.5f) ? 5 : 3));
+        p.push_back (cur);
+        for (int k = 1; k < len; ++k)
+        {
+            float w[7], sum = 0;
+            for (int d = 0; d < 7; ++d) { w[d] = T[cur][d] * fav (d); if (mood == TESO && d == 1 && minor) w[d] *= 2.0f; if (k == len - 1) w[d] *= 0.3f + T[d][p[0]]; sum += w[d]; }
+            float x = r.f() * sum; int nx = 0; for (int d = 0; d < 7; ++d) { x -= w[d]; if (x <= 0) { nx = d; break; } }
+            p.push_back (nx); cur = nx;
+        }
+        if (T[(size_t) p.back()][(size_t) p[0]] >= 1.0f || p.back() == p[0]) return p;
+        best = p;
+    }
+    return best;
 }
 
 // nuova progressione: dal genere o dal mood, sempre dentro la scala; nel giro di 8 a volte la seconda meta' cambia la chiusura
@@ -770,7 +944,11 @@ inline NewProg newProgression (int genre, int mood, int scale, int bars, juce::u
     const bool minor = isMinorScale (scale);
     const auto& ML = minor ? mi[md] : ma[md];
     const auto& GL = progressions (genre);
-    auto p = (! ML.empty() && r.p (0.55f)) ? ML[(size_t) r.i ((int) ML.size())] : GL[(size_t) r.i ((int) GL.size())];
+    const float pick = r.f();
+    std::vector<int> p;
+    if (pick < 0.3f && ! ML.empty()) p = ML[(size_t) r.i ((int) ML.size())];
+    else if (pick < 0.6f) p = GL[(size_t) r.i ((int) GL.size())];
+    else p = markovProg (minor, genre, md, md == IPNOTICO ? (r.p (0.5f) ? 2 : 4) : 4, r);
     static const int sub[7] = { 5, 3, 4, 1, 2, 0, 4 };   // sostituto con la stessa funzione
     if (r.p (0.25f) && p.size() >= 4) { const int k = 1 + r.i ((int) p.size() - 1); if (sub[p[(size_t) k]] != p[(size_t) k - 1]) p[(size_t) k] = sub[p[(size_t) k]]; }
     // gradi scomodi nelle scale speciali: III aumentato e vii diminuito dell'armonica, v diminuito della frigia, vii diminuito del maggiore
@@ -800,6 +978,7 @@ inline NewProg newProgression (int genre, int mood, int scale, int bars, juce::u
 inline juce::String degreeRoman (int code, int scale, int key)
 {
     static const char* R[7] = { "I", "II", "III", "IV", "V", "VI", "VII" };
+    code = codeDeg (code);
     const auto c = code >= 10 ? borrowedChord (key, scale, code - 10, 0) : diatonic (key, scale, code, 0);
     juce::String s (R[code % 10]); const int i3 = c.third >= 0 ? (c.third - c.root + 12) % 12 : 4;
     if (i3 == 3) s = s.toLowerCase();

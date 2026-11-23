@@ -62,7 +62,8 @@ static int genTest()
             S.seed = (juce::uint32) (key * 1000 + g * 31 + pat + 1); const auto& pl = progressions (g); S.prog = pl[(size_t) ((key + sc) % (int) pl.size())];
             S.pos = (key * 3 + pat) % 11; S.density = ((key + pat) % 5) / 4.0f; S.tech = 0.8f; S.emb = 0.6f; S.swing = (pat % 3) * 0.3f; S.human = 0.6f;
             S.borrow = (key % 3 == 0) ? 0.8f : 0.0f; S.bars = (g % 2) ? 4 : 2; S.perBar = (key % 4 == 0) ? 2 : (key % 4 == 1) ? 0 : 1; S.mood = (key + g + pat) % kMoods; S.space = (pat % 4) * 0.3f; S.bars = (key % 2) ? 8 : S.bars;
-            auto P = generate (S); auto sset = scaleSet (key, sc); auto tun = tuning (S.tuning);
+            S.lyBase = (pat + key) % 3 == 0 ? -1 : (key % 2 ? 100 + pat % 11 : pat % 7); S.lyArp = (g + pat) % 4 == 0 ? -1 : (pat + g) % 12; S.lyLead = key % 5 == 0 ? -1 : pat % 6;
+            auto P = generateAny (S); auto sset = scaleSet (key, sc); auto tun = tuning (S.tuning);
             for (size_t i = 0; i < P.voic.size(); ++i)
             {
                 ++total; const auto& v = P.voic[i]; if (v.score < -1e8 || v.count() < 2) ++fail;
@@ -80,7 +81,7 @@ static int genTest()
             for (size_t a = 0; a < P.ev.size(); ++a) for (size_t b = a + 1; b < P.ev.size(); ++b)
             {
                 const auto& x = P.ev[a]; const auto& y = P.ev[b];
-                if (x.str == y.str && y.beat > x.beat + 1e-9 && y.beat < x.beat + x.len - 0.035) ++monoV;
+                if (x.str == y.str && x.layer == y.layer && y.beat > x.beat + 1e-9 && y.beat < x.beat + x.len - 0.035) ++monoV;
             }
             // i bend: dentro +-2 semitoni, e sopra un bend la nota d'arrivo e' nella scala
             for (auto& b : P.bend) if (std::abs (b.semis) > 2.3f) ++neg;
@@ -222,6 +223,19 @@ int main (int argc, char** argv)
         const double f0 = 440 * std::pow (2.0, (88 - 69) / 12.0); double harm = 0, rest = 0;
         for (int k = 4; k < 16384; ++k) { const double f = k * 48000.0 / 32768; const double h = f / f0; const double e = d[(size_t) k] * d[(size_t) k]; if (std::abs (h - std::round (h)) < 0.03) harm += e; else rest += e; }
         std::printf ("alias CRUNCH nota %d: non armonico %.1f dB sotto le armoniche\n", 88, 10 * std::log10 (harm / (rest + 1e-12)));
+    }
+    if (mode == "edit" || mode == "all")
+    {   // modifica a mano: resta dopo la rigenerazione e nel salvataggio, sparisce se cambi il giro, torna con annulla
+        auto p = mk (1); auto P = *p->part(); const size_t n0 = P.ev.size();
+        P.ev.erase (P.ev.begin()); P.ev[0].note += 2; p->commitEdit (P); p->regenerate();
+        const bool kept = p->edited() && p->part()->ev.size() == n0 - 1;
+        juce::MemoryBlock mb; p->getStateInformation (mb); auto q = mk (-1); q->setStateInformation (mb.getData(), (int) mb.getSize());
+        const bool saved = q->edited() && q->part()->ev.size() == n0 - 1;
+        p->undo.beginNewTransaction(); p->setProg ({ 0, 3, 4, 0 }); p->regenerate(); const bool gone = ! p->edited();
+        const auto k1 = p->settingsKey(); p->undo.undo(); p->regenerate(); const bool back = p->edited();
+        if (! back) std::printf ("  chiave dopo annulla %s\n  chiave salvata      %s\n  prima del cambio    %s\n", p->settingsKey().toRawUTF8(), p->apvts.state.getProperty ("editKey").toString().toRawUTF8(), k1.toRawUTF8());
+        std::printf ("MODIFICHE: restano %s, salvate %s, via se cambi il giro %s, tornano con annulla %s\n", kept ? "si" : "NO", saved ? "si" : "NO", gone ? "si" : "NO", back ? "si" : "NO");
+        if (! (kept && saved && gone && back)) ++bad;
     }
     if (mode == "snap")
     {

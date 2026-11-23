@@ -103,7 +103,7 @@ public:
         verb.reset(); std::fill (dbl.begin(), dbl.end(), 0.0f); lfo = 0; drvS = 0; ctr = 0;
     }
     // parametri (dal processor, ogni blocco)
-    int body = ACUSTICA; float tone = 0.5f, bodyAmt = 0.6f, space = 0.2f, width = 0.3f, vol = 0.8f, drive = 0.5f;
+    float pan = 0.0f; int body = ACUSTICA; float tone = 0.5f, bodyAmt = 0.6f, space = 0.2f, width = 0.3f, vol = 0.8f, drive = 0.5f;
     void hit (const Hit& h)
     {
         auto& st = str[(size_t) juce::jlimit (0, kStr - 1, h.str)];
@@ -193,7 +193,8 @@ public:
         {
             spS += 0.001f * (space - spS); volS += 0.001f * (vol - volS);
             const float wet = spS * 0.55f, dry = 1.0f - spS * 0.25f;
-            float a = (vl[(size_t) i] * dry + wl[(size_t) i] * wet) * volS * 0.72f, b = (vr[(size_t) i] * dry + wr[(size_t) i] * wet) * volS * 0.72f;
+            panS += 0.001f * (pan - panS);
+            float a = (vl[(size_t) i] * dry + wl[(size_t) i] * wet) * volS * 0.72f * juce::jmin (1.0f, 1.0f - panS), b = (vr[(size_t) i] * dry + wr[(size_t) i] * wet) * volS * 0.72f * juce::jmin (1.0f, 1.0f + panS);
             if (! std::isfinite (a) || ! std::isfinite (b)) { a = b = 0; bad = true; }
             // tetto morbido: oltre -1 dBFS si arrotonda
             auto sc = [] (float x) { const float t = 0.89f; const float ax = std::abs (x); return ax <= t ? x : std::copysign (t + (1.0f - t) * std::tanh ((ax - t) / (1.0f - t)), x); };
@@ -207,7 +208,7 @@ private:
     struct Str { std::array<KS, 2> u; int cur = 0, note = -1; float bendS = 0, bendT = 0; };
     std::array<Str, kStr> str; juce::Random rnd { 1234 };
     jkit::Bq bq[2][6]; int fBody = -1; float fTone = -1, fAmt = -1;
-    pfx::Verb verb; std::vector<float> vl, vr, wl, wr, dbl; int dw = 0; juce::uint32 ctr = 0; int bodyCur = 1; float bFade = 1.0f; float lfo = 0, wS = 0.3f, spS = 0.2f, volS = 0.8f, drvS = 0.5f; bool bad = false;
+    pfx::Verb verb; std::vector<float> vl, vr, wl, wr, dbl; int dw = 0; float panS = 0; juce::uint32 ctr = 0; int bodyCur = 1; float bFade = 1.0f; float lfo = 0, wS = 0.3f, spS = 0.2f, volS = 0.8f, drvS = 0.5f; bool bad = false;
     double sr = 48000;
     void filtersFor (bool force)
     {
