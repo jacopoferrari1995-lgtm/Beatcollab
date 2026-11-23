@@ -5,6 +5,7 @@
 //  cassa in sidechain: ducking, fase, sovrapposizioni; mono sui bassi; clipper finale; diagnosi "cosa manca".
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <cmath>
 #include <array>
 
@@ -63,8 +64,8 @@ inline float sat (float x, int mode)
     switch (mode)
     {
         case 0: return std::tanh (x);                                                   // TAPE
-        case 1: { const float y = x + 0.25f * x * x; return std::tanh (y) - 0.25f * std::tanh (0.25f); }   // TUBE (pari)
-        case 2: return juce::jlimit (-1.0f, 1.0f, x * (1.0f - 0.1f * x * x * (std::abs (x) < 1.0f ? 1.0f : 0.0f)));   // HARD
+        case 1: { const float y = x + 0.25f * x * x; return std::tanh (y); }   // TUBE (pari): zero a riposo, la continua la toglie il filtro in uscita
+        case 2: { const float a = std::abs (x); return x / std::pow (1.0f + a * a * a * a, 0.25f); }   // HARD: ginocchio stretto ma senza spigolo
         default: { const float a = std::abs (x); return (x < 0 ? -1.0f : 1.0f) * (1.0f - std::exp (-2.5f * a)); }    // FUZZ
     }
 }
