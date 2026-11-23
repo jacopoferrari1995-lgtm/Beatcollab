@@ -8,7 +8,7 @@ juce::File presetFolder()
     auto d = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Guitar Preset");
     d.createDirectory(); return d;
 }
-static const char* kGenIds[] = { "key", "scale", "genre", "mode", "pat", "vstyle", "tuning", "bars", "perBar", "color", "pos", "density", "dyn", "strum", "human", "swing", "ring", "emb", "tech", "borrow", "mood", "rest", "lyBase", "lyArp", "lyLead" };
+static const char* kGenIds[] = { "key", "scale", "genre", "mode", "pat", "vstyle", "tuning", "bars", "perBar", "color", "pos", "density", "dyn", "strum", "human", "swing", "ring", "emb", "tech", "borrow", "mood", "rest", "lyBase", "lyArp", "lyLead", "arpFig", "arpRit" };
 
 // preset: gruppo | nome. Ogni preset e' una parte completa (giro, modo, suonata, suono); il giro parte dal grado indicato
 const std::vector<GPreset>& presets()
@@ -111,6 +111,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     { StringArray b { "OFF" }; for (auto& n : patternNames (ACCORDI)) b.add ("ACCORDI " + n); for (auto& n : patternNames (RITMICA)) b.add ("RITMICA " + n); ch ("lyBase", "Base", b, 2); }
     { StringArray a { "OFF" }; for (auto& n : patternNames (ARPEGGIO)) a.add (n); ch ("lyArp", "Arpeggio", a, 2); }
     { StringArray l { "OFF" }; for (auto& n : patternNames (LEAD)) l.add (n); ch ("lyLead", "Lead", l, 1); }
+    { StringArray f; for (int i = 0; i < kFigs; ++i) f.add (figOf (i).name); ch ("arpFig", "Figura", f, 6); }
+    { StringArray r; for (int i = 0; i < kRits; ++i) r.add (ritOf (i).name); ch ("arpRit", "Ritmo", r, 0); }
     ch ("vstyle", "Voicing", vs, V_OPEN); ch ("tuning", "Accordatura", tu, STANDARD);
     ch ("bars", "Battute", { "1", "2", "4", "8" }, 2); ch ("perBar", "Accordi per battuta", { "1", "2", "1/2" }, 0);
     { StringArray mo; for (int i = 0; i < kMoods; ++i) mo.add (moodName (i)); ch ("mood", "Mood", mo, 0); }
@@ -180,13 +182,19 @@ void Processor::generaGiro()
     auto pick = [&R] (const std::vector<int>& v) { return v[(size_t) R.nextInt ((int) v.size())]; };
     if (mode == ACCORDI) setV ("pat", (float) pick (G.acc));
     else if (mode == RITMICA) setV ("pat", (float) pick (G.rit));
-    else if (mode == ARPEGGIO) setV ("pat", (float) pick (G.arp));
+    else if (mode == ARPEGGIO)
+    {   // meta' delle volte uno stile del genere, meta' una combinazione nuova di figura e ritmo
+        const int st = pick (G.arp); setV ("pat", (float) st);
+        if (R.nextFloat() < 0.5f) applyArpStyle (st);
+        else { setV ("arpFig", (float) R.nextInt (kFigs - 1)); setV ("arpRit", (float) R.nextInt (kRits)); }
+    }
     else if (mode == LEAD) setV ("pat", (float) pick (G.lead));
     else
     {
         const int na = patternNames (ACCORDI).size();
         setV ("lyBase", R.nextBool() ? (float) (1 + pick (G.acc)) : (float) (1 + na + pick (G.rit)));
-        setV ("lyArp", (float) (1 + pick (G.arp))); setV ("lyLead", (float) (1 + pick (G.lead)));
+        { const int st = pick (G.arp); setV ("lyArp", (float) (1 + st)); if (R.nextFloat() < 0.5f) applyArpStyle (st); else { setV ("arpFig", (float) R.nextInt (kFigs - 1)); setV ("arpRit", (float) R.nextInt (kRits)); } }
+        setV ("lyLead", (float) (1 + pick (G.lead)));
         for (auto* k : { "seedB", "seedA", "seedL" }) apvts.state.setProperty (k, R.nextInt (0x7ffffff) | 1, &undo);
     }
 }
@@ -208,6 +216,7 @@ Settings Processor::settings() const
     { const int b = vi ("lyBase"), na = patternNames (ACCORDI).size(); S.lyBase = b == 0 ? -1 : b <= na ? b - 1 : 100 + (b - 1 - na); }
     S.lyArp = vi ("lyArp") - 1; S.lyLead = vi ("lyLead") - 1;
     S.seedB = seedOf ("seedB"); S.seedA = seedOf ("seedA"); S.seedL = seedOf ("seedL");
+    S.arpFig = vi ("arpFig"); S.arpRit = vi ("arpRit"); S.grid = grid();
     S.color = (float) (vi ("color") - 1); S.pos = vi ("pos");
     S.density = v ("density"); S.dyn = v ("dyn"); S.strum = v ("strum"); S.human = v ("human"); S.swing = v ("swing");
     S.ring = v ("ring"); S.emb = v ("emb"); S.tech = v ("tech"); S.borrow = v ("borrow");
@@ -220,7 +229,8 @@ juce::String Processor::settingsKey() const
     auto f = [] (float x) { return juce::String (juce::roundToInt (x * 1000.0f)); };   // arrotondati: annulla / ripeti ridanno lo stesso valore
     k << S.key << "|" << S.scale << "|" << S.genre << "|" << S.mode << "|" << S.pattern << "|" << S.vstyle << "|" << S.tuning << "|" << S.bars << "|" << S.perBar << "|" << f (S.color) << "|" << S.pos
       << "|" << f (S.density) << "|" << f (S.dyn) << "|" << f (S.strum) << "|" << f (S.human) << "|" << f (S.swing) << "|" << f (S.ring) << "|" << f (S.emb) << "|" << f (S.tech) << "|" << f (S.borrow) << "|" << S.mood << "|" << f (S.space)
-      << "|" << S.lyBase << "|" << S.lyArp << "|" << S.lyLead << "|" << (int) S.seed << "|" << (int) S.seedB << "|" << (int) S.seedA << "|" << (int) S.seedL << "|" << apvts.state.getProperty ("prog").toString();
+      << "|" << S.lyBase << "|" << S.lyArp << "|" << S.lyLead << "|" << (int) S.seed << "|" << (int) S.seedB << "|" << (int) S.seedA << "|" << (int) S.seedL << "|" << apvts.state.getProperty ("prog").toString()
+      << "|" << S.arpFig << "|" << S.arpRit << "|" << apvts.state.getProperty ("grid").toString();
     return k;
 }
 static juce::String serialize (const Part& P)
@@ -255,6 +265,18 @@ void Processor::commitEdit (const Part& p)
     auto np = std::make_shared<Part> (p); std::atomic_store (&partPtr, std::shared_ptr<const Part> (np));
 }
 void Processor::clearEdit() { undo.beginNewTransaction(); apvts.state.setProperty ("edit", "", &undo); }
+std::array<juce::uint16, 5> Processor::grid() const
+{
+    std::array<juce::uint16, 5> g { 0x4444, 0, 0x1010, 0, 0x0101 };
+    const auto t = juce::StringArray::fromTokens (apvts.state.getProperty ("grid").toString(), ",", "");
+    if (t.size() == 5) for (int i = 0; i < 5; ++i) g[(size_t) i] = (juce::uint16) t[i].getHexValue32();
+    return g;
+}
+void Processor::setGrid (const std::array<juce::uint16, 5>& g)
+{
+    juce::StringArray t; for (auto x : g) t.add (juce::String::toHexString ((int) x));
+    apvts.state.setProperty ("grid", t.joinIntoString (","), &undo);
+}
 void Processor::rerollLayer (int layer)
 {
     static const char* k[3] = { "seedB", "seedA", "seedL" };
@@ -449,6 +471,11 @@ void Processor::loadPreset (int i)
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (prm))
             if (! keep.contains (rp->getParameterID())) rp->setValueNotifyingHost (rp->getDefaultValue());
     for (auto& kv : P[(size_t) i].p) if (auto* rp = apvts.getParameter (kv.first)) rp->setValueNotifyingHost (rp->convertTo0to1 (kv.second));
+    {   // arpeggio: se il preset non dice figura e ritmo, vengono dallo stile
+        bool hasFig = false; float md = -1, pt = 1, la = 2;
+        for (auto& kv : P[(size_t) i].p) { const juce::String k (kv.first); if (k == "arpFig") hasFig = true; if (k == "mode") md = kv.second; if (k == "pat") pt = kv.second; if (k == "lyArp") la = kv.second; }
+        if (! hasFig) applyArpStyle ((int) md == COMPOSIZIONE ? juce::jmax (0, (int) la - 1) : (int) md == ARPEGGIO ? (int) pt : 1);
+    }
     setProg (P[(size_t) i].prog); setSeed (1);
     curPreset = i; presetName = juce::String (P[(size_t) i].name).fromFirstOccurrenceOf (" | ", false, false);
     regenerate();

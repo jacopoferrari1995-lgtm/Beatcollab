@@ -33,7 +33,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
         k->setName (id); k->setHelpText (U (tip)); addAndMakeVisible (k); return k;
     };
     auto pct = [] (float v) { return v < 0.005f ? juce::String ("OFF") : juce::String (juce::roundToInt (v * 100)) + "%"; };
-    add ("density", "DENSITA'", C::amber, pct, "Quante note: a sinistra respira, a destra si riempie. Nella RITMICA sceglie fra le tre versioni del pattern.");
+    add ("density", "DENSITA'", C::amber, pct, "Quante note. Nell'ARPEGGIO ogni tacca cambia il numero di note: sotto il 50% toglie quelle meno importanti (resta il battere), sopra aggiunge riempimenti leggeri fino ai sedicesimi pieni.");
     add ("dyn", "DINAMICA", C::amber, pct, "Differenza fra colpi accentati e leggeri.");
     add ("strum", "PENNATA", C::amber, [] (float v) { return juce::String (juce::roundToInt (7 + v * 34)) + " ms"; }, "Velocita' della pennata: quanto tempo passa dalla prima all'ultima corda.");
     add ("human", "UMANO", C::amber, pct, "Piccole imprecisioni di tempo e di forza, come un chitarrista vero.");
@@ -73,6 +73,8 @@ void Editor::resized()
     for (int i = 0; i < 12; ++i) patR[i] = { 204.0f + (i % 6) * 106, 344.0f + (i / 6) * 30, 100, 26 };
     for (int i = 0; i < 3; ++i) { layR[i] = { 204.0f + i * 212, 344, 170, 26 }; diceR[i] = { 378.0f + i * 212, 344, 32, 26 }; editLayR[i] = { 300.0f + i * 80, 378, 76, 22 }; }
     rollR = { 204, 424, 640, 212 };
+    styleR = { 204, 344, 150, 26 }; figR = { 362, 344, 210, 26 }; figDiceR = { 576, 344, 30, 26 }; ritR = { 614, 344, 196, 26 }; ritDiceR = { 814, 344, 30, 26 };
+    gridBtnR = { 700, 376, 144, 24 };
     dragR = { 866, 344, 272, 70 };
     for (int i = 0; i < 3; ++i) layDragR[i] = { 866.0f + i * 92, 420, 88, 24 };
     genR = { 866, 452, 134, 30 }; varR = { 1004, 452, 134, 30 };
@@ -197,6 +199,56 @@ void Editor::drawRoll (juce::Graphics& g, const Part& P)
     const double pb = proc.uiBeat.load();
     if (pb >= 0) { g.setColour (C::text); g.fillRect (bx (pb, L), r.getY() - 2, 1.5f, r.getHeight() + 4); }
 }
+juce::Rectangle<float> Editor::gridCell (int row, int k) const
+{
+    const float lx = rollR.getX() + 70, cw = (rollR.getWidth() - 74) / 16.0f, ch = (rollR.getHeight() - 20) / 5.0f;
+    return { lx + k * cw, rollR.getY() + 10 + row * ch, cw - 3, ch - 4 };
+}
+void Editor::drawGrid (juce::Graphics& g)
+{
+    g.setColour (C::bg.withAlpha (0.6f)); g.fillRoundedRectangle (rollR.expanded (4), 6);
+    const auto gr = proc.grid(); static const char* lab[5] = { "1 ACUTA", "2", "3", "4", "BASSO" };
+    for (int r = 0; r < 5; ++r)
+    {
+        const auto c0 = gridCell (r, 0);
+        g.setFont (jkit::uf (9.5f)); g.setColour (r == 4 ? C::amber : C::green); g.drawText (lab[r], juce::Rectangle<float> (rollR.getX() + 6, c0.getY(), 60, c0.getHeight()), juce::Justification::centredLeft);
+        for (int k = 0; k < 16; ++k)
+        {
+            const auto c = gridCell (r, k); const bool on = gr[(size_t) r] & (1 << k);
+            g.setColour (on ? (r == 4 ? C::amber : C::green) : C::dim.withAlpha (k % 4 == 0 ? 0.25f : 0.12f));
+            g.fillRoundedRectangle (c, 3);
+        }
+    }
+    const double pb = proc.uiBeat.load();
+    if (pb >= 0) { const int k = (int) (std::fmod (pb, 4.0) * 4.0); const auto c = gridCell (0, k); g.setColour (C::text.withAlpha (0.5f)); g.fillRect (c.getX(), rollR.getY() + 4, 2.0f, rollR.getHeight() - 8); }
+    g.setFont (jkit::mf (9)); g.setColour (C::dim);
+    g.drawText (U ("una battuta in sedicesimi, ripetuta. La figura segue da sola gli accordi del giro."), juce::Rectangle<float> (rollR.getX() + 70, rollR.getBottom() - 12, rollR.getWidth() - 74, 12), juce::Justification::centredLeft);
+}
+void Editor::styleMenu()
+{
+    juce::PopupMenu m; m.addSectionHeader (U ("STILI (FIGURA + RITMO PRONTI)"));
+    const auto& pn = patternNames (ARPEGGIO);
+    for (int i = 0; i < pn.size(); ++i) { const auto fr = arpStyle (i); m.addItem (1 + i, pn[i] + "   (" + figOf (fr.first).name + " / " + ritOf (fr.second).name + ")"); }
+    juce::Component::SafePointer<Editor> sp (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (styleR.toNearestInt()))), [sp] (int r)
+    { if (sp == nullptr || r <= 0) return; sp->proc.undo.beginNewTransaction(); sp->proc.setV ("pat", (float) (r - 1)); sp->proc.applyArpStyle (r - 1); sp->proc.curPreset = -1; sp->repaint(); });
+}
+void Editor::figMenu()
+{
+    juce::PopupMenu m; m.addSectionHeader (U ("FIGURA: L'ORDINE DELLE CORDE (1 = LA PIU' ACUTA, B = BASSO)"));
+    for (int i = 0; i < kFigs; ++i) m.addItem (1 + i, juce::String (figOf (i).name) + (i == kFigs - 1 ? U ("   (la disegni tu)") : juce::String ("   ") + figOf (i).seq), true, proc.vi ("arpFig") == i);
+    juce::Component::SafePointer<Editor> sp (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (figR.toNearestInt()))), [sp] (int r)
+    { if (sp == nullptr || r <= 0) return; sp->proc.undo.beginNewTransaction(); sp->proc.setV ("arpFig", (float) (r - 1)); if (r - 1 == kFigs - 1) sp->gridEdit = true; sp->proc.curPreset = -1; sp->repaint(); });
+}
+void Editor::ritMenu()
+{
+    juce::PopupMenu m; m.addSectionHeader (U ("RITMO DELL'ARPEGGIO (DENSITA' TOGLIE O AGGIUNGE NOTE)"));
+    for (int i = 0; i < kRits; ++i) m.addItem (1 + i, ritOf (i).name, true, proc.vi ("arpRit") == i);
+    juce::Component::SafePointer<Editor> sp (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (ritR.toNearestInt()))), [sp] (int r)
+    { if (sp == nullptr || r <= 0) return; sp->proc.undo.beginNewTransaction(); sp->proc.setV ("arpRit", (float) (r - 1)); sp->proc.curPreset = -1; sp->repaint(); });
+}
 void Editor::storeSig (const Part& P) { selSig.clear(); for (int i : sel) if (i >= 0 && i < (int) P.ev.size()) selSig.push_back ({ P.ev[(size_t) i].beat, P.ev[(size_t) i].note, P.ev[(size_t) i].layer }); }
 void Editor::resolveSel (const Part& P)
 {
@@ -313,19 +365,34 @@ void Editor::paint (juce::Graphics& g)
             for (int i = 0; i < 3; ++i)
             {
                 auto* prm = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (ids[i]));
-                const juce::String cur = prm != nullptr ? prm->getCurrentChoiceName() : juce::String();
+                juce::String cur = prm != nullptr ? prm->getCurrentChoiceName() : juce::String();
+                if (i == 1 && cur != "OFF") cur = juce::String (figOf (proc.vi ("arpFig")).name) + " / " + ritOf (proc.vi ("arpRit")).name;
                 chipBtn (g, layR[i], juce::String (nm[i]) + ": " + cur + U (" \xe2\x96\xbe"), cur != "OFF", layerCol (i), 8.8f, hoverId == 240 + i);
                 chipBtn (g, diceR[i], U ("\xe2\x86\xbb"), false, layerCol (i), 12, hoverId == 243 + i);
                 chipBtn (g, editLayR[i], nm[i], editLayer == i, layerCol (i), 8.5f, hoverId == 250 + i);
             }
             g.setFont (jkit::mf (9)); g.setColour (C::dim); g.drawText (U ("NOTE NUOVE IN:"), juce::Rectangle<float> (204, 378, 94, 22), juce::Justification::centredLeft);
         }
+        else if (m == ARPEGGIO)
+        {   // figura delle corde e ritmo, separati; lo stile e' una combinazione pronta
+            const int fg = proc.vi ("arpFig"), rt = proc.vi ("arpRit");
+            chipBtn (g, styleR, U ("STILI \xe2\x96\xbe"), false, C::violet, 9.5f, hoverId == 280);
+            chipBtn (g, figR, juce::String ("FIGURA: ") + figOf (fg).name + U (" \xe2\x96\xbe"), true, C::green, 9.0f, hoverId == 281);
+            chipBtn (g, figDiceR, U ("\xe2\x86\xbb"), false, C::green, 12, hoverId == 282);
+            chipBtn (g, ritR, juce::String ("RITMO: ") + ritOf (rt).name + U (" \xe2\x96\xbe"), true, C::amber, 9.0f, hoverId == 283);
+            chipBtn (g, ritDiceR, U ("\xe2\x86\xbb"), false, C::amber, 12, hoverId == 284);
+            g.setFont (jkit::mf (10)); g.setColour (C::dim);
+            const juce::String seq = fg == kFigs - 1 ? U ("figura disegnata nella griglia (righe: 1 = corda piu' acuta dell'accordo ... BASSO)") : U ("corde: ") + juce::String (figOf (fg).seq) + U ("   (1 = la piu' acuta dell'accordo, B = basso, A = basso alternato)");
+            g.drawText (seq, juce::Rectangle<float> (204, 376, 490, 24), juce::Justification::centredLeft);
+            chipBtn (g, gridBtnR, gridEdit ? U ("TORNA AL PIANO ROLL") : U ("DISEGNA LA FIGURA"), gridEdit, C::green, 9, hoverId == 285);
+        }
         else
         {
             const auto& pn = patternNames (m); const int pat = juce::jlimit (0, pn.size() - 1, proc.vi ("pat"));
             for (int i = 0; i < 12; ++i) if (i < pn.size()) chipBtn (g, patR[i], pn[i], pat == i, C::violet, 9.0f, hoverId == 210 + i);
         }
-        if (P != nullptr) drawRoll (g, editing ? edPart : *P);
+        if (gridEdit && (m == ARPEGGIO || m == COMPOSIZIONE)) drawGrid (g);
+        else if (P != nullptr) drawRoll (g, editing ? edPart : *P);
         // trascina
         {
             const auto c = dragging ? C::green : C::amber;
@@ -387,13 +454,27 @@ void Editor::layerMenu (int ly)
     static const char* ids[3] = { "lyBase", "lyArp", "lyLead" };
     auto* prm = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (ids[ly])); if (prm == nullptr) return;
     juce::PopupMenu m; m.addSectionHeader (ly == 0 ? U ("BASE (A SINISTRA)") : ly == 1 ? U ("ARPEGGIO (SECONDA CHITARRA, A DESTRA)") : U ("LEAD (AL CENTRO)"));
+    if (ly == 1) m.addSectionHeader (U ("STILI"));
     for (int k = 0; k < prm->choices.size(); ++k) m.addItem (1 + k, prm->choices[k], true, prm->getIndex() == k);
+    if (ly == 1)
+    {
+        juce::PopupMenu f, r;
+        for (int i = 0; i < kFigs; ++i) f.addItem (500 + i, juce::String (figOf (i).name) + "   " + figOf (i).seq, true, proc.vi ("arpFig") == i);
+        for (int i = 0; i < kRits; ++i) r.addItem (600 + i, ritOf (i).name, true, proc.vi ("arpRit") == i);
+        m.addSeparator(); m.addSubMenu (U ("FIGURA (ORDINE DELLE CORDE)"), f); m.addSubMenu (U ("RITMO"), r);
+        m.addItem (700, gridEdit ? U ("TORNA AL PIANO ROLL") : U ("DISEGNA LA FIGURA (GRIGLIA)"));
+    }
     juce::Component::SafePointer<Editor> sp (this);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (layR[ly].toNearestInt()))), [sp, ly] (int r)
     {
         if (sp == nullptr || r <= 0) return;
         static const char* ids2[3] = { "lyBase", "lyArp", "lyLead" };
-        sp->proc.undo.beginNewTransaction(); sp->proc.setV (ids2[ly], (float) (r - 1)); sp->proc.curPreset = -1; sp->repaint();
+        sp->proc.undo.beginNewTransaction();
+        if (r == 700) { sp->gridEdit = ! sp->gridEdit; if (sp->gridEdit) sp->proc.setV ("arpFig", (float) (kFigs - 1)); }
+        else if (r >= 600) sp->proc.setV ("arpRit", (float) (r - 600));
+        else if (r >= 500) { sp->proc.setV ("arpFig", (float) (r - 500)); if (r - 500 == kFigs - 1) sp->gridEdit = true; }
+        else { sp->proc.setV (ids2[ly], (float) (r - 1)); if (ly == 1 && r > 1) sp->proc.applyArpStyle (r - 2); }
+        sp->proc.curPreset = -1; sp->repaint();
     });
 }
 void Editor::genreMenu()
@@ -438,7 +519,7 @@ void Editor::mouseDown (const juce::MouseEvent& e)
     for (int i = 0; i < 8; ++i) if (slotR[i].contains (p)) { selSlot = i; slotMenu (i); repaint(); return; }
     if (tuningR.contains (p)) { proc.setV ("tuning", (float) ((proc.vi ("tuning") + 1) % kTunings)); repaint(); return; }
     for (int i = 0; i < kVStyles; ++i) if (vstyleR[i].contains (p)) { proc.setV ("vstyle", (float) i); repaint(); return; }
-    for (int i = 0; i < kModes; ++i) if (modeR[i].contains (p)) { proc.setV ("mode", (float) i); if (i != COMPOSIZIONE) proc.setV ("pat", 0); proc.curPreset = -1; sel.clear(); selSig.clear(); repaint(); return; }
+    for (int i = 0; i < kModes; ++i) if (modeR[i].contains (p)) { proc.setV ("mode", (float) i); if (i != COMPOSIZIONE) proc.setV ("pat", 0); proc.curPreset = -1; sel.clear(); selSig.clear(); if (i != ARPEGGIO && i != COMPOSIZIONE) gridEdit = false; repaint(); return; }
     const bool comp = proc.vi ("mode") == COMPOSIZIONE;
     if (comp)
     {
@@ -447,7 +528,23 @@ void Editor::mouseDown (const juce::MouseEvent& e)
         for (int i = 0; i < 3; ++i) if (editLayR[i].contains (p)) { editLayer = i; repaint(); return; }
         for (int i = 0; i < 3; ++i) if (layDragR[i].contains (p)) return;   // trascinamento in mouseDrag
     }
+    else if (proc.vi ("mode") == ARPEGGIO)
+    {
+        if (styleR.contains (p)) { styleMenu(); return; }
+        if (figR.contains (p)) { figMenu(); return; }
+        if (ritR.contains (p)) { ritMenu(); return; }
+        if (figDiceR.contains (p)) { int f = proc.vi ("arpFig"), n = f; while (n == f) n = juce::Random::getSystemRandom().nextInt (kFigs - 1); proc.setV ("arpFig", (float) n); proc.curPreset = -1; repaint(); return; }
+        if (ritDiceR.contains (p)) { int f = proc.vi ("arpRit"), n = f; while (n == f) n = juce::Random::getSystemRandom().nextInt (kRits); proc.setV ("arpRit", (float) n); proc.curPreset = -1; repaint(); return; }
+        if (gridBtnR.contains (p)) { gridEdit = ! gridEdit; if (gridEdit) proc.setV ("arpFig", (float) (kFigs - 1)); repaint(); return; }
+    }
     else for (int i = 0; i < 12; ++i) if (patR[i].contains (p) && i < patternNames (proc.vi ("mode")).size()) { proc.setV ("pat", (float) i); proc.curPreset = -1; repaint(); return; }
+    if (gridEdit && (proc.vi ("mode") == ARPEGGIO || proc.vi ("mode") == COMPOSIZIONE) && rollR.contains (p))
+    {   // griglia: clic accende o spegne, trascinando si dipinge
+        auto gr = proc.grid();
+        for (int r = 0; r < 5; ++r) for (int k = 0; k < 16; ++k) if (gridCell (r, k).expanded (1.5f).contains (p))
+        { gridPaint = (gr[(size_t) r] & (1 << k)) ? 0 : 1; gr[(size_t) r] = (juce::uint16) (gridPaint ? gr[(size_t) r] | (1 << k) : gr[(size_t) r] & ~(1 << k)); proc.setGrid (gr); repaint(); }
+        return;
+    }
     if (snapR.contains (p)) { snapIdx = (snapIdx + 1) % 4; repaint(); return; }
     if (resetEditR.contains (p)) { if (proc.edited()) { proc.clearEdit(); sel.clear(); selSig.clear(); } repaint(); return; }
     for (auto& cl : chordLabels) if (cl.first.contains (p)) { const auto pr = proc.prog(); slotMenu (cl.second % (int) pr.size(), cl.first); return; }
@@ -485,6 +582,14 @@ void Editor::mouseDown (const juce::MouseEvent& e)
 void Editor::mouseDrag (const juce::MouseEvent& e)
 {
     const auto p = e.position / scaler.s, d0 = e.getMouseDownPosition().toFloat() / scaler.s;
+    if (gridPaint >= 0)
+    {
+        auto gr = proc.grid(); bool ch = false;
+        for (int r = 0; r < 5; ++r) for (int k = 0; k < 16; ++k) if (gridCell (r, k).contains (p))
+        { const bool on = gr[(size_t) r] & (1 << k); if (on != (gridPaint == 1)) { gr[(size_t) r] = (juce::uint16) (gridPaint ? gr[(size_t) r] | (1 << k) : gr[(size_t) r] & ~(1 << k)); ch = true; } }
+        if (ch) { proc.setGrid (gr); repaint(); }
+        return;
+    }
     if (editing)
     {
         const double L = edPart.len();
@@ -529,6 +634,7 @@ void Editor::mouseDrag (const juce::MouseEvent& e)
 }
 void Editor::mouseUp (const juce::MouseEvent& e)
 {
+    gridPaint = -1;
     if (! editing) return;
     editing = false;
     if ((editMode == 1 || editMode == 2) && e.getDistanceFromDragStart() > 2)
@@ -541,7 +647,7 @@ void Editor::mouseUp (const juce::MouseEvent& e)
 }
 void Editor::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    const auto p = e.position / scaler.s; if (! rollR.contains (p)) return;
+    const auto p = e.position / scaler.s; if (! rollR.contains (p) || gridEdit) return;
     auto P = proc.part(); if (P == nullptr) return;
     editing = false; editMode = 0;
     edPart = *P; const int h = hitNote (edPart, p);
@@ -574,6 +680,7 @@ void Editor::mouseMove (const juce::MouseEvent& e)
     chk (tuningR, 170); for (int i = 0; i < kVStyles; ++i) chk (vstyleR[i], 180 + i);
     for (int i = 0; i < kModes; ++i) chk (modeR[i], 200 + i);
     if (proc.vi ("mode") == COMPOSIZIONE) for (int i = 0; i < 3; ++i) { chk (layR[i], 240 + i); chk (diceR[i], 243 + i); chk (editLayR[i], 250 + i); chk (layDragR[i], 260 + i); }
+    else if (proc.vi ("mode") == ARPEGGIO) { chk (styleR, 280); chk (figR, 281); chk (figDiceR, 282); chk (ritR, 283); chk (ritDiceR, 284); chk (gridBtnR, 285); }
     else for (int i = 0; i < 12; ++i) chk (patR[i], 210 + i);
     chk (snapR, 270); chk (resetEditR, 271);
     chk (dragR, 230); chk (genR, 231); chk (varR, 232); chk (playR, 233); chk (liveR, 234); chk (midiR, 235); chk (csR, 236);
@@ -599,6 +706,10 @@ void Editor::mouseMove (const juce::MouseEvent& e)
         { 243, "Rifa' solo la base, il resto resta." }, { 244, "Rifa' solo l'arpeggio." }, { 245, "Rifa' solo la melodia." },
         { 250, "Le note aggiunte con il doppio clic vanno alla base." }, { 251, "Le note aggiunte vanno all'arpeggio." }, { 252, "Le note aggiunte vanno al lead." },
         { 260, "Trascina solo la base." }, { 261, "Trascina solo l'arpeggio." }, { 262, "Trascina solo il lead." },
+        { 280, "Stili pronti: una figura e un ritmo che stanno bene insieme." },
+        { 281, "FIGURA: l'ordine in cui la mano prende le corde dell'accordo. 1 = la corda piu' acuta, B = il basso. Segue ogni accordo da sola." },
+        { 282, "Un'altra figura, stesso ritmo." }, { 283, "RITMO dell'arpeggio, indipendente dalla figura. Se la figura ha 3 note e il ritmo 4, la figura scivola sul tempo." },
+        { 284, "Un altro ritmo, stessa figura." }, { 285, "Disegna la tua figura: 5 righe (le corde dell'accordo dall'acuta al basso) per 16 sedicesimi." },
         { 270, "Griglia del piano roll per spostare e aggiungere note." }, { 271, "Le modifiche a mano restano finche' non cambi il giro o le manopole della parte. Qui le togli." } };
     juce::String ni; auto it = tips.find (h); if (it != tips.end()) ni = U (it->second);
     if (hs >= 0) ni = U ("Clic per scegliere l'accordo e il suo colore: sopra quelli della scala, poi quelli presi in prestito, in fondo il colore.");

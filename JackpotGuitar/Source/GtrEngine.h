@@ -252,6 +252,38 @@ struct Part
 // ------------------------------------------------------------------------------------------------ impostazioni
 enum Mode { ACCORDI, RITMICA, ARPEGGIO, LEAD, COMPOSIZIONE, kModes };
 inline const char* modeName (int m) { static const char* n[kModes] = { "ACCORDI", "RITMICA", "ARPEGGIO", "LEAD", "COMPOSIZIONE" }; return n[juce::jlimit (0, kModes - 1, m)]; }
+// ------------------------------------------------------------------------------------------------ arpeggio: figura e ritmo
+// figura = l'ordine in cui la mano prende le voci dell'accordo. 1 = la voce piu' acuta, 2 la seconda dall'alto, 3, 4; B = basso, A = basso alternato.
+// Due cifre insieme = pizzicate insieme. La figura segue qualsiasi voicing e ricomincia a ogni cambio d'accordo.
+struct Fig { const char* name; const char* seq; };
+constexpr int kFigs = 15;
+inline const Fig& figOf (int i)
+{
+    static const Fig F[kFigs] = {
+        { "SALITA", "B 3 2 1" }, { "DISCESA", "1 2 3 B" }, { "SU E GIU'", "B 3 2 1 2 3" }, { "PEDALE ALTO", "B 1 3 1 2 1 3 1" },
+        { "1-3-1-B", "1 3 1 B" }, { "1-2-4-1", "1 2 4 1" }, { "SALTI", "B 1 3 2" }, { "TRAVIS", "B 2 A 1" },
+        { "ROLL A TRE", "B 2 1" }, { "PINZA", "B1 3 2 3" }, { "DIADI", "B 12 3 12" }, { "CASCATA", "1 2 3 4 B" },
+        { "ALTERNATO", "B 1 A 1" }, { "INTRECCIO", "B 2 1 2 A 2 1 3" }, { "GRIGLIA", "" } };
+    return F[juce::jlimit (0, kFigs - 1, i)];
+}
+// ritmo: x nota, X nota accentata, - niente. 16 passi (sedicesimi) o 12 (terzine)
+struct Rit { const char* name; const char* steps; };
+constexpr int kRits = 10;
+inline const Rit& ritOf (int i)
+{
+    static const Rit R[kRits] = {
+        { "OTTAVI", "X-x-x-x-X-x-x-x-" }, { "SEDICESIMI", "Xxxxxxxxxxxxxxxx" }, { "PUNTATO 3+3+2", "X--x--x-X--x--x-" }, { "OTTAVO + 2 SEDIC.", "X-xxx-xxX-xxx-xx" },
+        { "TERZINE", "XxxxxxXxxxxx" }, { "SINCOPATO", "X-x--x-xX-x--x-x" }, { "SEMIMINIME", "X---x---X---x---" }, { "LUNGA E CORSA", "X---x---X-xxxxx-" },
+        { "TRAP SPARSO", "X--x--x---x-x---" }, { "SHUFFLE", "X-xx-xX-xx-x" } };
+    return R[juce::jlimit (0, kRits - 1, i)];
+}
+// gli stili dell'arpeggio sono combinazioni pronte di figura e ritmo
+inline std::pair<int, int> arpStyle (int style)
+{
+    static const std::pair<int, int> M[12] = { { 2, 1 }, { 6, 0 }, { 7, 0 }, { 0, 1 }, { 2, 4 }, { 3, 4 }, { 11, 5 }, { 13, 5 }, { 12, 1 }, { 11, 1 }, { 3, 1 }, { 10, 0 } };
+    return M[juce::jlimit (0, 11, style)];
+}
+
 // colori dell'accordo (nel menu di ogni accordo)
 constexpr int kColors = 8;
 inline const char* colorName (int c) { static const char* n[kColors] = { "TRIADE", "SETTIMA", "NONA", "SUS / ADD9", "SUS2", "SUS4", "ADD9", "SESTA" }; return n[juce::jlimit (0, kColors - 1, c)]; }
@@ -264,6 +296,8 @@ struct Settings
     float human = 0.35f, swing = 0.0f, strum = 0.35f, dyn = 0.6f, borrow = 0.0f, ring = 0.7f, emb = 0.3f, tech = 0.5f;
     double bpm = 120;
     int mood = 0;                        // 0 = dal genere
+    int arpFig = 6, arpRit = 0;              // arpeggio: figura delle corde e ritmo (separati)
+    std::array<juce::uint16, 5> grid { 0x4444, 0, 0x1010, 0, 0x0101 };   // figura disegnata: righe 1 (acuta), 2, 3, 4, BASSO; un bit per sedicesimo
     int lyBase = 1, lyArp = 1, lyLead = 0;   // composizione: pattern di ogni strato (-1 spento; base: 0..5 accordi, 100+ ritmica)
     juce::uint32 seedB = 1, seedA = 2, seedL = 3;
     float space = 0.3f;                  // pause: quanto respira la parte

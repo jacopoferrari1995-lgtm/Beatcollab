@@ -57,6 +57,9 @@ public:
     void clearEdit();
     bool edited() const { return apvts.state.getProperty ("edit").toString().isNotEmpty() && apvts.state.getProperty ("editKey").toString() == settingsKey(); }
     void rerollLayer (int layer);
+    void applyArpStyle (int style) { const auto fr = arpStyle (style); setV ("arpFig", (float) fr.first); setV ("arpRit", (float) fr.second); }
+    std::array<juce::uint16, 5> grid() const;
+    void setGrid (const std::array<juce::uint16, 5>& g);
     juce::String clipName() const;
 
     void loadPreset (int i);

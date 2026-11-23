@@ -279,96 +279,112 @@ struct Gen
     }
 
     // --------------------------------------------------------------------------------------------- ARPEGGIO
-    struct APat { int steps; const char* t; };
-    static const APat& apat (int p)
+    // voce dell'accordo -> corda: 1 la piu' acuta, 2 la seconda dall'alto, 3, 4; B il basso, A il basso alternato
+    int voiceStr (int slot, char c) const
     {
-        static const APat A[] = {
-            { 16, "B A 1 2 3 2 1 A B A 1 2 3 2 1 A" },      // SALITA
-            { 8,  "B 1 2 3 2 1 3 2" },                      // TRAP TRISTE
-            { 8,  "B3 2 A 1 B 3 A 2" },                     // TRAVIS (pollice alternato sui tempi, dita in levare)
-            { 16, "B 1 2 3 4 1 2 3 A 1 2 3 4 1 2 3" },      // PIMA
-            { 12, "B 1 2 3 2 1 A 1 2 3 2 1" },              // 6/8 EMO
-            { 12, "B 3 2 - 3 1 A 3 2 - 3 1" },              // TERZINE DRILL
-            { 16, "B 1 2 3 - - 3 2 - - 1 - A - 2 -" },      // R&B ROLL
-            { 16, "B - 3 2 - 3 1 - A - 3 2 - 3 1 -" },      // HIGHLIFE
-            { 16, "B 2 3 2 A 2 3 2 B 2 3 2 A 2 3 2" },      // CLASSICO
-            { 16, "3 2 1 B 3 2 1 A 3 2 1 B 3 2 1 A" },      // CASCATA (dall'acuto al grave)
-            { 16, "B 3 2 3 1 3 2 3 A 3 2 3 1 3 2 3" },      // PEDALE (la nota alta torna sempre)
-            { 8,  "B 23 - 23 A 23 - 23" } };                // DIADI (due corde insieme)
-        return A[juce::jlimit (0, 11, p)];
+        const auto v = sounding (slot); const int n = (int) v.size(); if (n == 0) return -1;
+        if (c == 'B') return v[0];
+        if (c == 'A') return roleStr (slot, 'A');
+        if (c >= '1' && c <= '4') { const int k = c - '0'; return v[(size_t) juce::jlimit (n > 1 ? 1 : 0, n - 1, n - k)]; }
+        return -1;
+    }
+    // importanza di un passo: battere > ottavo > sedicesimo (per togliere o aggiungere note con la DENSITA')
+    static int importance (int k, int steps) { if (steps == 12) return k % 6 == 0 ? 4 : k % 3 == 0 ? 3 : 1; return k % 8 == 0 ? 4 : k % 4 == 0 ? 3 : k % 2 == 0 ? 2 : 1; }
+    // il ritmo con la densita': sotto il 50% toglie le note meno importanti, sopra aggiunge riempimenti (note fantasma) nei posti piu' importanti.
+    // Ogni tacca della manopola cambia il numero di note. 0 = niente, 1 = nota, 2 = accento, 3 = aggiunta
+    std::vector<int> rhythmMask (const char* pat, int steps, float d, juce::uint32 salt) const
+    {
+        std::vector<int> m ((size_t) steps, 0); int n0 = 0;
+        for (int k = 0; k < steps; ++k) { m[(size_t) k] = pat[k] == 'X' ? 2 : pat[k] == 'x' ? 1 : 0; n0 += m[(size_t) k] > 0; }
+        const float f = d < 0.5f ? 0.3f + 1.4f * d : 1.0f + 2.6f * (d - 0.5f);
+        const int target = juce::jlimit (1, steps, (int) std::round ((float) n0 * f));
+        Rng r (S.seed * 131u + salt);
+        std::vector<std::pair<float, int>> rank;
+        if (target < n0)
+        {
+            for (int k = 0; k < steps; ++k) if (m[(size_t) k] > 0 && k != 0) rank.push_back ({ (float) importance (k, steps) + (m[(size_t) k] == 2 ? 2.0f : 0.0f) + r.f() * 0.9f, k });
+            std::sort (rank.begin(), rank.end());
+            for (int q = 0; q < n0 - target && q < (int) rank.size(); ++q) m[(size_t) rank[(size_t) q].second] = 0;
+        }
+        else if (target > n0)
+        {
+            for (int k = 0; k < steps; ++k) if (m[(size_t) k] == 0) rank.push_back ({ -((float) importance (k, steps) + r.f() * 0.9f), k });
+            std::sort (rank.begin(), rank.end());
+            for (int q = 0; q < target - n0 && q < (int) rank.size(); ++q) m[(size_t) rank[(size_t) q].second] = 3;
+        }
+        return m;
     }
     void arpeggio()
     {
-        const auto& A = apat (S.pattern); const auto tok = juce::StringArray::fromTokens (A.t, " ", "");
-        const double st = 4.0 / A.steps; const bool tripl = A.steps == 12;
-        const double ringLen = st * (1.0 + ring * 14.0);
-        const int n = tok.size();
-        auto isBass = [&] (int k) { return tok[k].containsChar ('B') || tok[k].containsChar ('A'); };
-        // la battuta-tipo: quali note acute restano. Si decide una volta sola e si ripete come un motivo (non a caso battuta per battuta)
-        auto makeMask = [&] (juce::uint32 salt, float d)
+        const bool useGrid = S.arpFig == kFigs - 1;
+        const auto& R = ritOf (S.arpRit);
+        const int steps = useGrid ? 16 : (int) std::strlen (R.steps);
+        const double st = 4.0 / steps; const bool tripl = steps == 12;
+        auto fig = juce::StringArray::fromTokens (figOf (S.arpFig).seq, " ", "");
+        if (fig.isEmpty()) fig.add ("B");
+        // la battuta-tipo: decisa una volta, poi ripetuta (il motivo si riconosce); la seconda frase del giro di 8 un po' piu' piena
+        std::vector<int> base, lift;
+        if (useGrid)
         {
-            Rng r (S.seed * 977u + salt); std::vector<int> m ((size_t) n, 1);
-            for (int k = 0; k < n; ++k) { if (tok[k] == "-") { m[(size_t) k] = 0; continue; } if (! isBass (k) && d < 0.5f && r.p ((0.5f - d) * 1.3f)) m[(size_t) k] = 0; }
-            return m;
-        };
-        // variazione della battuta-tipo: una nota acuta tolta o aggiunta (2 = nota nuova dove c'era una pausa)
-        auto vary = [&] (std::vector<int> m, juce::uint32 salt)
-        {
-            Rng r (S.seed * 131u + salt); const int k0 = r.i (n);
-            for (int q = 0; q < n; ++q)
-            {
-                const int j = (k0 + q) % n; if (j == 0 || isBass (j)) continue;
-                if (tok[j] == "-") { if (dens > 0.3f) { m[(size_t) j] = 2; break; } continue; }
-                m[(size_t) j] = m[(size_t) j] ? 0 : 1; break;
-            }
-            return m;
-        };
-        const auto base = makeMask (1, S.density);   // i buchi nell arpeggio solo se la DENSITA la abbassi tu
-        auto lifted1 = base; { Rng lr (S.seed * 17u + 3u); for (int k = 0; k < n; ++k) if (lifted1[(size_t) k] == 0 && tok[k] != "-" && lr.p (mk.lift * 0.6f)) lifted1[(size_t) k] = 1; }
+            base.assign (16, 0); for (int k = 0; k < 16; ++k) for (int rr = 0; rr < 5; ++rr) if (S.grid[(size_t) rr] & (1 << k)) base[(size_t) k] = k % 4 == 0 ? 2 : 1;
+            lift = base;
+        }
+        else { base = rhythmMask (R.steps, steps, S.density, 1); lift = rhythmMask (R.steps, steps, juce::jmin (1.0f, S.density + 0.12f * mk.lift), 2); }
+        auto gridTok = [&] (int k) { juce::String t; static const char rc[5] = { '1', '2', '3', '4', 'B' }; for (int rr = 0; rr < 5; ++rr) if (S.grid[(size_t) rr] & (1 << k)) t += juce::String::charToString (rc[rr]); return t; };
+        int lastSlot = -1, fi = 0;
         for (int b = 0; b < P.bars; ++b)
         {
             const int rl = role (b); Rng br (S.seed * 7919u + (juce::uint32) b * 104729u);
-            auto m = lifted (b) && rl != 3 ? lifted1 : base;
+            const auto& m = lifted (b) && rl != 3 ? lift : base;
             const bool same = br.p (mk.repeat);
-            int vid = lifted (b) && rl != 3 ? 1 : 0;   // le battute con la stessa versione suonano uguali, abbellimenti compresi
-            if ((rl == 1 || rl == 2) && ! same) { m = vary (m, (juce::uint32) (11 + b * 3)); vid = 10 + b; }
-            // respiro: a fine frase le note acute tacciono e l'ultima resta a suonare; con SPAZI alti anche a meta' frase
+            const bool reverseHalf = ! useGrid && rl == 1 && ! same;              // risposta: la seconda meta' della battuta va al contrario
+            const bool fill = ! useGrid && rl == 3 && P.bars > 1 && S.space <= 0.45f && dens > 0.3f && ! br.p (mk.repeat - 0.3f);   // fine frase: corsa dal basso all'acuto
             double breath = 1e9;
-            // l'arpeggio scorre: si ferma solo se lo chiedi con PAUSE (sopra il 45%)
             if (rl == 3 && S.space > 0.45f && br.p ((S.space - 0.2f) * (1.0f - mk.repeat * 0.6f))) breath = S.space > 0.75f ? 2.0 : 3.0;
-            else if (rl == 1 && S.space > 0.7f && br.p (S.space - 0.55f)) breath = 3.0;
-            if (P.bars == 1) breath = 1e9;
-            int lastTreble = -1; for (int k = 0; k < n; ++k) if (k * st < breath - 1e-6 && m[(size_t) k] != 0 && ! isBass (k)) lastTreble = k;
-            for (int k = 0; k < n; ++k)
+            int lastK = -1, fillIdx = 0; for (int k = 0; k < steps; ++k) if (m[(size_t) k] && k * st < breath - 1e-6) lastK = k;
+            for (int k = 0; k < steps; ++k)
             {
-                if (m[(size_t) k] == 0) continue;
                 const double pos = k * st;
-                if (pos >= breath - 1e-6 && ! (k == 0)) continue;
-                juce::String tk = tok[k];
-                if (m[(size_t) k] == 2) { const juce::String pv = k > 0 ? tok[k - 1] : juce::String ("1"); tk = pv.containsChar ('3') ? "2" : "3"; }
-                const double tb = b * 4.0 + pos, t = sw (tb, tripl ? 1.0 / 3.0 : st);
+                const bool inFill = fill && pos >= 3.0 - 1e-6;
+                if (! inFill && m[(size_t) k] == 0) continue;
+                if (pos >= breath - 1e-6) continue;
+                const double tb = b * 4.0 + pos, t = sw (tb, tripl ? 1.0 / 3.0 : 0.25);
                 const int i = slotAt (tb + 1e-6);
+                if (i != lastSlot) { fi = 0; lastSlot = i; }                       // la figura ricomincia al cambio d'accordo
+                juce::String tk;
+                if (useGrid) tk = gridTok (k);
+                else if (inFill) { static const char* run[4] = { "B", "3", "2", "1" }; tk = run[juce::jmin (3, fillIdx++)]; }
+                else
+                {
+                    const int n = fig.size(); int idx = fi % n; if (reverseHalf && pos >= 2.0) idx = n - 1 - idx;
+                    tk = fig[idx]; ++fi;
+                }
+                // distanza dalla nota dopo: le corde suonano fino a li' (piu' a lungo con RISUONA)
+                int nk = k + 1; while (nk < steps && m[(size_t) nk] == 0 && ! (fill && nk * st >= 3.0)) ++nk;
+                const double gap = (nk - k) * st;
+                double len = gap * (0.9 + ring * 6.0);
+                if (k == lastK && breath < 1e8) len = juce::jmax (len, 4.0 - pos);
+                // dinamica: battere piu' forte, pollice sul basso, nota alta sui tempi, piccolo crescendo nella battuta, note aggiunte piu' leggere
+                const int imp = importance (k, steps);
+                float v = 0.55f + (imp >= 4 ? 0.15f : imp == 3 ? 0.10f : imp == 2 ? 0.05f : 0.0f) * (0.4f + S.dyn) + 0.05f * (float) (pos / 4.0) * S.dyn;
+                if (m[(size_t) k] == 2) v += 0.05f * S.dyn;
+                if (m[(size_t) k] == 3 || inFill) v *= 0.78f;
                 ++grpN; const double h = hum(); const float gv = hv();
-                Rng er (S.seed * 2654435u + (juce::uint32) k * 97u + (juce::uint32) vid * 7919u);
+                Rng er (S.seed * 2654435u + (juce::uint32) k * 97u + (juce::uint32) (lifted (b) ? 1 : 0) * 7919u + (juce::uint32) (reverseHalf ? 3 : 0));
+                int q = 0;
                 for (auto c : tk)
                 {
-                    const int s = roleStr (i, (char) c); if (s < 0) continue;
+                    const int s = voiceStr (i, (char) c); if (s < 0) continue;
                     const int f = P.voic[(size_t) i].fret[(size_t) s];
                     const bool bass = c == 'B' || c == 'A';
-                    const float v = (bass ? vAcc (k == 0) : vAcc (false) * (0.92f + 0.08f * (float) (c - '0') / 3.0f)) + gv;
-                    const double tt = juce::jmax (0.0, t + h);
-                    double len = bass ? ringLen * 1.5 : ringLen;
-                    if (k == lastTreble && breath < 1e8) len = juce::jmax (len, 4.0 - pos);   // la nota prima del respiro si lascia andare
+                    float vv = v + gv + (bass ? 0.07f : c == '1' && imp >= 3 ? 0.04f : 0.0f);
+                    const double tt = juce::jmax (0.0, t + h + ms (4.0 * q++));   // pizzicate insieme: appena sfalsate
                     if (! bass && f >= 1 && S.emb > 0.01f && er.p (S.emb * 0.22f))
                     {   // abbellimento: hammer-on da una nota della scala sotto, sulla stessa corda
-                        int g = -1; for (int d : { 2, 1 }) if (f - d >= 0 && ok (i, tun[(size_t) s] + f - d)) { g = f - d; break; }
-                        if (g >= 0) { const double gl = juce::jmin (0.125, st * 0.5); add (tt, gl + 0.02, s, g, v * 0.95f, i); add (tt + gl, len, s, f, v * 0.78f, i, false, false, 1); continue; }
+                        int g = -1; for (int dd : { 2, 1 }) if (f - dd >= 0 && ok (i, tun[(size_t) s] + f - dd)) { g = f - dd; break; }
+                        if (g >= 0) { const double gl = juce::jmin (0.125, gap * 0.5); add (tt, gl + 0.02, s, g, vv * 0.95f, i); add (tt + gl, len, s, f, vv * 0.78f, i, false, false, 1); continue; }
                     }
-                    add (tt, len, s, f, v, i);
-                }
-                if (dens > 0.75f && A.steps == 8 && pos + st < breath && er.p ((dens - 0.75f) * 1.6f))
-                {   // sedicesimo di passaggio sulla corda vicina
-                    const int s = roleStr (i, er.p (0.5f) ? '2' : '3'); if (s >= 0) pluck (t + st * 0.5, i, s, vAcc (false) * 0.8f, ringLen * 0.6);
+                    add (tt, bass ? len * 1.5 : len, s, f, vv, i);
                 }
             }
         }

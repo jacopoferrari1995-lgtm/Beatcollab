@@ -63,6 +63,7 @@ static int genTest()
             S.pos = (key * 3 + pat) % 11; S.density = ((key + pat) % 5) / 4.0f; S.tech = 0.8f; S.emb = 0.6f; S.swing = (pat % 3) * 0.3f; S.human = 0.6f;
             S.borrow = (key % 3 == 0) ? 0.8f : 0.0f; S.bars = (g % 2) ? 4 : 2; S.perBar = (key % 4 == 0) ? 2 : (key % 4 == 1) ? 0 : 1; S.mood = (key + g + pat) % kMoods; S.space = (pat % 4) * 0.3f; S.bars = (key % 2) ? 8 : S.bars;
             S.lyBase = (pat + key) % 3 == 0 ? -1 : (key % 2 ? 100 + pat % 11 : pat % 7); S.lyArp = (g + pat) % 4 == 0 ? -1 : (pat + g) % 12; S.lyLead = key % 5 == 0 ? -1 : pat % 6;
+            S.arpFig = (key + pat + g) % kFigs; S.arpRit = (pat + sc + key) % kRits; S.grid = { (juce::uint16) (0x1111 * (key % 3)), 0x0f0f, (juce::uint16) (0x4444 >> (pat % 3)), 0, 0x2222 };
             auto P = generateAny (S); auto sset = scaleSet (key, sc); auto tun = tuning (S.tuning);
             for (size_t i = 0; i < P.voic.size(); ++i)
             {
@@ -120,6 +121,26 @@ static int singTest (bool verbose)
     return (int) (big + trit + rangeBad + noBreath + endBad);
 }
 // variazione: in un giro di 8 quante battute sono identiche alla prima
+// densita' dell'arpeggio: quante note a ogni tacca, per qualche ritmo
+static void densTest()
+{
+    for (int rit : { 0, 2, 4, 6, 8 })
+    {
+        std::printf ("DENSITA' %-18s", ritOf (rit).name);
+        for (int d = 0; d <= 10; ++d)
+        {
+            Settings S; S.mode = ARPEGGIO; S.arpFig = 6; S.arpRit = rit; S.density = d / 10.0f; S.bars = 4; S.prog = { 0, 5, 2, 6 }; S.human = 0;
+            auto P = generate (S); std::printf (" %3d", (int) P.ev.size());
+        }
+        std::printf ("\n");
+    }
+    // figure diverse sullo stesso accordo: ordine delle corde della prima battuta
+    for (int f = 0; f < kFigs - 1; ++f)
+    {
+        Settings S; S.mode = ARPEGGIO; S.arpFig = f; S.arpRit = 0; S.density = 0.5f; S.bars = 4; S.prog = { 0 }; S.human = 0; S.emb = 0;
+        auto P = generate (S); std::printf ("FIGURA %-12s corde:", figOf (f).name); for (auto& e : P.ev) if (e.beat < 4) std::printf (" %d", 6 - e.str); std::printf ("\n");
+    }
+}
 static void varTest()
 {
     for (int mood = 0; mood < kMoods; ++mood)
@@ -146,6 +167,7 @@ int main (int argc, char** argv)
     if (mode == "gen" || mode == "all") bad += genTest();
     if (mode == "sing" || mode == "all") bad += singTest (mode == "sing");
     if (mode == "var" || mode == "all") varTest();
+    if (mode == "dens" || mode == "all") densTest();
     if (mode == "render" || mode == "all")
     {
         for (int i = 0; i < (int) presets().size(); ++i)
@@ -242,7 +264,8 @@ int main (int argc, char** argv)
         auto p = mk (std::getenv ("JPRESET") ? std::atoi (std::getenv ("JPRESET")) : 1);
         run (*p, 1.3, 512);
         if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
-        Editor ed (*p); if (std::getenv ("JBROWSE")) ed.browser.open();
+        if (std::getenv ("JGRID")) p->setV ("arpFig", (float) (kFigs - 1));
+        Editor ed (*p); if (std::getenv ("JBROWSE")) ed.browser.open(); if (std::getenv ("JGRID")) ed.gridEdit = true;
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argc > 2 ? argv[2] : "/tmp/gtr.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         std::printf ("snap %s\n", f.getFullPathName().toRawUTF8());
