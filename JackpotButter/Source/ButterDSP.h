@@ -106,7 +106,7 @@ public:
     std::atomic<float> corr { 1 }; double cLL = 0, cRR = 0, cLR = 0;
 private:
     std::unique_ptr<juce::dsp::Oversampling<float>> osSat, osClip, osLim; OsGate gSat, gClip, gLim; int latSat = 0, latClip = 0, latLim = 0, osLat = 0;
-    Hist dryDl[2], trDl; float rampLast[20] {}; float fLo4[2][2] {}, fHi4[2][2] {};
+    Hist dryDl[2], trDl; float rampLast[20] {}; float cMk = 0; float fLo4[2][2] {}, fHi4[2][2] {};
     std::vector<std::string> pkeys; std::unordered_map<std::string_view, std::atomic<float>*> pcache;
     double sr = 44100;
     std::vector<float> dryL, dryR, trW;

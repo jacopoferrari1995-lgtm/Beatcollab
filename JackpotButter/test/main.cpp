@@ -1,9 +1,37 @@
 #include <cstdlib>
+#include "TestLab.h"
 #include "../Source/ButterProcessor.h"
 #include "../Source/ButterEditor.h"
 using namespace jb;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "loud")
+    {   // rumore rosa a picco -1 e 20 dB sotto: guadagno RMS uscita/ingresso
+        const double sr = 48000; const int pr = std::getenv ("JPRESET") ? std::atoi (std::getenv ("JPRESET")) : -1;
+        for (float att : { 1.0f, 0.1f })
+        {
+            juce::Random r (3); std::vector<float> in ((size_t) sr * 6); float b0 = 0, b1 = 0, b2 = 0, pk = 0;
+            for (auto& v : in) { const float w = r.nextFloat() * 2 - 1; b0 = 0.99765f * b0 + w * 0.099f; b1 = 0.963f * b1 + w * 0.2965f; b2 = 0.57f * b2 + w * 1.0527f; v = b0 + b1 + b2 + w * 0.1848f; pk = std::max (pk, std::abs (v)); }
+            for (auto& v : in) v *= 0.89f / pk * att;
+            auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); if (pr >= 0) p->loadPreset (pr);
+            auto o = testlab::render (*p, (int) in.size(), [&] (int k) { return in[(size_t) k]; }, 512, false);
+            double ei = 0, eo = 0; for (size_t k = (size_t) sr * 2; k < in.size(); ++k) { ei += (double) in[k] * in[k]; eo += (double) o[k] * o[k]; }
+            std::printf ("ingresso %s: %+.1f dB\n", att > 0.5f ? "pieno " : "-20 dB", 10 * std::log10 (eo / ei));
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {   // come THE_LAB: stato iniziale (o JPRESET), JSET=id=valore,...
+        const int pr = std::getenv ("JPRESET") ? std::atoi (std::getenv ("JPRESET")) : -1;
+        testlab::run ([&] (double rate, int blk) -> std::unique_ptr<juce::AudioProcessor>
+        {
+            auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk);
+            if (pr >= 0) p->loadPreset (pr);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = p->apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+            return p;
+        }, std::getenv ("JNOCLICK") == nullptr);
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "eqcurve")
     {
         jmx::BandSet B; B.on = true; B.type = jmx::BT_HSHELF; B.f = 12000; B.g = 1.5f; B.q = 0.7f; jmx::BQ f[8]; const int n = jmx::designBand (B, 48000, B.g, f);

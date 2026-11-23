@@ -238,7 +238,7 @@ void Burro::prepare (double sampleRate, int maxBlock)
     latSat = (int) std::round (osSat->getLatencyInSamples() + lpGd); latClip = (int) std::round (osClip->getLatencyInSamples() + lpGd); latLim = (int) std::round (osLim->getLatencyInSamples()); osLat = latSat + latClip + latLim;
     gSat.prepare (latSat, mb); gClip.prepare (latClip, mb); gLim.prepare (latLim, mb);
     dryDl[0].prepare (mb + osLat + 8); dryDl[1].prepare (mb + osLat + 8); trDl.prepare (mb + osLat + 8);
-    for (auto& r : rampLast) r = -1e9f;
+    for (auto& r : rampLast) r = -1e9f; cMk = 0;
     for (auto& a : fLo4) for (auto& x : a) x = 0; for (auto& a : fHi4) for (auto& x : a) x = 0;
 }
 
@@ -396,7 +396,7 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
     grMeter = grMeter.load() * 0.9f;
     if (v ("u_cOn") > 0.5f && live (11, "u_cAmt"))
     {
-        const auto amtR = ramp (11, "u_cAmt"); const int type = (int) v ("u_cType"); const float bands = v ("u_cBands");
+        const auto amtR = ramp (11, "u_cAmt"); const int type = (int) v ("u_cType"); const auto bR = ramp (19, "u_cBands");
         struct CT { float att, rel, ratio; };
         static const CT T[] = { { 25, 90, 4 }, { 8, 250, 3 }, { 10, 200, 2 }, { 30, 300, 1.6f }, { 0.3f, 60, 20 }, { 2, 120, 6 } };
         const auto& t = T[jlimit (0, 5, type)];
@@ -412,16 +412,20 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
             return g + makeup;
         };
         auto det = [&] (float& e, float x) { e = x > e ? cA * e + (1 - cA) * x : cR * e + (1 - cR) * x; return Decibels::gainToDecibels (e + 1e-7f); };
-        float maxGr = 0;
+        float maxGr = 0; const float kMk = 1.0f - (float) std::exp (-1.0 / (0.3 * sr));
         for (int i = 0; i < N; ++i)
         {
             setAmt (amtR.at (i));
+            // makeup che segue la riduzione vera (media lenta, 300 ms), mai oltre quella fissa: niente volume regalato quando non comprime
+            makeup = jmin (makeup, cMk);
             const float l = ch[0][i], r = ch[1][i];
-            const float gS = gainDb (det (cEnv[0], jmax (std::abs (l), std::abs (r))));
+            const float lev0 = det (cEnv[0], jmax (std::abs (l), std::abs (r))), gS = gainDb (lev0);
+            const float grD = lev0 > thrD ? (lev0 - thrD) * (1.0f - 1.0f / t.ratio) : 0.0f;
+            cMk += (grD * 0.9f - cMk) * kMk;
             maxGr = jmax (maxGr, -jmin (0.0f, gS - makeup));
             float sl = l * Decibels::decibelsToGain (gS), sr2 = r * Decibels::decibelsToGain (gS);
-            if (bands > 0.001f)
-            {
+            {   // le tre bande girano sempre (rilevatori caldi) e BANDS scivola: girarlo non fa salti
+                const float bands = bR.at (i);
                 float bl[3], br[3];
                 const float ll = onePole (l, xLo[0], x1), lh = onePole (l, xHi[0], x2), rl = onePole (r, xLo[1], x1), rh = onePole (r, xHi[1], x2);
                 bl[0] = ll; bl[2] = l - lh; bl[1] = lh - ll; br[0] = rl; br[2] = r - rh; br[1] = rh - rl;
@@ -466,8 +470,8 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
             for (auto& d : drv) d.setModel (model);
             const float aB = aR.b; for (auto& d : drv) d.setDrive (aB * aB);
             // STILE = tono del saturato: a sinistra scuro, al centro com'e', a destra brillante (il 4 TRACK e' sempre un po' chiuso)
-            const float toneHz = type == 1 ? 7000.0f + 6000.0f * st : 4000.0f * std::pow (5.0f, st * 2.0f);
-            for (int c = 0; c < 2; ++c) { satTone[c].lp (s4, jmin (40000.0f, toneHz)); if (! satAAok) { satAA[c][0].lp (s4, 5000, 0.5412); satAA[c][1].lp (s4, 5000, 1.3066); } }
+            auto toneHz = [type] (float x) { return type == 1 ? 7000.0f + 6000.0f * x : 4000.0f * std::pow (5.0f, x * 2.0f); };
+            for (int c = 0; c < 2; ++c) { satTone[c].lp (s4, jmin (40000.0f, toneHz (stR.a))); if (! satAAok) { satAA[c][0].lp (s4, 5000, 0.5412); satAA[c][1].lp (s4, 5000, 1.3066); } }
             satAAok = true;
             const float aLo4 = coef (200, s4), aHi4 = coef (3000, s4);
             const float mx = (float) ja::modelInfo (model).maxDb * 0.8f;
@@ -475,6 +479,8 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
             for (int k = 0; k < N4; ++k)
             {
                 const int i = k / kOs; const float t = (k + 1) / (float) N4, a = aR.atF (t);
+                const float stK = stR.atF (t);   // STILE scivola campione per campione, il filtro di tono lo segue ogni 16 campioni
+                if (stR.a != stR.b && (k & 15) == 15) for (int c = 0; c < 2; ++c) satTone[c].lp (s4, jmin (40000.0f, toneHz (stK)));
                 const float ae = a * a, wet = jmin (1.0f, a * 3.0f), g = gA + (gB - gA) * t;
                 const float w = tgtW (tgt, trAt (i));
                 for (int c = 0; c < nc; ++c)
@@ -487,7 +493,7 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
                     float y = model == ja::FUZZ ? drv[c].process (satAA[c][1] (satAA[c][0] (band)), g * 0.7f, ae * 0.3f) : drv[c].process (band, g, ae);
                     {   // STILE continuo: a sinistra sfuma verso lo scuro, a destra aggiunge brillantezza, al centro neutro (niente salti a meta')
                         const float lp = satTone[c] (y);
-                        y = type == 1 ? lp : st >= 0.5f ? y + (y - lp) * (st - 0.5f) * 1.2f : y + (lp - y) * jmin (1.0f, (0.5f - st) * 4.0f);
+                        y = type == 1 ? lp : stK >= 0.5f ? y + (y - lp) * (stK - 0.5f) * 1.2f : y + (lp - y) * jmin (1.0f, (0.5f - stK) * 4.0f);
                     }
                     u[c][k] = rest + band + (y - band) * w * wet;
                 }
