@@ -5,43 +5,94 @@ namespace s8
 {
 const std::vector<Preset>& presets()
 {
+    // "GRUPPO | Nome": il gruppo diventa la colonna della scheda dei preset
     static const std::vector<Preset> E = {
-        { "Init", "Tutto a zero: l'808 passa intatta. Guarda la diagnosi a destra e parti da li'.", {} },
-        { "Trap | 808 Pulita", "Sub pulito, un filo di nastro sul corpo, armoniche per i telefoni, ducking leggero sulla cassa.", { { "punch", 0.3f }, { "drive", 0.15f }, { "harm", 0.25f }, { "duck", 0.3f }, { "rel", 90 }, { "mono", 3 }, { "ceil", -1 } } },
-        { "Trap | Debole da rinforzare", "Per gli 808 sottili: SUB+ aggiunge una sinusoide pulita agganciata alla nota, KNOCK da' il colpo.", { { "subPlus", 0.6f }, { "punch", 0.25f }, { "knock", 3 }, { "knockHz", 180 }, { "harm", 0.3f }, { "mono", 3 }, { "ceil", -1 } } },
-        { "Drill | Grintosa", "Attacco in avanti, saturazione dura sul corpo, ducking piu' deciso per le casse veloci.", { { "punch", 0.45f }, { "drive", 0.45f }, { "mode", 2 }, { "harm", 0.35f }, { "duck", 0.4f }, { "rel", 70 }, { "mono", 3 }, { "ceil", -0.5f } } },
-        { "Drill | UK scivolata", "Per le 808 che scivolano: corpo duro, alti tagliati sopra i 6 kHz, sub in mono.", { { "punch", 0.3f }, { "drive", 0.35f }, { "mode", 2 }, { "topHz", 6000 }, { "harm", 0.3f }, { "duck", 0.35f }, { "rel", 80 }, { "mono", 3 } } },
-        { "Spinz | Distorta", "La grana sporca e asimmetrica delle 808 distorte, con il sub che resta sotto pulito.", { { "drive", 0.7f }, { "mode", 4 }, { "harm", 0.2f }, { "punch", 0.2f }, { "mono", 4 }, { "ceil", -1 } } },
-        { "Rage | Distorta", "808 che riempie tutto: carattere RAGE sul corpo e sugli alti, sub tenuto pulito sotto.", { { "punch", 0.2f }, { "sustain", 0.1f }, { "drive", 0.8f }, { "mode", 5 }, { "harm", 0.2f }, { "duck", 0.25f }, { "rel", 90 }, { "mono", 4 }, { "ceil", -1 } } },
-        { "Su Telefono", "Per chi ascolta da telefono e cuffiette: tante armoniche, un po' di valvola, knock in alto.", { { "punch", 0.15f }, { "drive", 0.3f }, { "mode", 1 }, { "harm", 0.7f }, { "knock", 2.5f }, { "knockHz", 220 }, { "duck", 0.2f }, { "rel", 100 }, { "mono", 3 } } },
-        { "Boom Bap | Sub Caldo", "Basso caldo e tondo: valvola leggera, alti morbidi, coda un po' piu' lunga.", { { "punch", 0.15f }, { "sustain", 0.2f }, { "drive", 0.25f }, { "mode", 1 }, { "harm", 0.2f }, { "topHz", 5000 }, { "duck", 0.15f }, { "rel", 150 }, { "mono", 2 } } },
-        { "Lunga | Melodica", "808 che canta la melodia: coda allungata, armoniche per seguire le note.", { { "punch", 0.1f }, { "sustain", 0.5f }, { "drive", 0.2f }, { "harm", 0.35f }, { "duck", 0.25f }, { "rel", 150 }, { "mono", 3 } } },
-        { "Corta | Bouncy", "808 corta e saltellante: coda accorciata, attacco in avanti.", { { "punch", 0.5f }, { "sustain", -0.5f }, { "drive", 0.2f }, { "harm", 0.2f }, { "duck", 0.2f }, { "rel", 60 }, { "mono", 3 } } },
-        { "Club | Sub pieno", "Per gli impianti grossi: SUB in piu', sub in mono fino a 120 Hz, clipper che tiene i picchi.", { { "subDb", 3 }, { "subPlus", 0.3f }, { "punch", 0.2f }, { "drive", 0.15f }, { "mono", 3 }, { "ceil", -1.5f }, { "duck", 0.3f }, { "rel", 90 } } },
-        { "Lo-fi | Scura", "808 smussata: alti chiusi, nastro, poco attacco.", { { "topHz", 1800 }, { "drive", 0.25f }, { "punch", -0.0f }, { "sustain", 0.15f }, { "mono", 2 } } },
-        { "Cassa e 808 | Spazio", "Per quando cassa e 808 si pestano: ducking forte e veloce, controlla la fase nella diagnosi.", { { "duck", 0.6f }, { "rel", 70 }, { "punch", 0.2f }, { "mono", 3 } } } };
+        { "BASE | Init", "Tutto a zero: l'808 passa intatta. Guarda la diagnosi a destra e parti da li'.", {} },
+        { "BASE | Solo clipper", "Niente colore: solo il clipper morbido a -1 dB per tenere i picchi dell'808.", { { "ceil", -1 } } },
+        { "BASE | Solo mono sub", "Niente colore: sotto i 120 Hz tutto in mono, per club e casse in mono.", { { "mono", 3 } } },
+        { "TRAP | Pulita", "Sub pulito, un filo di nastro sul corpo, armoniche per i telefoni, ducking leggero sulla cassa.", { { "punch", 0.3f }, { "drive", 0.15f }, { "harm", 0.25f }, { "duck", 0.3f }, { "rel", 90 }, { "mono", 3 }, { "ceil", -1 } } },
+        { "TRAP | Debole da rinforzare", "Per gli 808 sottili: SUB+ aggiunge una sinusoide pulita agganciata alla nota, KNOCK da' il colpo.", { { "subPlus", 0.6f }, { "punch", 0.25f }, { "knock", 3 }, { "knockHz", 180 }, { "harm", 0.3f }, { "mono", 3 }, { "ceil", -1 } } },
+        { "TRAP | Lunga melodica", "808 che canta la melodia: coda allungata, armoniche per seguire le note.", { { "punch", 0.1f }, { "sustain", 0.5f }, { "drive", 0.2f }, { "harm", 0.35f }, { "duck", 0.25f }, { "rel", 150 }, { "mono", 3 } } },
+        { "TRAP | Scura", "Alti chiusi sopra i 5 kHz, corpo pieno: per i beat cupi e i piano tristi.", { { "topHz", 5000 }, { "drive", 0.2f }, { "mode", 1 }, { "harm", 0.2f }, { "sustain", 0.2f }, { "mono", 3 } } },
+        { "TRAP | Atlanta piena", "Piu' sub, nastro sul corpo, tante armoniche: l'808 che riempie la stanza.", { { "subDb", 3 }, { "drive", 0.25f }, { "harm", 0.4f }, { "punch", 0.2f }, { "duck", 0.3f }, { "rel", 100 }, { "mono", 3 }, { "ceil", -1 } } },
+        { "DRILL | Grintosa", "Attacco in avanti, saturazione dura sul corpo, ducking piu' deciso per le casse veloci.", { { "punch", 0.45f }, { "drive", 0.45f }, { "mode", 2 }, { "harm", 0.35f }, { "duck", 0.4f }, { "rel", 70 }, { "mono", 3 }, { "ceil", -0.5f } } },
+        { "DRILL | UK scivolata", "Per le 808 che scivolano: corpo duro, alti tagliati sopra i 6 kHz, sub in mono.", { { "punch", 0.3f }, { "drive", 0.35f }, { "mode", 2 }, { "topHz", 6000 }, { "harm", 0.3f }, { "duck", 0.35f }, { "rel", 80 }, { "mono", 3 } } },
+        { "DRILL | NY dura", "Dura e sporca, knock alto: il colpo si sente anche sotto i campioni pieni.", { { "punch", 0.4f }, { "drive", 0.55f }, { "mode", 2 }, { "knock", 4 }, { "knockHz", 220 }, { "harm", 0.25f }, { "duck", 0.35f }, { "rel", 70 }, { "mono", 3 } } },
+        { "DRILL | Chicago corta", "Corta e secca: coda tagliata e attacco in avanti per i giri veloci.", { { "punch", 0.5f }, { "sustain", -0.45f }, { "drive", 0.3f }, { "mode", 2 }, { "harm", 0.2f }, { "duck", 0.3f }, { "rel", 60 }, { "mono", 3 } } },
+        { "DISTORTE | Spinz", "La grana sporca e asimmetrica delle 808 distorte, con il sub che resta sotto pulito.", { { "drive", 0.7f }, { "mode", 4 }, { "harm", 0.2f }, { "punch", 0.2f }, { "mono", 4 }, { "ceil", -1 } } },
+        { "DISTORTE | Rage", "808 che riempie tutto: carattere RAGE sul corpo e sugli alti, sub tenuto pulito sotto.", { { "punch", 0.2f }, { "sustain", 0.1f }, { "drive", 0.8f }, { "mode", 5 }, { "harm", 0.2f }, { "duck", 0.25f }, { "rel", 90 }, { "mono", 4 }, { "ceil", -1 } } },
+        { "DISTORTE | Fuzz sporca", "Fuzz da pedale sul corpo: Detroit, Flint, beat grezzi.", { { "drive", 0.6f }, { "mode", 3 }, { "punch", 0.3f }, { "harm", 0.15f }, { "mono", 3 }, { "ceil", -1 } } },
+        { "DISTORTE | Valvola calda", "Distorsione morbida e piena, armoniche pari: calda anche spinta.", { { "drive", 0.55f }, { "mode", 1 }, { "harm", 0.3f }, { "sustain", 0.15f }, { "mono", 3 }, { "ceil", -1 } } },
+        { "BOOM BAP | Sub caldo", "Basso caldo e tondo: valvola leggera, alti morbidi, coda un po' piu' lunga.", { { "punch", 0.15f }, { "sustain", 0.2f }, { "drive", 0.25f }, { "mode", 1 }, { "harm", 0.2f }, { "topHz", 5000 }, { "duck", 0.15f }, { "rel", 150 }, { "mono", 2 } } },
+        { "BOOM BAP | Tonda morbida", "Niente spigoli: alti a 3 kHz, nastro, per i beat jazz e soul.", { { "topHz", 3000 }, { "drive", 0.2f }, { "sustain", 0.1f }, { "mono", 2 } } },
+        { "LO-FI | Scura", "808 smussata: alti chiusi, nastro, poco attacco.", { { "topHz", 1800 }, { "drive", 0.25f }, { "sustain", 0.15f }, { "mono", 2 } } },
+        { "LO-FI | Nastro", "Nastro spinto e alti a 4 kHz: l'808 registrata su cassetta.", { { "topHz", 4000 }, { "drive", 0.45f }, { "harm", 0.15f }, { "mono", 2 } } },
+        { "CLUB | Sub pieno", "Per gli impianti grossi: SUB in piu', sub in mono fino a 120 Hz, clipper che tiene i picchi.", { { "subDb", 3 }, { "subPlus", 0.3f }, { "punch", 0.2f }, { "drive", 0.15f }, { "mono", 3 }, { "ceil", -1.5f }, { "duck", 0.3f }, { "rel", 90 } } },
+        { "CLUB | Mono stretto", "Mono fino a 150 Hz e clipper: l'808 sta al centro e non sfugge.", { { "mono", 4 }, { "ceil", -1 }, { "punch", 0.2f } } },
+        { "TELEFONO | Su telefono", "Per chi ascolta da telefono e cuffiette: tante armoniche, un po' di valvola, knock in alto.", { { "punch", 0.15f }, { "drive", 0.3f }, { "mode", 1 }, { "harm", 0.7f }, { "knock", 2.5f }, { "knockHz", 220 }, { "duck", 0.2f }, { "rel", 100 }, { "mono", 3 } } },
+        { "TELEFONO | Laptop", "Armoniche al massimo e un po' di knock: la nota si sente anche dagli altoparlanti del portatile.", { { "harm", 0.9f }, { "knock", 3 }, { "knockHz", 250 }, { "drive", 0.2f }, { "mono", 3 } } },
+        { "CASSA | Spazio alla cassa", "Per quando cassa e 808 si pestano: ducking forte e veloce. Controlla la fase nella diagnosi.", { { "duck", 0.6f }, { "rel", 70 }, { "punch", 0.2f }, { "mono", 3 } } },
+        { "CASSA | Controfase", "Fase dell'808 invertita e ducking leggero: quando la diagnosi dice CONTROFASE.", { { "inv", 1 }, { "duck", 0.3f }, { "rel", 90 }, { "mono", 3 } } },
+        { "CASSA | Corta bouncy", "808 corta e saltellante: coda accorciata, attacco in avanti, lascia passare la cassa.", { { "punch", 0.5f }, { "sustain", -0.5f }, { "drive", 0.2f }, { "harm", 0.2f }, { "duck", 0.2f }, { "rel", 60 }, { "mono", 3 } } } };
     static const std::vector<Preset> S = {
-        { "Init", "Sinusoide pura, catena a zero: l'808 di partenza.", {} },
+        { "BASE | Init", "Sinusoide pura, catena a zero: l'808 di partenza.", {} },
         { "TR-808 | Classica", "La 808 della drum machine: colpo di pitch rapido, click leggero, coda media.", { { "s_pamt", 7 }, { "s_ptime", 30 }, { "s_click", 0.15f }, { "s_dec", 1.6f }, { "s_tb", 0.08f }, { "harm", 0.2f } } },
-        { "Trap | Lunga pulita", "Coda lunga e pulita, scivola fra le note tenute, armoniche per i telefoni.", { { "s_pamt", 3 }, { "s_ptime", 40 }, { "s_dec", 4.5f }, { "s_tb", 0.12f }, { "s_glide", 80 }, { "harm", 0.3f }, { "mono", 3 }, { "punch", 0.2f } } },
-        { "Trap | Scivolata", "Tieni una nota e suonane un'altra: scivola senza riattaccare.", { { "s_glide", 140 }, { "s_gmode", 1 }, { "s_dec", 5 }, { "s_tb", 0.15f }, { "s_dist", 0.1f }, { "harm", 0.3f }, { "mono", 3 } } },
-        { "Drill | UK scivolata", "Scivolate veloci, corpo duro e un po' di click.", { { "s_glide", 90 }, { "s_pamt", 5 }, { "s_ptime", 25 }, { "s_tb", 0.25f }, { "s_dist", 0.2f }, { "s_click", 0.1f }, { "s_dec", 3 }, { "drive", 0.3f }, { "mode", 2 }, { "duck", 0.3f }, { "mono", 3 } } },
-        { "Drill | NY grezza", "Distorta e dura, scivola sempre da una nota all'altra.", { { "s_dist", 0.45f }, { "s_tb", 0.3f }, { "s_glide", 60 }, { "s_gmode", 2 }, { "drive", 0.5f }, { "mode", 2 }, { "s_dec", 2.5f }, { "mono", 3 } } },
-        { "Spinz | Distorta", "Grana sporca e asimmetrica, colpo di pitch alto all'attacco.", { { "s_dist", 0.7f }, { "s_tb", 0.4f }, { "s_pamt", 12 }, { "s_ptime", 18 }, { "s_click", 0.3f }, { "mode", 4 }, { "drive", 0.5f }, { "ceil", -1 }, { "mono", 4 } } },
-        { "Rage | Satura", "Tutto pieno: distorsione, un velo di reese e carattere RAGE.", { { "s_dist", 0.85f }, { "s_reese", 0.2f }, { "s_tb", 0.5f }, { "mode", 5 }, { "drive", 0.7f }, { "mono", 4 }, { "ceil", -1 }, { "s_dec", 3 } } },
-        { "Reese | 808 Zay", "Due denti di sega stonati sopra la sinusoide: 808 che si muove.", { { "s_reese", 0.7f }, { "s_tb", 0.3f }, { "s_dist", 0.25f }, { "s_dec", 3.5f }, { "s_glide", 100 }, { "mono", 3 } } },
-        { "Boom Bap | Tonda", "Basso tondo e caldo, coda corta, alti morbidi.", { { "s_dec", 1.2f }, { "s_tb", 0.05f }, { "s_pamt", 2 }, { "mode", 1 }, { "drive", 0.2f }, { "topHz", 6000 }, { "mono", 2 } } },
-        { "Boom Bap | Kick 808", "La 808 usata come cassa: colpo di pitch enorme, click, corta.", { { "s_pamt", 24 }, { "s_ptime", 22 }, { "s_click", 0.5f }, { "s_dec", 0.6f }, { "punch", 0.4f } } },
-        { "Corta | Bouncy", "Corta e saltellante per i giri veloci.", { { "s_dec", 0.45f }, { "s_pamt", 9 }, { "s_ptime", 20 }, { "s_click", 0.25f }, { "punch", 0.5f }, { "mono", 3 } } },
-        { "Jersey | Saltata", "Cortissima e acuta all'attacco, per i giri jersey club.", { { "s_dec", 0.3f }, { "s_pamt", 14 }, { "s_ptime", 15 }, { "s_click", 0.35f }, { "punch", 0.3f } } },
-        { "Sub | Solo sotto", "Solo il sub: sinusoide pura, niente sopra i 400 Hz.", { { "s_dec", 3 }, { "topHz", 400 }, { "mono", 3 } } },
-        { "Telefono | Si sente ovunque", "Armoniche esatte e un po' di valvola: la nota si sente anche dove il sub non arriva.", { { "harm", 0.8f }, { "s_tb", 0.2f }, { "mode", 1 }, { "drive", 0.3f }, { "s_dist", 0.15f }, { "s_dec", 2.5f }, { "mono", 3 } } },
-        { "Detroit | Sporca", "Distorsione FUZZ, attacco acuto, nessuno scivolamento.", { { "s_dist", 0.55f }, { "s_tb", 0.35f }, { "s_click", 0.2f }, { "s_pamt", 10 }, { "s_ptime", 35 }, { "drive", 0.4f }, { "mode", 3 }, { "s_dec", 1.8f } } },
-        { "Lo-fi | Morbida", "Smussata e calda, alti chiusi.", { { "s_tb", 0.02f }, { "topHz", 1800 }, { "s_dec", 1.8f }, { "s_pamt", 1 }, { "drive", 0.25f } } },
-        { "Amapiano | Log drum", "Il log drum: timbro legnoso, pitch che scende piano, corto.", { { "s_tb", 0.55f }, { "s_pamt", 5 }, { "s_ptime", 60 }, { "s_dec", 0.7f }, { "s_click", 0.2f }, { "topHz", 3000 }, { "drive", 0.2f }, { "mode", 1 } } },
-        { "Tenuta | Basso melodico", "Resta su finche' tieni il tasto: per le linee di basso suonate.", { { "s_sus", 0.8f }, { "s_rel", 300 }, { "s_tb", 0.1f }, { "s_dec", 1.5f }, { "s_glide", 60 }, { "harm", 0.25f } } },
-        { "Poly | Accordi bassi", "Polifonica: piu' note insieme per gli accordi nel basso.", { { "s_poly", 1 }, { "s_dec", 3 }, { "s_tb", 0.2f }, { "s_reese", 0.2f }, { "s_glide", 0 } } } };
+        { "TR-808 | Lunga", "La coda lunga della 808 con DECAY al massimo.", { { "s_pamt", 5 }, { "s_ptime", 35 }, { "s_click", 0.1f }, { "s_dec", 5 }, { "s_tb", 0.05f }, { "harm", 0.25f }, { "mono", 3 } } },
+        { "TR-808 | Morbida", "Senza click e senza colpo: solo il corpo tondo.", { { "s_dec", 2.2f }, { "topHz", 3000 }, { "s_att", 4 } } },
+        { "TRAP | Lunga pulita", "Coda lunga e pulita, scivola fra le note tenute, armoniche per i telefoni.", { { "s_pamt", 3 }, { "s_ptime", 40 }, { "s_dec", 4.5f }, { "s_tb", 0.12f }, { "s_glide", 80 }, { "harm", 0.3f }, { "mono", 3 }, { "punch", 0.2f } } },
+        { "TRAP | Scivolata", "Tieni una nota e suonane un'altra: scivola senza riattaccare.", { { "s_glide", 140 }, { "s_gmode", 1 }, { "s_dec", 5 }, { "s_tb", 0.15f }, { "s_dist", 0.1f }, { "harm", 0.3f }, { "mono", 3 } } },
+        { "TRAP | Atlanta", "Piena e tonda, un velo di distorsione, armoniche alte.", { { "s_tb", 0.2f }, { "s_dist", 0.15f }, { "s_dec", 3.5f }, { "s_pamt", 4 }, { "s_ptime", 35 }, { "harm", 0.4f }, { "subDb", 2 }, { "mono", 3 } } },
+        { "TRAP | Scura", "Alti chiusi e coda lunga: per i giri cupi.", { { "s_tb", 0.1f }, { "s_dec", 4 }, { "topHz", 2500 }, { "s_glide", 90 }, { "mono", 3 } } },
+        { "DRILL | UK scivolata", "Scivolate veloci, corpo duro e un po' di click.", { { "s_glide", 90 }, { "s_pamt", 5 }, { "s_ptime", 25 }, { "s_tb", 0.25f }, { "s_dist", 0.2f }, { "s_click", 0.1f }, { "s_dec", 3 }, { "drive", 0.3f }, { "mode", 2 }, { "duck", 0.3f }, { "mono", 3 } } },
+        { "DRILL | NY grezza", "Distorta e dura, scivola sempre da una nota all'altra.", { { "s_dist", 0.45f }, { "s_tb", 0.3f }, { "s_glide", 60 }, { "s_gmode", 2 }, { "drive", 0.5f }, { "mode", 2 }, { "s_dec", 2.5f }, { "mono", 3 } } },
+        { "DRILL | Chicago corta", "Corta e secca con un colpo di pitch: giri veloci.", { { "s_dec", 0.8f }, { "s_pamt", 8 }, { "s_ptime", 22 }, { "s_tb", 0.25f }, { "s_dist", 0.25f }, { "punch", 0.4f }, { "mono", 3 } } },
+        { "DRILL | Brooklyn glide", "Scivola sempre, anche senza legato: le 808 che cantano del Brooklyn drill.", { { "s_glide", 180 }, { "s_gmode", 2 }, { "s_tb", 0.3f }, { "s_dist", 0.3f }, { "s_dec", 3 }, { "drive", 0.35f }, { "mode", 2 }, { "mono", 3 } } },
+        { "DISTORTE | Spinz", "Grana sporca e asimmetrica, colpo di pitch alto all'attacco.", { { "s_dist", 0.7f }, { "s_tb", 0.4f }, { "s_pamt", 12 }, { "s_ptime", 18 }, { "s_click", 0.3f }, { "mode", 4 }, { "drive", 0.5f }, { "ceil", -1 }, { "mono", 4 } } },
+        { "DISTORTE | Rage", "Tutto pieno: distorsione, un velo di reese e carattere RAGE.", { { "s_dist", 0.85f }, { "s_reese", 0.2f }, { "s_tb", 0.5f }, { "mode", 5 }, { "drive", 0.7f }, { "mono", 4 }, { "ceil", -1 }, { "s_dec", 3 } } },
+        { "DISTORTE | Detroit", "Distorsione FUZZ, attacco acuto, nessuno scivolamento.", { { "s_dist", 0.55f }, { "s_tb", 0.35f }, { "s_click", 0.2f }, { "s_pamt", 10 }, { "s_ptime", 35 }, { "drive", 0.4f }, { "mode", 3 }, { "s_dec", 1.8f } } },
+        { "DISTORTE | Valvola", "Distorsione calda e piena, sub tenuto.", { { "s_dist", 0.35f }, { "s_tb", 0.2f }, { "mode", 1 }, { "drive", 0.5f }, { "s_dec", 3 }, { "harm", 0.3f }, { "mono", 3 } } },
+        { "BOOM BAP | Tonda", "Basso tondo e caldo, coda corta, alti morbidi.", { { "s_dec", 1.2f }, { "s_tb", 0.05f }, { "s_pamt", 2 }, { "mode", 1 }, { "drive", 0.2f }, { "topHz", 6000 }, { "mono", 2 } } },
+        { "BOOM BAP | Kick 808", "La 808 usata come cassa: colpo di pitch enorme, click, corta.", { { "s_pamt", 24 }, { "s_ptime", 22 }, { "s_click", 0.5f }, { "s_dec", 0.6f }, { "punch", 0.4f } } },
+        { "BOOM BAP | Jazz", "Quasi un contrabbasso: attacco morbido, tenuta, alti chiusi.", { { "s_att", 6 }, { "s_sus", 0.5f }, { "s_rel", 200 }, { "s_dec", 1.2f }, { "s_tb", 0.25f }, { "topHz", 2200 }, { "mode", 1 }, { "drive", 0.25f } } },
+        { "CLUB | Jersey saltata", "Cortissima e acuta all'attacco, per i giri jersey club.", { { "s_dec", 0.3f }, { "s_pamt", 14 }, { "s_ptime", 15 }, { "s_click", 0.35f }, { "punch", 0.3f } } },
+        { "CLUB | Corta bouncy", "Corta e saltellante per i giri veloci.", { { "s_dec", 0.45f }, { "s_pamt", 9 }, { "s_ptime", 20 }, { "s_click", 0.25f }, { "punch", 0.5f }, { "mono", 3 } } },
+        { "CLUB | Sub pieno", "Per gli impianti grossi: sub ottava, SUB in piu', mono.", { { "s_sub", 0.3f }, { "subDb", 3 }, { "s_dec", 3 }, { "mono", 3 }, { "ceil", -1 } } },
+        { "REESE | 808 Zay", "Due denti di sega stonati sopra la sinusoide: 808 che si muove.", { { "s_reese", 0.7f }, { "s_tb", 0.3f }, { "s_dist", 0.25f }, { "s_dec", 3.5f }, { "s_glide", 100 }, { "mono", 3 } } },
+        { "REESE | Tenuta", "Reese suonato come basso: resta finche' tieni il tasto.", { { "s_reese", 0.6f }, { "s_sus", 0.8f }, { "s_rel", 250 }, { "s_tb", 0.25f }, { "s_glide", 70 }, { "drive", 0.3f }, { "mono", 3 } } },
+        { "AFRO | Log drum", "Il log drum dell'amapiano: timbro legnoso, pitch che scende piano, corto.", { { "s_tb", 0.55f }, { "s_pamt", 5 }, { "s_ptime", 60 }, { "s_dec", 0.7f }, { "s_click", 0.2f }, { "topHz", 3000 }, { "drive", 0.2f }, { "mode", 1 } } },
+        { "AFRO | Log morbido", "Log drum piu' tondo e lungo per i giri lenti.", { { "s_tb", 0.4f }, { "s_pamt", 3 }, { "s_ptime", 80 }, { "s_dec", 1.3f }, { "topHz", 2500 }, { "drive", 0.15f }, { "mode", 1 } } },
+        { "BASSI | Tenuta melodica", "Resta su finche' tieni il tasto: per le linee di basso suonate.", { { "s_sus", 0.8f }, { "s_rel", 300 }, { "s_tb", 0.1f }, { "s_dec", 1.5f }, { "s_glide", 60 }, { "harm", 0.25f } } },
+        { "BASSI | Poly accordi", "Polifonica: piu' note insieme per gli accordi nel basso.", { { "s_poly", 1 }, { "s_dec", 3 }, { "s_tb", 0.2f }, { "s_reese", 0.2f }, { "s_glide", 0 } } },
+        { "BASSI | Solo sub", "Solo il sub: sinusoide pura, niente sopra i 400 Hz.", { { "s_dec", 3 }, { "topHz", 400 }, { "mono", 3 } } },
+        { "TELEFONO | Si sente ovunque", "Armoniche esatte e un po' di valvola: la nota si sente anche dove il sub non arriva.", { { "harm", 0.8f }, { "s_tb", 0.2f }, { "mode", 1 }, { "drive", 0.3f }, { "s_dist", 0.15f }, { "s_dec", 2.5f }, { "mono", 3 } } },
+        { "LO-FI | Morbida", "Smussata e calda, alti chiusi.", { { "s_tb", 0.02f }, { "topHz", 1800 }, { "s_dec", 1.8f }, { "s_pamt", 1 }, { "drive", 0.25f } } } };
     return kSynth ? S : E;
+}
+juce::File presetFolder()
+{
+    auto f = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile (kSynth ? "808 Synth Preset" : "808 Studio Preset");
+    f.createDirectory(); return f;
+}
+bool Processor::savePresetFile (const juce::File& f)
+{
+    auto s = apvts.copyState();
+    if (auto x = s.createXml()) { const bool ok = x->writeTo (f); if (ok) { presetName = f.getFileNameWithoutExtension(); curPreset = -1; } return ok; }
+    return false;
+}
+bool Processor::loadPresetFile (const juce::File& f)
+{
+    auto x = juce::XmlDocument::parse (f); if (x == nullptr) return false;
+    auto t = juce::ValueTree::fromXml (*x); if (! t.isValid() || ! t.hasType (apvts.state.getType())) return false;
+    undo.beginNewTransaction();
+    for (auto* prm : getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (prm))
+        {
+            if (rp->getParameterID() == "s_smix" && sampleRef != nullptr) continue;
+            const auto ch = t.getChildWithProperty ("id", rp->getParameterID());
+            const float v = ch.isValid() ? (float) ch.getProperty ("value") : rp->convertFrom0to1 (rp->getDefaultValue());
+            rp->setValueNotifyingHost (rp->convertTo0to1 (v));
+        }
+    presetName = f.getFileNameWithoutExtension(); curPreset = -1; return true;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
@@ -127,9 +178,19 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         for (int c = 0; c < 2; ++c) tmp.copyFrom (c, 0, sc, juce::jmin (c, sc.getNumChannels() - 1), 0, N);   // copia: nel SYNTH il sidechain divide i canali con l'uscita
         kL = tmp.getReadPointer (0); kR = tmp.getReadPointer (1);
     }
-    if (kSynth) syn.render (L, R, N, midi, synthSet());
-    else for (int i = 0; i < N; ++i) { if (! std::isfinite (L[i])) L[i] = 0; if (! std::isfinite (R[i])) R[i] = 0; }
-    ch.process (L, R, N, kL, kR, chainSet());
+    const auto cs = chainSet(); const auto ss = kSynth ? synthSet() : SynthSet();
+    if (! kSynth) for (int i = 0; i < N; ++i) { if (! std::isfinite (L[i])) L[i] = 0; if (! std::isfinite (R[i])) R[i] = 0; }
+    if (N <= 4096)
+    {
+        if (kSynth) syn.render (L, R, N, midi, ss);
+        ch.process (L, R, N, kL, kR, cs);
+    }
+    else for (int off = 0; off < N; off += 4096)
+    {   // blocchi enormi (bounce offline): a pezzi grandi quanto quelli preparati
+        const int m = juce::jmin (4096, N - off);
+        if (kSynth) { juce::MidiBuffer part; for (const auto ev : midi) if (ev.samplePosition >= off && ev.samplePosition < off + m) part.addEvent (ev.getMessage(), ev.samplePosition - off); syn.render (L + off, R + off, m, part, ss); }
+        ch.process (L + off, R + off, m, kL ? kL + off : nullptr, kR ? kR + off : nullptr, cs);
+    }
     for (int c = 2; c < buffer.getNumChannels(); ++c) buffer.clear (c, 0, N);
     // protezione da live: NaN o un suono enorme che si autoalimenta -> muto e ripartenza pulita; tetto a +6 dBFS
     bool broken = false; float pkO = 0;
@@ -188,7 +249,7 @@ void Processor::loadPreset (int i)
             rp->setValueNotifyingHost (rp->getDefaultValue());
         }
     for (auto& kv : P[(size_t) i].p) setV (kv.first, kv.second);
-    presetName = P[(size_t) i].name; curPreset = i;
+    presetName = juce::String (P[(size_t) i].name).fromFirstOccurrenceOf (" | ", false, false); curPreset = i;
 }
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {

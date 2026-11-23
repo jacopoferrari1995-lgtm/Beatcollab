@@ -80,6 +80,27 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    if (argc > 1 && juce::String (argv[1]) == "kits")
+    {   // 60 kit casuali per sorgente: i pad 1-8 devono essere colpi di batteria del ruolo giusto
+        Processor p; const juce::StringArray drums { "KICK", "SNARE", "HAT", "OPEN HAT", "CLAP / SNAP", "TOM", "PERC", "CYMBAL" };
+        for (int m = 0; m < 3; ++m)
+        {
+            int ok = 0, tot = 0, empty = 0, kickOk = 0, snOk = 0, hatOk = 0; juce::StringArray badList;
+            for (int k = 0; k < 60; ++k)
+            {
+                randomKit (p, m);
+                for (int q = 0; q < 8; ++q)
+                {
+                    ++tot; auto s = p.getSample (q); if (! s) { ++empty; continue; }
+                    const double len = s->buf.getNumSamples() / s->sr;
+                    if (drums.contains (p.padCat[q]) && len < 7.0) ++ok; else if (badList.size() < 6) badList.add (juce::String (q + 1) + ":" + p.padCat[q] + " " + juce::String (len, 1) + "s");
+                }
+                kickOk += p.padCat[0] == "KICK"; snOk += p.padCat[1] == "SNARE"; hatOk += p.padCat[2] == "HAT";
+            }
+            std::printf ("sorgente %d: pad 1-8 batteria %d/%d, vuoti %d, cassa su 1: %d/60, rullante su 2: %d/60, hat su 3: %d/60  %s\n", m, ok, tot, empty, kickOk, snOk, hatOk, badList.joinIntoString (", ").toRawUTF8());
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "rndneutral")
     {
         juce::ScopedJuceInitialiser_GUI gui0; Processor p; p.prepareToPlay (48000, 512);

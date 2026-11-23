@@ -1,11 +1,27 @@
 #pragma once
 #include "S8Processor.h"
 #include "JackpotScale.h"
-#include "CyberUI.h"
+#include "Skin.h"
+#include "JackpotKit.h"
+#include "PresetBrowser.h"
 
 namespace s8
 {
-using namespace cyber;
+using namespace jkit;
+inline juce::Font s8lab (float s) { return jkit::uf (s * 0.92f); }
+inline juce::Font s8mono (float s) { return jkit::mf (s * 0.95f); }
+// forme proprie dell'808: pannelli a spigoli tagliati e linee al neon (colori dal tema)
+inline juce::Path cut (juce::Rectangle<float> r, float c)
+{
+    juce::Path p; p.startNewSubPath (r.getX() + c, r.getY()); p.lineTo (r.getRight(), r.getY()); p.lineTo (r.getRight(), r.getBottom() - c);
+    p.lineTo (r.getRight() - c, r.getBottom()); p.lineTo (r.getX(), r.getBottom()); p.lineTo (r.getX(), r.getY() + c); p.closeSubPath(); return p;
+}
+inline void neonStroke (juce::Graphics& g, const juce::Path& p, juce::Colour c, float w = 1.5f)
+{
+    if (skin::cur() == 3) for (int k = 3; k >= 1; --k) { g.setColour (c.withAlpha (0.08f * (4 - k))); g.strokePath (p, juce::PathStrokeType (w + k * 3.0f)); }
+    g.setColour (c); g.strokePath (p, juce::PathStrokeType (w));
+}
+inline void chipBtn (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& t, bool on, juce::Colour c, float fs = 12) { jlook::button (g, r, c, on, false, t, jkit::uf (fs * 0.92f)); }
 class Editor;
 
 struct Diag { int sev; juce::String title, text; };   // sev 2 = da fare, 1 = consigliato, 0 = ok
@@ -40,6 +56,7 @@ public:
 
 class Editor : public juce::AudioProcessorEditor, public juce::FileDragAndDropTarget, private juce::Timer
 {
+    skin::Keep skinKeep;
 public:
     explicit Editor (Processor&);
     ~Editor() override { stopTimer(); removeMouseListener (&undoMark); }
@@ -60,8 +77,10 @@ public:
     jlook::SizeChip sizeChip { scaler };
     TunerView tuner { *this }; SpecView spec { *this }; DocView doc { *this };
     SampleView smp { *this }; EnvView env { *this }; KeysView keys { *this };
-    juce::OwnedArray<CyberKnob> knobs;
-    juce::Rectangle<float> modeR[6], invR, resetR, prevR, nextR, presetR, undoR, redoR, gmodeR[3], polyR;
+    juce::OwnedArray<jkit::Knob> knobs;
+    jbrowse::Browser browser; void setupBrowser(); void askPresetName(); int hoverBtn = -1; int bgTheme = -1;
+    juce::Rectangle<float> modeR[6], invR, resetR, prevR, nextR, presetR, undoR, redoR, gmodeR[3], polyR, themeR;
+    void mouseMove (const juce::MouseEvent&) override;
     std::vector<Diag> diags; void diagnose();
     void presetMenu(); void openSample(); void doUndo (bool redo);
     juce::Image bg; float bgScale = 0; void paintStatic (juce::Graphics&);

@@ -11,6 +11,7 @@ namespace s8
 constexpr bool kSynth = S8_SYNTH != 0;
 struct Preset { const char* name; const char* note; std::vector<std::pair<const char*, float>> p; };
 const std::vector<Preset>& presets();
+juce::File presetFolder();
 
 class Processor : public juce::AudioProcessor, private juce::AsyncUpdater
 {
@@ -30,7 +31,7 @@ public:
     int getNumPrograms() override { return (int) presets().size(); }
     int getCurrentProgram() override { return curPreset; }
     void setCurrentProgram (int i) override { loadPreset (i); }
-    const juce::String getProgramName (int i) override { return presets()[(size_t) juce::jlimit (0, (int) presets().size() - 1, i)].name; }
+    const juce::String getProgramName (int i) override { return juce::String (presets()[(size_t) juce::jlimit (0, (int) presets().size() - 1, i)].name).replace (" | ", " - "); }
     void changeProgramName (int, const juce::String&) override {}
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
@@ -40,6 +41,7 @@ public:
     float v (const char* id) const { if (auto* p = apvts.getRawParameterValue (id)) return p->load(); return 0.0f; }
     void setV (const char* id, float real) { if (auto* p = apvts.getParameter (id)) p->setValueNotifyingHost (p->convertTo0to1 (real)); }
     void loadPreset (int i);
+    bool savePresetFile (const juce::File&); bool loadPresetFile (const juce::File&);
     juce::String presetName { "Init" }; int curPreset = 0;
     void resetStats() { ch.resetReq = true; }
 

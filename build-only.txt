@@ -1,3 +1,1 @@
-JackpotSpace
-JackpotFX
-JackpotPad
+Jackpot808 Jackpot808Synth JackpotPad JackpotGuitar

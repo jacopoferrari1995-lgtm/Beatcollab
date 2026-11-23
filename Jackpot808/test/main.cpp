@@ -5,7 +5,9 @@ using namespace s8;
 
 static void snap (Processor& p, const char* path)
 {
+    if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
     Editor ed (p); ed.diagnose();
+    if (std::getenv ("JBROWSE")) ed.browser.open();
     for (int i = 0; i < 12; ++i) ed.spec.compute();
     if (! kSynth) { ed.tuner.hzS = p.ch.uiHz.load() > 20 ? p.ch.uiHz.load() : 49.5f; ed.tuner.centS = 20; }
     auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
@@ -63,6 +65,38 @@ int main (int argc, char** argv)
     {
         auto mk = [&] (int pr) { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (0, 2, sr, B); p->prepareToPlay (sr, B); if (pr > 0) p->loadPreset (pr); return p; };
         if (mode == "snap") { auto p = mk (std::getenv ("JPRESET") ? std::atoi (std::getenv ("JPRESET")) : 2); play (*p, { { 0.1, 1.0, 36, 0.9f } }, 0.6); snap (*p, argc > 2 ? argv[2] : "/tmp/s8s.png"); return 0; }
+        if (mode == "clicks")
+        {   // ogni comando salta del 30% durante una nota tenuta (sinusoide pura: qualunque graffio si vede); energia sopra 5 kHz re picco
+            const int pr = std::getenv ("JPRESET") ? std::atoi (std::getenv ("JPRESET")) : 0;
+            auto hpPeak = [] (const std::vector<float>& x, int a, int b)
+            {
+                const double w0 = 2 * 3.14159265 * 5000 / 48000.0, c0 = std::cos (w0); static const double Qs[4] = { 0.5098, 0.6013, 0.9000, 2.5629 }; double st[4][4] {}; float pk = 0;
+                for (int i = a - 2000; i < b; ++i) { double v = x[(size_t) i]; for (int q = 0; q < 4; ++q) { const double al = std::sin (w0) / (2 * Qs[q]), b0 = (1 + c0) / 2 / (1 + al), b1 = -(1 + c0) / (1 + al), a1 = -2 * c0 / (1 + al), a2 = (1 - al) / (1 + al);
+                    const double y = b0 * v + b1 * st[q][0] + b0 * st[q][1] - a1 * st[q][2] - a2 * st[q][3]; st[q][1] = st[q][0]; st[q][0] = v; st[q][3] = st[q][2]; st[q][2] = y; v = y; } if (i >= a) pk = std::max (pk, (float) std::abs (v)); }
+                return pk;
+            };
+            int bad = 0;
+            auto refP = mk (pr);
+            for (auto* prm : refP->getParameters())
+            {
+                auto* rp = dynamic_cast<juce::RangedAudioParameter*> (prm); if (rp == nullptr || dynamic_cast<juce::AudioParameterFloat*> (rp) == nullptr) continue;
+                const auto id = rp->getParameterID();
+                auto p = mk (pr); p->setV ("s_sus", 0.8f); p->setV ("s_dec", 8.0f);
+                auto* q = p->apvts.getParameter (id); const float v0 = q->getValue(), v1 = v0 + 0.3f <= 1 ? v0 + 0.3f : v0 - 0.3f;
+                const int J = (int) (1.0 * sr);
+                std::vector<float> o; { const std::vector<Nt> n = { { 0.1, 2.5, 33, 0.9f } }; juce::AudioBuffer<float> b (2, 512); int pos = 0; const int N = (int) (2.0 * sr);
+                    while (pos < N) { juce::MidiBuffer m; for (auto& x : n) { const int on = (int) (x.t * sr); if (on >= pos && on < pos + 512) m.addEvent (juce::MidiMessage::noteOn (1, x.n, x.v), on - pos); }
+                        if (J >= pos && J < pos + 512) q->setValueNotifyingHost (v1);
+                        b.clear(); p->processBlock (b, m); for (int i = 0; i < 512; ++i) o.push_back (b.getSample (0, i)); pos += 512; } }
+                float pk = 1e-9f; for (int i = (int) (0.5 * sr); i < J; ++i) pk = std::max (pk, std::abs (o[(size_t) i]));
+                const float before = hpPeak (o, J - 4800, J - 2400), after = hpPeak (o, J, J + 2400);
+                const float db = juce::Decibels::gainToDecibels (after / pk, -200.0f), base = juce::Decibels::gainToDecibels (before / pk, -200.0f);
+                const bool c = db > -35 && db > base + 6;
+                if (c || std::getenv ("JV")) std::printf ("  %-18s %6.1f dB (prima %6.1f)%s\n", rp->getName (30).toRawUTF8(), db, base, c ? " CLICK" : "");
+                bad += c;
+            }
+            std::printf ("click: %d\n", bad); return 0;
+        }
         // 1) accordatura: A1 = 55 Hz dopo che il colpo di pitch e' finito
         {
             auto p = mk (0); const int L = p->getLatencySamples();

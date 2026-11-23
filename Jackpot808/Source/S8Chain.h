@@ -74,7 +74,7 @@ public:
     void prepare (double s, int block)
     {
         sr = s; maxB = juce::jmax (block, 4096);
-        os = std::make_unique<juce::dsp::Oversampling<float>> (2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false);
+        os = std::make_unique<juce::dsp::Oversampling<float>> (2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false);   // leggero; a zero si salta (strada pulita ritardata)
         os->initProcessing ((size_t) maxB);
         const double osr = sr * osF; const juce::dsp::ProcessSpec so { osr, (juce::uint32) (maxB * osF), 2 }, sb { sr, (juce::uint32) maxB, 2 };
         auto lr = [] (juce::dsp::LinkwitzRileyFilter<float>& f, juce::dsp::LinkwitzRileyFilterType t, float hz, const juce::dsp::ProcessSpec& sp) { f.setType (t); f.setCutoffFrequency (hz); f.prepare (sp); f.reset(); };
@@ -88,7 +88,7 @@ public:
         for (auto* q : { &shelf, &bell, &topF }) q->reset();
         init = false; envF = envS = 0; kEnv = kSlow = 0; duckG = 1; kWin = 0; hEnv = 0; zcLast = 0; zcCnt = 0; zcPer = 0; subPh = 0; subEnv = 0; subF = 0; subG = 0; prevS = 0;
         mCur = mOld = 0; mX = 1; monoCur = 0; monoW = 0; tick = 0;
-        dcL = dcR = 0; dcK = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 5.0f / (float) sr);
+        tStep = (float) (1.0 / (0.03 * sr)); pdL.assign ((size_t) maxB, 0.0f); pdR = pdL; dlL.fill (0); dlR.fill (0); dlW = 0; osHold = 0; dcL = dcR = 0; dcK = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 5.0f / (float) sr);
         k20 = 1.0f - std::exp (-1.0f / (0.020f * (float) sr)); k50 = 1.0f - std::exp (-1.0f / (0.050f * (float) sr)); k10 = 1.0f - std::exp (-1.0f / (0.004f * (float) sr)); k20o = 1.0f - std::exp (-1.0f / (0.020f * (float) osr));
     }
 
@@ -101,7 +101,7 @@ public:
         }
         if (! init)
         {   // partenza: i comandi sono gia' dove stanno, nessuna salita
-            init = true; sm = S; invG = S.inv ? -1.0f : 1.0f; mCur = mOld = S.mode; mX = 1; monoCur = S.mono; monoW = S.mono > 0 ? 1.0f : 0.0f;
+            init = true; sm = S; invG = S.inv ? -1.0f : 1.0f; bandW = (S.drive > 0.0005f || S.harm > 0.0005f) ? 1.0f : 0.0f; osW = bandW; osHold = bandW > 0 ? (int) (0.2 * sr) : 0; toneW = (S.topHz < 19500.0f || S.subDb != 0.0f || S.knock > 0.0f) ? 1.0f : 0.0f; mCur = mOld = S.mode; mX = 1; monoCur = S.mono; monoW = S.mono > 0 ? 1.0f : 0.0f;
             design (true);
         }
         const bool scOn = kL != nullptr;
@@ -160,7 +160,12 @@ public:
                 if (sm.subPlus > 0.01f) uiSubPlus = subF;
             }
             // ---- tono
-            L[i] = topF.run (bell.run (shelf.run (L[i], 0), 0), 0); R[i] = topF.run (bell.run (shelf.run (R[i], 1), 1), 1);
+            {   // TONO: i filtri girano sempre; quando sono a zero (TOP aperto, SUB e KNOCK a 0) il segnale non ci passa: niente fase spostata
+                const float tT = (S.topHz < 19500.0f || S.subDb != 0.0f || S.knock > 0.0f || sm.topHz < 19500.0f || std::abs (sm.subDb) > 0.01f || sm.knock > 0.01f) ? 1.0f : 0.0f;
+                toneW = tT > toneW ? juce::jmin (1.0f, toneW + tStep) : juce::jmax (0.0f, toneW - tStep);
+                const float l2 = topF.run (bell.run (shelf.run (L[i], 0), 0), 0), r2 = topF.run (bell.run (shelf.run (R[i], 1), 1), 1);
+                L[i] += (l2 - L[i]) * toneW; R[i] += (r2 - R[i]) * toneW;
+            }
             // ---- transienti
             const float mm = 0.5f * (L[i] + R[i]), a = std::abs (mm);
             envF += (a > envF ? fA : fR) * (a - envF); envS += (a > envS ? sA : sR) * (a - envS);
@@ -203,6 +208,26 @@ public:
         inPeak = juce::Decibels::gainToDecibels (pk + 1e-9f); pk *= 0.9f;
 
         // ---- sovracampionato: bande, saturazione (cambio di carattere sfumato), armoniche, clipper
+        // strada pulita: lo stesso segnale ritardato della latenza del sovracampionamento (intera). Quando non c'e'
+        // niente da saturare ne' da tagliare il sovracampionamento si salta e l'uscita e' identica all'ingresso
+        const int lat = latency(); float pkIn = 0;
+        for (int i = 0; i < N; ++i)
+        {
+            dlL[(size_t) dlW] = L[i]; dlR[(size_t) dlW] = R[i];
+            const int r = (dlW - lat) & 255; pdL[(size_t) i] = dlL[(size_t) r]; pdR[(size_t) i] = dlR[(size_t) r]; dlW = (dlW + 1) & 255;
+            pkIn = juce::jmax (pkIn, std::abs (L[i]), std::abs (R[i]));
+        }
+        const float ceilG0 = juce::Decibels::decibelsToGain (juce::jmin (S.ceil, sm.ceil));
+        const float osT = (S.drive > 0.0005f || S.harm > 0.0005f || sm.drive > 0.0005f || sm.harm > 0.0005f || bandW > 0.0f || pkIn > 0.75f * ceilG0) ? 1.0f : 0.0f;
+        if (osT > 0.0f) osHold = (int) (0.2 * sr); else osHold = juce::jmax (0, osHold - N);
+        const float osTgt = osHold > 0 ? 1.0f : 0.0f;
+        if (osW <= 0.0f && osTgt <= 0.0f)
+        {
+            std::copy (pdL.begin(), pdL.begin() + N, L); std::copy (pdR.begin(), pdR.begin() + N, R);
+            uiGrClip = 0;
+            goto afterOs;
+        }
+        {
         float* chans[2] = { L, R }; juce::dsp::AudioBlock<float> blk (chans, 2, (size_t) N);
         auto ob = os->processSamplesUp (blk);
         const int M = (int) ob.getNumSamples();
@@ -219,6 +244,9 @@ public:
             if (mX < 1.0f) mX = juce::jmin (1.0f, mX + xStep);
             const float wN = 0.5f - 0.5f * std::cos (mX * juce::MathConstants<float>::pi);
             float subM = 0;
+            // senza DRIVE ne' ARMONICHE il segnale non passa dalla divisione in bande (che sposta la fase): Init trasparente
+            const float bT = (S.drive > 0.0005f || S.harm > 0.0005f || drive > 0.0005f || sm.harm > 0.0005f) ? 1.0f : 0.0f;
+            bandW = bT > bandW ? juce::jmin (1.0f, bandW + xStep) : juce::jmax (0.0f, bandW - xStep);
             for (int c = 0; c < 2; ++c)
             {
                 const float x = o[c][i];
@@ -233,7 +261,7 @@ public:
                     if (wN < 1.0f) { const float b0 = sat6 (body * pre, mOld) * comp, h0 = sat6 (high * pre * 1.2f, mOld) * comp * 0.9f; b1 = b0 + (b1 - b0) * wN; h1 = h0 + (h1 - h0) * wN; }
                     bS = body + (b1 - body) * wet; hS = high + (h1 - high) * wet;
                 }
-                o[c][i] = sub + bS + hS; subM += 0.5f * sub;
+                o[c][i] = x + (sub + bS + hS - x) * bandW; subM += 0.5f * sub;
             }
             if ((i & 3) == 0) ++sN;
             {   // armoniche esatte del sub (T2 e T3 di Chebyshev sul segnale normalizzato all'inviluppo); filtro sempre caldo
@@ -257,6 +285,14 @@ public:
         os->processSamplesDown (blk);
         if (clipNow > 0) { clipN += 1; clips = clipN; }
         uiGrClip = gr;
+        if (osW < 1.0f || osTgt < 1.0f)
+            for (int i = 0; i < N; ++i)
+            {
+                osW = osTgt > osW ? juce::jmin (1.0f, osW + tStep) : juce::jmax (0.0f, osW - tStep);
+                L[i] = pdL[(size_t) i] + (L[i] - pdL[(size_t) i]) * osW; R[i] = pdR[(size_t) i] + (R[i] - pdR[(size_t) i]) * osW;
+            }
+        }
+        afterOs:
         // ---- mono sui bassi (cambio sfumato), uscita, statistiche
         if (S.mono != monoCur && monoW <= 0.0f) monoCur = S.mono;
         const float mT = (S.mono == monoCur && monoCur > 0) ? 1.0f : 0.0f, mStep = 1.0f / (float) (0.03 * sr);
@@ -271,7 +307,7 @@ public:
             const float og = juce::Decibels::decibelsToGain (sm.out);
             float l = (m + s), r = (m - s);
             // la saturazione asimmetrica crea continua: filtro a 5 Hz, sempre acceso
-            dcL += (l - dcL) * dcK; dcR += (r - dcR) * dcK; l -= dcL; r -= dcR;
+            dcL += (l - dcL) * dcK; dcR += (r - dcR) * dcK; l -= dcL * bandW; r -= dcR * bandW;   // solo quando la saturazione lavora
             L[i] = l * og; R[i] = r * og; opk = juce::jmax (opk, std::abs (L[i]), std::abs (R[i]));
             const float mo = 0.5f * (L[i] + R[i]);
             const int w = ringW.load(); ring[w] = mo; ringW = (w + 1) & (kRing - 1);
@@ -299,6 +335,8 @@ private:
     juce::dsp::IIR::Filter<float> kLp, bLp; float kEnv = 0, kSlow = 0, kPeak = 1e-3f, duckG = 1; int kWin = 0; double kb = 0, kk = 0, bb = 0; float bEnvAtHit = 0, kMaxWin = 0, bEnv = 0;
     float hEnv = 0;
     float prevS = 0, zcLast = 0, subEnv = 0, subF = 0, subG = 0; int zcCnt = 0; float zcPer = 0; double subPh = 0;
+    float bandW = 0, toneW = 0, tStep = 0.001f, osW = 0; int osHold = 0, dlW = 0;
+    std::array<float, 256> dlL {}, dlR {}; std::vector<float> pdL, pdR;
     int mCur = 0, mOld = 0, monoCur = 0; float mX = 1, monoW = 0, dcL = 0, dcR = 0, dcK = 0.0007f;
     double sE[3] {}, sSideLo = 0, sMidLo = 0; juce::int64 sN = 0; float pk = 0, winPk = 0, rmsAcc = 0; int rmsN = 0; float crestAvg = 0;
     double pcAcc[12] {}; double centsAcc = 0, logF0Acc = 0; int pN = 0; float corrAvg = 0; float ovAvg = -100; int hits = 0, clipN = 0;

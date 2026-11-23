@@ -210,31 +210,28 @@ void randomKit (Processor& P, int mode)
     const int first = r0 < 0.70f ? 0 : r0 < 0.85f ? 1 : 2;
     const bool invent = r.nextFloat() < 0.30f;
     const bool weird = first == 2;
-    std::map<juce::String, std::vector<LibItem>> pools;
-    auto pool = [&] (const juce::String& cat) -> std::vector<LibItem>&
+    std::map<juce::String, std::vector<LibItem>> pools, alts;
+    // pool: la sorgente scelta per questa categoria; alt: l'altra (in modo misto), cosi' un ruolo non resta mai vuoto
+    auto build = [&] (const juce::String& cat)
     {
-        auto f = pools.find (cat); if (f != pools.end()) return f->second;
         std::vector<LibItem> mine, fac;
         for (auto& it : libItems (cat)) { if (it.scanned && it.dur > maxDur (cat)) continue; (it.user ? mine : fac).push_back (it); }
-        std::vector<LibItem> v;
-        if (mode == 0) v = fac;
-        else if (mode == 2) v = mine;
-        else { v = (! mine.empty() && (fac.empty() || r.nextFloat() < 0.65f)) ? mine : fac; }
-        return pools[cat] = v;
+        if (mode == 0) { pools[cat] = fac; alts[cat] = {}; }
+        else if (mode == 2) { pools[cat] = mine; alts[cat] = {}; }
+        else if (! mine.empty() && (fac.empty() || r.nextFloat() < 0.65f)) { pools[cat] = mine; alts[cat] = fac; }
+        else { pools[cat] = fac; alts[cat] = mine; }
     };
+    auto pool = [&] (const juce::String& cat) -> std::vector<LibItem>& { if (pools.find (cat) == pools.end()) build (cat); return pools[cat]; };
+    auto alt = [&] (const juce::String& cat) -> std::vector<LibItem>& { if (alts.find (cat) == alts.end()) build (cat); return alts[cat]; };
     // ruoli: categorie possibili in ordine di preferenza
     std::vector<juce::StringArray> roles = {
         { "KICK" }, { "SNARE" }, { "HAT" }, { "OPEN HAT", "HAT" }, { "CLAP / SNAP", "PERC", "SNARE" }, { "TOM", "PERC" }, { "PERC", "TOM" }, { "CYMBAL", "OPEN HAT" },
         { "808", "KICK" }, { "MELODICI" }, { "MELODICI" }, { "MELODICI" }, { "PERC" }, { "FX" }, { "PERC" }, { "FX" } };
     auto pick = [&r] (std::initializer_list<const char*> l) { std::vector<const char*> v (l); return juce::String (v[(size_t) r.nextInt ((int) v.size())]); };
-    if (first == 1)
-        for (int q = 5; q < 8; ++q) roles[(size_t) q] = { pick ({ "VOCI", "FX", "PERC", "TEXTURE", "CLAP / SNAP", "VOCI" }), "PERC", "FX" };
-    if (first == 2)
-    {
-        roles[0] = { pick ({ "KICK", "808", "KICK", "FX" }), "KICK" }; roles[1] = { pick ({ "SNARE", "CLAP / SNAP", "FX", "PERC" }), "SNARE" };
-        roles[2] = { pick ({ "HAT", "PERC", "TEXTURE" }), "HAT" };
-        for (int q = 3; q < 8; ++q) roles[(size_t) q] = { pick ({ "FX", "TEXTURE", "VOCI", "PERC", "TOM", "CYMBAL", "808", "MELODICI", "CLAP / SNAP" }), "PERC" };
-    }
+    // pad 1-8: sempre la batteria (cassa, rullante, hat, open hat, clap, tom, perc, piatto). Le varianti cambiano solo
+    // quale colpo sta su 5-8 (sempre colpi di batteria); lo sperimentale cambia il suono (accordatura, drive), non il ruolo
+    if (first >= 1)
+        for (int q = 4; q < 8; ++q) roles[(size_t) q] = { pick ({ "CLAP / SNAP", "PERC", "TOM", "PERC", "CYMBAL", "CLAP / SNAP" }), "PERC", "CLAP / SNAP", "TOM" };
     // pad 9-16: niente colpi di batteria. Pad 9 808/basso, poi quasi tutti campioni lunghi (melodie, loop, voci, texture)
     std::vector<bool> wantLong (kPads, false);
     static const juce::StringArray longCats { "MELODICI", "LOOP", "VOCI", "TEXTURE", "MELODICI", "LOOP" };
@@ -263,10 +260,12 @@ void randomKit (Processor& P, int mode)
         const bool longOnly = wantLong[(size_t) p];
         auto lenOf = [&P, p] { auto s = P.getSample (p); return s ? s->buf.getNumSamples() / s->sr : 0.0; };
         // passaggi: 0 solo lunghi (1.5 s o piu), 1 almeno 0.8 s, 2 qualsiasi
+        const bool drumPad = p < 8;
+        for (int src = 0; src < 2 && ! done; ++src)
         for (int pass = longOnly ? 0 : 2; pass < 3 && ! done; ++pass)
             for (auto& c : roles[(size_t) p])
             {
-                auto& v = pool (c); if (v.empty()) continue;
+                auto& v = src == 0 ? pool (c) : alt (c); if (v.empty()) continue;
                 const float minLen = pass == 0 ? 1.5f : pass == 1 ? 0.8f : 0.0f;
                 for (int t = 0; t < (pass == 0 ? 30 : 10) && ! done; ++t)
                 {
@@ -278,6 +277,8 @@ void randomKit (Processor& P, int mode)
                     {
                         if (lenOf() < minLen) continue;   // troppo corto: prova un altro
                         if (pass < 2 && longOnly) { auto sp = P.getSample (p); if (! sp || ! reallyLong (*sp, minLen)) continue; }   // one shot con tanta coda: non e' un suono lungo
+                        if (drumPad && (lenOf() > maxDur (c) + 0.5 || [&] { auto sp = P.getSample (p); return sp && reallyLong (*sp, 1.5f); }()))
+                            continue;   // sui pad di batteria solo colpi: un file messo nella categoria sbagliata (loop, frase) si scarta
                         used.add (key); done = true; cat = c;
                     }
                 }
