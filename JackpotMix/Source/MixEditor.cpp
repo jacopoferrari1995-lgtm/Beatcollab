@@ -251,7 +251,8 @@ void SlotView::resized()
 {
     const float w = (float) getWidth(), h = (float) getHeight(), fy = kRail;
     const auto& m = mod (type);
-    nameR = { 8, 0, w - 34, (float) kRail }; menuR = { w - 26, 0, 24, (float) kRail };
+    nameR = { 8, 0, w - 84, (float) kRail }; menuR = { w - 26, 0, 24, (float) kRail };
+    soloR = { w - 78, 4, 24, 15 }; deltaR = { w - 52, 4, 24, 15 };
     meterR = {};
     float y = fy + kTop;
     if (D.meter > 0) { const float mw = juce::jmin (w - 28, 168.0f); meterR = { (w - mw) * 0.5f, y + 2, mw, kMeter - 16 }; y += kMeter; }
@@ -313,7 +314,17 @@ void SlotView::paint (juce::Graphics& g)
         g.setColour (catColour (m.cat)); g.fillRoundedRectangle (4, 5, 3, rail.getHeight() - 10, 1.5f);
         g.setFont (alook::typed (8.5f)); g.setColour (kDim); g.drawText (juce::String (slot + 1), juce::Rectangle<float> (10, 0, 16, rail.getHeight()), juce::Justification::centredLeft);
         g.setFont (alook::serif (10.5f)); g.setColour (kTxt);
-        g.drawFittedText (m.name + juce::String::fromUTF8 ("  \xe2\x96\xbe"), juce::Rectangle<int> (26, 0, (int) w - 56, (int) rail.getHeight()), juce::Justification::centredLeft, 1, 0.7f);
+        g.drawFittedText (m.name + juce::String::fromUTF8 ("  \xe2\x96\xbe"), juce::Rectangle<int> (26, 0, (int) w - 110, (int) rail.getHeight()), juce::Justification::centredLeft, 1, 0.7f);
+        {   // SOLO e DELTA del modulo
+            const bool so = P.soloSlot.load() == slot, de = P.deltaSlot.load() == slot;
+            auto key = [&] (juce::Rectangle<float> r, const juce::String& t, bool on, juce::Colour c)
+            {
+                g.setColour (on ? c : juce::Colour (0xff17171a)); g.fillRoundedRectangle (r, 3);
+                g.setColour (on ? c.brighter (0.4f) : kLine.brighter (0.4f)); g.drawRoundedRectangle (r.reduced (0.5f), 3, 1);
+                g.setFont (alook::typed (8.5f)); g.setColour (on ? juce::Colour (0xff141210) : kTxt.withAlpha (0.75f)); g.drawText (t, r, juce::Justification::centred);
+            };
+            key (soloR, "S", so, kAmber); key (deltaR, juce::String::fromUTF8 ("\xce\x94"), de, kBlue);
+        }
         g.setColour (kTxt.withAlpha (0.7f)); g.setFont (alook::serif (14.0f)); g.drawText (juce::String::fromUTF8 ("\xe2\x8b\xae"), menuR, juce::Justification::centred);
     }
     auto face = juce::Rectangle<float> (0, (float) kRail, w, h - kRail);
@@ -375,6 +386,11 @@ void SlotView::paint (juce::Graphics& g)
         const auto nm = P.userIrName (slot);
         if (nm.isNotEmpty()) { g.setFont (alook::typed (7.5f)); g.setColour (ink); g.drawFittedText (nm, juce::Rectangle<int> (4, (int) irR.getY() - 14, (int) w / 2, 12), juce::Justification::centredLeft, 1, 0.6f); }
     }
+    if (! byp && P.soloSlot.load() >= 0 && P.soloSlot.load() != slot)
+    {   // un altro modulo e' in SOLO: questo non si sente
+        g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillRoundedRectangle (face, 3);
+        g.setFont (alook::serif (10.0f)); g.setColour (kAmber.withAlpha (0.8f)); g.drawText ("ESCLUSO DAL SOLO", face.withHeight (20).translated (0, 2), juce::Justification::centred);
+    }
     if (byp)
     {
         g.setColour (juce::Colours::black.withAlpha (0.38f)); g.fillRoundedRectangle (face, 3);
@@ -397,6 +413,9 @@ void SlotView::mouseDown (const juce::MouseEvent& e)
     if (e.position.y < kRail)
     {
         if (e.mods.isPopupMenu() || menuR.contains (e.position)) { ed.slotMenu (slot, this); return; }
+        auto& P = ed.proc;
+        if (soloR.expanded (2).contains (e.position)) { P.deltaSlot = -1; P.soloSlot = P.soloSlot.load() == slot ? -1 : slot; ed.listenChanged(); return; }
+        if (deltaR.expanded (2).contains (e.position)) { P.soloSlot = -1; P.deltaSlot = P.deltaSlot.load() == slot ? -1 : slot; ed.listenChanged(); return; }
         return;   // clic sul nome: menu al rilascio (se non trascini)
     }
     if (e.mods.isPopupMenu()) { ed.slotMenu (slot, this); return; }
@@ -750,24 +769,38 @@ void EqGraph::mouseMove (const juce::MouseEvent& e)
     const int h = hit (e.position);
     if (h != hover) { hover = h; repaint(); }
     if (h >= 0 && h != popBand) { popBand = h; updatePop(); }
-    if (h >= 0) popHold = 45;   // ~3 s alla frequenza del timer del grafico
+    if (h >= 0) popHold = 90;   // ~3 s alla frequenza del timer del grafico
 }
 void EqGraph::mouseExit (const juce::MouseEvent&) { hover = -1; repaint(); }
 void EqGraph::mouseDown (const juce::MouseEvent& e)
 {
     drag = hit (e.position);
     if (drag >= 0) { sel = drag; popBand = drag; updatePop(); if (e.mods.isPopupMenu()) { bandMenu (drag); drag = -1; } }
+    if (drag >= 0)
+    {   // si parte da dove sta il punto, non da dove cade il clic: niente salto quando lo prendi
+        auto& P = ed.proc; dragF = P.valueS (Processor::bid (drag, "f")); dragG = P.valueS (Processor::bid (drag, "g")); lastPos = e.position;
+        for (auto* id : { "f", "g" }) if (auto* q = ed.P (Processor::bid (drag, id))) q->beginChangeGesture();
+    }
     else if (! e.mods.isPopupMenu()) { sel = -1; popBand = -1; updatePop(); }
 }
 void EqGraph::mouseDrag (const juce::MouseEvent& e)
 {
     if (drag < 0) return;
     auto& P = ed.proc; const int t = (int) P.valueS (Processor::bid (drag, "type"));
-    P.setP (Processor::bid (drag, "f"), juce::jlimit (10.0f, 22000.0f, fOf (e.position.x)));
-    if (hasGain (t)) P.setP (Processor::bid (drag, "g"), juce::jlimit (-30.0f, 30.0f, dbOf (e.position.y)));
-    updatePop();
+    // movimento relativo: con SHIFT un quarto della velocita' per le regolazioni fini
+    const float k = e.mods.isShiftDown() ? 0.25f : 1.0f; const auto d = (e.position - lastPos) * k; lastPos = e.position;
+    const auto pr = plot();
+    dragF = juce::jlimit (10.0f, 22000.0f, dragF * std::pow (1000.0f, d.x / pr.getWidth()));
+    dragG = juce::jlimit (-30.0f, 30.0f, dragG - d.y / pr.getHeight() * 48.0f);
+    P.setP (Processor::bid (drag, "f"), dragF);
+    if (hasGain (t)) P.setP (Processor::bid (drag, "g"), std::abs (dragG) < 0.15f && k == 1.0f ? 0.0f : dragG);
+    updatePop(); repaint();
 }
-void EqGraph::mouseUp (const juce::MouseEvent&) { drag = -1; }
+void EqGraph::mouseUp (const juce::MouseEvent&)
+{
+    if (drag >= 0) for (auto* id : { "f", "g" }) if (auto* q = ed.P (Processor::bid (drag, id))) q->endChangeGesture();
+    drag = -1;
+}
 void EqGraph::mouseDoubleClick (const juce::MouseEvent& e)
 {
     auto& P = ed.proc; const int h = hit (e.position);
@@ -785,7 +818,7 @@ void EqGraph::mouseDoubleClick (const juce::MouseEvent& e)
 void EqGraph::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
     const int h = hit (e.position); if (h < 0) return;
-    auto* p = ed.P (Processor::bid (h, "q")); p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, p->getValue() + (w.deltaY > 0 ? 0.025f : -0.025f))); updatePop();
+    auto* p = ed.P (Processor::bid (h, "q")); p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, p->getValue() + juce::jlimit (-0.04f, 0.04f, (w.isReversed ? -w.deltaY : w.deltaY) * 0.06f))); updatePop();
 }
 void EqGraph::bandMenu (int b)
 {
@@ -892,13 +925,13 @@ void BandPop::mouseDown (const juce::MouseEvent& e)
 void BandPop::mouseDrag (const juce::MouseEvent& e)
 {
     if (band < 0 || dragK < 0) return;
-    if (auto* pid = popParam (dragK)) { auto* prm = graph.ed.P (Processor::bid (band, pid)); prm->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, dragStart - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 800.0f : 200.0f))); }
+    if (auto* pid = popParam (dragK)) { auto* prm = graph.ed.P (Processor::bid (band, pid)); prm->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, dragStart - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 1600.0f : 400.0f))); }
     graph.popHold = 60; repaint(); graph.repaint();
 }
 void BandPop::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
     if (band < 0) return;
-    if (auto* pid = popParam (hit (e.position))) { auto* prm = graph.ed.P (Processor::bid (band, pid)); prm->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, prm->getValue() + (w.deltaY > 0 ? 0.01f : -0.01f))); }
+    if (auto* pid = popParam (hit (e.position))) { auto* prm = graph.ed.P (Processor::bid (band, pid)); prm->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, prm->getValue() + juce::jlimit (-0.04f, 0.04f, (w.isReversed ? -w.deltaY : w.deltaY) * 0.06f))); }
     graph.popHold = 60; repaint(); graph.repaint();
 }
 
@@ -914,6 +947,7 @@ void GainChip::paint (juce::Graphics& g)
 // ======================================================================= editor
 Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    undoMark.p = &p; addMouseListener (&undoMark, true); setWantsKeyboardFocus (true);
     skin::init ("mixology", { 0xffe9a260, 0xff8fc9c0, 0xffe3d3a8, 0xffd6a0c8 }, 0xffff3b30);
     if (! mixThemeOk (skin::cur())) { skin::cur() = 1; neo::K::theme = -1; skin::apply(); }
     syncChrome();
@@ -956,6 +990,11 @@ void Editor::paint (juce::Graphics& g)
         g.setFont (alook::typed (12.5f)); g.setColour (kTxt); g.drawFittedText (proc.presetName.toUpperCase() + juce::String::fromUTF8 ("  \xe2\x96\xbe"), r.reduced (10, 0).toNearestInt(), juce::Justification::centred, 1, 0.7f);
         for (auto bb : { prevR, nextR }) { pill (g, bb, bb == prevR ? juce::String::fromUTF8 ("\xe2\x80\xb9") : juce::String::fromUTF8 ("\xe2\x80\xba"), false, kTxt, 16.0f); }
         pill (g, abA, "A", proc.ab.cur == 0, kAmber, 11.0f); pill (g, abB, "B", proc.ab.cur == 1, kAmber, 11.0f);
+    }
+    {   // annulla / ripeti
+        const bool cu = proc.undo.canUndo(), cr = proc.undo.canRedo();
+        pill (g, undoR, juce::String::fromUTF8 ("\xe2\x86\xb6 ANNULLA"), false, cu ? kTxt : kDim, 8.5f);
+        pill (g, redoR, juce::String::fromUTF8 ("RIPETI \xe2\x86\xb7"), false, cr ? kTxt : kDim, 8.5f);
     }
     pill (g, liveR, "LIVE", proc.value ("live") > 0.5f, kRed);
     pill (g, cmpR, "CONFRONTA", proc.value ("cmp") > 0.5f, kBlue);
@@ -1059,6 +1098,8 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     if (prevR.contains (e.position)) { proc.loadPreset ((proc.preset + n - 1) % n); after(); return; }
     if (nextR.contains (e.position)) { proc.loadPreset ((proc.preset + 1) % n); after(); return; }
     if (presetR.contains (e.position)) { presetMenu(); return; }
+    if (undoR.contains (e.position)) { doUndo (false); return; }
+    if (redoR.contains (e.position)) { doUndo (true); return; }
     if (abA.contains (e.position)) { if (proc.ab.cur != 0) proc.ab.toggle (proc); after(); return; }
     if (abB.contains (e.position)) { if (proc.ab.cur != 1) proc.ab.toggle (proc); after(); return; }
     if (liveR.contains (e.position)) { auto* p = P ("live"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
@@ -1071,15 +1112,33 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
         all (this); return;
     }
 }
+bool Editor::keyPressed (const juce::KeyPress& k)
+{
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Z' || k.getKeyCode() == 'z')) { doUndo (k.getModifiers().isShiftDown()); return true; }
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Y' || k.getKeyCode() == 'y')) { doUndo (true); return true; }
+    return false;
+}
+void Editor::doUndo (bool redo)
+{
+    proc.undo.beginNewTransaction();
+    if (redo ? proc.undo.redo() : proc.undo.undo())
+    {
+        proc.clearListen(); graph.sel = graph.popBand = -1; graph.updatePop();
+        rack.signature.clear(); rack.rebuild();
+        std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* q : c->getChildren()) all (q); };
+        all (this);
+    }
+    repaint (scaler.map (undoR.getUnion (redoR).expanded (2).getSmallestIntegerContainer()));
+}
 void Editor::timerCallback()
 {
     if (browser.isVisible()) return;
     ++tick;
     loud.repaint(); imager.repaint();
-    if (tick % 2 == 0) graph.tick();
+    graph.tick();   // 30 fotogrammi al secondo: il grafico segue il mouse senza scatti
     rack.rebuild();   // ricostruisce solo se la catena e cambiata
     for (auto* s : rack.slots) s->tickMeters();
     if (tick % 4 == 0) { for (auto* s : rack.slots) { for (auto& c : s->ctl) c->repaint(); if (s->mixK) s->mixK->repaint(); } if (rack.eqTile) rack.eqTile->repaint(); inChip->repaint(); outChip->repaint(); }
-    if (tick % 15 == 0) repaint (scaler.map ({ 330, 0, 1070, 54 }));
+    if (tick % 15 == 0) repaint (scaler.map ({ 200, 0, 1200, 54 }));
 }
 }

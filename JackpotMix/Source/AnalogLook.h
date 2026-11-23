@@ -134,10 +134,10 @@ public:
     }
     void mouseUp (const juce::MouseEvent&) override { if (drag) param->endChangeGesture(); drag = false; repaint(); }
     void mouseDrag (const juce::MouseEvent& e) override
-    { if (drag) param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 900.0f : 220.0f))); }
+    { if (drag) param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 1200.0f : 300.0f))); }
     void mouseDoubleClick (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getDefaultValue()); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override
-    { if (onTouch) onTouch(); param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + (w.deltaY > 0 ? 0.01f : -0.01f))); }
+    { if (onTouch) onTouch(); param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + juce::jlimit (-0.04f, 0.04f, (w.isReversed ? -w.deltaY : w.deltaY) * 0.06f))); }
     void mouseEnter (const juce::MouseEvent&) override { hover = true; setMouseCursor (juce::MouseCursor::UpDownResizeCursor); repaint(); }
     void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
     juce::RangedAudioParameter* param; juce::String label; int style;

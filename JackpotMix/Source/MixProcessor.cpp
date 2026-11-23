@@ -62,7 +62,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
 Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                                        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false)),
-      apvts (*this, nullptr, "PARAMS", layout())
+      apvts (*this, &undo, "PARAMS", layout())
 {
     for (int s = 0; s < kSlots; ++s)
     {
@@ -95,7 +95,8 @@ void Processor::prepareToPlay (double s, int mb)
     sr = s; maxBlock = juce::jmax (64, mb);
     for (int k = 0; k < kSlots; ++k) { dryD[k].prepare (32768); { const juce::SpinLock::ScopedLockType l (engLock[k]); eng[k].reset(); } rebuild (k); }
     cmpD.prepare (1 << 17);
-    dryL.assign ((size_t) maxBlock, 0); dryR = dryL; scL = dryL; scR = dryL;
+    dryL.assign ((size_t) maxBlock, 0); dryR = dryL; scL = dryL; scR = dryL; dL = dryL; dR = dryL; eqTL = dryL; eqTR = dryL;
+    deltaD.prepare (1 << 17); dX = 0; dCur = -1; eqA = 1;
     eq.prepare (s, maxBlock);
     loudOut.prepare (s); loudIn.prepare (s); for (auto& t : tpc) t.reset();
     lat = -1;
@@ -155,8 +156,17 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     // latenza totale (per compensare il confronto e dirla al DAW)
     int total = 0; float vbuf[kSlots][kP];
     for (int s = 0; s < n; ++s) { for (int i = 0; i < kP; ++i) vbuf[s][i] = sp[s][3 + i]->load(); }
-    for (int s = 0; s < n; ++s) { const juce::SpinLock::ScopedTryLockType tl (engLock[s]); if (tl.isLocked() && eng[s] && eng[s]->type == slotType (s)) total += eng[s]->latency (vbuf[s]); }
-    if (eqOn) total += eq.latency (E);
+    int latS[kSlots] {};
+    for (int s = 0; s < n; ++s) { const juce::SpinLock::ScopedTryLockType tl (engLock[s]); if (tl.isLocked() && eng[s] && eng[s]->type == slotType (s)) { latS[s] = eng[s]->latency (vbuf[s]); total += latS[s]; } }
+    const int eqLat = eqOn ? eq.latency (E) : 0; total += eqLat;
+    const int solo = soloSlot.load() < n ? soloSlot.load() : -1;
+    {   // DELTA: si cambia modulo passando dal silenzio (dissolvenza), mai a meta'
+        const int want = deltaSlot.load() < n ? deltaSlot.load() : -1;
+        if (want != dCur && dX <= 0.0f) dCur = want;
+    }
+    const float dT = (dCur >= 0 && dCur == (deltaSlot.load() < n ? deltaSlot.load() : -1)) ? 1.0f : 0.0f;
+    int latAfter = 0;
+    if (dCur >= 0) { for (int s = dCur + 1; s < n; ++s) latAfter += latS[s]; if (eqPos > dCur) latAfter += eqLat; }
     if (total != lat) { lat = total; setLatencySamples (total); }
     for (int off = 0; off < N; off += maxBlock)
     {
@@ -167,7 +177,16 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         if (sc[0]) { ctx.scL = sc[0] + off; ctx.scR = sc[1] + off; } else { ctx.scL = ctx.scR = nullptr; }
         for (int k = 0; k <= n; ++k)
         {
-            if (k == eqPos && eqOn) eq.process (l, r, m, E);
+            if (k == eqPos && eqOn)
+            {   // in SOLO su un modulo l'EQ centrale esce sfumando (se non e' spettrale: li' la latenza resta e l'EQ pure)
+                const float eT = (solo >= 0 && eqLat == 0) ? 0.0f : 1.0f;
+                if (eqA >= 1.0f && eT >= 1.0f) eq.process (l, r, m, E);
+                else
+                {
+                    std::copy (l, l + m, eqTL.begin()); std::copy (r, r + m, eqTR.begin()); eq.process (eqTL.data(), eqTR.data(), m, E);
+                    for (int i = 0; i < m; ++i) { eqA = eT > eqA ? juce::jmin (1.0f, eqA + step) : juce::jmax (eT, eqA - step); l[i] += (eqTL[(size_t) i] - l[i]) * eqA; r[i] += (eqTR[(size_t) i] - r[i]) * eqA; }
+                }
+            }
             if (k == n) break;
             const int t = slotType (k);
             const juce::SpinLock::ScopedTryLockType tl (engLock[k]);
@@ -175,10 +194,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             auto* e = eng[k].get(); const int et = e->type; const int Lk = e->latency (vbuf[k]);
             const bool byp = sp[k][1]->load() > 0.5f; const float mixT = sp[k][2]->load(); const bool send = mod (et).send;
             if (lastE[k] != e) { const bool fresh = lastE[k] == nullptr; lastE[k] = e; actS[k] = fresh ? (byp ? 0.0f : 1.0f) : 0.0f; mixS[k] = mixT; }   // modulo nuovo: entra sfumando
-            const float aT = (! byp && et == t) ? 1.0f : 0.0f;
+            const float aT = (! byp && et == t && (solo < 0 || solo == k)) ? 1.0f : 0.0f;
             if (actS[k] <= 0.0f && aT <= 0.0f)
             {   // spento, in bypass o in attesa di cambio: passa il pulito con la stessa latenza
                 for (int i = 0; i < m; ++i) dryD[k].run (l[i], r[i], Lk);
+                if (k == dCur) { std::fill (dL.begin(), dL.begin() + m, 0.0f); std::fill (dR.begin(), dR.begin() + m, 0.0f); }
                 e->gr = 0; if (et != t) swapOk[k] = true; continue;
             }
             for (int i = 0; i < m; ++i) { float a = l[i], b = r[i]; dryD[k].run (a, b, Lk); scL[(size_t) i] = a; scR[(size_t) i] = b; }
@@ -207,6 +227,16 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 else { const float g = mx * a; if (g < 1.0f) { l[i] = d0 + (l[i] - d0) * g; r[i] = d1 + (r[i] - d1) * g; } }
             }
             actS[k] = a; mixS[k] = mx;
+            if (k == dCur) for (int i = 0; i < m; ++i) { dL[(size_t) i] = l[i] - scL[(size_t) i]; dR[(size_t) i] = r[i] - scR[(size_t) i]; }   // quello che il modulo cambia
+        }
+        if (dCur >= 0 || dX > 0.0f)
+        {   // DELTA: al posto dell'uscita, ritardato come il resto della catena dopo il modulo
+            for (int i = 0; i < m; ++i)
+            {
+                float a = dCur >= 0 ? dL[(size_t) i] : 0.0f, b = dCur >= 0 ? dR[(size_t) i] : 0.0f; deltaD.run (a, b, latAfter);
+                dX = dT > dX ? juce::jmin (1.0f, dX + step) : juce::jmax (0.0f, dX - step);
+                l[i] += (a - l[i]) * dX; r[i] += (b - r[i]) * dX;
+            }
         }
         vPh += (unsigned) m;
         const float og = juce::Decibels::decibelsToGain (value ("out"));
@@ -262,6 +292,7 @@ void Processor::setModule (int s, int type)
 }
 void Processor::insertModule (int pos, int type)
 {
+    clearListen();
     const int n = chainLen(); if (n >= kSlots) return;
     pos = juce::jlimit (0, n, pos);
     for (int s = n; s > pos; --s) moveRaw (s - 1, s);
@@ -272,6 +303,7 @@ void Processor::insertModule (int pos, int type)
 }
 void Processor::removeSlot (int s)
 {
+    clearListen();
     const int n = chainLen(); if (s < 0 || s >= n) return;
     for (int k = s; k < n - 1; ++k) moveRaw (k + 1, k);
     { const juce::SpinLock::ScopedLockType l (engLock[n - 1]); eng[n - 1].reset(); }
@@ -281,6 +313,7 @@ void Processor::removeSlot (int s)
 }
 void Processor::moveSlot (int from, int to)
 {
+    clearListen();
     const int n = chainLen(); if (from == to || from < 0 || to < 0 || from >= n || to >= n) return;
     // salva il modulo, fai scorrere gli altri, rimettilo al posto nuovo
     std::vector<float> keep; for (auto& w : slotIds()) keep.push_back (apvts.getParameter (sid (from, w.toRawUTF8()))->getValue());
@@ -314,6 +347,7 @@ void Processor::setUserIr (int s, const juce::File& f)
 }
 void Processor::loadPreset (int i)
 {
+    clearListen();
     if (! juce::isPositiveAndBelow (i, (int) factoryPresets().size())) return;
     const auto& P = factoryPresets()[(size_t) i]; preset = i; presetName = P.cat + " | " + P.name;
     for (auto* pp : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (pp)) if (rp->paramID != "in" && rp->paramID != "out" && rp->paramID != "live") rp->setValueNotifyingHost (rp->getDefaultValue());
@@ -347,7 +381,7 @@ void Processor::setStateInformation (const void* data, int size)
         auto t = juce::ValueTree::fromXml (*x); if (! t.isValid()) return;
         preset = t.getProperty ("preset", 0); presetName = t.getProperty ("presetName", "Init").toString();
         for (int k = 0; k < kSlots; ++k) irPath[k] = t.getProperty ("ir" + juce::String (k), "").toString();
-        apvts.replaceState (t);
+        apvts.replaceState (t); undo.clearUndoHistory(); clearListen();
         for (int s = 0; s < kSlots; ++s) rebuild (s);
     }
 }

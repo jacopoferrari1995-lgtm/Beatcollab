@@ -37,7 +37,7 @@ public:
     Editor& ed; const int slot; int type = 0; Design D;
     std::vector<std::unique_ptr<juce::Component>> ctl;
     std::unique_ptr<hw::Knob> mixK;
-    juce::Rectangle<float> meterR, nameR, menuR, irR, footR, inR;
+    juce::Rectangle<float> meterR, nameR, menuR, irR, footR, inR, soloR, deltaR;
     float vu = -20, ledV = 0; int heroN = 0;
 private:
     juce::Point<float> downAt; bool dragging = false;
@@ -142,7 +142,7 @@ public:
     juce::Point<float> nodeOf (int b) const; int hit (juce::Point<float>) const;
     juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (8).withTrimmedTop (22).withTrimmedBottom (16).withTrimmedLeft (26); }
     Editor& ed; BandPop pop { *this };
-    int hover = -1, drag = -1, sel = -1, popBand = -1, popHold = 0;
+    int hover = -1, drag = -1, sel = -1, popBand = -1, popHold = 0; float dragF = 1000, dragG = 0; juce::Point<float> lastPos;
 private:
     juce::dsp::FFT fft { 12 }; std::vector<float> win, buf, specPre, specPost;
 };
@@ -164,7 +164,17 @@ class Editor : public juce::AudioProcessorEditor, public juce::DragAndDropContai
     skin::Keep keepSkin;   // primo membro: i caratteri dei temi restano caricati (niente sfarfallio)
 public:
     explicit Editor (Processor&);
-    ~Editor() override { setLookAndFeel (nullptr); }
+    ~Editor() override { removeMouseListener (&undoMark); setLookAndFeel (nullptr); }
+    bool keyPressed (const juce::KeyPress&) override;
+    void doUndo (bool redo);
+    void listenChanged() { for (auto* s : rack.slots) s->repaint(); }
+    struct UndoMark : juce::MouseListener
+    {   // ogni clic (e ogni giro di rotella dopo una pausa) apre un passo nuovo della storia
+        Processor* p = nullptr; double lastWheel = 0;
+        void mouseDown (const juce::MouseEvent&) override { if (p) p->undo.beginNewTransaction(); }
+        void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override
+        { const double t = juce::Time::getMillisecondCounterHiRes(); if (p && t - lastWheel > 600) p->undo.beginNewTransaction(); lastWheel = t; }
+    } undoMark;
     static constexpr int W = 1400, H = 860;
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -188,7 +198,7 @@ public:
     std::unique_ptr<GainChip> inChip, outChip;
     jlook::SizeChip sizeChip { scaler };
     int tick = 0;
-    const juce::Rectangle<float> themeR { 1330, 3, 58, 17 }, presetR { 372, 11, 380, 34 }, prevR { 336, 13, 30, 30 }, nextR { 758, 13, 30, 30 }, abA { 808, 15, 26, 26 }, abB { 840, 15, 26, 26 },
+    const juce::Rectangle<float> undoR { 206, 13, 58, 30 }, redoR { 268, 13, 58, 30 }, themeR { 1330, 3, 58, 17 }, presetR { 372, 11, 380, 34 }, prevR { 336, 13, 30, 30 }, nextR { 758, 13, 30, 30 }, abA { 808, 15, 26, 26 }, abB { 840, 15, 26, 26 },
                                  liveR { 884, 12, 62, 32 }, cmpR { 952, 12, 104, 32 }, scR { 1218, 12, 104, 32 };
 };
 }

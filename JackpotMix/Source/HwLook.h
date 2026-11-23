@@ -192,16 +192,19 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (! drag) return;
-        float nv = start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 900.0f : 200.0f);
+        float nv = start - e.getDistanceFromDragStartY() / (e.mods.isShiftDown() ? 1200.0f : 300.0f);
         if (stepsN > 1) nv = std::round (nv * (stepsN - 1)) / (stepsN - 1);
         param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, nv)); repaint();
     }
     void mouseDoubleClick (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getDefaultValue()); }
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override
     {
-        const float st = stepsN > 1 ? 1.0f / (stepsN - 1) : 0.01f;
-        param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + (w.deltaY > 0 ? st : -st))); repaint();
+        const float dy = w.isReversed ? -w.deltaY : w.deltaY;
+        if (stepsN > 1) { wheelAcc += dy; if (std::abs (wheelAcc) < 0.12f) return; const float st = 1.0f / (stepsN - 1); param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + (wheelAcc > 0 ? st : -st))); wheelAcc = 0; }
+        else param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + juce::jlimit (-0.04f, 0.04f, dy * 0.06f)));
+        repaint();
     }
+    float wheelAcc = 0;
     juce::RangedAudioParameter* param; juce::String label; int style;
     std::function<juce::String()> text;
     juce::Colour inkC { 0xff1e1b17 }, hot { 0xffd8452f };

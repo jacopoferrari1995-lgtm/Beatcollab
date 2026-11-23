@@ -82,7 +82,11 @@ public:
     Engine* engine (int s) { return eng[s].get(); }
     void forceRebuild() { timerCallback(); }
 
+    juce::UndoManager undo { 4000000, 80 };   // ANNULLA / RIPETI: ogni gesto e' un passo
     juce::AudioProcessorValueTreeState apvts;
+    // ascolto del singolo modulo: SOLO (solo lui nella catena) o DELTA (solo quello che aggiunge o toglie); -1 = spento, non si salva
+    std::atomic<int> soloSlot { -1 }, deltaSlot { -1 };
+    void clearListen() { soloSlot = -1; deltaSlot = -1; }
     jlook::ABCompare ab;
     int preset = 0; juce::String presetName { "Init" };
     ProEq eq;
@@ -107,6 +111,7 @@ private:
     // dissolvenze: modulo che entra/esce/cambia, bypass, mix, ingresso/uscita, confronto (niente click)
     float vS[kSlots][kP] {}; bool vInit[kSlots] {}; unsigned vPh = 0;
     float actS[kSlots] {}, mixS[kSlots] {}, inSm = 1, outSm = 1, cmpX = 0; Engine* lastE[kSlots] {};
+    VDelay deltaD; std::vector<float> dL, dR, eqTL, eqTR; float dX = 0, eqA = 1; int dCur = -1;
     std::atomic<bool> swapOk[kSlots] {}; std::atomic<double> lastAudioMs { 0 }; double pendSince[kSlots] {};
 };
 }

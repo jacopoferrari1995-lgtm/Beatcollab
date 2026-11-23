@@ -18,6 +18,44 @@ static void pump (Processor& p) { p.forceRebuild(); }
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String (argv[1]) == "listen")
+    {   // SOLO e DELTA contro il calcolo a mano; ANNULLA/RIPETI su un comando e sul cambio preset
+        const double sr = 48000; const int pr = std::getenv ("JPRESET") ? std::atoi (std::getenv ("JPRESET")) : 1;
+        juce::Random r (9); std::vector<float> in ((size_t) sr * 3); float b0 = 0;
+        for (auto& v : in) { const float w = r.nextFloat() * 2 - 1; b0 = 0.98f * b0 + w * 0.2f; v = (b0 + w * 0.1f) * 0.5f; }
+        auto mk = [&] (std::function<void (Processor&)> f) { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); p->loadPreset (pr); f (*p); p->forceRebuild(); return p; };
+        auto rnd = [&] (Processor& p) { return testlab::render (p, (int) in.size(), [&] (int k) { return in[(size_t) k]; }, 512, true); };
+        auto diff = [&] (const std::vector<float>& a, const std::vector<float>& b) { double e = 0, d = 0; for (size_t i = (size_t) sr; i < a.size(); ++i) { e += (double) a[i] * a[i]; d += std::pow ((double) a[i] - b[i], 2.0); } return 10 * std::log10 (d / (e + 1e-30) + 1e-30); };
+        auto n = mk ([] (Processor&) {})->chainLen();
+        for (int k = 0; k < n; ++k)
+        {
+            auto pS = mk ([k] (Processor& p) { p.soloSlot = k; });
+            auto pR = mk ([k, n] (Processor& p) { for (int s = 0; s < n; ++s) if (s != k) p.setP (Processor::sid (s, "byp"), 1); p.setP ("eq_on", 0); });
+            const auto oS = rnd (*pS), oR = rnd (*pR);
+            auto pD = mk ([k, n] (Processor& p) { p.deltaSlot = k; for (int s = 0; s < n; ++s) if (s != k) p.setP (Processor::sid (s, "byp"), 1); p.setP ("eq_on", 0); });
+            const auto oD = rnd (*pD);
+            // atteso: (uscita col solo modulo k) - (ingresso ritardato della stessa latenza), con EQ e altri moduli come dopo k... qui confronto con solo: delta + ingresso ritardato = uscita solo
+            const int L = pR->getLatencySamples(); std::vector<float> rec (oR.size());
+            for (size_t i = 0; i < oR.size(); ++i) rec[i] = oD[i] + (i >= (size_t) L ? in[i - (size_t) L] : 0.0f);
+            std::printf ("slot %d %-14s  SOLO vs a mano %.1f dB   DELTA+dry vs SOLO %.1f dB\n", k + 1, mod (pS->slotType (k)).name.toRawUTF8(), diff (oR, oS), diff (oS, rec));
+        }
+        {   // la storia si scrive sul timer dell'APVTS: passi in sequenza nel ciclo dei messaggi
+            auto p = mk ([] (Processor&) {}); auto* q = p->apvts.getParameter (Processor::sid (0, "p1")); auto* P = p.get();
+            std::vector<std::function<void()>> steps; float v0 = q->getValue(), v1 = 0, v2 = 0, v3 = 0; int n0 = 0, n1 = 0, n2 = 0;
+            steps.push_back ([&] { P->undo.beginNewTransaction(); q->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, v0 + 0.3f)); });
+            steps.push_back ([&] { v1 = q->getValue(); P->undo.beginNewTransaction(); P->undo.undo(); });
+            steps.push_back ([&] { v2 = q->getValue(); P->undo.redo(); });
+            steps.push_back ([&] { v3 = q->getValue(); P->undo.beginNewTransaction(); n0 = P->slotType (0) * 100 + P->chainLen(); P->loadPreset (pr + 3); });
+            steps.push_back ([&] { n1 = P->slotType (0) * 100 + P->chainLen(); P->undo.beginNewTransaction(); P->undo.undo(); });
+            steps.push_back ([&] { n2 = P->slotType (0) * 100 + P->chainLen(); juce::MessageManager::getInstance()->stopDispatchLoop(); });
+            std::function<void (size_t)> go = [&] (size_t i) { steps[i](); if (i + 1 < steps.size()) juce::Timer::callAfterDelay (300, [&go, i] { go (i + 1); }); };
+            juce::Timer::callAfterDelay (100, [&go] { go (0); });
+            juce::MessageManager::getInstance()->runDispatchLoop();
+            std::printf ("annulla comando: %.3f -> %.3f -> annulla %.3f -> ripeti %.3f\n", v0, v1, v2, v3);
+            std::printf ("annulla preset: moduli %d -> %d -> annulla %d\n", n0, n1, n2);
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "glide")
     {   // dopo il caricamento: livello ogni 0.5 s su rumore rosa costante (JSLOT isola uno slot)
         const double sr = 48000; const int pr = std::getenv ("JPRESET") ? std::atoi (std::getenv ("JPRESET")) : 1;
@@ -173,6 +211,8 @@ int main (int argc, char** argv)
         Editor ed (p); ed.setSize (Editor::W, Editor::H);
         if (auto* e = std::getenv ("JBAND")) { ed.graph.sel = atoi (e); ed.graph.updatePop(); }
         for (int i = 0; i < 40; ++i) { feed (p, 4, 0.3f, 220 + i * 13, ph); ed.timerCallback(); }
+        if (auto* s = std::getenv ("JSOLO")) p.soloSlot = std::atoi (s);
+        if (auto* s = std::getenv ("JDELTA")) p.deltaSlot = std::atoi (s);
         if (std::getenv ("JBROWSE")) ed.browser.open();
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
