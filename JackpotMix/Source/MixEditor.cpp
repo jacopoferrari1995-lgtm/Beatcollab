@@ -158,6 +158,29 @@ Design designOf (int type)
         case C_DYN: D.face = n == "GATE" ? FACE_PAINT : FACE_BLACK; D.knob = n == "GATE" ? KS_DAVIES : KS_SSL_WHITE; D.meter = 3; break;
         default: D.face = FACE_BLACK; D.knob = KS_SILVER; D.meter = 0; break;
     }
+    // funzione dell'apparecchio (al posto del marchio) e comandi principali in grande
+    switch (m.cat)
+    {
+        case C_PRE: D.sub = "MICROPHONE PREAMPLIFIER"; D.hero = { "GAIN" }; break;
+        case C_EQ: D.sub = n == "SSL E" || n == "MAAG EQ4" ? "CHANNEL EQUALIZER" : "PROGRAM EQUALIZER"; break;
+        case C_DEESS: D.sub = "DE-ESSER"; D.hero = { "SOGLIA", "FREQ" }; D.buttons = true; break;
+        case C_SAT: D.sub = n == "MB SAT" ? "MULTIBAND SATURATOR" : n == "TUBE BOX" ? "HARMONIC ENHANCER" : "SATURATION UNIT"; D.hero = { "DRIVE", "PENTODE", "TRIODE" }; D.buttons = true; break;
+        case C_COMP:
+            D.sub = n == "FET 76" ? "LIMITING AMPLIFIER" : n.startsWith ("OPTO") ? "LEVELING AMPLIFIER" : n == "VARI-MU" || n == "VARI 670" ? "VARIABLE-MU LIMITER"
+                  : n == "BUS VCA" ? "BUS COMPRESSOR" : n == "RMS 160" ? "RMS COMPRESSOR" : n == "OTT" ? "MULTIBAND DYNAMICS" : "COMPRESSOR / DISTORTION";
+            D.hero = n == "FET 76" ? juce::StringArray { "INPUT", "OUTPUT" } : n.startsWith ("OPTO") ? juce::StringArray { "PEAK REDUCTION", "PEAK RED.", "GAIN", "OUTPUT" }
+                   : n == "OTT" ? juce::StringArray { "DEPTH" } : juce::StringArray { "THRESH", "THRESHOLD", "INPUT" };
+            D.buttons = true; break;
+        case C_CLIP: D.sub = n == "LIMITER" ? "MASTERING LIMITER" : "PEAK CLIPPER"; D.hero = { "DRIVE", "GAIN" }; D.buttons = true; break;
+        case C_REV: D.sub = n == "SPRING" ? "SPRING REVERB" : n == "CONVOLUTION" ? "IMPULSE REVERB" : n.contains ("PLATE") ? "PLATE REVERB" : "DIGITAL REVERB"; D.hero = { "DECAY" }; break;
+        case C_DLY: D.sub = n == "TAPE ECHO" ? "TAPE ECHO" : "ECHO UNIT"; D.hero = { "TIME", "TEMPO", "FEEDBACK" }; break;
+        case C_DIST: D.sub = D.pedal ? juce::String() : "DISTORTION UNIT"; D.hero = { "DRIVE", "GAIN", "FUZZ", "DISTORTION" }; break;
+        case C_MOD: D.sub = D.pedal ? juce::String() : "MODULATION UNIT"; D.hero = { "RATE", "DEPTH" }; D.buttons = true; break;
+        case C_WIDE: D.sub = "STEREO WIDTH"; D.hero = { "WIDTH" }; break;
+        case C_TAPE: D.sub = "TAPE MACHINE"; D.hero = { "DRIVE", "INPUT" }; D.buttons = true; break;
+        case C_DYN: D.sub = n == "GATE" ? "NOISE GATE" : "TRANSIENT DESIGNER"; D.hero = { "THRESH", "ATTACK" }; D.buttons = true; break;
+        default: D.sub = "LINE UTILITY"; D.hero = { "GAIN" }; break;
+    }
     if (D.ink == juce::Colour (0xfff0ece2) || D.ink.isTransparent())
         D.ink = D.plate.getPerceivedBrightness() > 0.5f ? juce::Colour (0xff1c1a17) : juce::Colour (0xfff0ece2);
     return D;
@@ -167,12 +190,25 @@ Design designOf (int type)
 static int visibleCount (int t) { int c = 0; for (int i = 0; i < kP; ++i) if (! hidden (mod (t).spec[(size_t) i])) ++c; return c; }
 static constexpr float kTop = 58, kMeter = 90, kBottomSend = 100, kBottom = 46, kCellH = 78;
 static float bottomOf (int t) { const auto& m = mod (t); return m.send || designOf (t).pedal ? kBottomSend : kBottom; }
+static bool isButtons (const Design& D, const PSpec& sp) { return sp.fmt == F_ITEMS && D.buttons && sp.items.size() >= 2 && sp.items.size() <= 6; }
+static constexpr float kBtnH = 34;
 int SlotView::unitsFor (int t, int height)
 {
-    const auto D = designOf (t); const float faceH = (float) height - kRail;
-    const float ctrlH = faceH - kTop - (D.meter > 0 ? kMeter : 0) - bottomOf (t);
-    const int rows = juce::jmax (1, (int) (ctrlH / kCellH)), n = visibleCount (t) + (mod (t).send ? 0 : 1);
-    return juce::jlimit (1, 4, (n + 2 * rows - 1) / (2 * rows));
+    const auto D = designOf (t); const auto& m = mod (t); const float faceH = (float) height - kRail;
+    float ctrlH = faceH - kTop - (D.meter > 0 ? kMeter : 0) - bottomOf (t);
+    int heroes = 0, btns = 0, rest = m.send ? 0 : 1;
+    for (int i = 0; i < kP; ++i)
+    {
+        const auto& sp = m.spec[(size_t) i]; if (hidden (sp)) continue;
+        if (sp.fmt != F_BOOL && isButtons (D, sp)) ++btns;
+        else if (sp.fmt != F_BOOL && D.hero.contains (juce::String (sp.label)) && heroes < 2) ++heroes;
+        else ++rest;
+    }
+    if (heroes > 0) ctrlH -= juce::jmin (118.0f, ctrlH * (btns > 0 ? 0.34f : 0.4f)) + 2;
+    ctrlH -= btns * (kBtnH + 4);
+    const int rows = juce::jmax (1, (int) (ctrlH / kCellH));
+    // largo abbastanza per le file di pulsanti e per i comandi che restano
+    return juce::jlimit (1, 4, juce::jmax (btns > 0 || heroes > 1 ? 2 : 1, (rest + 2 * rows - 1) / (2 * rows)));
 }
 SlotView::SlotView (Editor& e, int s) : ed (e), slot (s)
 {
@@ -187,9 +223,15 @@ SlotView::SlotView (Editor& e, int s) : ed (e), slot (s)
             auto sw = std::make_unique<hw::Switch> (prm, sp.label, "ON", "OFF"); sw->inkC = D.ink; sw->setComponentID (juce::String (i));
             addAndMakeVisible (*sw); ctl.push_back (std::move (sw));
         }
+        else if (isButtons (D, sp))
+        {   // selettore a pochi valori: pulsanti a scatto come sull'apparecchio
+            auto b = std::make_unique<hw::Buttons> (prm, sp.label, sp.items); b->inkC = D.ink; b->hot = D.accent.getPerceivedBrightness() > 0.25f ? D.accent : juce::Colour (0xffff8a3d);
+            b->setComponentID ("btn" + juce::String (i)); b->setTooltip (juce::String (sp.label)); addAndMakeVisible (*b); ctl.push_back (std::move (b));
+        }
         else
         {
             auto k = std::make_unique<hw::Knob> (prm, sp.label, D.styleFor (i, sp));
+            if (D.hero.contains (juce::String (sp.label)) && heroN < 2) { k->getProperties().set ("hero", true); k->labelSize = 11.0f; k->valueSize = 10.0f; k->labelH = 17; k->ticks = 12; ++heroN; }
             k->inkC = D.ink; k->hot = D.accent.getPerceivedBrightness() > 0.25f ? D.accent : juce::Colour (0xffff8a3d);
             const int st = type; k->text = [st, i, prm] { return paramText (st, i, prm->getValue()); };
             if (sp.fmt == F_ITEMS) { k->stepsN = sp.items.size(); k->ticks = juce::jmax (1, sp.items.size() - 1); }
@@ -214,7 +256,19 @@ void SlotView::resized()
     float y = fy + kTop;
     if (D.meter > 0) { const float mw = juce::jmin (w - 28, 168.0f); meterR = { (w - mw) * 0.5f, y + 2, mw, kMeter - 16 }; y += kMeter; }
     const float bottomY = h - bottomOf (type);
-    std::vector<juce::Component*> cells; for (auto& c : ctl) cells.push_back (c.get()); if (! m.send) cells.push_back (mixK.get());
+    std::vector<juce::Component*> cells, heroes, btns;
+    for (auto& c : ctl) { if (c->getProperties()["hero"]) heroes.push_back (c.get()); else if (dynamic_cast<hw::Buttons*> (c.get())) btns.push_back (c.get()); else cells.push_back (c.get()); }
+    if (! m.send) cells.push_back (mixK.get());
+    // prima fila: i comandi principali grandi
+    if (! heroes.empty())
+    {
+        const float hh = juce::jmin (118.0f, (bottomY - y) * (btns.empty() ? 0.4f : 0.34f)), hw2 = juce::jmin ((w - 12) / (float) heroes.size(), 118.0f);
+        const float x0 = (w - hw2 * heroes.size()) * 0.5f;
+        for (size_t k = 0; k < heroes.size(); ++k) heroes[k]->setBounds (juce::Rectangle<float> (x0 + k * hw2, y, hw2, hh).reduced (3, 2).toNearestInt());
+        y += hh + 2;
+    }
+    // poi le file di pulsanti
+    for (auto* b : btns) { b->setBounds (juce::Rectangle<float> (8, y, w - 16, kBtnH).toNearestInt()); y += kBtnH + 4; }
     const int n = (int) cells.size();
     if (n > 0)
     {
@@ -223,7 +277,7 @@ void SlotView::resized()
         const int colsMax = juce::jmax (1, (int) (w / 66.0f));
         const int cols = juce::jlimit (1, colsMax, juce::jmax ((n + rowsMax - 1) / rowsMax, juce::jmin (n, 2)));
         const int rows = (n + cols - 1) / cols;
-        const float cw = (w - 12) / cols, ch = juce::jmin (106.0f, ctrlH / rows);
+        const float cw = (w - 12) / cols, ch = juce::jmin (heroes.empty() ? 106.0f : 80.0f, ctrlH / rows);   // con i comandi grandi in alto, gli altri restano piu' piccoli
         const float y0 = y + (ctrlH - ch * rows) * 0.5f;
         for (int k = 0; k < n; ++k)
         {
@@ -267,8 +321,16 @@ void SlotView::paint (juce::Graphics& g)
     // marchio: nome grande, ispirazione piccola, spia
     const auto ink = D.ink;
     hw::silk (g, m.name, { 10, face.getY() + 16, w - 20, 22 }, alook::wide (w < 150 ? 13.5f : 16.0f), ink);
-    hw::silk (g, m.inspired, { 6, face.getY() + 38, w - 12, 12 }, alook::serif (8.0f, false), ink.withAlpha (0.75f));
-    g.setColour (D.accent.withAlpha (0.8f)); g.fillRect (w * 0.5f - 18, face.getY() + 54, 36.0f, 1.5f);
+    // sotto il nome la funzione dell'apparecchio (il modello a cui si ispira resta nel suggerimento, non sul pannello)
+    if (D.sub.isNotEmpty()) hw::silk (g, D.sub, { 6, face.getY() + 38, w - 12, 11 }, alook::wide (7.0f), ink.withAlpha (0.72f));
+    g.setColour (D.accent.withAlpha (0.8f)); g.fillRect (w * 0.5f - 18, face.getY() + 53, 36.0f, 1.5f);
+    if (! D.pedal)
+    {   // targhetta: marchio e numero di modello in basso a sinistra
+        auto tag = juce::Rectangle<float> (8, h - 26, 58, 14);
+        g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (tag.translated (0, 1), 2);
+        juce::ColourGradient tg (juce::Colour (0xffd9d4c7), tag.getX(), tag.getY(), juce::Colour (0xff8f8a80), tag.getX(), tag.getBottom(), false); g.setGradientFill (tg); g.fillRoundedRectangle (tag, 2);
+        g.setFont (alook::typed (6.5f)); g.setColour (juce::Colour (0xff1d1a16)); g.drawText ("JACKPOT  JKP-" + juce::String (type).paddedLeft ('0', 2), tag, juce::Justification::centred);
+    }
     if (! D.pedal) hw::led (g, w - 16, face.getY() + 24, 4.0f, D.accent.getPerceivedBrightness() > 0.3f ? D.accent : kRed, ! byp);
     // strumento
     if (D.meter > 0 && ! meterR.isEmpty())

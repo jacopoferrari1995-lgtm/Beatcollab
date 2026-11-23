@@ -230,6 +230,38 @@ public:
     juce::RangedAudioParameter* param; juce::String label, upT, dnT; bool invert; juce::Colour inkC { 0xff1e1b17 }; std::function<void()> onChange;
 };
 
+// fila di pulsanti a scatto con la spia (rapporti del 1176, modi dei compressori, selettori a pochi valori)
+class Buttons : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    Buttons (juce::RangedAudioParameter* p, juce::String l, juce::StringArray it) : param (p), label (std::move (l)), items (std::move (it)) {}
+    int sel() const { return juce::jlimit (0, items.size() - 1, juce::roundToInt (param->getValue() * (items.size() - 1))); }
+    void paint (juce::Graphics& g) override
+    {
+        const float w = (float) getWidth(), h = (float) getHeight(); const int n = items.size(), cur = sel();
+        silk (g, label, { 0, 0, w, 13 }, alook::serif (9.0f), inkC);
+        const float bw = (w - 4) / n, by = 14, bh = juce::jmin (20.0f, h - 15);
+        for (int i = 0; i < n; ++i)
+        {
+            auto r = juce::Rectangle<float> (2 + i * bw, by, bw, bh).reduced (2, 0);
+            const bool on = i == cur;
+            g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillRoundedRectangle (r.translated (0, 1.5f).expanded (1), 2.5f);
+            juce::ColourGradient cg (on ? juce::Colour (0xfff4f1ea) : juce::Colour (0xff3b3a37), r.getX(), r.getY(), on ? juce::Colour (0xffb9b4a8) : juce::Colour (0xff1d1c1a), r.getX(), r.getBottom(), false);
+            g.setGradientFill (cg); g.fillRoundedRectangle (on ? r.translated (0, 1) : r, 2.5f);   // premuto: un filo piu' giu'
+            g.setColour (juce::Colours::white.withAlpha (on ? 0.5f : 0.14f)); g.drawHorizontalLine ((int) r.getY() + (on ? 2 : 1), r.getX() + 2, r.getRight() - 2);
+            if (on) { g.setColour (hot.withAlpha (0.9f)); g.fillRoundedRectangle (r.getCentreX() - 5, r.getY() + 3 + 1, 10, 2.5f, 1); }
+            g.setFont (alook::typed (juce::jmin (9.0f, bw * 0.24f))); g.setColour (on ? juce::Colour (0xff1c1915) : juce::Colour (0xffcfc9bc));
+            g.drawFittedText (items[i], (on ? r.translated (0, 1) : r).withTrimmedTop (5).toNearestInt(), juce::Justification::centred, 1, 0.6f);
+        }
+    }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        const int n = items.size(); const float bw = (getWidth() - 4.0f) / n; const int i = juce::jlimit (0, n - 1, (int) ((e.position.x - 2) / bw));
+        param->beginChangeGesture(); param->setValueNotifyingHost (n > 1 ? (float) i / (n - 1) : 0.0f); param->endChangeGesture(); repaint();
+    }
+    juce::RangedAudioParameter* param; juce::String label; juce::StringArray items; juce::Colour inkC { 0xff1e1b17 }, hot { 0xffd8452f };
+};
+
 // strumento a ago (VU) con cornice nera e luce calda
 inline void vu (juce::Graphics& g, juce::Rectangle<float> b, float db, const juce::String& title, bool grMode)
 {

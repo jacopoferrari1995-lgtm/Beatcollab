@@ -13,7 +13,9 @@ class Editor;
 struct Design
 {
     int face = hw::FACE_PAINT; juce::Colour plate { 0xff5b6b78 }, ink { 0xfff0ece2 }, accent { 0xffd8452f };
-    int knob = hw::KS_DAVIES, meter = 0; bool pedal = false;
+    int knob = hw::KS_DAVIES, meter = 0; bool pedal = false, buttons = false;
+    juce::StringArray hero;   // comandi principali, disegnati grandi in prima fila (come sull'apparecchio)
+    juce::String sub;         // funzione dell'apparecchio, serigrafata sotto il nome
     std::function<int (int, const PSpec&)> pick;   // stile della manopola per comando
     int styleFor (int i, const PSpec& s) const { return pick ? pick (i, s) : knob; }
 };
@@ -36,7 +38,7 @@ public:
     std::vector<std::unique_ptr<juce::Component>> ctl;
     std::unique_ptr<hw::Knob> mixK;
     juce::Rectangle<float> meterR, nameR, menuR, irR, footR, inR;
-    float vu = -20, ledV = 0;
+    float vu = -20, ledV = 0; int heroN = 0;
 private:
     juce::Point<float> downAt; bool dragging = false;
 };
