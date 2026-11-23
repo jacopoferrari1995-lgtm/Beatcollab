@@ -184,7 +184,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
 
 Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "PARAMS", layout())
+      apvts (*this, &undo, "PARAMS", layout())
 {
     for (int i = 0; i < kHist; ++i) { hIn[i] = 0; hOut[i] = 0; hPpq[i] = -1; hMask[i] = 0; }
     for (int c = 0; c < 2; ++c) pkOut[c] = 0;
@@ -268,7 +268,8 @@ void Processor::processChunk (float* L, float* R, int N, double bpm, double ppq,
     for (int k = 0; k < kSlots; ++k)
     {
         const int want = value (onId (k)) > 0.5f && ! byp ? slotType (k) : (int) OFF;
-        const float mt = want == OFF ? 0.0f : value (mixId (k));
+        const int solo = soloSlot.load();
+        const float mt = want == OFF || (solo >= 0 && solo != k) ? 0.0f : solo == k ? juce::jmax (0.5f, value (mixId (k))) : value (mixId (k));
         // slot fermo: mix chiuso e coda finita -> non calcola (e quando riparte, riparte pulito)
         if (mt < 1e-4f && mixS[k] < 1e-4f && (fadeG[k] <= 0.0f || runT[k] == OFF))
         {
@@ -290,15 +291,15 @@ void Processor::processChunk (float* L, float* R, int N, double bpm, double ppq,
         const bool dip = leaving || stepChanged;
         const bool isPar = value (rtId (k)) > 0.5f;
         const float* inL = isPar ? dL : cL; const float* inR = isPar ? dR : cR;
-        const float a = 1.0f - std::exp (-(float) kSub / (0.03f * (float) sr)), aSlow = 1.0f - std::exp (-(float) kSub / (0.12f * (float) sr));
         float lv = 0;
-        for (int o = 0; o < N; o += kSub)
-        {
-            const int m = juce::jmin (kSub, N - o);
+        for (int o = 0, m = 0; o < N; o += m)
+        {   // pezzi da 32 allineati a un contatore libero: lo scivolamento non dipende dal buffer dell'host
+            m = juce::jmin (kSub - (int) ((subPh + (unsigned) o) & (unsigned) (kSub - 1)), N - o);
+            const float a = 1.0f - std::exp (-(float) m / (0.03f * (float) sr)), aSlow = 1.0f - std::exp (-(float) m / (0.12f * (float) sr)), aSize = 1.0f - std::exp (-(float) m / (0.5f * (float) sr));
             if (! leaving) for (int i = 0; i < kP; ++i)
             {
                 if (i < I.n && isStep (I.kind[i])) { if (! dip || fadeG[k] <= 0.0f) ps[k][i] = pt[i]; }
-                else { const Kind kd = i < I.n ? I.kind[i] : KP; ps[k][i] += (pt[i] - ps[k][i]) * (kd == KPRE || kd == KSIZE || kd == KERS || kd == KTIME ? aSlow : a); }   // tempi e grandezze: piu' lenti, niente graffi
+                else { const Kind kd = i < I.n ? I.kind[i] : KP; ps[k][i] += (pt[i] - ps[k][i]) * (kd == KSIZE ? aSize : kd == KPRE || kd == KERS || kd == KTIME ? aSlow : a); }   // SIZE ancora piu' lenta: cambia le lunghezze delle linee   // tempi e grandezze: piu' lenti, niente graffi
             }
             // in parallelo lo slot sente il suono pulito, in serie quello che esce dagli slot prima
             slots[k].process (inL + o, inR + o, wL + o, wR + o, m, runT[k], ps[k], bpm, frz);
@@ -316,8 +317,9 @@ void Processor::processChunk (float* L, float* R, int N, double bpm, double ppq,
         slotLvl[k] = juce::jmax (lv * 0.5f, slotLvl[k].load() * 0.85f);
         if (lv > 1e-4f) mask |= 1 << k;
     }
+    subPh += (unsigned) N;
     // uscita: pulito + (catena - pulito) + parallelo; il ducking abbassa il bagnato quando suona l'ingresso
-    const float dt = byp ? 1.0f : value ("dry"), wt = byp ? 0.0f : juce::Decibels::decibelsToGain (value ("wet")), og = byp ? 1.0f : juce::Decibels::decibelsToGain (value ("out"));
+    const float dt = byp ? 1.0f : soloSlot.load() >= 0 ? 0.0f : value ("dry"), wt = byp ? 0.0f : juce::Decibels::decibelsToGain (value ("wet")), og = byp ? 1.0f : juce::Decibels::decibelsToGain (value ("out"));
     const float duck = value ("duck"), att = 1.0f - std::exp (-1.0f / (0.005f * (float) sr)), rel = 1.0f - std::exp (-1.0f / (0.25f * (float) sr));
     float po[2] = { 0, 0 };
     const int colLen = juce::jmax (1, (int) (sr * kColSec));
@@ -352,6 +354,7 @@ void Processor::setSlot (int k, int type)
 void Processor::swapSlots (int a, int b)
 {
     if (a == b) return;
+    { const int s = soloSlot.load(); if (s == a) soloSlot = b; else if (s == b) soloSlot = a; }
     std::swap (userIR[a], userIR[b]); std::swap (irData[a], irData[b]); std::swap (irRate[a], irRate[b]); std::swap (irLoaded[a], irLoaded[b]);
     const int ta = slotType (a), tb = slotType (b);
     float xa[kP + 3], xb[kP + 3];
@@ -365,6 +368,7 @@ void Processor::swapSlots (int a, int b)
 }
 void Processor::loadFactory (int i)
 {
+    soloSlot = -1; undo.beginNewTransaction();
     const auto& p = factoryPresets()[(size_t) juce::jlimit (0, (int) factoryPresets().size() - 1, i)];
     for (int k = 0; k < kSlots; ++k)
     {
@@ -427,7 +431,7 @@ void Processor::setStateInformation (const void* data, int size)
         auto t = juce::ValueTree::fromXml (*x); if (! t.isValid()) return;
         presetName = t.getProperty ("preset", presetName).toString(); uiTheme = (int) t.getProperty ("theme", 1);
         for (int k = 0; k < kSlots; ++k) userIR[k] = t.getProperty ("ir" + juce::String (k + 1), "").toString();
-        apvts.replaceState (t);
+        apvts.replaceState (t); undo.clearUndoHistory(); soloSlot = -1;
     }
 }
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }

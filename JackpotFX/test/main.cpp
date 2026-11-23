@@ -1,6 +1,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include "../Source/FxProcessor.h"
 #include "../Source/FxEditor.h"
+#include "TestLab.h"
 using namespace jfx;
 int main (int argc, char** argv)
 {
@@ -19,6 +20,28 @@ int main (int argc, char** argv)
             for (int i = 0; i < 512; ++i) out.push_back (b.getSample (0, i));
         }
     };
+    if (argc > 1 && juce::String (argv[1]) == "blkdbg")
+    {   // dove si separa il render a blocchi irregolari da quello a 512
+        auto mk = [&] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, 512); p->prepareToPlay (sr, 512); for (int k = 0; k < kSlots; ++k) p->setSlot (k, pfx::OFF, -1);
+            auto a2 = juce::StringArray::fromTokens (std::getenv ("JONE"), ",", ""); for (int t = 0; t < pfx::kNumTypes; ++t) if (a2[0] == pfx::info (t).name) p->setSlot (0, t, a2[1].getFloatValue()); return p; };
+        juce::Random r (9); std::vector<float> in (48000 * 3); for (auto& v : in) v = 0.3f * (r.nextFloat() * 2 - 1);
+        auto a = mk(), b = mk();
+        auto o1 = testlab::render (*a, (int) in.size(), [&] (int k) { return in[(size_t) k]; }, 512, false);
+        std::vector<int> sizes; juce::Random rb (3); { int off = 0; while (off < (int) in.size()) { const int n = juce::jmin ((int) in.size() - off, 1 + rb.nextInt (512)); sizes.push_back (n); off += n; } }
+        auto o2 = testlab::render (*b, (int) in.size(), [&] (int k) { return in[(size_t) k]; }, 512, true);
+        int off = 0, bi = 0; for (size_t i = 0; i < o1.size(); ++i) { while (bi < (int) sizes.size() && (int) i >= off + sizes[(size_t) bi]) { off += sizes[(size_t) bi]; ++bi; }
+            if (std::abs (o1[i] - o2[i]) > 1e-4f) { std::printf ("si separa al campione %d (blocco %d di %d campioni, offset %d)\n", (int) i, bi, sizes[(size_t) bi], (int) i - off); break; } }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "lab2")
+    {   // il banco comune (come THE_LAB) su un preset di fabbrica; JSET=slot,valore alza una manopola
+        const int pr = std::getenv ("JPR") ? std::atoi (std::getenv ("JPR")) : 0;
+        testlab::run ([&] (double rate, int blk) -> std::unique_ptr<juce::AudioProcessor> { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk); p->loadFactory (pr);
+            if (auto* jo = std::getenv ("JONE")) { auto a2 = juce::StringArray::fromTokens (jo, ",", ""); for (int k = 0; k < kSlots; ++k) p->setSlot (k, pfx::OFF, -1); for (int t = 0; t < pfx::kNumTypes; ++t) if (a2[0] == pfx::info (t).name) p->setSlot (0, t, a2[1].getFloatValue()); }
+            if (auto* js = std::getenv ("JSET")) { auto a = juce::StringArray::fromTokens (js, ",", ""); p->P (amtId (a[0].getIntValue()))->setValueNotifyingHost (a[1].getFloatValue()); }
+            return p; }, std::getenv ("JNOCLICK") == nullptr);
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "lab")
     {   // per ogni effetto nello slot 1: aliasing con toni acuti, click quando la manopola salta del 30%, NaN agli estremi
         const char* only = std::getenv ("JONLY");

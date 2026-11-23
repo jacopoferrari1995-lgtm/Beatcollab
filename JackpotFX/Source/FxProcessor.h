@@ -81,7 +81,7 @@ private:
     juce::AudioBuffer<float> dry;
     std::atomic<float>* typeRaw[kSlots] {}; std::atomic<float>* amtRaw[kSlots] {}; std::atomic<float>* onRaw[kSlots] {};
     std::atomic<float>* mixRaw[kSlots] {}; std::atomic<float>* advRaw[kSlots][pfx::kAdv] {};
-    double sr = 48000, freeTicks = 0; float mixS = 1, outS = 1;
+    double sr = 48000, freeTicks = 0; float mixS = 1, outS = 1, bypS = 0;
     float colIn = 0, colOut = 0; int colN = 0, colMask = 0;
     void processChunk (float* L, float* R, int N, double bpm, double ppq, bool play);
 };

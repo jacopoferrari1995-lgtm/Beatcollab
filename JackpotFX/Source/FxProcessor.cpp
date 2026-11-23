@@ -154,17 +154,21 @@ void Processor::processChunk (float* L, float* R, int N, double bpm, double ppq,
         // slot al lavoro (per le corsie sotto l'onda): acceso, non neutro, mix sopra zero
         if (! byp && ty[k] != OFF && ty[k] != SCRATCHHAND && pfx::familyOfMix (ty[k]) < 0 && std::abs (am[k] - info (ty[k]).neutral) > 0.02f && mx[k] > 0.01f) mask |= 1 << k;
     }
-    if (! byp) eng.process (L, R, N, ty, am, bpm, ppq, play, av, mx);
-    else { static const int offT[kSlots] {}; static const float zA[kSlots] {}; eng.process (L, R, N, offT, zA, bpm, ppq, play); }   // tiene viva la storia
-    if (byp) for (int i = 0; i < N; ++i) { L[i] = dL[i]; R[i] = dR[i]; }
+    // BYPASS sfumato (15 ms): finche' la dissolvenza non e' finita gli effetti girano davvero
+    const float bT = byp ? 1.0f : 0.0f;
+    if (byp && bypS >= 1.0f) { static const int offT[kSlots] {}; static const float zA[kSlots] {}; eng.process (L, R, N, offT, zA, bpm, ppq, play); for (int i = 0; i < N; ++i) { L[i] = dL[i]; R[i] = dR[i]; } }   // tiene viva la storia
+    else eng.process (L, R, N, ty, am, bpm, ppq, play, av, mx);
+    const float bStep = 1.0f / (float) (0.015 * sr);
     // mix e uscita
-    const float mix = byp ? 1.0f : value ("mix"), og = byp ? 1.0f : juce::Decibels::decibelsToGain (value ("out"));
+    const float mix = value ("mix"), og = juce::Decibels::decibelsToGain (value ("out"));
     float po[2] = { 0, 0 };
     const int colLen = juce::jmax (1, (int) (sr * kColSec));
     for (int i = 0; i < N; ++i)
     {
         mixS += (mix - mixS) * 0.002f; outS += (og - outS) * 0.002f;
-        L[i] = (dL[i] + (L[i] - dL[i]) * mixS) * outS; R[i] = (dR[i] + (R[i] - dR[i]) * mixS) * outS;
+        bypS = bT > bypS ? juce::jmin (1.0f, bypS + bStep) : juce::jmax (0.0f, bypS - bStep);
+        const float wl = (dL[i] + (L[i] - dL[i]) * mixS) * outS, wr = (dR[i] + (R[i] - dR[i]) * mixS) * outS;
+        L[i] = wl + (dL[i] - wl) * bypS; R[i] = wr + (dR[i] - wr) * bypS;
         po[0] = juce::jmax (po[0], std::abs (L[i])); po[1] = juce::jmax (po[1], std::abs (R[i]));
         colIn = juce::jmax (colIn, 0.5f * (std::abs (dL[i]) + std::abs (dR[i]))); colOut = juce::jmax (colOut, 0.5f * (std::abs (L[i]) + std::abs (R[i]))); colMask |= mask;
         if (++colN >= colLen)

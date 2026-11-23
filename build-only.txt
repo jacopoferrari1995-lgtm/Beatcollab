@@ -1,2 +1,3 @@
-Jackpot808
-Jackpot808Synth
+JackpotSpace
+JackpotFX
+JackpotPad

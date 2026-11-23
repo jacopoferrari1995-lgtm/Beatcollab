@@ -177,9 +177,18 @@ struct Line
 {
     std::vector<float> b; int w = 0, mask = 0;
     void prepare (int maxN) { int n = 1; while (n < maxN + 4) n <<= 1; b.assign ((size_t) n, 0.0f); mask = n - 1; w = 0; }
-    void clear() { std::fill (b.begin(), b.end(), 0.0f); }
+    void clear() { std::fill (b.begin(), b.end(), 0.0f); xa = xb = -1; xx = 1; }
     void push (float x) { b[(size_t) w] = x; w = (w + 1) & mask; }
     float at (int d) const { return b[(size_t) ((w - 1 - d) & mask)]; }
+    // presa che cambia senza salti: quando il ritardo cambia, dissolvenza di 20 ms dalla presa vecchia alla nuova (niente graffi sul PRE-DELAY)
+    int xa = -1, xb = -1; float xx = 1;
+    float xat (int d)
+    {
+        if (xb < 0) { xa = xb = d; }
+        if (d != xb && xx >= 1.0f) { xa = xb; xb = d; xx = 0; }
+        if (xx < 1.0f) { xx = juce::jmin (1.0f, xx + 1.0f / 960.0f); const float q = xx * xx * (3.0f - 2.0f * xx); return at (xa) + (at (xb) - at (xa)) * q; }
+        return at (xb);
+    }
     float frac (float d) const   // lettura frazionaria (Hermite)
     {
         const int i = (int) d; const float f = d - (float) i;
@@ -241,7 +250,7 @@ public:
         for (int i = 0; i < n; ++i)
         {
             pre.push (freeze ? 0.0f : 0.5f * (inL[i] + inR[i]));
-            float x = bw.run (pre.at (preN), bwc);
+            float x = bw.run (pre.xat (preN), bwc);
             x = inAp[0].run (x, 0.75f); x = inAp[1].run (x, 0.75f); x = inAp[2].run (x, 0.625f); x = inAp[3].run (x, 0.625f);
             ph += dphi; if (ph > juce::MathConstants<float>::twoPi) ph -= juce::MathConstants<float>::twoPi;
             const float m[2] = { exc * std::sin (ph), exc * std::cos (ph * 0.87f) };
@@ -308,7 +317,7 @@ public:
         {
             const float inM = freeze ? 0.0f : 0.5f * (inL[s] + inR[s]), inS = freeze ? 0.0f : 0.5f * (inL[s] - inR[s]);
             pre.push (inM); er.push (inM);
-            float x = pre.at (preN);
+            float x = pre.xat (preN);
             for (int i = 0; i < 4; ++i) x = diff[i].run (x, diffG);
             // lettura con modulazione lenta (ogni linea con il suo giro)
             float o[N];
@@ -351,7 +360,7 @@ public:
         for (int i = 0; i < n; ++i)
         {
             pre.push (freeze ? 0.0f : 0.5f * (inL[i] + inR[i]));
-            float x = pre.at (preN);
+            float x = pre.xat (preN);
             // drip: i transienti eccitano la molla in modo non lineare (il "plic" del riverbero a molla)
             const float drip = p[3] * 3.0f; x = x + drip * (x - adDrip.run (x * 2.5f) / 2.5f) * 4.0f;
             float out[3] = { 0, 0, 0 };
@@ -380,8 +389,8 @@ private:
 class Delay
 {
 public:
-    void prepare (double s) { sr = s; for (auto& l : ln) l.prepare ((int) (4.2 * sr) + 64); clear(); }
-    void clear() { for (auto& l : ln) l.clear(); for (int c = 0; c < 2; ++c) { lp[c] = {}; lp2[c] = {}; hp[c] = 0; adD[c].reset(); } tS[0] = tS[1] = -1; ph = ph2 = 0; }
+    void prepare (double s) { sr = s; xStep = (float) (1.0 / (0.03 * sr)); for (auto& l : ln) l.prepare ((int) (4.2 * sr) + 64); clear(); }
+    void clear() { for (auto& l : ln) l.clear(); for (int c = 0; c < 2; ++c) { lp[c] = {}; lp2[c] = {}; hp[c] = 0; adD[c].reset(); xd[c] = 1; } tS[0] = tS[1] = -1; ph = ph2 = 0; }
     void process (const float* inL, const float* inR, float* oL, float* oR, int n, int type, const float* p, double bpm)
     {
         const bool tape = type == TAPE, bbd = type == BBD, warm = tape || bbd, sync = p[2] > 0.5f;
@@ -404,7 +413,19 @@ public:
             ph += d1; ph2 += d2; if (ph > 6.2832f) ph -= 6.2832f; if (ph2 > 6.2832f) ph2 -= 6.2832f;
             const float wobble = (wow * (0.0025f * std::sin (ph) + 0.0004f * std::sin (ph2)) + mod * (bbd ? 0.003f : 0.0015f) * std::sin (ph * 1.7f)) * (float) sr;
             float rd[2];
-            for (int c = 0; c < 2; ++c) { tS[c] += (tgt[c] - tS[c]) * glide; rd[c] = ln[c].frac (juce::jmax (2.0f, tS[c] + (c ? -wobble : wobble))); }
+            for (int c = 0; c < 2; ++c)
+            {
+                const float wb = c ? -wobble : wobble;
+                if (warm) { tS[c] += (tgt[c] - tS[c]) * glide; rd[c] = ln[c].frac (juce::jmax (2.0f, tS[c] + wb)); continue; }   // nastro e BBD: il tempo scivola (e la nota con lui), come i veri
+                // digitale: il tempo nuovo entra in dissolvenza (30 ms) fra la presa vecchia e la nuova, niente graffi
+                if (std::abs (tgt[c] - tS[c]) > 0.5f && xd[c] >= 1.0f) { tA[c] = tS[c]; tS[c] = tgt[c]; xd[c] = 0; }
+                if (xd[c] < 1.0f)
+                {
+                    xd[c] = juce::jmin (1.0f, xd[c] + xStep); const float q = xd[c] * xd[c] * (3.0f - 2.0f * xd[c]);
+                    rd[c] = ln[c].frac (juce::jmax (2.0f, tA[c] + wb)) * (1.0f - q) + ln[c].frac (juce::jmax (2.0f, tS[c] + wb)) * q;
+                }
+                else rd[c] = ln[c].frac (juce::jmax (2.0f, tS[c] + wb));
+            }
             float w[2];
             for (int c = 0; c < 2; ++c)
             {
@@ -423,7 +444,7 @@ public:
         }
     }
 private:
-    double sr = 48000; Line ln[2]; LP1 lp[2], lp2[2]; float hp[2] {}, tS[2] { -1, -1 }, ph = 0, ph2 = 0; juce::Random rnd { 5 }; AdTanh adD[2];
+    double sr = 48000; Line ln[2]; LP1 lp[2], lp2[2]; float hp[2] {}, tS[2] { -1, -1 }, tA[2] {}, xd[2] { 1, 1 }, xStep = 1.0f / 1440.0f, ph = 0, ph2 = 0; juce::Random rnd { 5 }; AdTanh adD[2];
 };
 
 // ---------------------------------------------------------------------------------------------------- REVERSE
@@ -859,7 +880,7 @@ private:
     {
         const int preN = (int) (map::pre (p[2]) * 0.001 * sr);
         float* cl = convBuf.getWritePointer (0); float* cr = convBuf.getWritePointer (1);
-        for (int i = 0; i < n; ++i) { conPre[0].push (inL[i]); conPre[1].push (inR[i]); cl[i] = conPre[0].at (preN); cr[i] = conPre[1].at (preN); }
+        for (int i = 0; i < n; ++i) { conPre[0].push (inL[i]); conPre[1].push (inR[i]); cl[i] = conPre[0].xat (preN); cr[i] = conPre[1].xat (preN); }
         juce::dsp::AudioBlock<float> blk (convBuf.getArrayOfWritePointers(), 2, (size_t) n);
         conv.process (juce::dsp::ProcessContextReplacing<float> (blk));
         for (int i = 0; i < n; ++i) { oL[i] = cl[i]; oR[i] = cr[i]; }

@@ -164,7 +164,7 @@ void SlotCard::refresh()
 void SlotCard::resized()
 {
     auto b = getLocalBounds().toFloat();
-    headR = b.withHeight (32); powR = { b.getWidth() - 34, 6, 24, 24 };
+    headR = b.withHeight (32); powR = { b.getWidth() - 34, 6, 24, 24 }; soloR = { b.getWidth() - 66, 8, 26, 18 };
     nameR = { 10, 42, b.getWidth() - 20, 26 };
     serR = { 10, 74, (b.getWidth() - 26) * 0.5f, 22 }; parR = { serR.getRight() + 6, 74, serR.getWidth(), 22 };
     if (knob) knob->setBounds (juce::Rectangle<float> (14, 110, b.getWidth() - 28, 132).toNearestInt());
@@ -218,6 +218,14 @@ void SlotCard::paint (juce::Graphics& g)
         if (dropHot) { bg.setColour (C::cyan.withAlpha (0.12f)); bg.fillRoundedRectangle (b.reduced (2), 12); bg.setColour (C::cyan); bg.drawRoundedRectangle (b.reduced (2), 12, 1.5f); }
     });
     if (t != OFF)
+    {   // SOLO dello slot
+        const int so = P.soloSlot.load(); const bool me = so == k;
+        g.setColour (me ? C::amber : juce::Colour (0xff15161a)); g.fillRoundedRectangle (soloR, 3);
+        g.setColour (me ? C::amber.brighter (0.4f) : C::dim.withAlpha (0.6f)); g.drawRoundedRectangle (soloR.reduced (0.5f), 3, 1);
+        g.setFont (uf (8.5f)); g.setColour (me ? juce::Colours::black : C::text.withAlpha (0.8f)); g.drawText ("S", soloR, juce::Justification::centred);
+        if (so >= 0 && ! me) { g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (5).withTrimmedTop (34), 8); g.setColour (C::amber.withAlpha (0.8f)); g.setFont (uf (8.5f)); g.drawText ("ESCLUSO DAL SOLO", getLocalBounds().toFloat().withTrimmedTop (36).withHeight (14), juce::Justification::centred); }
+    }
+    if (t != OFF)
     {
         const float db = juce::Decibels::gainToDecibels (lvlShown, -60.0f), tt = juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f);
         g.setColour (c.withAlpha (on ? 0.9f : 0.3f)); g.fillRoundedRectangle (meterR.withWidth (meterR.getWidth() * tt), 2);
@@ -225,12 +233,13 @@ void SlotCard::paint (juce::Graphics& g)
 }
 void SlotCard::mouseMove (const juce::MouseEvent& e)
 {
-    const bool hand = powR.contains (e.position) || nameR.contains (e.position) || gearR.contains (e.position) || serR.contains (e.position) || parR.contains (e.position);
+    const bool hand = powR.contains (e.position) || soloR.contains (e.position) || nameR.contains (e.position) || gearR.contains (e.position) || serR.contains (e.position) || parR.contains (e.position);
     setMouseCursor (hand ? juce::MouseCursor::PointingHandCursor : headR.contains (e.position) ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
 }
 void SlotCard::mouseDown (const juce::MouseEvent& e)
 {
     auto& P = ed.proc; const int t = P.slotType (k);
+    if (t != OFF && soloR.expanded (2).contains (e.position)) { P.soloSlot = P.soloSlot.load() == k ? -1 : k; for (auto* c : ed.cards) c->repaint(); return; }
     if (powR.expanded (4).contains (e.position)) { auto* p = P.P (onId (k)); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
     if (nameR.contains (e.position) || e.mods.isPopupMenu()) { showMenu(); return; }
     if (t != OFF && (serR.contains (e.position) || parR.contains (e.position))) { P.P (rtId (k))->setValueNotifyingHost (parR.contains (e.position) ? 1.0f : 0.0f); repaint(); return; }
@@ -349,6 +358,7 @@ void AdvPanel::tick()
 Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
 {
     skin::init ("space", { 0xff9fc3e0, 0xffb9a6e0, 0xffa8bea0, 0xffd8cdb8 }, 0xff3ee8ff); C::sync();
+    undoMark.p = &p; addMouseListener (&undoMark, true); setWantsKeyboardFocus (true);
     setLookAndFeel (&lnf);
     addAndMakeVisible (scope);
     for (int k = 0; k < kSlots; ++k) addAndMakeVisible (cards.add (new SlotCard (*this, k)));
@@ -370,7 +380,8 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
 void Editor::resized()
 {
     const float s = scaler.update();
-    presetR = { 372, 15, 360, 36 }; prevR = { 334, 15, 36, 36 }; nextR = { 734, 15, 36, 36 };
+    presetR = { 372, 15, 282, 36 }; prevR = { 334, 15, 36, 36 }; nextR = { 656, 15, 36, 36 };
+    undoR = { 700, 15, 72, 36 }; redoR = { 776, 15, 72, 36 };
     frzR = { 852, 15, 100, 36 }; bypR = { 958, 15, 100, 36 }; themeR = { 1078, 19, 100, 28 };
     const auto sc = scopeCard(); scope.setBounds (juce::Rectangle<float> (sc.getX() + 16, sc.getY() + 42, sc.getWidth() - 32, sc.getHeight() - 100).toNearestInt());
     advPanel.setBounds (sc.toNearestInt());
@@ -404,6 +415,8 @@ void Editor::paintStatic (juce::Graphics& g)
     }
     g.setColour (C::cyan); g.setFont (uf (20.0f));
     g.drawText (U ("\xe2\x80\xb9"), prevR, juce::Justification::centred); g.drawText (U ("\xe2\x80\xba"), nextR, juce::Justification::centred);
+    jlook::button (g, undoR.toFloat(), proc.undo.canUndo() ? C::cyan : C::dim, false, hoverBtn == 3, U ("\xe2\x86\xb6 ANNULLA"), uf (9.0f));
+    jlook::button (g, redoR.toFloat(), proc.undo.canRedo() ? C::cyan : C::dim, false, hoverBtn == 4, U ("RIPETI \xe2\x86\xb7"), uf (9.0f));
     jlook::button (g, frzR.toFloat(), C::cyan, proc.value ("freeze") > 0.5f, hoverBtn == 0, "FREEZE", uf (11.0f));
     jlook::button (g, bypR.toFloat(), C::red, proc.value ("bypass") > 0.5f, hoverBtn == 1, "BYPASS", uf (11.0f));
     skin::chipDraw (g, themeR.toFloat(), hoverBtn == 2);
@@ -469,7 +482,7 @@ void Editor::paint (juce::Graphics& g)
 void Editor::mouseMove (const juce::MouseEvent& e0)
 {
     const auto p = (e0.position / scaler.s).toInt();
-    const int h = frzR.contains (p) ? 0 : bypR.contains (p) ? 1 : themeR.contains (p) ? 2 : -1;
+    const int h = frzR.contains (p) ? 0 : bypR.contains (p) ? 1 : themeR.contains (p) ? 2 : undoR.contains (p) ? 3 : redoR.contains (p) ? 4 : -1;
     if (h != hoverBtn) { hoverBtn = h; repaint(); }
     setMouseCursor (h >= 0 || presetR.contains (p) || prevR.contains (p) || nextR.contains (p) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
@@ -482,8 +495,22 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     if (prevR.contains (p)) { proc.loadFactory ((juce::jmax (0, curF()) + n - 1) % n); refreshAll(); return; }
     if (nextR.contains (p)) { proc.loadFactory ((curF() + 1) % n); refreshAll(); return; }
     if (presetR.contains (p)) { browser.open(); return; }
+    if (undoR.contains (p)) { doUndo (false); return; }
+    if (redoR.contains (p)) { doUndo (true); return; }
     if (frzR.contains (p)) { auto* b = proc.P ("freeze"); b->setValueNotifyingHost (b->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
     if (bypR.contains (p)) { auto* b = proc.P ("bypass"); b->setValueNotifyingHost (b->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
+}
+bool Editor::keyPressed (const juce::KeyPress& k)
+{
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Z' || k.getKeyCode() == 'z')) { doUndo (k.getModifiers().isShiftDown()); return true; }
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Y' || k.getKeyCode() == 'y')) { doUndo (true); return true; }
+    return false;
+}
+void Editor::doUndo (bool redo)
+{
+    proc.undo.beginNewTransaction();
+    if (redo ? proc.undo.redo() : proc.undo.undo()) { proc.soloSlot = -1; refreshAll(); }
+    repaint();
 }
 void Editor::setupBrowser()
 {
@@ -557,5 +584,6 @@ void Editor::timerCallback()
     repaint (scaler.map (outCard().toNearestInt().withTrimmedTop (240)));
     repaint (scaler.map (outCard().toNearestInt().withHeight (32)));
     if (dragFrom >= 0) repaint();
+    if (++undoTick % 10 == 0) repaint (scaler.map (juce::Rectangle<int> (696, 12, 156, 42)));   // ANNULLA / RIPETI accesi o spenti
 }
 }

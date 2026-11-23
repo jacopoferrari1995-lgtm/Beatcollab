@@ -42,7 +42,9 @@ public:
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
 
+    juce::UndoManager undo { 2000000, 80 };   // ANNULLA / RIPETI
     juce::AudioProcessorValueTreeState apvts;
+    std::atomic<int> soloSlot { -1 };          // SOLO: si sente solo il bagnato di questo slot (non si salva)
     juce::RangedAudioParameter* P (const juce::String& id) { return apvts.getParameter (id); }
     float value (const juce::String& id) const { return apvts.getRawParameterValue (id)->load(); }
     int slotType (int k) const { return juce::roundToInt (value (typeId (k))); }
@@ -80,8 +82,8 @@ private:
     double sr = 48000; float dryS = 1, wetS = 1, outS = 1, env = 0, duckS = 1, mixS[kSlots] {};
     float colIn = 0, colOut = 0; int colN = 0, colMask = 0;
     static constexpr int kSub = 32;
-    static bool isStep (Kind k) { return k == KSPR || k == KPITCH || k == KIR || k == KPAT || k == KONOFF || k == KGP || k == KSYNC; }
-    int runT[kSlots] {}; float fadeG[kSlots] {}, ps[kSlots][kP] {}; bool idle[kSlots] {}, needClear[kSlots] {};
+    static bool isStep (Kind k) { return k == KSPR || k == KPITCH || k == KIR || k == KPAT || k == KONOFF || k == KGP || k == KSYNC || k == KDIV; }
+    unsigned subPh = 0; int runT[kSlots] {}; float fadeG[kSlots] {}, ps[kSlots][kP] {}; bool idle[kSlots] {}, needClear[kSlots] {};
     void processChunk (float* L, float* R, int N, double bpm, double ppq, bool play);
 };
 }

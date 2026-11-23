@@ -1,5 +1,6 @@
 #include "../Source/SpaceProcessor.h"
 #include "../Source/SpaceEditor.h"
+#include "TestLab.h"
 using namespace jsp;
 int main (int argc, char** argv)
 {
@@ -17,6 +18,13 @@ int main (int argc, char** argv)
             for (int i = 0; i < 512; ++i) { out.push_back (b.getSample (0, i)); out.push_back (b.getSample (1, i)); }
         }
     };
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {
+        const int pr = std::getenv ("JPR") ? std::atoi (std::getenv ("JPR")) : 0;
+        if (std::getenv ("JLIST")) { for (int i = 0; i < (int) factoryPresets().size(); ++i) std::printf ("%d %s | %s\n", i, factoryPresets()[(size_t) i].cat.toRawUTF8(), factoryPresets()[(size_t) i].name.toRawUTF8()); return 0; }
+        testlab::run ([&] (double rate, int blk) -> std::unique_ptr<juce::AudioProcessor> { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk); p->loadFactory (pr); return p; }, std::getenv ("JNOCLICK") == nullptr);
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "dsp")
     {
         // risposta all'impulso di ogni motore da solo, 100% bagnato: RT60 misurato, picco, correlazione L/R, NaN

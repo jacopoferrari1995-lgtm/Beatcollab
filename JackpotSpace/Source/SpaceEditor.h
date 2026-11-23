@@ -66,7 +66,7 @@ public:
     juce::String key() const;
     Editor& ed; const int k;
     std::unique_ptr<Knob> knob, k2, mixK;
-    juce::Rectangle<float> nameR, powR, headR, gearR, serR, parR, meterR;
+    juce::Rectangle<float> nameR, powR, headR, gearR, serR, parR, meterR, soloR;
     int shownType = -1; bool dragging = false, dropHot = false; float lvlShown = 0;
     jlook::StaticLayer base;
 };
@@ -91,7 +91,7 @@ class Editor : public juce::AudioProcessorEditor, public juce::FileDragAndDropTa
     skin::Keep skinKeep;
 public:
     explicit Editor (Processor&);
-    ~Editor() override { stopTimer(); setLookAndFeel (nullptr); }
+    ~Editor() override { stopTimer(); removeMouseListener (&undoMark); setLookAndFeel (nullptr); }
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -111,8 +111,16 @@ public:
     juce::OwnedArray<SlotCard> cards;
     std::unique_ptr<Knob> dryK, wetK, duckK, outK;
     jbrowse::Browser browser;
-    juce::Rectangle<int> presetR, prevR, nextR, frzR, bypR, themeR;
-    int hoverBtn = -1, dragFrom = -1; juce::Point<float> dragPos;
+    juce::Rectangle<int> presetR, prevR, nextR, frzR, bypR, themeR, undoR, redoR;
+    bool keyPressed (const juce::KeyPress&) override;
+    void doUndo (bool redo);
+    struct UndoMark : juce::MouseListener
+    {
+        Processor* p = nullptr; double lastWheel = 0;
+        void mouseDown (const juce::MouseEvent&) override { if (p) p->undo.beginNewTransaction(); }
+        void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override { const double t = juce::Time::getMillisecondCounterHiRes(); if (p && t - lastWheel > 600) p->undo.beginNewTransaction(); lastWheel = t; }
+    } undoMark;
+    int hoverBtn = -1, dragFrom = -1, undoTick = 0; juce::Point<float> dragPos;
     void endDrag (juce::Point<float> editorPos);
     void refreshAll() { for (auto* c : cards) c->refresh(); if (advPanel.isVisible()) advPanel.open (advPanel.k); repaint(); }
     void tickForTest() { for (int i = 0; i < 30; ++i) timerCallback(); }

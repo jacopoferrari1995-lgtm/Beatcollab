@@ -238,11 +238,13 @@ public:
     // amt: valore della manopola (0..1). bpm, ppq e playing: per gli effetti a tempo
     void process (float* L, float* R, int N, float amt, double bpm, double ppq, bool playing, const float* fam = nullptr)
     {
-        if (pendType < 0 && tW >= 1.0f) { processAmt (L, R, N, amt, bpm, ppq, playing, fam); return; }
+        // i pezzi da 64 e da 32 sono allineati a un contatore libero (clk): stesso suono con qualsiasi buffer dell'host
+        if (pendType < 0 && tW >= 1.0f) { pos0 = clk; processAmt (L, R, N, amt, bpm, ppq, playing, fam); clk += (juce::uint64) N; return; }
         const double qps = juce::jmax (40.0, bpm) / 60.0 / sr; const float st = 1.0f / (float) (0.010 * sr);
-        for (int off = 0; off < N; off += 64)
+        for (int off = 0, m = 0; off < N; off += m)
         {
-            const int m = juce::jmin (64, N - off);
+            m = juce::jmin (64 - (int) ((clk + (juce::uint64) off) & 63u), N - off);
+            pos0 = clk + (juce::uint64) off;
             if (pendType >= 0 && tW <= 0.0f) { type = pendType; pendType = -1; reset(); }
             std::copy (L + off, L + off + m, dryL); std::copy (R + off, R + off + m, dryR);
             processAmt (L + off, R + off, m, amt, bpm, ppq + (playing ? off * qps : 0.0), playing, fam);
@@ -253,16 +255,19 @@ public:
                 L[off + i] = dryL[i] + (L[off + i] - dryL[i]) * tW; R[off + i] = dryR[i] + (R[off + i] - dryR[i]) * tW;
             }
         }
+        clk += (juce::uint64) N;
     }
+    juce::uint64 clk = 0, pos0 = 0;
     void processAmt (float* L, float* R, int N, float amt, double bpm, double ppq, bool playing, const float* fam = nullptr)
     {
         if (type == OFF || ! smoothAmt (type)) { amtC = amt; processRaw (L, R, N, amt, bpm, ppq, playing, fam); return; }
         if (amtC < 0) amtC = amt;
         if (std::abs (amt - amtC) < 1e-5f) { amtC = amt; processRaw (L, R, N, amt, bpm, ppq, playing, fam); return; }
-        const float k = 1.0f - std::exp (-32.0f / (0.010f * (float) sr)); const double qps = juce::jmax (40.0, bpm) / 60.0 / sr;
-        for (int off = 0; off < N; off += 32)
+        const double qps = juce::jmax (40.0, bpm) / 60.0 / sr;
+        for (int off = 0, m = 0; off < N; off += m)
         {
-            const int m = juce::jmin (32, N - off);
+            m = juce::jmin (32 - (int) ((pos0 + (juce::uint64) off) & 31u), N - off);
+            const float k = 1.0f - std::exp (-(float) m / (0.010f * (float) sr));
             amtC += (amt - amtC) * k; if (std::abs (amt - amtC) < 1e-4f) amtC = amt;
             processRaw (L + off, R + off, m, amtC, bpm, ppq + (playing ? off * qps : 0.0), playing, fam);
         }
@@ -920,7 +925,7 @@ class Engine
 public:
     static constexpr int kSlots = 8;
     Slot slot[kSlots];
-    void prepare (double s) { sr = s; for (auto& x : slot) x.prepare (s); for (auto& m : mixS) m = -1; }
+    void prepare (double s) { sr = s; for (auto& x : slot) x.prepare (s); for (auto& m : mixS) m = -1; for (auto& b : advInit) b = false; }
     // advs: kSlots * kAdv valori avanzati (nullptr = default dell'effetto). mixes: mix di ogni slot (nullptr = 100%)
     void process (float* L, float* R, int N, const int* types, const float* amts, double bpm, double ppq, bool playing,
                   const float* advs = nullptr, const float* mixes = nullptr)
@@ -928,11 +933,14 @@ public:
         // le voci "... MIX" non suonano: danno la quantita' all'effetto della loro famiglia (se non ci sono: 100%)
         float fam[kFamilies]; for (auto& f : fam) f = 1.0f;
         for (int k = 0; k < kSlots; ++k) if (const int f = familyOfMix (types[k]); f >= 0) fam[f] = amts[k];
+        // parametri avanzati: scivolano (20 ms, esponenziale sul numero di campioni: uguale con ogni buffer); al cambio d'effetto entrano subito
+        const float ka = 1.0f - std::exp (-(float) N / (0.020f * (float) sr));
         for (int k = 0; k < kSlots; ++k)
         {
-            slot[k].setType (types[k]);
+            const bool snap = slot[k].type != types[k] || slot[k].pendType >= 0 || ! advInit[k];
+            slot[k].setType (types[k]); advInit[k] = true;
             const auto& sp = adv (types[k]);
-            for (int i = 0; i < sp.n; ++i) slot[k].a[i] = advs ? juce::jlimit (0.0f, 1.0f, advs[k * kAdv + i]) : sp.def[i];
+            for (int i = 0; i < sp.n; ++i) { const float t = advs ? juce::jlimit (0.0f, 1.0f, advs[k * kAdv + i]) : sp.def[i]; slot[k].a[i] = snap ? t : slot[k].a[i] + (t - slot[k].a[i]) * ka; if (std::abs (t - slot[k].a[i]) < 1e-5f) slot[k].a[i] = t; }
         }
         if (mixes == nullptr)
         {   // prima gli effetti che muovono il tempo (freeze, stutter, scratch...), poi tutto il resto: cosi' si sommano
@@ -964,7 +972,7 @@ public:
     }
 private:
     static constexpr int kBlk = 256;
-    double sr = 48000; float mixS[kSlots] {}; float dl[kBlk] {}, dr[kBlk] {};
+    double sr = 48000; float mixS[kSlots] {}; float dl[kBlk] {}, dr[kBlk] {}; bool advInit[kSlots] {};
 };
 
 // testo da mostrare sotto la manopola
