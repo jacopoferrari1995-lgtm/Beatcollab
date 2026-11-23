@@ -100,7 +100,7 @@ public:
     {
         for (auto& st : str) { for (auto& u : st.u) u.reset(); st.cur = 0; st.note = -1; st.bendS = 0; st.bendT = 0; }
         for (auto& b : bq) for (auto& f : b) f.reset();
-        verb.reset(); std::fill (dbl.begin(), dbl.end(), 0.0f); lfo = 0; drvS = 0;
+        verb.reset(); std::fill (dbl.begin(), dbl.end(), 0.0f); lfo = 0; drvS = 0; ctr = 0;
     }
     // parametri (dal processor, ogni blocco)
     int body = ACUSTICA; float tone = 0.5f, bodyAmt = 0.6f, space = 0.2f, width = 0.3f, vol = 0.8f, drive = 0.5f;
@@ -137,9 +137,7 @@ public:
     void render (float* L, float* R, int n)
     {
         // cambio di chitarra: si abbassa in 5 ms, si cambia il corpo, si risale (niente salto nei filtri)
-        if (body != bodyCur && bFade < 0.002f) { bodyCur = body; for (auto& b : bq) for (auto& f : b) f.reset(); fBody = -1; filtersFor (true); }
         const int bodySave = body; body = bodyCur;
-        filtersFor (false);
         std::fill (vl.begin(), vl.begin() + n, 0.0f); std::fill (vr.begin(), vr.begin() + n, 0.0f);
         for (int s = 0; s < kStr; ++s)
         {
@@ -148,14 +146,16 @@ public:
             const float pan = -0.14f + 0.056f * (float) s, gl = std::sqrt (0.5f - 0.5f * pan), gr = std::sqrt (0.5f + 0.5f * pan);
             for (int i = 0; i < n; ++i)
             {
-                if ((i & 15) == 0) { st.bendS += 0.25f * (st.bendT - st.bendS); for (auto& u : st.u) if (u.on) u.setBend (st.bendS); }
+                if (((ctr + i) & 15) == 0) { st.bendS += 0.25f * (st.bendT - st.bendS); for (auto& u : st.u) if (u.on) u.setBend (st.bendS); }
                 float x = 0; for (auto& u : st.u) if (u.on) x += u.tick();
                 vl[(size_t) i] += x * gl; vr[(size_t) i] += x * gr;
             }
         }
-        // corpo / pickup
+        const juce::uint32 c0 = ctr; ctr += (juce::uint32) n;
+        // corpo / pickup (i filtri si aggiornano ogni 32 campioni contati dall'inizio: uguale con qualsiasi buffer)
         for (int i = 0; i < n; ++i)
         {
+            if (((c0 + (juce::uint32) i) & 31u) == 0) filtersFor (false);
             float a = vl[(size_t) i], b = vr[(size_t) i];
             for (int k = 0; k < 4; ++k) { a = bq[0][k].p (a); b = bq[1][k].p (b); }
             if (body == CRUNCH)
@@ -166,6 +166,10 @@ public:
                 for (int q = 4; q < 6; ++q) { a = bq[0][q].p (a); b = bq[1][q].p (b); }
             }
             bFade += ((bodySave != bodyCur ? 0.0f : 1.0f) - bFade) * 0.01f;
+            if (bodySave != bodyCur && bFade < 0.002f)
+            {   // il cambio avviene al campione, non al blocco: stesso suono con qualsiasi buffer
+                bodyCur = body = bodySave; for (auto& bb : bq) for (auto& f : bb) f.reset(); fBody = -1; filtersFor (true);
+            }
             vl[(size_t) i] = a * bFade; vr[(size_t) i] = b * bFade;
         }
         // raddoppio (una seconda chitarra appena in ritardo dall'altra parte) e spazio
@@ -183,7 +187,7 @@ public:
             vl[(size_t) i] = vl[(size_t) i] * (1.0f - 0.35f * wS) - dv * 0.25f * wS;
             vr[(size_t) i] = vr[(size_t) i] * (1.0f - 0.35f * wS) + dv * 0.75f * wS;
         }
-        pfx::Verb::Params vp; vp.type = body == NYLON || body == ACUSTICA ? pfx::Verb::ROOM : pfx::Verb::PLATE; vp.decay = body == NYLON || body == ACUSTICA ? 1.1f : 1.6f; vp.preMs = 8; vp.color = 0.45f; vp.width = 1.0f; vp.lowHz = 150; vp.highHz = 7000;
+        pfx::Verb::Params vp; vp.type = bodySave == NYLON || bodySave == ACUSTICA ? pfx::Verb::ROOM : pfx::Verb::PLATE; vp.decay = bodySave == NYLON || bodySave == ACUSTICA ? 1.1f : 1.6f; vp.preMs = 8; vp.color = 0.45f; vp.width = 1.0f; vp.lowHz = 150; vp.highHz = 7000;
         verb.process (vl.data(), vr.data(), wl.data(), wr.data(), n, vp);
         for (int i = 0; i < n; ++i)
         {
@@ -203,13 +207,13 @@ private:
     struct Str { std::array<KS, 2> u; int cur = 0, note = -1; float bendS = 0, bendT = 0; };
     std::array<Str, kStr> str; juce::Random rnd { 1234 };
     jkit::Bq bq[2][6]; int fBody = -1; float fTone = -1, fAmt = -1;
-    pfx::Verb verb; std::vector<float> vl, vr, wl, wr, dbl; int dw = 0; int bodyCur = 1; float bFade = 1.0f; float lfo = 0, wS = 0.3f, spS = 0.2f, volS = 0.8f, drvS = 0.5f; bool bad = false;
+    pfx::Verb verb; std::vector<float> vl, vr, wl, wr, dbl; int dw = 0; juce::uint32 ctr = 0; int bodyCur = 1; float bFade = 1.0f; float lfo = 0, wS = 0.3f, spS = 0.2f, volS = 0.8f, drvS = 0.5f; bool bad = false;
     double sr = 48000;
     void filtersFor (bool force)
     {
-        if (! force && fBody == body && std::abs (fTone - tone) < 0.01f && std::abs (fAmt - bodyAmt) < 0.01f) return;
-        // i filtri si ricalcolano solo quando i valori cambiano di almeno l'1%: passi piccolissimi, nessun click
-        fTone = fTone < 0 ? tone : fTone + juce::jlimit (-0.02f, 0.02f, tone - fTone); fAmt = fAmt < 0 ? bodyAmt : fAmt + juce::jlimit (-0.02f, 0.02f, bodyAmt - fAmt); fBody = body;
+        if (! force && fBody == body && std::abs (fTone - tone) < 0.004f && std::abs (fAmt - bodyAmt) < 0.004f) return;
+        // passi piccoli (al massimo 0.004 ogni 32 campioni): nessun click quando si gira TONO o CORPO
+        fTone = fTone < 0 ? tone : fTone + juce::jlimit (-0.004f, 0.004f, tone - fTone); fAmt = fAmt < 0 ? bodyAmt : fAmt + juce::jlimit (-0.004f, 0.004f, bodyAmt - fAmt); fBody = body;
         const double A = fAmt, T = fTone;
         for (int c = 0; c < 2; ++c)
         {

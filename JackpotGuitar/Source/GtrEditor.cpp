@@ -38,6 +38,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
     add ("strum", "PENNATA", C::amber, [] (float v) { return juce::String (juce::roundToInt (7 + v * 34)) + " ms"; }, "Velocita' della pennata: quanto tempo passa dalla prima all'ultima corda.");
     add ("human", "UMANO", C::amber, pct, "Piccole imprecisioni di tempo e di forza, come un chitarrista vero.");
     add ("swing", "SWING", C::amber, pct, "Ritarda i levare (sedicesimi o ottavi): groove R&B, lo-fi, afro.");
+    add ("rest", "PAUSE", C::amber, pct, "Pause e respiri: a fine frase la parte si ferma o resta una nota lunga. A zero suona sempre.");
     add ("ring", "RISUONA", C::green, pct, "Negli arpeggi: quanto lasciare suonare le corde prima della nota dopo.");
     add ("emb", "ABBELLIM.", C::green, pct, "Hammer-on e scivolate dalle note della scala, negli arpeggi e negli accordi neo soul.");
     add ("tech", "TECNICA", C::green, pct, "Nel LEAD: bend, vibrato, scivolate, legati e doppie note.");
@@ -61,11 +62,11 @@ void Editor::resized()
     const float s = scaler.update();
     for (int i = 0; i < 12; ++i) keyR[i] = { 44.0f + i * 47, 114, 43, 24 };
     for (int i = 0; i < kScales; ++i) scaleR[i] = { 44.0f + i * 94, 146, 90, 24 };
-    genreR = { 44, 178, 150, 26 };
-    for (int i = 0; i < 4; ++i) barsR[i] = { 270.0f + i * 38, 178, 34, 26 };
-    for (int i = 0; i < 2; ++i) perBarR[i] = { 470.0f + i * 38, 178, 34, 26 };
-    remR = { 560, 178, 28, 26 }; addR = { 592, 178, 28, 26 };
-    for (int i = 0; i < 8; ++i) slotR[i] = { 44.0f + i * 73, 220, 68, 70 };
+    genreR = { 44, 186, 106, 24 }; moodR = { 156, 186, 106, 24 };
+    for (int i = 0; i < 4; ++i) barsR[i] = { 276.0f + i * 36, 186, 32, 24 };
+    for (int i = 0; i < 3; ++i) perBarR[i] = { 428.0f + i * 38, 186, 34, 24 };
+    remR = { 560, 186, 28, 24 }; addR = { 592, 186, 28, 24 };
+    for (int i = 0; i < 8; ++i) slotR[i] = { 44.0f + i * 73, 228, 68, 66 };
     fretR = { 672, 134, 470, 120 }; tuningR = { 1052, 100, 90, 24 };
     for (int i = 0; i < kVStyles; ++i) vstyleR[i] = { 672.0f + i * 95, 270, 90, 24 };
     for (int i = 0; i < kModes; ++i) modeR[i] = { 44, 346.0f + i * 40, 140, 34 };
@@ -75,7 +76,7 @@ void Editor::resized()
     genR = { 866, 432, 134, 30 }; varR = { 1004, 432, 134, 30 };
     playR = { 866, 470, 134, 26 }; liveR = { 1004, 470, 134, 26 }; midiR = { 866, 502, 134, 26 }; csR = { 1004, 502, 134, 26 };
     auto put = [this] (const char* id, int x, int y) { if (auto* k = knobById (knobs, id)) k->setBounds (x, y, 74, 100); };
-    int x = 44; for (auto* id : { "density", "dyn", "strum", "human", "swing" }) { put (id, x, 582); x += 80; }
+    int x = 44; for (auto* id : { "density", "dyn", "strum", "human", "swing", "rest" }) { put (id, x, 582); x += 80; }
     x += 16; for (auto* id : { "ring", "emb", "tech" }) { put (id, x, 582); x += 80; }
     x += 16; for (auto* id : { "borrow", "pos", "color" }) { put (id, x, 582); x += 80; }
     for (int i = 0; i < kBodies; ++i) bodyR[i] = { 44.0f + i * 96, 726, 90, 28 };
@@ -98,9 +99,9 @@ void Editor::paintStatic (juce::Graphics& g)
     panel (g, { 644, 88, 512, 214 }, C::green, U ("TASTIERA"), U (""));
     panel (g, { 24, 318, 1132, 220 }, C::violet, U ("CLIP"), U (""));
     panel (g, { 24, 554, 1132, 250 }, C::phos, U (""), U ("IL SUONO E' SOLO PER ASCOLTARE: IL MIDI ESCE UGUALE"));
-grp (g, 270, 164, 150, U ("BATTUTE")); grp (g, 470, 164, 72, U ("ACC./BATT.")); grp (g, 560, 164, 60, U ("ACCORDI"));
-    grp (g, 44, 164, 150, U ("GENERE")); grp (g, 44, 206, 580, U ("GIRO (CLIC PER CAMBIARE L'ACCORDO)"));
-    grp (g, 44, 568, 392, U ("SUONATA")); grp (g, 456, 568, 232, U ("CORDE")); grp (g, 708, 568, 232, U ("ARMONIA E MANO"));
+grp (g, 276, 172, 140, U ("BATTUTE")); grp (g, 428, 172, 110, U ("ACC. PER BATT.")); grp (g, 560, 172, 60, U ("ACCORDI")); grp (g, 156, 172, 106, U ("MOOD"));
+    grp (g, 44, 172, 106, U ("GENERE")); grp (g, 44, 213, 580, U ("GIRO (CLIC PER CAMBIARE L'ACCORDO)"));
+    grp (g, 44, 568, 474, U ("SUONATA")); grp (g, 540, 568, 232, U ("CORDE")); grp (g, 796, 568, 232, U ("ARMONIA E MANO"));
     grp (g, 44, 708, 380, U ("CHITARRA")); grp (g, 450, 680, 392, U ("SUONO")); grp (g, 1050, 680, 74, U ("USCITA"));
 }
 void Editor::drawFretboard (juce::Graphics& g, const Part& P, int slot)
@@ -168,7 +169,7 @@ void Editor::drawRoll (juce::Graphics& g, const Part& P)
     }
     if (! P.bend.empty())
     {   // curva dei bend sotto
-        juce::Path pb; bool st = false; for (auto& b : P.bend) { const float x = bx (b.beat), y = r.getBottom() - 2 - b.semis * 6; if (! st) { pb.startNewSubPath (x, y); st = true; } else pb.lineTo (x, y); }
+        juce::Path pb; bool st = false; float py = 0; for (auto& b : P.bend) { const float x = bx (b.beat), y = r.getBottom() - 8 - b.semis * 6; if (! st) { pb.startNewSubPath (x, y); st = true; } else { pb.lineTo (x, py); pb.lineTo (x, y); } py = y; }
         g.setColour (C::green.withAlpha (0.7f)); g.strokePath (pb, juce::PathStrokeType (1.2f));
     }
     const double pb = proc.uiBeat.load();
@@ -199,9 +200,10 @@ void Editor::paint (juce::Graphics& g)
     // GIRO
     for (int i = 0; i < 12; ++i) chipBtn (g, keyR[i], noteName (i), S.key == i, C::amber, 10.5f, hoverId == 100 + i);
     for (int i = 0; i < kScales; ++i) chipBtn (g, scaleR[i], scaleName (i), S.scale == i, C::amber, 10.0f, hoverId == 120 + i);
-    chipBtn (g, genreR, juce::String (genreName (S.genre)) + U ("  \xe2\x96\xbe"), true, C::yellow, 10.5f, hoverId == 130);
+    chipBtn (g, genreR, juce::String (genreName (S.genre)) + U (" \xe2\x96\xbe"), true, C::yellow, 9.5f, hoverId == 130);
+    chipBtn (g, moodR, juce::String (moodName (S.mood)) + U (" \xe2\x96\xbe"), true, C::yellow, 9.5f, hoverId == 132);
     for (int i = 0; i < 4; ++i) chipBtn (g, barsR[i], juce::String (barsOf (i)), proc.vi ("bars") == i, C::amber, 10.5f, hoverId == 140 + i);
-    for (int i = 0; i < 2; ++i) chipBtn (g, perBarR[i], juce::String (i + 1), proc.vi ("perBar") == i, C::amber, 10.5f, hoverId == 150 + i);
+    { static const char* pb[3] = { "1", "2", "1/2" }; for (int i = 0; i < 3; ++i) chipBtn (g, perBarR[i], pb[i], proc.vi ("perBar") == i, C::amber, 10.5f, hoverId == 150 + i); }
     const auto pr = proc.prog();
     chipBtn (g, remR, "-", false, pr.size() > 1 ? C::amber : C::dim, 13, hoverId == 160); chipBtn (g, addR, "+", false, pr.size() < 8 ? C::amber : C::dim, 13, hoverId == 161);
     for (int i = 0; i < 8; ++i)
@@ -289,6 +291,17 @@ void Editor::genreMenu()
         sp->proc.undo.beginNewTransaction(); sp->proc.setV ("genre", (float) (r - 1)); sp->proc.generaGiro(); sp->repaint();
     });
 }
+void Editor::moodMenu()
+{
+    juce::PopupMenu m; m.addSectionHeader (U ("MOOD (CARATTERE DEL GIRO E DELLA MELODIA)"));
+    for (int i = 0; i < kMoods; ++i) m.addItem (1 + i, i == 0 ? juce::String ("AUTO (dal genere: ") + moodName (moodOfGenre (proc.vi ("genre"))) + ")" : juce::String (moodName (i)), true, proc.vi ("mood") == i);
+    juce::Component::SafePointer<Editor> sp (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (moodR.toNearestInt()))), [sp] (int r)
+    {
+        if (sp == nullptr || r <= 0) return;
+        sp->proc.undo.beginNewTransaction(); sp->proc.setV ("mood", (float) (r - 1)); sp->proc.curPreset = -1; sp->repaint();
+    });
+}
 void Editor::mouseDown (const juce::MouseEvent& e)
 {
     const auto p = e.position / scaler.s;
@@ -297,7 +310,8 @@ void Editor::mouseDown (const juce::MouseEvent& e)
     for (int i = 0; i < kScales; ++i) if (scaleR[i].contains (p)) { proc.setV ("scale", (float) i); proc.curPreset = -1; repaint(); return; }
     if (genreR.contains (p)) { genreMenu(); return; }
     for (int i = 0; i < 4; ++i) if (barsR[i].contains (p)) { proc.setV ("bars", (float) i); repaint(); return; }
-    for (int i = 0; i < 2; ++i) if (perBarR[i].contains (p)) { proc.setV ("perBar", (float) i); repaint(); return; }
+    for (int i = 0; i < 3; ++i) if (perBarR[i].contains (p)) { proc.setV ("perBar", (float) i); repaint(); return; }
+    if (moodR.contains (p)) { moodMenu(); return; }
     if (addR.contains (p) || remR.contains (p))
     {
         auto pr = proc.prog();
@@ -339,7 +353,7 @@ void Editor::mouseMove (const juce::MouseEvent& e)
     auto chk = [&] (const juce::Rectangle<float>& r, int id) { if (r.contains (p)) h = id; };
     for (int i = 0; i < 12; ++i) chk (keyR[i], 100 + i);
     for (int i = 0; i < kScales; ++i) chk (scaleR[i], 120 + i);
-    chk (genreR, 130); for (int i = 0; i < 4; ++i) chk (barsR[i], 140 + i); for (int i = 0; i < 2; ++i) chk (perBarR[i], 150 + i); chk (remR, 160); chk (addR, 161);
+    chk (genreR, 130); for (int i = 0; i < 4; ++i) chk (barsR[i], 140 + i); for (int i = 0; i < 3; ++i) chk (perBarR[i], 150 + i); chk (moodR, 132); chk (remR, 160); chk (addR, 161);
     chk (tuningR, 170); for (int i = 0; i < kVStyles; ++i) chk (vstyleR[i], 180 + i);
     for (int i = 0; i < kModes; ++i) chk (modeR[i], 200 + i); for (int i = 0; i < 9; ++i) chk (patR[i], 210 + i);
     chk (dragR, 230); chk (genR, 231); chk (varR, 232); chk (playR, 233); chk (liveR, 234); chk (midiR, 235); chk (csR, 236);
@@ -348,6 +362,8 @@ void Editor::mouseMove (const juce::MouseEvent& e)
     if (h != hoverId || hs != hoverSlot) { hoverId = h; hoverSlot = hs; repaint(); }
     static const std::map<int, const char*> tips = {
         { 130, "Il genere sceglie i giri tipici e il colore degli accordi. Cambiarlo genera un giro nuovo." },
+        { 132, "Mood: il carattere del giro. MALINCONICO scende e respira, APERTO corde a vuoto e note comuni, IPNOTICO ripete il motivo, SOGNANTE none e note lunghe, TESO stretto e basso, CALDO settime, ENERGICO pieno e in salita." },
+        { 150, "Un accordo per battuta." }, { 151, "Due accordi per battuta." }, { 152, "Un accordo ogni due battute: giri lenti, ipnotici." },
         { 160, "Toglie l'ultimo accordo del giro." }, { 161, "Aggiunge un accordo al giro (fino a 8)." },
         { 170, "Accordatura: STANDARD, DROP D (sesta corda in Re), -1/2 TONO." },
         { 180, "APERTI: accordi con le corde a vuoto, il suono delle acustiche." }, { 181, "BARRE': forme chiuse e piene, si spostano sul manico." },
@@ -411,7 +427,6 @@ bool Editor::keyPressed (const juce::KeyPress& k)
 {
     if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Z' || k.getKeyCode() == 'z')) { doUndo (k.getModifiers().isShiftDown()); return true; }
     if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Y' || k.getKeyCode() == 'y')) { doUndo (true); return true; }
-    if (k.getKeyCode() == juce::KeyPress::spaceKey) { proc.setV ("play", proc.v ("play") > 0.5f ? 0.0f : 1.0f); repaint(); return true; }
     return false;
 }
 void Editor::doUndo (bool redo)

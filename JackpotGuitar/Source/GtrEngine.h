@@ -87,6 +87,39 @@ inline const std::vector<std::vector<int>>& progressions (int g)
 // colore tipico del genere (0 triadi, 1 settime, 2 none, 3 sus/add9)
 inline int genreColor (int g) { static const int c[kGenres] = { 0, 0, 3, 2, 3, 0, 1, 1, 2, 0, 1, 0, 0 }; return c[juce::jlimit (0, kGenres - 1, g)]; }
 
+// ------------------------------------------------------------------------------------------------ mood
+// il mood cambia il carattere della parte: giri, colore, registro, quanto si ripete, quanto respira, come va la melodia
+enum Mood { M_AUTO, MALINCONICO, APERTO, IPNOTICO, SOGNANTE, TESO, CALDO, ENERGICO, kMoods };
+inline const char* moodName (int m) { static const char* n[kMoods] = { "AUTO", "MALINCONICO", "APERTO", "IPNOTICO", "SOGNANTE", "TESO", "CALDO", "ENERGICO" }; return n[juce::jlimit (0, kMoods - 1, m)]; }
+inline int moodOfGenre (int g) { static const int m[kGenres] = { MALINCONICO, TESO, MALINCONICO, CALDO, APERTO, CALDO, APERTO, CALDO, SOGNANTE, ENERGICO, ENERGICO, APERTO, CALDO }; return m[juce::jlimit (0, kGenres - 1, g)]; }
+struct MoodK
+{
+    float dens = 0, space = 0, ring = 0;  // si sommano alle manopole
+    int color = -1;                       // colore degli accordi quando COLORE e' AUTO (-1 = quello del genere)
+    float repeat = 0.5f;                  // quanto si ripete il motivo (ostinato)
+    float pedal = 0.2f;                   // nota comune tenuta in cima agli accordi
+    float lift = 0.5f;                    // quanto sale la seconda meta' del giro di 8
+    int contour = 0;                      // 0 arco, 1 scende, 2 sale, 3 stretto (attorno a una nota)
+    float longN = 0.5f;                   // note lunghe nella melodia
+    int reg = 0;                          // registro (tasti in piu' o in meno)
+};
+inline MoodK moodK (int mood)
+{
+    MoodK k;
+    switch (mood)
+    {
+        case MALINCONICO: k.dens = -0.08f; k.space = 0.15f; k.ring = 0.1f; k.repeat = 0.6f; k.pedal = 0.3f; k.contour = 1; k.longN = 0.65f; break;
+        case APERTO:      k.space = 0.1f; k.ring = 0.2f; k.color = 3; k.repeat = 0.5f; k.pedal = 0.65f; k.contour = 0; k.longN = 0.6f; k.lift = 0.8f; break;
+        case IPNOTICO:    k.space = 0.0f; k.ring = 0.15f; k.repeat = 0.92f; k.pedal = 0.85f; k.contour = 3; k.longN = 0.4f; k.lift = 0.15f; break;
+        case SOGNANTE:    k.dens = -0.12f; k.space = 0.2f; k.ring = 0.25f; k.color = 2; k.repeat = 0.55f; k.pedal = 0.45f; k.contour = 0; k.longN = 0.75f; k.reg = 3; break;
+        case TESO:        k.dens = 0.05f; k.space = 0.1f; k.ring = -0.3f; k.color = 0; k.repeat = 0.75f; k.pedal = 0.5f; k.contour = 3; k.longN = 0.3f; k.reg = -1; break;
+        case CALDO:       k.color = 1; k.repeat = 0.5f; k.pedal = 0.25f; k.contour = 0; k.longN = 0.5f; break;
+        case ENERGICO:    k.dens = 0.15f; k.space = -0.15f; k.ring = -0.1f; k.repeat = 0.6f; k.pedal = 0.2f; k.contour = 2; k.longN = 0.3f; k.lift = 0.7f; break;
+        default: break;
+    }
+    return k;
+}
+
 // ------------------------------------------------------------------------------------------------ tastiera
 constexpr int kStr = 6;
 enum Tuning { STANDARD, DROPD, MEZZOTONO, kTunings };
@@ -101,7 +134,7 @@ enum VStyle { V_OPEN, V_BARRE, V_TRIAD, V_POWER, V_JAZZ, kVStyles };
 inline const char* vstyleName (int v) { static const char* n[kVStyles] = { "APERTI", "BARRE'", "TRIADI ALTE", "POWER", "JAZZ" }; return n[juce::jlimit (0, kVStyles - 1, v)]; }
 
 // cerca il voicing migliore: una nota per corda, al massimo 4 dita (il barre' conta uno), apertura di 4 tasti al massimo
-inline Voicing findVoicing (const Chord& ch, const std::array<int, kStr>& tun, int style, int pos, const Voicing* prev, juce::Random& rnd, float rndAmt = 0.0f)
+inline Voicing findVoicing (const Chord& ch, const std::array<int, kStr>& tun, int style, int pos, const Voicing* prev, juce::Random& rnd, float rndAmt = 0.0f, int topTarget = -1)
 {
     Voicing best;
     const bool power = style == V_POWER, triad = style == V_TRIAD, jazz = style == V_JAZZ, open = style == V_OPEN;
@@ -173,6 +206,11 @@ inline Voicing findVoicing (const Chord& ch, const std::array<int, kStr>& tun, i
                     int topA = -1, topB = -1; for (int i = kStr - 1; i >= 0; --i) { if (topA < 0 && cur[(size_t) i] >= 0) topA = tun[(size_t) i] + cur[(size_t) i]; if (topB < 0 && prev->fret[(size_t) i] >= 0) topB = tun[(size_t) i] + prev->fret[(size_t) i]; }
                     if (topA >= 0 && topB >= 0) sc -= (float) std::abs (topA - topB) * 0.25f;
                 }
+                if (topTarget >= 0)
+                {   // la nota alta canta la linea: si premia il voicing che la mette in cima
+                    int top = -1; for (int i = kStr - 1; i >= 0; --i) if (cur[(size_t) i] >= 0) { top = tun[(size_t) i] + cur[(size_t) i]; break; }
+                    if (top == topTarget) sc += 4.5f; else if (top % 12 == topTarget % 12) sc += 1.0f; else sc -= (float) std::abs (top - topTarget) * 0.3f;
+                }
                 if (rndAmt > 0) sc += rnd.nextFloat() * rndAmt;
                 if (sc > best.score) { best.fret = cur; best.score = sc; best.lo = minF == 99 ? 0 : minF; best.hi = maxF; best.barre = barre; }
                 return;
@@ -210,11 +248,13 @@ inline const char* modeName (int m) { static const char* n[kModes] = { "ACCORDI"
 struct Settings
 {
     int key = 9, scale = MINORE, genre = TRAP, mode = ARPEGGIO, pattern = 0, vstyle = V_OPEN, tuning = STANDARD;
-    int bars = 4, perBar = 1;            // battute del giro, accordi per battuta (1 o 2)
+    int bars = 4, perBar = 1;            // battute del giro; accordi per battuta: 1, 2, oppure 0 = un accordo ogni 2 battute
     float density = 0.5f, color = -1.0f; // color < 0 = quello del genere
     int pos = 3;                         // tasto di riferimento per la mano
     float human = 0.35f, swing = 0.0f, strum = 0.35f, dyn = 0.6f, borrow = 0.0f, ring = 0.7f, emb = 0.3f, tech = 0.5f;
     double bpm = 120;
+    int mood = 0;                        // 0 = dal genere
+    float space = 0.3f;                  // pause: quanto respira la parte
     std::vector<int> prog;               // gradi scelti a mano (vuoto = dal genere)
     juce::uint32 seed = 1;
 };

@@ -32,14 +32,14 @@ public:
     juce::OwnedArray<jkit::Knob> knobs;
     jbrowse::Browser browser;
     // zone cliccabili
-    juce::Rectangle<float> keyR[12], scaleR[kScales], genreR, barsR[4], perBarR[2], slotR[8], addR, remR;
+    juce::Rectangle<float> keyR[12], scaleR[kScales], genreR, moodR, barsR[4], perBarR[3], slotR[8], addR, remR;
     juce::Rectangle<float> fretR, vstyleR[kVStyles], tuningR;
     juce::Rectangle<float> modeR[kModes], patR[9], rollR, dragR, genR, varR, playR, liveR, midiR, csR;
     juce::Rectangle<float> bodyR[kBodies], listenR;
     juce::Rectangle<float> presetR, prevR, nextR, undoR, redoR, themeR;
     int hoverSlot = -1, selSlot = 0, hoverId = -1, bgTheme = -1; bool dragging = false; juce::String info;
     juce::Image bg; float bgScale = 0; void paintStatic (juce::Graphics&);
-    void setupBrowser(); void askPresetName(); void doUndo (bool redo); void slotMenu (int i); void genreMenu(); void repaintAll();
+    void setupBrowser(); void askPresetName(); void doUndo (bool redo); void slotMenu (int i); void genreMenu(); void moodMenu(); void repaintAll();
     void drawFretboard (juce::Graphics&, const Part&, int slot);
     void drawRoll (juce::Graphics&, const Part&);
     struct UndoMark : juce::MouseListener

@@ -8,7 +8,7 @@ juce::File presetFolder()
     auto d = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Guitar Preset");
     d.createDirectory(); return d;
 }
-static const char* kGenIds[] = { "key", "scale", "genre", "mode", "pat", "vstyle", "tuning", "bars", "perBar", "color", "pos", "density", "dyn", "strum", "human", "swing", "ring", "emb", "tech", "borrow" };
+static const char* kGenIds[] = { "key", "scale", "genre", "mode", "pat", "vstyle", "tuning", "bars", "perBar", "color", "pos", "density", "dyn", "strum", "human", "swing", "ring", "emb", "tech", "borrow", "mood", "rest" };
 
 // preset: gruppo | nome. Ogni preset e' una parte completa (giro, modo, suonata, suono); il giro parte dal grado indicato
 const std::vector<GPreset>& presets()
@@ -16,6 +16,18 @@ const std::vector<GPreset>& presets()
     using V = std::vector<std::pair<const char*, float>>;
     static const std::vector<GPreset> P = {
         { "INIT | Giro base", "Arpeggio trap su La minore, i - VI - III - VII, nylon. Il punto di partenza neutro.", V {}, { 0, 5, 2, 6 } },
+        { "MELODIA | Cantabile", "Melodia da cantare su 8 battute: domanda e risposta, il motivo torna, note d'arrivo sugli accordi, respiri. Elettrica pulita.",
+          V { { "key", 9 }, { "scale", MINORE }, { "genre", POP }, { "mood", MALINCONICO }, { "mode", LEAD }, { "pat", 0 }, { "bars", 3 }, { "pos", 5 }, { "tech", 0.35f }, { "density", 0.5f }, { "rest", 0.35f }, { "body", PULITA }, { "space", 0.3f }, { "width", 0.3f } }, { 0, 5, 2, 6 } },
+        { "MELODIA | Aperta in maggiore", "Linea cantabile in Sol maggiore, arco che sale nella seconda frase. Nylon.",
+          V { { "key", 7 }, { "scale", MAGGIORE }, { "genre", POP }, { "mood", APERTO }, { "mode", LEAD }, { "pat", 0 }, { "bars", 3 }, { "pos", 4 }, { "tech", 0.3f }, { "density", 0.45f }, { "body", NYLON } }, { 0, 4, 5, 3 } },
+        { "MOOD | Ipnotico", "Due accordi, un arpeggio che gira sempre uguale con la nota alta ferma. Per loop trap e drill lenti.",
+          V { { "key", 1 }, { "scale", MINORE }, { "genre", TRAP }, { "mood", IPNOTICO }, { "mode", ARPEGGIO }, { "pat", 1 }, { "bars", 3 }, { "vstyle", V_OPEN }, { "pos", 4 }, { "ring", 0.8f }, { "density", 0.55f }, { "body", NYLON }, { "rest", 0.0f }, { "space", 0.3f } }, { 0, 5 } },
+        { "MOOD | Aperto", "Corde a vuoto, sus e add9, note comuni che restano in cima. Acustica.",
+          V { { "key", 4 }, { "scale", MAGGIORE }, { "genre", FOLK }, { "mood", APERTO }, { "mode", ARPEGGIO }, { "pat", 3 }, { "bars", 3 }, { "vstyle", V_OPEN }, { "pos", 2 }, { "ring", 0.85f }, { "body", ACUSTICA }, { "width", 0.5f } }, { 0, 4, 5, 3 } },
+        { "MOOD | Sognante", "Accordi di nona sfogliati, un accordo ogni due battute, molto spazio. Elettrica pulita con plate.",
+          V { { "key", 5 }, { "scale", MAGGIORE }, { "genre", LOFI }, { "mood", SOGNANTE }, { "mode", ARPEGGIO }, { "pat", 6 }, { "bars", 3 }, { "perBar", 2 }, { "vstyle", V_JAZZ }, { "pos", 5 }, { "ring", 0.9f }, { "body", PULITA }, { "rest", 0.5f }, { "space", 0.45f } }, { 3, 2, 1, 0 } },
+        { "MOOD | Teso", "Ritmica stretta e bassa, stoppate a fine frase. Re frigio.",
+          V { { "key", 2 }, { "scale", FRIGIA }, { "genre", DRILL }, { "mood", TESO }, { "mode", RITMICA }, { "pat", 5 }, { "bars", 2 }, { "vstyle", V_POWER }, { "pos", 5 }, { "body", CRUNCH }, { "drive", 0.45f } }, { 0, 1, 0, 6 } },
         { "TRAP | Triste in La minore", "Arpeggio lento sulle corde a vuoto, le note si lasciano suonare. Il classico loop di chitarra trap.",
           V { { "key", 9 }, { "scale", MINORE }, { "genre", TRAP }, { "mode", ARPEGGIO }, { "pat", 1 }, { "vstyle", V_OPEN }, { "pos", 2 }, { "ring", 0.85f }, { "emb", 0.35f }, { "density", 0.55f }, { "body", NYLON }, { "space", 0.3f } }, { 0, 5, 2, 6 } },
         { "TRAP | Notte in salita", "Arpeggio in sedicesimi su e giu', Do minore con il VI e il VII: cupo e in movimento.",
@@ -91,7 +103,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     ch ("key", "Tonalita'", keys, 9); ch ("scale", "Scala", sc, MINORE); ch ("genre", "Genere", gn, TRAP); ch ("mode", "Modo", md, ARPEGGIO);
     ch ("pat", "Pattern", { "1", "2", "3", "4", "5", "6", "7", "8", "9" }, 1);
     ch ("vstyle", "Voicing", vs, V_OPEN); ch ("tuning", "Accordatura", tu, STANDARD);
-    ch ("bars", "Battute", { "1", "2", "4", "8" }, 2); ch ("perBar", "Accordi per battuta", { "1", "2" }, 0);
+    ch ("bars", "Battute", { "1", "2", "4", "8" }, 2); ch ("perBar", "Accordi per battuta", { "1", "2", "1/2" }, 0);
+    { StringArray mo; for (int i = 0; i < kMoods; ++i) mo.add (moodName (i)); ch ("mood", "Mood", mo, 0); }
+    fl ("rest", "Pause", 0.3f);
     ch ("color", "Colore", { "AUTO", "TRIADI", "SETTIME", "NONE", "SUS / ADD9" }, 0);
     p.push_back (std::make_unique<AudioParameterInt> (ParameterID { "pos", 1 }, "Posizione", 0, 12, 2));
     fl ("density", "Densita'", 0.5f); fl ("dyn", "Dinamica", 0.6f); fl ("strum", "Pennata", 0.35f); fl ("human", "Umano", 0.4f); fl ("swing", "Swing", 0.0f);
@@ -131,7 +145,9 @@ void Processor::generaGiro()
 {
     undo.beginNewTransaction();
     const auto s = juce::Random::getSystemRandom().nextInt (0x7ffffff) | 1;
-    setProg (newProgression (vi ("genre"), (juce::uint32) s)); setSeed ((juce::uint32) s); curPreset = -1;
+    const auto np = newProgression (vi ("genre"), vi ("mood"), vi ("scale"), barsOf (vi ("bars")), (juce::uint32) s);
+    setProg (np.prog); setSeed ((juce::uint32) s); curPreset = -1;
+    setV ("perBar", np.perBar == 2 ? 1.0f : np.perBar == 0 ? 2.0f : 0.0f);
 }
 void Processor::varia() { undo.beginNewTransaction(); setSeed ((juce::uint32) (juce::Random::getSystemRandom().nextInt (0x7ffffff) | 1)); }
 
@@ -140,7 +156,8 @@ Settings Processor::settings() const
     Settings S;
     S.key = vi ("key"); S.scale = vi ("scale"); S.genre = vi ("genre"); S.mode = vi ("mode");
     S.pattern = juce::jlimit (0, patternNames (S.mode).size() - 1, vi ("pat"));
-    S.vstyle = vi ("vstyle"); S.tuning = vi ("tuning"); S.bars = barsOf (vi ("bars")); S.perBar = vi ("perBar") + 1;
+    S.vstyle = vi ("vstyle"); S.tuning = vi ("tuning"); S.bars = barsOf (vi ("bars")); { static const int pb[3] = { 1, 2, 0 }; S.perBar = pb[juce::jlimit (0, 2, vi ("perBar"))]; }
+    S.mood = vi ("mood"); S.space = v ("rest");
     S.color = (float) (vi ("color") - 1); S.pos = vi ("pos");
     S.density = v ("density"); S.dyn = v ("dyn"); S.strum = v ("strum"); S.human = v ("human"); S.swing = v ("swing");
     S.ring = v ("ring"); S.emb = v ("emb"); S.tech = v ("tech"); S.borrow = v ("borrow");
@@ -155,7 +172,7 @@ void Processor::regenerate()
 void Processor::prepareToPlay (double s, int block)
 {
     sr = s; maxBlock = juce::jmax (block, 512);
-    syn.prepare (sr, 4096); acts.reserve (4096);
+    syn.body = vi ("body"); syn.prepare (sr, 4096); acts.reserve (4096);
     np = 0; lastEnd = -1; ownPpq = 0; inStr.fill (-1);
 }
 
@@ -252,40 +269,40 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         auto P = part(); const double L = P->len();
         uiPlaying = true; uiBeat = std::fmod (juce::jmax (0.0, p0), L);
         uiSlot = P->chordAt.empty() ? -1 : juce::jlimit (0, (int) P->chordAt.size() - 1, (int) std::floor (uiBeat.load() / (L / (double) P->chordAt.size())));
-        // note-off dovuti
-        for (int i = 0; i < np;)
-        {
-            if (smp (pend[(size_t) i].end) < s0 + N)
-            {
-                const int at = atOf (pend[(size_t) i].end);
-                out.addEvent (juce::MidiMessage::noteOff (pend[(size_t) i].ch, pend[(size_t) i].note), at);
-                Hit h; h.str = pend[(size_t) i].str; h.note = pend[(size_t) i].note; acts.push_back ({ at, 1, h, 0, 0 });
-                pend[(size_t) i] = pend[(size_t) --np];
-            }
-            else ++i;
-        }
+        // tutto si ricava dal tempo assoluto, senza stato fra un blocco e l'altro: note-off prima, poi bend, poi note-on (stesso campione = ordine giusto)
         const long k0 = (long) std::floor (p0 / L) - 1, k1 = (long) std::floor (p1 / L) + 1;
-        for (long k = k0; k <= k1; ++k)
-        {
-            const double off = (double) k * L;
-            for (auto& e : P->ev)
+        auto vel7 = [] (float v) { return (juce::uint8) juce::jlimit (1, 127, juce::roundToInt (v * 127)); };
+        for (int pass = 0; pass < 3; ++pass)
+            for (long k = k0; k <= k1; ++k)
             {
-                const double t = off + e.beat; if (! inBlk (t)) continue;
-                const int at = atOf (t), c = cs ? 2 + e.str : 1;
-                out.addEvent (juce::MidiMessage::noteOn (c, e.note, (juce::uint8) juce::jlimit (1, 127, juce::roundToInt (e.vel * 127))), at);
-                Hit h; h.str = e.str; h.note = e.note; h.vel = e.vel; h.mute = e.mute; h.pm = e.pm; h.art = e.art; acts.push_back ({ at, 0, h, c, 0 });
-                // la stessa nota sulla stessa corda gia' in coda: si chiude prima (MIDI pulito)
-                for (int i = 0; i < np; ++i) if (pend[(size_t) i].ch == c && pend[(size_t) i].note == e.note) { out.addEvent (juce::MidiMessage::noteOff (c, e.note), at); pend[(size_t) i] = pend[(size_t) --np]; break; }
-                if (np < (int) pend.size()) pend[(size_t) np++] = { t + e.len, c, e.note, e.str };
+                const double off = (double) k * L;
+                if (pass == 0)
+                    for (auto& e : P->ev)
+                    {
+                        const double t = off + e.beat + e.len; if (! inBlk (t)) continue;
+                        const int at = atOf (t), c = cs ? 2 + e.str : 1;
+                        out.addEvent (juce::MidiMessage::noteOff (c, e.note), at);
+                        Hit h; h.str = e.str; h.note = e.note; acts.push_back ({ at, 1, h, 0, 0 });
+                        for (int i = 0; i < np; ++i) if (pend[(size_t) i].ch == c && pend[(size_t) i].note == e.note) { pend[(size_t) i] = pend[(size_t) --np]; break; }
+                    }
+                else if (pass == 1)
+                    for (auto& b : P->bend)
+                    {
+                        const double t = off + b.beat; if (! inBlk (t)) continue;
+                        const int at = atOf (t);
+                        out.addEvent (juce::MidiMessage::pitchWheel (cs ? 2 + b.str : 1, juce::jlimit (0, 16383, 8192 + juce::roundToInt (b.semis / 2.0f * 8191.0f))), at);
+                        Hit h; h.str = cs ? b.str : -1; acts.push_back ({ at, 2, h, 0, b.semis });
+                    }
+                else
+                    for (auto& e : P->ev)
+                    {
+                        const double t = off + e.beat; if (! inBlk (t)) continue;
+                        const int at = atOf (t), c = cs ? 2 + e.str : 1;
+                        out.addEvent (juce::MidiMessage::noteOn (c, e.note, vel7 (e.vel)), at);
+                        Hit h; h.str = e.str; h.note = e.note; h.vel = e.vel; h.mute = e.mute; h.pm = e.pm; h.art = e.art; acts.push_back ({ at, 0, h, c, 0 });
+                        if (np < (int) pend.size()) pend[(size_t) np++] = { t + e.len, c, e.note, e.str };   // solo per chiudere tutto se il trasporto salta
+                    }
             }
-            for (auto& b : P->bend)
-            {
-                const double t = off + b.beat; if (! inBlk (t)) continue;
-                const int at = atOf (t);
-                out.addEvent (juce::MidiMessage::pitchWheel (cs ? 2 + b.str : 1, juce::jlimit (0, 16383, 8192 + juce::roundToInt (b.semis / 2.0f * 8191.0f))), at);
-                Hit h; h.str = cs ? b.str : -1; acts.push_back ({ at, 2, h, 0, b.semis });
-            }
-        }
     }
     // la chitarra interna: a pezzi fra un evento e l'altro (tempo preciso al campione)
     std::stable_sort (acts.begin(), acts.end(), [] (const Act& a, const Act& b) { static const int pr[4] = { 3, 0, 2, 1 }; return a.at != b.at ? a.at < b.at : pr[a.type] < pr[b.type]; });   // prima i rilasci, poi i bend, poi le nuove note

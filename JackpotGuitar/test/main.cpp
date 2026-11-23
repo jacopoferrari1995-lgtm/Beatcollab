@@ -61,7 +61,7 @@ static int genTest()
             Settings S; S.key = key; S.scale = sc; S.genre = g; S.mode = mode; S.pattern = pat; S.vstyle = (key + pat) % kVStyles; S.tuning = (g + pat) % kTunings;
             S.seed = (juce::uint32) (key * 1000 + g * 31 + pat + 1); const auto& pl = progressions (g); S.prog = pl[(size_t) ((key + sc) % (int) pl.size())];
             S.pos = (key * 3 + pat) % 11; S.density = ((key + pat) % 5) / 4.0f; S.tech = 0.8f; S.emb = 0.6f; S.swing = (pat % 3) * 0.3f; S.human = 0.6f;
-            S.borrow = (key % 3 == 0) ? 0.8f : 0.0f; S.bars = (g % 2) ? 4 : 2; S.perBar = (key % 4 == 0) ? 2 : 1;
+            S.borrow = (key % 3 == 0) ? 0.8f : 0.0f; S.bars = (g % 2) ? 4 : 2; S.perBar = (key % 4 == 0) ? 2 : (key % 4 == 1) ? 0 : 1; S.mood = (key + g + pat) % kMoods; S.space = (pat % 4) * 0.3f; S.bars = (key % 2) ? 8 : S.bars;
             auto P = generate (S); auto sset = scaleSet (key, sc); auto tun = tuning (S.tuning);
             for (size_t i = 0; i < P.voic.size(); ++i)
             {
@@ -91,12 +91,60 @@ static int genTest()
     return fail + span + out + outB + monoV + neg;
 }
 
+// cantabilita' del lead: intervalli, estensione, respiri, chiusure
+static int singTest (bool verbose)
+{
+    long notes = 0, steps = 0, big = 0, trit = 0, rangeBad = 0, noBreath = 0, endBad = 0, parts = 0; double rangeSum = 0;
+    for (int style = 0; style < 6; ++style) for (int mood = 0; mood < kMoods; ++mood) for (int key = 0; key < 12; key += 1) for (int sd = 1; sd <= 3; ++sd)
+    {
+        Settings S; S.mode = LEAD; S.pattern = style; S.mood = mood; S.key = key; S.scale = key % 3 == 0 ? MAGGIORE : MINORE; S.genre = POP; S.bars = 8; S.seed = (juce::uint32) (sd * 7919 + key * 13 + mood); S.pos = 5; S.tech = 0.0f;
+        S.prog = progressions (S.genre)[(size_t) (sd % 4)]; S.human = 0;
+        auto P = generate (S); ++parts;
+        std::vector<Ev> mel; for (auto& e : P.ev) if (e.lead) { if (! mel.empty() && std::abs (mel.back().beat - e.beat) < 0.02) continue; mel.push_back (e); }   // solo la voce alta (niente doppie note)
+        if (mel.size() < 4) continue;
+        int lo = 999, hi = 0; for (auto& e : mel) { lo = std::min (lo, e.note); hi = std::max (hi, e.note); }
+        rangeSum += hi - lo; if (hi - lo > 17) ++rangeBad;
+        for (size_t k = 1; k < mel.size(); ++k) { const int iv = std::abs (mel[k].note - mel[k - 1].note); ++notes; if (iv <= 2) ++steps; if (iv > 9) ++big; if (iv == 6) ++trit; }
+        // respiro: in ogni frase di 4 battute almeno una pausa di mezzo battito o una nota di 2 battiti
+        for (int ph = 0; ph < 2; ++ph) { bool br = false; for (size_t k = 0; k < mel.size(); ++k) { if (mel[k].beat < ph * 16 || mel[k].beat >= ph * 16 + 16) continue; const double nx = k + 1 < mel.size() ? mel[k + 1].beat : P.len(); if (nx - (mel[k].beat + mel[k].len) >= 0.45 || mel[k].len >= 1.9) br = true; } if (! br) ++noBreath; }
+        // chiusura: l'ultima nota e' la fondamentale dell'accordo
+        const auto& lastE = mel.back(); { const auto& c = P.chords[(size_t) lastE.slot]; if (lastE.note % 12 != c.root && lastE.note % 12 != c.third && lastE.note % 12 != c.fifth) ++endBad; }
+        if (verbose && style == 0 && key == 9 && sd == 1)
+        {
+            std::printf ("%-12s ", moodName (mood)); for (auto& e : mel) std::printf ("%s%d%s ", noteName (e.note % 12), e.note / 12 - 1, e.len >= 1.4 ? "-" : ""); std::printf ("\n");
+        }
+    }
+    std::printf ("CANTABILE: %ld intervalli, per grado congiunto %.0f%%, salti oltre la sesta %ld, tritoni %ld, estensione media %.1f semitoni (oltre 17: %ld), frasi senza respiro %ld, finali fuori dall'accordo %ld su %ld\n",
+                 notes, 100.0 * steps / std::max (1L, notes), big, trit, rangeSum / std::max (1L, parts), rangeBad, noBreath, endBad, parts);
+    return (int) (big + trit + rangeBad + noBreath + endBad);
+}
+// variazione: in un giro di 8 quante battute sono identiche alla prima
+static void varTest()
+{
+    for (int mood = 0; mood < kMoods; ++mood)
+    {
+        int same = 0, tot = 0;
+        for (int pat = 0; pat < 9; ++pat) for (int mode : { ARPEGGIO, RITMICA })
+        {
+            if (pat >= patternNames (mode).size()) continue;
+            Settings S; S.mode = mode; S.pattern = pat; S.mood = mood; S.bars = 8; S.prog = { 0, 0, 0, 0 }; S.seed = 5 + pat; S.human = 0; S.swing = 0;
+            auto P = generate (S);
+            auto bar = [&] (int b) { std::vector<std::pair<int, int>> v; for (auto& e : P.ev) if (e.beat >= b * 4 && e.beat < b * 4 + 4) v.push_back ({ (int) std::floor ((e.beat - b * 4) * 12 + 0.25), e.note }); std::sort (v.begin(), v.end()); return v; };
+            const auto b0 = bar (0); int sm = 0; for (int b = 1; b < 8; ++b) { ++tot; sm += bar (b) == b0; } same += sm;
+            if (std::getenv ("JVAR") && mood == std::atoi (std::getenv ("JVAR"))) { std::printf ("  %s %s: %d", modeName (mode), patternNames (mode)[pat].toRawUTF8(), sm); for (int b = 0; b < 8; ++b) std::printf (" [%zu]", bar (b).size()); std::printf ("\n"); }
+        }
+        std::printf ("VARIAZIONE %-12s battute uguali alla prima: %d su %d\n", moodName (mood), same, tot);
+    }
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gi;
     const juce::String mode = argc > 1 ? argv[1] : "all";
     int bad = 0;
     if (mode == "gen" || mode == "all") bad += genTest();
+    if (mode == "sing" || mode == "all") bad += singTest (mode == "sing");
+    if (mode == "var" || mode == "all") varTest();
     if (mode == "render" || mode == "all")
     {
         for (int i = 0; i < (int) presets().size(); ++i)
@@ -118,16 +166,29 @@ int main (int argc, char** argv)
     {
         // salti dei parametri del suono a meta' di una nota tenuta
         const char* ids[] = { "tone", "bodyAmt", "drive", "space", "width", "vol", "body", "listen" };
+        // un accordo tenuto (niente nuove pizzicate), il parametro salta a 1 secondo: la differenza con la corsa senza salto non deve avere scatti
+        auto hold = [] (const char* id, bool jump)
+        {
+            auto p = mk (-1); p->setV ("live", 0); p->setV ("body", CRUNCH);
+            juce::AudioBuffer<float> b (2, 256); std::vector<float> out;
+            for (int blk = 0; blk < 3 * 48000 / 256; ++blk)
+            {
+                juce::MidiBuffer m; if (blk == 0) for (int n : { 45, 52, 57, 60, 64 }) m.addEvent (juce::MidiMessage::noteOn (1, n, (juce::uint8) 100), 0);
+                if (jump && blk == 48000 / 256) { auto* prm = p->apvts.getParameter (id); prm->setValueNotifyingHost (prm->getValue() > 0.5f ? 0.0f : 1.0f); }
+                p->processBlock (b, m); for (int i = 0; i < 256; ++i) out.push_back (b.getSample (0, i));
+            }
+            return out;
+        };
         for (auto* id : ids)
         {
-            auto p = mk (1);
-            auto base = run (*p, 3.0, 256);
-            auto p2 = mk (1);
-            auto r = run (*p2, 3.0, 256, false, [&] (juce::int64 pos) { if (pos >= 48000 && pos < 48256) { auto* prm = p2->apvts.getParameter (id); prm->setValueNotifyingHost (prm->getValue() > 0.5f ? 0.0f : 1.0f); } });
-            const float b0 = clickScore (base.L, 47000, 52000), c0 = clickScore (r.L, 47000, 52000), ref = clickScore (base.L, 0, base.L.size());
-            const bool ok = c0 <= std::max (ref, b0) * 1.6f + 1e-4f;
+            const auto base = hold (id, false), r = hold (id, true);
+            std::vector<float> d (r.size()); for (size_t q = 0; q < d.size(); ++q) d[q] = r[q] - base[q];
+            float rms = 0; for (size_t q = 44000; q < 48000; ++q) rms += base[q] * base[q]; rms = std::sqrt (rms / 4000);
+            const float c0 = clickScore (d, 47900, 70000), cb = clickScore (base, 47900, 70000), cr = clickScore (r, 47900, 70000);
+            // un cambio morbido non puo' avere una derivata seconda piu' ripida del suono stesso (prima o dopo il cambio)
+            const bool ok = c0 <= std::max (cb, cr) * 1.1f + 1e-5f;
             if (! ok) ++bad;
-            std::printf ("click %-8s  salto %.4f  stesso punto senza salto %.4f  massimo normale %.4f  %s\n", id, c0, b0, ref, ok ? "ok" : "<-- CLICK");
+            std::printf ("click %-8s  scatto nella differenza %.5f  (suono prima %.5f, dopo %.5f)  %s\n", id, c0, cb, cr, ok ? "ok" : "<-- CLICK");
         }
         {   // cambio di giro, di modo e di accordo mentre suona
             auto p = mk (1); auto r = run (*p, 6.0, 512, false, [&] (juce::int64 pos) { if (pos == 512 * 150) { p->setV ("mode", RITMICA); p->regenerate(); } if (pos == 512 * 300) { p->generaGiro(); p->regenerate(); } if (pos == 512 * 420) { p->setV ("key", 2); p->regenerate(); } });
