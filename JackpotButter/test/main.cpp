@@ -5,6 +5,17 @@
 using namespace jb;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "reprep")
+    {   // stessa copia: suona, si ri-prepara (come fa la DAW), risuona lo stesso segnale: deve uscire uguale a una copia nuova
+        auto mk = [] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, 48000, 512); p->prepareToPlay (48000, 512); int pr = 0; for (int i = 0; i < p->getNumPrograms(); ++i) if (p->getProgramName (i).contains ("Rap davanti")) pr = i; p->loadPreset (pr); return p; };
+        auto play = [] (Processor& p, std::vector<float>& o) { juce::Random r1 (4); juce::MidiBuffer mb; for (int k = 0; k < 94 * 4; ++k) { juce::AudioBuffer<float> x (2, 512); for (int i = 0; i < 512; ++i) { const double t = (k * 512 + i) / 48000.0; const float v = 0.1f * (r1.nextFloat() * 2 - 1) + 0.25f * (float) std::sin (2 * 3.14159265 * 1000 * t); x.setSample (0, i, v); x.setSample (1, i, v * 0.9f); } p.processBlock (x, mb); for (int i = 0; i < 512; ++i) o.push_back (x.getSample (0, i)); } };
+        auto a = mk(); std::vector<float> o1, o2, o3; play (*a, o1); a->prepareToPlay (48000, 512); play (*a, o2);
+        auto b = mk(); play (*b, o3);
+        int first = -1; for (size_t i = 0; i < o2.size(); ++i) if (o2[i] != o3[i]) { first = (int) i; break; }
+        double d = 0, e = 0; for (size_t i = 0; i < o2.size(); ++i) { d += std::pow (o2[i] - o3[i], 2.0); e += o3[i] * o3[i]; }
+        std::printf ("dopo il nuovo prepare: prima differenza %d (%.3f s), differenza %.1f dB\n", first, first / 48000.0, 10 * std::log10 (d / e + 1e-30));
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "twin")
     {   // due copie identiche con lo stesso segnale devono dare lo stesso suono: se no c'e' memoria non inizializzata o casualita'
         auto mk = [] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, 48000, 512); p->prepareToPlay (48000, 512); int pr = 0; for (int i = 0; i < p->getNumPrograms(); ++i) if (p->getProgramName (i).contains ("Rap davanti")) pr = i; p->loadPreset (pr);

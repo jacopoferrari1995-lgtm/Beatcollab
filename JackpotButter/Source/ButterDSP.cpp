@@ -240,6 +240,22 @@ void Burro::prepare (double sampleRate, int maxBlock)
     dryDl[0].prepare (mb + osLat + 8); dryDl[1].prepare (mb + osLat + 8); trDl.prepare (mb + osLat + 8);
     for (auto& r : rampLast) r = -1e9f; cMk = 0;
     for (auto& a : fLo4) for (auto& x : a) x = 0; for (auto& a : fHi4) for (auto& x : a) x = 0;
+    // tutto lo stato interno riparte da zero: un nuovo prepare della DAW deve dare lo stesso suono di una copia nuova
+    auto zb = [] (Biq& b) { b.z1[0] = b.z1[1] = b.z2[0] = b.z2[1] = 0; };
+    auto zq = [] (Bq& b) { b.z1[0] = b.z1[1] = b.z2[0] = b.z2[1] = 0; };
+    envF = envS = 0; for (int c = 0; c < 2; ++c) { bIc1[c] = bIc2[c] = bLow[c] = 0; nLp[c] = nBp1[c] = nBp2[c] = 0; for (auto& x : pinkB[c]) x = 0; }
+    acidEnv = thPh = thEnv = thPitch = 0; thArmed = true; crackle = 0; crackleV = 0; shPh = 0;
+    for (auto& a : fLo) for (auto& x : a) x = 0; for (auto& a : fHi) for (auto& x : a) x = 0;
+    for (auto& x : cEnv) x = 0; xLo[0] = xLo[1] = xHi[0] = xHi[1] = 0;
+    satLp[0] = satLp[1] = holdV[0] = holdV[1] = 0; holdPh = 0;
+    for (auto& b : satTone) { b.z1 = b.z2 = 0; }
+    for (auto& b : spF) zb (b); for (auto& b : xF) zb (b); for (auto& b : fF) zb (b); zb (imB);
+    for (auto& x : spLast) x = -1; for (auto& x : xLast) x = -1; for (auto& x : fLast) x = -1; imLast = -1;
+    imLp[0] = imLp[1] = 0; for (auto& a : apZ) for (auto& x : a) x = 0; mLp[0] = mLp[1] = 0;
+    tLp[0] = tLp[1] = aLp[0] = aLp[1] = 0; mEnvF = mEnvS = 0;
+    for (auto& b : ae) zq (b); for (auto& x : aeAct) x = false; aeCol.reset(); for (auto& b : pu) zq (b); puCol.reset(); puAct = false; puMix = puMixS = 0; puTick = 0; maxx = {};
+    xLp[0] = xLp[1] = xHold[0] = xHold[1] = 0; xPh = xLfo = xDrift = xDt = 0; xr.setSeed (1234); rng.setSeed (4321); lastXType = -1;
+    accIn = accOut = accGr = accTr = 0; accN = 0; cLL = cRR = cLR = 0;
 }
 
 static inline float onePole (float x, float& z, float a) { z = (1 - a) * x + a * z; return z; }
@@ -841,6 +857,7 @@ void Fdn::reset()
     for (auto& l : line) std::fill (l.begin(), l.end(), 0.0f);
     for (auto& a : ap) std::fill (a.begin(), a.end(), 0.0f);
     for (auto& v : lp) v = 0;
+    for (auto& w : lw) w = 0; for (auto& w : aw) w = 0; lfo = 0;
 }
 void Fdn::setup (int type, float decay)
 {
