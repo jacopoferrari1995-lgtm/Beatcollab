@@ -320,7 +320,9 @@ struct Gen
         const auto& R = ritOf (S.arpRit);
         const int steps = useGrid ? 16 : (int) std::strlen (R.steps);
         const double st = 4.0 / steps; const bool tripl = steps == 12;
-        auto fig = juce::StringArray::fromTokens (figOf (S.arpFig).seq, " ", "");
+        auto fig = juce::StringArray::fromTokens (S.arpFig == kFigLibera ? S.figSeq.toUpperCase() : juce::String (figOf (S.arpFig).seq), " ", "");
+        for (auto& t : fig) t = t.retainCharacters ("1234BA");
+        fig.removeEmptyStrings();
         if (fig.isEmpty()) fig.add ("B");
         // la battuta-tipo: decisa una volta, poi ripetuta (il motivo si riconosce); la seconda frase del giro di 8 un po' piu' piena
         std::vector<int> base, lift;
@@ -356,7 +358,7 @@ struct Gen
                 else if (inFill) { static const char* run[4] = { "B", "3", "2", "1" }; tk = run[juce::jmin (3, fillIdx++)]; }
                 else
                 {
-                    const int n = fig.size(); int idx = fi % n; if (reverseHalf && pos >= 2.0) idx = n - 1 - idx;
+                    const int n = fig.size(); int idx = (fi + S.arpRot) % n; if (reverseHalf && pos >= 2.0) idx = n - 1 - idx;   // PARTENZA: da quale nota della figura si comincia
                     tk = fig[idx]; ++fi;
                 }
                 // distanza dalla nota dopo: le corde suonano fino a li' (piu' a lungo con RISUONA)

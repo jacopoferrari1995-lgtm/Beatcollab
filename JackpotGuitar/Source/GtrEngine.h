@@ -256,15 +256,32 @@ inline const char* modeName (int m) { static const char* n[kModes] = { "ACCORDI"
 // figura = l'ordine in cui la mano prende le voci dell'accordo. 1 = la voce piu' acuta, 2 la seconda dall'alto, 3, 4; B = basso, A = basso alternato.
 // Due cifre insieme = pizzicate insieme. La figura segue qualsiasi voicing e ricomincia a ogni cambio d'accordo.
 struct Fig { const char* name; const char* seq; };
-constexpr int kFigs = 15;
+constexpr int kFigs = 21;
 inline const Fig& figOf (int i)
 {
     static const Fig F[kFigs] = {
         { "SALITA", "B 3 2 1" }, { "DISCESA", "1 2 3 B" }, { "SU E GIU'", "B 3 2 1 2 3" }, { "PEDALE ALTO", "B 1 3 1 2 1 3 1" },
         { "1-3-1-B", "1 3 1 B" }, { "1-2-4-1", "1 2 4 1" }, { "SALTI", "B 1 3 2" }, { "TRAVIS", "B 2 A 1" },
         { "ROLL A TRE", "B 2 1" }, { "PINZA", "B1 3 2 3" }, { "DIADI", "B 12 3 12" }, { "CASCATA", "1 2 3 4 B" },
-        { "ALTERNATO", "B 1 A 1" }, { "INTRECCIO", "B 2 1 2 A 2 1 3" }, { "GRIGLIA", "" } };
+        { "ALTERNATO", "B 1 A 1" }, { "INTRECCIO", "B 2 1 2 A 2 1 3" },
+        { "1-3-4-2", "1 3 4 2" }, { "3-1-2-4", "3 1 2 4" }, { "2-1-3-B", "2 1 3 B" }, { "4-2-3-1", "4 2 3 1" }, { "2-4-1-3", "2 4 1 3" },
+        { "LIBERA", "" }, { "GRIGLIA", "" } };
     return F[juce::jlimit (0, kFigs - 1, i)];
+}
+constexpr int kFigLibera = kFigs - 2;
+// figura casuale ma suonabile: 3-8 note, mai la stessa voce due volte di fila, il basso al massimo due volte
+inline juce::String randomFigure (juce::Random& r)
+{
+    static const char* v[6] = { "1", "2", "3", "4", "B", "A" };
+    const int n = 3 + r.nextInt (6); juce::StringArray t; int bass = 0; juce::String prev;
+    for (int i = 0; i < n; ++i)
+    {
+        juce::String x;
+        for (int g = 0; g < 20; ++g) { x = v[r.nextInt (i == 0 ? 5 : 6)]; if (x == prev) continue; if ((x == "B" || x == "A") && bass >= 2) continue; break; }
+        if (x == "B" || x == "A") ++bass;
+        t.add (x); prev = x;
+    }
+    return t.joinIntoString (" ");
 }
 // ritmo: x nota, X nota accentata, - niente. 16 passi (sedicesimi) o 12 (terzine)
 struct Rit { const char* name; const char* steps; };
@@ -297,6 +314,8 @@ struct Settings
     double bpm = 120;
     int mood = 0;                        // 0 = dal genere
     int arpFig = 6, arpRit = 0;              // arpeggio: figura delle corde e ritmo (separati)
+    int arpRot = 0;                          // da quale nota della figura si parte
+    juce::String figSeq { "1 3 4 2" };       // figura scritta a mano (LIBERA)
     std::array<juce::uint16, 5> grid { 0x4444, 0, 0x1010, 0, 0x0101 };   // figura disegnata: righe 1 (acuta), 2, 3, 4, BASSO; un bit per sedicesimo
     int lyBase = 1, lyArp = 1, lyLead = 0;   // composizione: pattern di ogni strato (-1 spento; base: 0..5 accordi, 100+ ritmica)
     juce::uint32 seedB = 1, seedA = 2, seedL = 3;

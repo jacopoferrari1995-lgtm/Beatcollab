@@ -37,12 +37,12 @@ public:
     // zone cliccabili
     juce::Rectangle<float> keyR[12], scaleR[kScales], genreR, moodR, barsR[4], perBarR[3], slotR[8], addR, remR;
     juce::Rectangle<float> fretR, vstyleR[kVStyles], tuningR;
-    juce::Rectangle<float> modeR[kModes], patR[12], rollR, dragR, genR, varR, playR, liveR, midiR, csR, layR[3], diceR[3], layDragR[3], editLayR[3], snapR, resetEditR, styleR, figR, figDiceR, ritR, ritDiceR, gridBtnR;
+    juce::Rectangle<float> modeR[kModes], patR[12], rollR, dragR, genR, varR, playR, liveR, midiR, csR, layR[3], diceR[3], layDragR[3], editLayR[3], snapR, resetEditR, styleR, figR, figDiceR, ritR, ritDiceR, gridBtnR, rotR, writeR;
     juce::Rectangle<float> bodyR[kBodies], listenR;
     juce::Rectangle<float> presetR, prevR, nextR, undoR, redoR, themeR;
     int hoverSlot = -1, selSlot = 0, hoverId = -1, bgTheme = -1; bool dragging = false; juce::String info;
     juce::Image bg; float bgScale = 0; void paintStatic (juce::Graphics&);
-    void setupBrowser(); void askPresetName(); void doUndo (bool redo); void slotMenu (int i, juce::Rectangle<float> at = {}); void layerMenu (int ly); void styleMenu(); void figMenu(); void ritMenu();
+    void setupBrowser(); void askPresetName(); void doUndo (bool redo); void slotMenu (int i, juce::Rectangle<float> at = {}); void layerMenu (int ly); void styleMenu(); void figMenu(); void ritMenu(); void askFigure(); void randomFig();
     bool gridEdit = false; int gridPaint = -1; juce::Rectangle<float> gridCell (int row, int k) const;
     void drawGrid (juce::Graphics&); void genreMenu(); void moodMenu(); void repaintAll();
     void drawFretboard (juce::Graphics&, const Part&, int slot);
