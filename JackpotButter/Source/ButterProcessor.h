@@ -15,7 +15,7 @@ public:
         bbLen = (int) (sr * 8); for (auto& b : bb) b.assign ((size_t) bbLen, 0.0f); bbW = 0; bbFreeze = false;
     }
     // scatola nera: gli ultimi 8 secondi d'ingresso; se il suono impazzisce si salvano (con le impostazioni) in Musica / Jackpot / Butter Debug
-    std::vector<float> bb[2]; int bbLen = 1, bbW = 0; std::atomic<bool> bbFreeze { false }; int wild = 0; std::atomic<int> bbReason { 0 };
+    std::vector<float> bb[2]; int bbLen = 1, bbW = 0; std::atomic<bool> bbFreeze { false }; int wild = 0, bbCool = 0, bbSaved = 0; float lastPk = 0; std::atomic<int> bbReason { 0 };
     void saveBlackBox();
     // protezione da live: un valore rotto (NaN) o un'autoalimentazione si spengono subito e il plugin riparte pulito
     std::atomic<int> panics { 0 };
@@ -46,7 +46,12 @@ public:
     std::atomic<bool> locked[7];
     void randomize();
     int preset = 0, maxBlock = 512;
-    void handleAsyncUpdate() override { if (bbFreeze.load()) saveBlackBox(); suspendProcessing (true); dsp.prepare (curSr, maxBlock); suspendProcessing (false); }
+    void handleAsyncUpdate() override
+    {
+        const bool onlyRecord = bbReason.load() == 3;
+        if (bbFreeze.load()) saveBlackBox();
+        if (! onlyRecord) { suspendProcessing (true); dsp.prepare (curSr, maxBlock); suspendProcessing (false); }
+    }
     double curSr = 44100; int runaway = 0, muteLeft = 0; float fadeIn = 1;
     juce::SmoothedValue<float> gIn { 1.0f }, gOut { 1.0f };
     std::atomic<float>* pIn = nullptr; std::atomic<float>* pOut = nullptr;

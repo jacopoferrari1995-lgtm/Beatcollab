@@ -98,7 +98,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&)
             for (int i = 0; i < n; ++i) { eO += (double) l[i] * l[i] + (double) r[i] * r[i]; pk = juce::jmax (pk, std::abs (l[i]), std::abs (r[i])); if (i > 0 && (l[i] >= 0) != (l[i - 1] >= 0)) ++zc; }
             const double rI = std::sqrt (eI / (2.0 * n)), rO = std::sqrt (eO / (2.0 * n));
             // rumore (tanti attraversamenti dello zero), forte, e 30 dB sopra quello che entra: non e' musica, e' il motore rotto
-            if (pk > 0.9f && rO > rI * 30.0 + 0.1 && zc > n / 4) wild += n; else wild = juce::jmax (0, wild - n / 2);
+            if (pk > 0.9f && rO > rI * 30.0 + 0.1 && zc > n / 20) wild += n; else wild = juce::jmax (0, wild - n / 2);
+            // anche solo un salto improvviso a tutto volume (senza che l'ingresso lo giustifichi) si registra, al massimo una volta al minuto
+            bbCool = juce::jmax (0, bbCool - n);
+            if (! bbFreeze.load() && bbCool == 0 && bbSaved < 5 && pk > 0.98f && lastPk < 0.3f && rO > rI * 8.0 + 0.05) { bbCool = (int) (curSr * 60); ++bbSaved; bbReason = 3; bbFreeze = true; triggerAsyncUpdate(); }
+            lastPk = pk;
             if (wild > (int) (curSr * 0.03)) { wild = 0; bbReason = 2; for (int i = 0; i < n; ++i) l[i] = r[i] = std::numeric_limits<float>::quiet_NaN(); }   // la protezione qui sotto spegne e ricostruisce
         }
         p0 = p1 = 0;
@@ -123,7 +127,7 @@ void Processor::saveBlackBox()
     juce::MemoryBlock mb; getStateInformation (mb);
     if (auto x = getXmlFromBinary (mb.getData(), (int) mb.getSize()))
     {
-        x->setAttribute ("motivo", bbReason.load() == 2 ? "uscita impazzita con musica normale" : "valore rotto o autoalimentazione nel silenzio");
+        x->setAttribute ("motivo", bbReason.load() == 2 ? "uscita impazzita con musica normale" : bbReason.load() == 3 ? "salto improvviso a tutto volume (solo registrato)" : "valore rotto o autoalimentazione nel silenzio");
         x->setAttribute ("sampleRate", curSr); x->setAttribute ("blocco", maxBlock); 
 #ifdef JucePlugin_VersionString
         x->setAttribute ("versione", JucePlugin_VersionString);

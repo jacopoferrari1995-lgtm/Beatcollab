@@ -28,13 +28,16 @@ int main (int argc, char** argv)
                 ph += (120 + 30 * std::sin (t * 1.3)) / sr; const float voiced = (float) (std::fmod (ph, 1.0) * 2 - 1) * 0.3f;
                 static const float lvl = std::getenv ("JLVL") ? (float) std::atof (std::getenv ("JLVL")) : 1.0f;
                 float x = talk ? (0.5f * (b1 - b3) + voiced * 0.6f) * syl * 0.5f * lvl : 0.0f;
+                static const int sil = std::getenv ("JSIL") ? std::atoi (std::getenv ("JSIL")) : -1;   // 0 = zeri, 1 = rumore di fondo -90 dB
                 x += 0.15f * (float) std::sin (2 * 3.14159 * 55 * t) * (float) std::exp (-std::fmod (t, 0.6) * 4);   // beat che filtra dal microfono
-                buf.setSample (0, i, x); buf.setSample (1, i, x * 0.97f);
+                if (sil == 0) x = 0; else if (sil == 1) x = n * 3e-5f;
+                if (sil >= 0) { buf.setSample (0, i, x); buf.setSample (1, i, sil == 1 ? (r.nextFloat() * 2 - 1) * 3e-5f : 0.0f); }
+                else { buf.setSample (0, i, x); buf.setSample (1, i, x * 0.97f); }
             }
             p->processBlock (buf, mb);
             for (int c = 0; c < 2; ++c) for (int i = 0; i < (int) blkN; ++i) { const float y = buf.getSample (c, i); if (! std::isfinite (y)) { std::printf ("NaN a %.2f s\n", (pos + i) / sr); return 1; } secPk = std::max (secPk, std::abs (y)); worst = std::max (worst, std::abs (y)); }
             const double t = (double) pos / sr;
-            if (t - lastRep >= 1.0) { if (secPk > 1.2f || secPk > prevPk * 4 + 0.3f) std::printf ("  %.0f s: picco %.2f (prima %.2f) protezioni %d\n", t, secPk, prevPk, p->panics.load()); prevPk = secPk; secPk = 0; lastRep = t; }
+            if (t - lastRep >= 1.0) { if (std::getenv ("JSIL") && ((int) t % 20 == 0)) std::printf ("  %.0f s: picco %.2g\n", t, secPk); if (secPk > 1.2f || secPk > prevPk * 4 + 0.3f) std::printf ("  %.0f s: picco %.2f (prima %.2f) protezioni %d\n", t, secPk, prevPk, p->panics.load()); prevPk = secPk; secPk = 0; lastRep = t; }
         }
         std::printf ("picco massimo %.2f, protezioni scattate %d\n", worst, p->panics.load());
         return 0;
