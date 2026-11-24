@@ -26,6 +26,7 @@ public:
 
 class Editor : public juce::AudioProcessorEditor, public juce::FileDragAndDropTarget, public juce::DragAndDropContainer, private juce::Timer
 {
+    skin::Keep skinKeep;
 public:
     explicit Editor (Processor&);
     ~Editor() override { stopTimer(); }
@@ -43,10 +44,10 @@ public:
     jlook::SizeChip sizeChip { scaler };
     WaveView wave { *this }; PadView pads { *this };
     juce::OwnedArray<neo::Knob> knobs;
-    juce::Rectangle<float> loadR, halfR, dblR, modeR[kModes], varR, playR[2], chokeR, midiR;
+    juce::Rectangle<float> themeR, loadR, halfR, dblR, modeR[kModes], varR, playR[2], chokeR, midiR;
     std::unique_ptr<juce::FileChooser> chooser; bool dragging = false;
     static juce::Colour pcCol (int pc, float bright = 1.0f) { return juce::Colour::fromHSV ((float) (((pc % 12) + 12) % 12) / 12.0f, 0.62f, 0.55f + 0.4f * bright, 1.0f); }
-    juce::Image bg; float bgScale = 0; void paintStatic (juce::Graphics&);
+    juce::Image bg; float bgScale = 0; int bgTheme = -1; void paintStatic (juce::Graphics&);
 private:
     void timerCallback() override;
 };

@@ -24,9 +24,10 @@ Processor::Processor()
     fm.registerBasicFormats();
     for (auto& p : playing) p = 0;
     for (auto id : { "chop", "count", "sens" }) apvts.addParameterListener (id, this);
+    startTimer (500);
 }
-Processor::~Processor() { cancelPendingUpdate(); for (auto id : { "chop", "count", "sens" }) apvts.removeParameterListener (id, this); while (busy.load()) juce::Thread::sleep (10); }
-void Processor::prepareToPlay (double s, int) { sr = s; for (auto& v : voices) v.on = false; }
+Processor::~Processor() { stopTimer(); cancelPendingUpdate(); for (auto id : { "chop", "count", "sens" }) apvts.removeParameterListener (id, this); while (busy.load()) juce::Thread::sleep (10); }
+void Processor::prepareToPlay (double s, int) { sr = s; for (auto& v : voices) v.on = false; gainS = juce::Decibels::decibelsToGain (v ("gain")); }
 
 bool Processor::loadFile (const juce::File& f)
 {
@@ -41,7 +42,7 @@ void Processor::loadBuffer (juce::AudioBuffer<float>&& b, double fileSr, const j
 {
     raw = std::make_shared<juce::AudioBuffer<float>> (std::move (b)); rawSr = fileSr; variant = 0;
     auto k = std::make_shared<Kit>(); k->audio.makeCopyOf (*raw); k->sr = fileSr; k->starts = { 0 }; k->name = name;
-    std::atomic_store (&kitPtr, std::shared_ptr<const Kit> (k));
+    publish (std::shared_ptr<const Kit> (k));
     reanalyse = true; rechop();
 }
 void Processor::rechop()
@@ -64,7 +65,7 @@ void Processor::rechop()
     auto an = analysis(); auto old = kit(); if (an == nullptr || old == nullptr) return;
     auto k = std::make_shared<Kit>(); k->audio.makeCopyOf (*raw); k->sr = rawSr; k->name = old->name;
     k->starts = chop (*an, juce::roundToInt (v ("chop")), juce::roundToInt (v ("count")), variant.load(), *raw);
-    std::atomic_store (&kitPtr, std::shared_ptr<const Kit> (k));
+    publish (std::shared_ptr<const Kit> (k));
 }
 void Processor::halveBpm() { auto a = analysis(); if (a == nullptr) return; auto c = std::make_shared<Analysis> (*a); c->bpm *= 0.5f; std::atomic_store (&anPtr, std::shared_ptr<const Analysis> (c)); rechop(); }
 void Processor::doubleBpm() { auto a = analysis(); if (a == nullptr) return; auto c = std::make_shared<Analysis> (*a); c->bpm *= 2.0f; std::atomic_store (&anPtr, std::shared_ptr<const Analysis> (c)); rechop(); }
@@ -95,7 +96,8 @@ void Processor::startVoice (int slice, int note, float vel)
 {
     auto k = kit(); if (k == nullptr || slice < 0 || slice >= (int) k->starts.size()) return;
     if (v ("choke") > 0.5f) for (auto& vv : voices) if (vv.on) vv.stage = 2;
-    Voice* best = nullptr; for (auto& vv : voices) if (! vv.on) { best = &vv; break; } if (best == nullptr) best = &voices[0];
+    Voice* best = nullptr; for (auto& vv : voices) if (! vv.on) { best = &vv; break; }
+    if (best == nullptr) { best = &voices[0]; for (auto& vv : voices) if (vv.env * vv.vel < best->env * best->vel) best = &vv; }   // si ruba la voce piu' bassa
     best->on = true; best->slice = slice; best->note = note; best->pos = k->starts[(size_t) slice];
     best->end = slice + 1 < (int) k->starts.size() ? k->starts[(size_t) slice + 1] : k->audio.getNumSamples();
     best->rate = k->sr / sr * std::pow (2.0, v ("pitch") / 12.0); best->env = 0; best->vel = vel; best->stage = 0;
@@ -103,11 +105,11 @@ void Processor::startVoice (int slice, int note, float vel)
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals nd; buffer.clear();
-    auto k = kit(); const int N = buffer.getNumSamples();
+    audioKit = kit(); const Kit* k = audioKit.get(); const int N = buffer.getNumSamples();   // il kit vecchio lo libera il timer, non l'audio
     if (k == nullptr) return;
     const int pv = preview.exchange (-1); if (pv >= 0) startVoice (pv, -2, 0.85f);
     const float att = 1.0f / juce::jmax (1.0f, v ("att") * 0.001f * (float) sr), rel = std::exp (-1.0f / juce::jmax (1.0f, v ("rel") * 0.001f * (float) sr));
-    const bool gate = v ("play") > 0.5f; const float g = juce::Decibels::decibelsToGain (v ("gain"));
+    const bool gate = v ("play") > 0.5f; const float gT = juce::Decibels::decibelsToGain (v ("gain")), gk = 1.0f - std::exp (-1.0f / (0.02f * (float) sr));
     float* L = buffer.getWritePointer (0); float* R = buffer.getWritePointer (1);
     const float* aL = k->audio.getReadPointer (0); const float* aR = k->audio.getReadPointer (juce::jmin (1, k->audio.getNumChannels() - 1));
     const int len = k->audio.getNumSamples();
@@ -120,18 +122,21 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             if (m.isNoteOn()) startVoice (m.getNoteNumber() - 36, m.getNoteNumber(), m.getFloatVelocity());
             else if (m.isNoteOff() && gate) for (auto& vv : voices) if (vv.on && vv.note == m.getNoteNumber()) vv.stage = 2;
         }
-        float l = 0, r = 0;
+        float l = 0, r = 0; gainS += (gT - gainS) * gk; const float g = gainS;
         for (auto& vv : voices)
         {
             if (! vv.on) continue;
             if (vv.stage == 0) { vv.env += att; if (vv.env >= 1) { vv.env = 1; vv.stage = 1; } }
             else if (vv.stage == 2) { vv.env *= rel; if (vv.env < 1e-4f) { vv.on = false; continue; } }
             const int p0 = (int) vv.pos; const float fr = (float) (vv.pos - p0);
-            if (p0 + 1 >= len || vv.pos >= vv.end) { if (vv.stage != 2) vv.stage = 2; if (p0 + 1 >= len) { vv.on = false; continue; } }
+            if (p0 + 2 >= len || vv.pos >= vv.end) { if (vv.stage != 2) vv.stage = 2; if (p0 + 2 >= len) { vv.on = false; continue; } }
             // fine della slice: piccola dissolvenza per non fare click
             const float tail = (float) juce::jlimit (0.0, 1.0, (vv.end - vv.pos) / (0.004 * k->sr));
             const float gg = vv.env * vv.vel * g * (vv.stage == 2 && vv.pos >= vv.end ? 0.0f : juce::jmin (1.0f, tail + (vv.pos >= vv.end ? 0.0f : 0.0f)));
-            l += (aL[p0] + (aL[p0 + 1] - aL[p0]) * fr) * gg; r += (aR[p0] + (aR[p0 + 1] - aR[p0]) * fr) * gg;
+            // interpolazione a 4 punti (Hermite): piu' pulita della lineare quando si traspone
+            auto herm = [&] (const float* a) { const float xm = a[juce::jmax (0, p0 - 1)], x0 = a[p0], x1 = a[p0 + 1], x2 = a[p0 + 2];
+                                               const float c1 = 0.5f * (x1 - xm), c2 = xm - 2.5f * x0 + 2.0f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm) + 1.5f * (x0 - x1); return ((c3 * fr + c2) * fr + c1) * fr + x0; };
+            l += herm (aL) * gg; r += herm (aR) * gg;
             vv.pos += vv.rate;
         }
         L[i] = l; R[i] = r;

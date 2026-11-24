@@ -7,7 +7,7 @@ namespace dna
 {
 struct Kit { juce::AudioBuffer<float> audio; double sr = 44100; std::vector<int> starts; juce::String name; };
 
-class Processor : public juce::AudioProcessor, private juce::AsyncUpdater, private juce::AudioProcessorValueTreeState::Listener
+class Processor : public juce::AudioProcessor, private juce::AsyncUpdater, private juce::AudioProcessorValueTreeState::Listener, private juce::Timer
 {
 public:
     Processor();
@@ -52,6 +52,11 @@ private:
     void handleAsyncUpdate() override { rechop(); }
     void parameterChanged (const juce::String& id, float) override { if (id == "chop" || id == "count") triggerAsyncUpdate(); if (id == "sens") reanalyse = true, triggerAsyncUpdate(); }
     std::shared_ptr<const Kit> kitPtr; std::shared_ptr<const Analysis> anPtr;
+    // i kit sostituiti restano qui finche' l'audio non li usa piu': cosi' la memoria non si libera mai nel thread audio
+    std::vector<std::shared_ptr<const Kit>> retired; juce::CriticalSection retiredLock;
+    void publish (std::shared_ptr<const Kit> k) { auto old = std::atomic_exchange (&kitPtr, std::move (k)); if (old != nullptr) { const juce::ScopedLock l (retiredLock); retired.push_back (std::move (old)); } }
+    void timerCallback() override { const juce::ScopedLock l (retiredLock); retired.erase (std::remove_if (retired.begin(), retired.end(), [] (const std::shared_ptr<const Kit>& k) { return k.use_count() == 1; }), retired.end()); }
+    float gainS = 1; std::shared_ptr<const Kit> audioKit;
     std::shared_ptr<juce::AudioBuffer<float>> raw; double rawSr = 44100; bool reanalyse = false;
     struct Voice { bool on = false; int slice = 0, note = -1; double pos = 0, end = 0, rate = 1; float env = 0, vel = 1; int stage = 0; };
     Voice voices[16]; double sr = 48000;

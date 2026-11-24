@@ -39,9 +39,19 @@ int main (int argc, char** argv)
     juce::AudioBuffer<float> out (2, 512); juce::MidiBuffer mb; mb.addEvent (juce::MidiMessage::noteOn (1, 37, (juce::uint8) 100), 0); float pk = 0;
     for (int k = 0; k < 40; ++k) { p.processBlock (out, mb); mb.clear(); pk = std::max (pk, out.getMagnitude (0, 512)); }
     std::printf ("slice 2 suonata: picco %.2f\n", pk);
+    {   // note fitte su 16 slice con choke spento (voci rubate) e volume che si muove: salti?
+        p.setV ("choke", 0); std::vector<float> o; juce::Random rr (9);
+        for (int k = 0; k < 600; ++k) { juce::MidiBuffer mm; if (k % 3 == 0) mm.addEvent (juce::MidiMessage::noteOn (1, 36 + rr.nextInt (16), (juce::uint8) 110), rr.nextInt (512)); if (k == 300) p.setV ("gain", -12); p.processBlock (out, mm); for (int i = 0; i < 512; ++i) o.push_back (out.getSample (0, i)); }
+        bool bad = false; float mx = 0; for (float x : o) { if (! std::isfinite (x)) bad = true; mx = std::max (mx, std::abs (x)); } std::printf ("voci rubate e volume: nan %d, picco %.2f\n", (int) bad, mx);
+        p.setV ("choke", 1); p.setV ("gain", 0);
+        // ricambio del kit mentre suona: la memoria vecchia si libera fuori dall'audio
+        for (int k = 0; k < 20; ++k) { p.setV ("count", (float) (4 + k)); p.rechop(); juce::MidiBuffer mm; mm.addEvent (juce::MidiMessage::noteOn (1, 37, (juce::uint8) 100), 0); p.processBlock (out, mm); }
+        std::printf ("kit sostituiti 20 volte mentre suona: ok\n");
+    }
     if (argc > 1)
     {
-        Editor ed (p); p.preview = 5; p.processBlock (out, mb);
+        if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
+        Editor ed (p); if (auto* t = std::getenv ("JTHEME")) { skin::cur() = std::atoi (t); neo::K::theme = -1; skin::apply(); } p.preview = 5; p.processBlock (out, mb);
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         juce::File f (argv[1]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
     }

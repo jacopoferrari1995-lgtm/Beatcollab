@@ -9,6 +9,7 @@ using namespace neo;
 static juce::String U (const char* s) { return juce::String::fromUTF8 (s); }
 static void panel (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour edge, bool display = false)
 {
+    if (skin::cur() != 3) { jlook::softShadow (g, r, 14); jlook::card (g, r, 14, edge, true, false, false); if (display) { g.setColour (K::lo.withAlpha (skin::light() ? 0.06f : 0.25f)); g.fillRoundedRectangle (r.reduced (6), 10); } return; }
     const float rad = 16;
     g.setColour (K::lo.withAlpha (0.35f)); g.fillRoundedRectangle (r.translated (0, 3), rad);
     juce::ColourGradient bgc (display ? K::disp0 : K::panel0, 0, r.getY(), display ? K::disp1 : K::panel1, 0, r.getBottom(), false); g.setGradientFill (bgc); g.fillRoundedRectangle (r, rad);
@@ -130,7 +131,6 @@ void PadView::mouseDown (const juce::MouseEvent& e)
 Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
 {
     skin::init ("sampledna", { 0xffe58aa0, 0xffb9a6e0, 0xffe9a260, 0xffa8bea0 }, 0xff3ee8ff);
-    skin::useTheme (1);
     addAndMakeVisible (wave); addAndMakeVisible (pads);
     auto add = [&] (const char* id, const char* lab, juce::Colour a, juce::Colour b2, std::function<juce::String (float)> fm, const char* tip)
     {
@@ -155,7 +155,7 @@ void Editor::resized()
     knobs[0]->setBounds (juce::Rectangle<int> (60, 560, w, S + 38).expanded (Knob::pad)); knobs[1]->setBounds (juce::Rectangle<int> (200, 560, w, S + 38).expanded (Knob::pad));
     knobs[2]->setBounds (juce::Rectangle<int> (858, 420, w, S + 38).expanded (Knob::pad)); knobs[3]->setBounds (juce::Rectangle<int> (970, 420, w, S + 38).expanded (Knob::pad));
     knobs[4]->setBounds (juce::Rectangle<int> (858, 524, w, S + 38).expanded (Knob::pad)); knobs[5]->setBounds (juce::Rectangle<int> (970, 524, w, S + 38).expanded (Knob::pad));
-    loadR = { 330, 20, 110, 32 }; halfR = { 640, 22, 30, 28 }; dblR = { 674, 22, 30, 28 };
+    loadR = { 330, 20, 110, 32 }; themeR = { 1006, 22, 76, 28 }; halfR = { 640, 22, 30, 28 }; dblR = { 674, 22, 30, 28 };
     for (int m = 0; m < kModes; ++m) modeR[m] = { 40.0f + (m % 2) * 160, 430.0f + (m / 2) * 36, 152, 30 };
     varR = { 40, 664, 312, 32 };
     playR[0] = { 852, 628, 108, 26 }; playR[1] = { 964, 628, 100, 26 }; chokeR = { 852, 658, 212, 22 };
@@ -166,12 +166,16 @@ void Editor::resized()
 }
 void Editor::paintStatic (juce::Graphics& g)
 {
+    if (skin::cur() != 3) { jlook::backdrop (g, { 0, 0, (float) W, (float) H }, K::cyan, K::pink); jlook::header (g, { 0, 0, (float) W, 66 }, "DNA", K::cyan, "SAMPLE", K::pink, K::amber); }
+    else
+    {
     juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, (float) H, false); g.setGradientFill (base); g.fillAll();
     // logo: doppia elica
     for (int i = 0; i < 14; ++i) { const float y = 18 + i * 2.4f, a = i * 0.55f; g.setColour (K::cyan.withAlpha (0.8f)); g.fillEllipse (36 + std::sin (a) * 10 - 2, y, 4, 2.5f); g.setColour (K::pink.withAlpha (0.8f)); g.fillEllipse (36 - std::sin (a) * 10 - 2, y, 4, 2.5f); }
     g.setFont (num (15.0f)); g.setColour (K::ink); g.drawText ("JACKPOT", juce::Rectangle<float> (60, 18, 100, 20), juce::Justification::centredLeft);
     g.setFont (big (15.0f)); g.setColour (K::sub); g.drawText ("SAMPLE DNA", juce::Rectangle<float> (137, 18, 160, 20), juce::Justification::centredLeft);
     g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (U ("CAPISCE IL SAMPLE E LO TAGLIA CON SENSO"), juce::Rectangle<float> (60, 38, 300, 12), juce::Justification::centredLeft);
+    }
     panel (g, { 24, 76, 1052, 300 }, K::cyan, true);
     panel (g, { 24, 390, 344, 318 }, K::cyan);
     panel (g, { 380, 390, 448, 318 }, K::violet);
@@ -183,13 +187,13 @@ void Editor::paintStatic (juce::Graphics& g)
 }
 void Editor::paint (juce::Graphics& g)
 {
-    skin::useTheme (1);
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
-    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f) { bgScale = sc; bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false); juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig); }
+    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgTheme != skin::cur()) { bgTheme = skin::cur(); bgScale = sc; bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false); juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig); }
     { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.drawImageAt (bg, 0, 0); g.restoreState(); }
     auto k = proc.kit(); auto a = proc.analysis();
     chip (g, loadR, "CARICA...", false, K::cyan, 9.0f);
+    skin::chipDraw (g, themeR, false);
     // letture
     auto readout = [&] (float x, float w, const juce::String& lab, const juce::String& val, juce::Colour c)
     { g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (lab, juce::Rectangle<float> (x, 16, w, 12), juce::Justification::centredLeft); g.setFont (num (17.0f)); g.setColour (c); g.drawText (val, juce::Rectangle<float> (x, 28, w, 24), juce::Justification::centredLeft); };
@@ -199,7 +203,7 @@ void Editor::paint (juce::Graphics& g)
         readout (470, 160, "BPM" + juce::String (a->loopFit ? "  (LOOP DI " + juce::String (a->beats) + " BATTITI)" : ""), juce::String (a->bpm, 1), K::cyan);
         chip (g, halfR, "/2", false, K::cyan, 8.5f); chip (g, dblR, "x2", false, K::cyan, 8.5f);
         readout (724, 150, juce::String ("TONALITA'") + (a->keyConf < 0.35f ? "  (INCERTA)" : ""), a->key >= 0 ? juce::String (pcName (a->key)) + (a->minor ? " minore" : " maggiore") : "--", a->keyConf < 0.35f ? K::sub : K::pink);
-        readout (880, 200, "DURATA  //  " + k->name.substring (0, 22).toUpperCase(), juce::String (a->dur, 2) + " s  " + juce::String (a->dur * a->bpm / 240.0, 1) + " battute", K::ink);
+        readout (880, 122, "DURATA  //  " + k->name.substring (0, 10).toUpperCase(), juce::String (a->dur, 1) + "s " + juce::String (a->dur * a->bpm / 240.0, 1) + "bt", K::ink);
     }
     // come tagliare
     static const char* desc[kModes] = { "Sceglie i tagli che contano: colpi forti, cambi d'armonia e posizioni a tempo. Prova ALTRA PROPOSTA per altre idee.",
@@ -219,6 +223,7 @@ void Editor::paint (juce::Graphics& g)
 void Editor::mouseDown (const juce::MouseEvent& e)
 {
     const auto p = e.position / scaler.s; dragging = false;
+    if (themeR.contains (p)) { skin::cycle(); bg = {}; std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* q : c->getChildren()) all (q); }; all (this); return; }
     if (loadR.contains (p))
     {
         chooser = std::make_unique<juce::FileChooser> ("Scegli un sample", juce::File::getSpecialLocation (juce::File::userMusicDirectory), "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.m4a");
@@ -245,6 +250,7 @@ void Editor::mouseDrag (const juce::MouseEvent& e)
 }
 void Editor::timerCallback()
 {
+    if (bgTheme != skin::cur() && bgTheme >= 0) { skin::apply(); bg = {}; repaint(); }
     for (auto* k : knobs) if (k->animate()) k->repaint();
     static juce::uint32 last = 0; auto k = proc.kit(); auto a = proc.analysis();
     const juce::uint32 sig = (juce::uint32) (k != nullptr ? k->starts.size() * 31 + (size_t) k->audio.getNumSamples() : 0) ^ (juce::uint32) (a != nullptr ? (int) (a->bpm * 10) : 0) ^ (proc.busy.load() ? 77u : 0u);
