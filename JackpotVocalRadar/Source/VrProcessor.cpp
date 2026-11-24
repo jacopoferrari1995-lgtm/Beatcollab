@@ -7,16 +7,21 @@ namespace vr
 const std::vector<VrPreset>& presets()
 {
     static const std::vector<VrPreset> P = {
-        { "Init", "Punto di partenza: taglio medio sulla presenza, beat che resta largo.", 6, 0.7f, 0.4f, 0.3f, 1.0f, 0.7f, 220, 20 },
-        { "Trap  |  Voce Rap", "Rap sopra 808 e melodie piene: si apre la presenza e il corpo, rilascio rapido per non pompare fra le parole.", 7, 0.85f, 0.55f, 0.35f, 1.5f, 0.75f, 140, 25 },
-        { "Drill  |  Flow Fitto", "Flow serrato su drill: rilascio cortissimo, anticipo lungo per le consonanti, beat largo sui lati.", 7.5f, 0.9f, 0.45f, 0.4f, 1.0f, 0.85f, 110, 30 },
-        { "Hip Hop  |  Boom Bap", "Sample caldi e pieni di medi: si lavora molto sul corpo, la presenza piu' gentile.", 6, 0.6f, 0.8f, 0.2f, 1.5f, 0.5f, 200, 20 },
-        { "R&B  |  Voce Melodica", "Note lunghe: rilascio lento cosi' il beat non respira a ogni sillaba, tagli morbidi.", 5, 0.7f, 0.5f, 0.5f, 0.8f, 0.7f, 400, 15 },
-        { "Pop  |  Voce Davanti", "La voce deve stare sopra a tutto: taglio piu' profondo e un filo di volume.", 9, 0.85f, 0.6f, 0.5f, 2.5f, 0.6f, 250, 20 },
-        { "Ad-lib  |  Leggero", "Per le ad-lib e le doppie: tocco leggero, solo presenza.", 3.5f, 0.8f, 0.2f, 0.3f, 0.3f, 0.8f, 150, 15 },
-        { "Parlato  |  Podcast", "Voce parlata sopra musica: il beat scende di volume e lascia il centro alla voce.", 8, 0.75f, 0.7f, 0.2f, 4.0f, 0.3f, 500, 25 },
-        { "Aggressivo  |  Scream", "Voci urlate o distorte su beat pieni: tutto aperto, rilascio medio.", 10, 0.9f, 0.7f, 0.6f, 2.0f, 0.6f, 180, 30 },
-        { "Solo Bus Strumentale", "Su un bus con tutto il beat: interviene su ogni banda, volume minimo.", 6, 0.75f, 0.55f, 0.4f, 0.8f, 0.7f, 220, 20 } };
+        { "Init", "Tutto fermo (AMOUNT a zero): il beat passa intatto. Usa ONE CLICK o un preset.", 0, 0.7f, 0.4f, 0.3f, 0, 0.7f, 220, 20 },
+        { "Trap | Voce Rap", "Rap sopra 808 e melodie piene: si apre la presenza e il corpo, rilascio rapido per non pompare fra le parole.", 7, 0.85f, 0.55f, 0.35f, 1.5f, 0.75f, 140, 25 },
+        { "Trap | Melodica", "Voce cantata con autotune su pad e chitarre: tagli morbidi e rilascio medio.", 5.5f, 0.8f, 0.45f, 0.45f, 0.8f, 0.75f, 300, 18 },
+        { "Drill | Flow Fitto", "Flow serrato su drill: rilascio cortissimo, anticipo lungo per le consonanti, beat largo sui lati.", 7.5f, 0.9f, 0.45f, 0.4f, 1.0f, 0.85f, 110, 30 },
+        { "Drill | 808 Scivolose", "Drill con 808 piene e glide: si libera il corpo della voce dove l'808 canta.", 7, 0.75f, 0.85f, 0.3f, 1.0f, 0.8f, 150, 25 },
+        { "Hip Hop | Boom Bap", "Sample caldi e pieni di medi: si lavora molto sul corpo, la presenza piu' gentile.", 6, 0.6f, 0.8f, 0.2f, 1.5f, 0.5f, 200, 20 },
+        { "Hip Hop | Sample Soul", "Campioni con voci dentro: si apre soprattutto dove parlano le parole, il resto resta caldo.", 6.5f, 0.95f, 0.35f, 0.25f, 1.0f, 0.6f, 240, 20 },
+        { "R&B | Voce Melodica", "Note lunghe: rilascio lento cosi' il beat non respira a ogni sillaba, tagli morbidi.", 5, 0.7f, 0.5f, 0.5f, 0.8f, 0.7f, 400, 15 },
+        { "Pop | Voce Davanti", "La voce deve stare sopra a tutto: taglio piu' profondo e un filo di volume.", 9, 0.85f, 0.6f, 0.5f, 2.5f, 0.6f, 250, 20 },
+        { "Afro | Reggaeton", "Percussioni e chitarre sui medi: si apre la presenza, i lati restano larghi.", 6, 0.85f, 0.4f, 0.4f, 1.0f, 0.85f, 180, 20 },
+        { "Ad-lib | Leggero", "Per le ad-lib e le doppie: tocco leggero, solo presenza.", 3.5f, 0.8f, 0.2f, 0.3f, 0.3f, 0.8f, 150, 15 },
+        { "Parlato | Podcast", "Voce parlata sopra musica: il beat scende di volume e lascia il centro alla voce.", 8, 0.75f, 0.7f, 0.2f, 4.0f, 0.3f, 500, 25 },
+        { "Aggressivo | Scream", "Voci urlate o distorte su beat pieni: tutto aperto, rilascio medio.", 10, 0.9f, 0.7f, 0.6f, 2.0f, 0.6f, 180, 30 },
+        { "Bus | Strumentale", "Su un bus con tutto il beat: interviene su ogni banda, volume minimo.", 6, 0.75f, 0.55f, 0.4f, 0.8f, 0.7f, 220, 20 },
+        { "Bus | Solo Melodie", "Sul gruppo di melodie, pad e chitarre (non sulla batteria): presenza e corpo, niente volume.", 7, 0.85f, 0.6f, 0.3f, 0, 0.7f, 220, 20 } };
     return P;
 }
 
@@ -43,7 +48,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
 Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                                        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false)),
-      apvts (*this, nullptr, "PARAMS", layout()), slot (juce::Random::getSystemRandom().nextInt (SLOTS))
+      apvts (*this, &undo, "PARAMS", layout()), slot (juce::Random::getSystemRandom().nextInt (SLOTS))
 {
     for (int b = 0; b < NB; ++b) { uiVoice[b] = -120; uiBeat[b] = -120; uiCut[b] = 0; }
     for (int i = 0; i < kHist; ++i) { hAct[i] = 0; hCut[i] = 0; }
@@ -62,8 +67,13 @@ void Processor::prepareToPlay (double s, int)
     int n = 1; while (n < L + 8) n <<= 1; dM.assign ((size_t) n, 0.0f); dS = dM; dMask = n - 1; dW = 0;
     int g = 1; while (g < L / HOP + 8) g <<= 1; gq.assign ((size_t) g, {}); gMask = g - 1; gW = 0;
     for (auto& q : gq) q.fill (0.0f);
-    for (int b = 0; b < NB; ++b) { pm[b] = {}; ps[b] = {}; cutS[b] = 0; }
-    volS = 0; actEnv = 0; hopN = 0;
+    for (int b = 0; b < NB; ++b)
+    {
+        pm[b] = {}; ps[b] = {}; cutS[b] = 0; cutA[b] = cut0[b] = cut1[b] = 0;
+        const float w = juce::MathConstants<float>::twoPi * juce::jmin (bandHz (b), 0.45f * (float) sr) / (float) sr; cw[b] = std::cos (w); aw[b] = std::sin (w) / (2 * 1.8f);
+    }
+    volS = 0; actEnv = 0; hopN = 0; g0 = g1 = 1; sub = 0;
+    mixS = v ("mix"); ogS = juce::Decibels::decibelsToGain (v ("out")); deltaS = v ("delta") > 0.5f ? 1.0f : 0.0f; bypS = v ("byp") > 0.5f ? 1.0f : 0.0f;
     setLatencySamples (beatMode() ? L : 0);
 }
 
@@ -136,6 +146,7 @@ void Processor::processBeat (juce::AudioBuffer<float>& buffer, int n, double pos
         auto bump = [lf] (float lo, float hi) { const float c0 = 0.5f * (std::log2 (lo) + std::log2 (hi)), w = 0.5f * (std::log2 (hi) - std::log2 (lo)) + 0.6f; return juce::jlimit (0.0f, 1.0f, 1.0f - std::abs (lf - c0) / w); };
         wgt[b] = (f < 140.0f ? 0.0f : 1.0f) * juce::jlimit (0.0f, 1.0f, 0.10f + 0.90f * juce::jmax (pres * bump (1800, 5500), body * bump (160, 480), air * bump (7000, 12000), 0.55f * juce::jmax (pres, body) * bump (500, 1800)));
     }
+    const float sk = 1.0f - std::exp (-1.0f / (0.02f * (float) sr)), fk = 1.0f / (0.015f * (float) sr);
     const float* scL = scOn ? sc.getReadPointer (0) : nullptr; const float* scR = scOn ? sc.getReadPointer (juce::jmin (1, sc.getNumChannels() - 1)) : nullptr;
     for (int i = 0; i < n; ++i)
     {
@@ -171,24 +182,42 @@ void Processor::processBeat (juce::AudioBuffer<float>& buffer, int n, double pos
             ++gW;
             // applica i tagli di (L - anticipo) fa: cosi' il beat (ritardato di L) si apre un attimo prima della voce
             const auto& ga = gq[(size_t) ((gW - 1 - lagHops) & gMask)];
-            for (int b = 0; b < NB; ++b) { pm[b].set (bandHz (b), 1.8f, -ga[(size_t) b], sr); ps[b].set (bandHz (b), 1.8f, -ga[(size_t) b] * (1.0f - st), sr); }
-            volS = ga[NB];
+            // i tagli arrivano a ogni fotogramma e i filtri ci scivolano sopra in 4 passi (niente scalini)
+            for (int b = 0; b < NB; ++b) { cut0[b] = cutA[b]; cut1[b] = ga[(size_t) b]; }
+            g0 = g1; g1 = juce::Decibels::decibelsToGain (-ga[NB]); volS = ga[NB]; stS = st;
             colA = juce::jmax (colA, actEnv); colC = juce::jmax (colC, totCut);
             if (++colN >= 8) { const int hw = hW.load(); hAct[hw] = colA; hCut[hw] = colC; hW = (hw + 1) % kHist; colA = colC = 0; colN = 0; }
         }
-        // ritardo di L e filtri
-        dM[(size_t) dW] = m; dS[(size_t) dW] = s;
-        const float md = dM[(size_t) ((dW - L) & dMask)], sd = dS[(size_t) ((dW - L) & dMask)]; dW = (dW + 1) & dMask;
-        float mo = md, so = sd;
-        for (int b = 0; b < NB; ++b) { mo = pm[b].run (mo); so = ps[b].run (so); }
-        const float vg = juce::Decibels::decibelsToGain (-volS);
-        mo *= vg; so *= vg;
-        float ol = mo + so, orr = mo - so;
-        const float dl = md + sd, dr = md - sd;
-        if (byp) { ol = dl; orr = dr; }
-        else if (delta) { ol = dl - ol; orr = dr - orr; }
-        else { ol = dl + (ol - dl) * mix; orr = dr + (orr - dr) * mix; }
-        Lp[i] = ol * og; Rp[i] = orr * og;
+        if ((hopN & 15) == 0)
+        {
+            const float fr = (float) (hopN / 16 + 1) * 0.25f; bool any = g0 != 1.0f || g1 != 1.0f;
+            for (int b = 0; b < NB; ++b)
+            {
+                const float c = cut0[b] + (cut1[b] - cut0[b]) * fr; cutA[b] = c;
+                if (c < 0.005f) { pm[b].setIdentity(); ps[b].setIdentity(); }
+                else { any = true; pm[b].setFast (cw[b], aw[b], -c); const float cs = c * (1.0f - stS); if (cs < 0.005f) ps[b].setIdentity(); else ps[b].setFast (cw[b], aw[b], -cs); }
+            }
+            if (! any && ! flat) { for (int b = 0; b < NB; ++b) { pm[b].z1 = pm[b].z2 = ps[b].z1 = ps[b].z2 = 0; } }
+            flat = ! any;
+        }
+        // ritardo di L e filtri (si ritarda sinistro/destro: da fermo l'uscita e' l'ingresso al bit)
+        dM[(size_t) dW] = l; dS[(size_t) dW] = r;
+        const float dl = dM[(size_t) ((dW - L) & dMask)], dr = dS[(size_t) ((dW - L) & dMask)]; dW = (dW + 1) & dMask;
+        float wl = dl, wr = dr;
+        if (! flat)
+        {
+            float mo = 0.5f * (dl + dr), so = 0.5f * (dl - dr);
+            for (int b = 0; b < NB; ++b) { mo = pm[b].run (mo); so = ps[b].run (so); }
+            const float vg = g0 + (g1 - g0) * (float) (hopN + 1) * (1.0f / HOP);
+            mo *= vg; so *= vg; wl = mo + so; wr = mo - so;
+        }
+        // MIX, DELTA, CONFRONTA e OUTPUT sfumati
+        mixS += sk * (mix - mixS); ogS += sk * (og - ogS);
+        deltaS = juce::jlimit (0.0f, 1.0f, deltaS + (delta ? fk : -fk)); bypS = juce::jlimit (0.0f, 1.0f, bypS + (byp ? fk : -fk));
+        float ol = dl + (wl - dl) * mixS, orr = dr + (wr - dr) * mixS;
+        ol += (dl - wl - ol) * deltaS; orr += (dr - wr - orr) * deltaS;
+        ol += (dl - ol) * bypS; orr += (dr - orr) * bypS;
+        Lp[i] = ol * ogS; Rp[i] = orr * ogS;
     }
     if (learning.load()) learnSec = learnSec.load() + (float) n / (float) sr;
 }
@@ -197,8 +226,24 @@ void Processor::processBeat (juce::AudioBuffer<float>& buffer, int n, double pos
 void Processor::loadPreset (int i)
 {
     const auto& p = presets()[(size_t) juce::jlimit (0, (int) presets().size() - 1, i)];
+    undo.beginNewTransaction();
     setV ("amount", p.amount); setV ("pres", p.pres); setV ("body", p.body); setV ("air", p.air); setV ("vol", p.vol); setV ("stereo", p.stereo); setV ("rel", p.rel); setV ("ant", p.ant);
-    presetName = p.name;
+    presetName = p.name; curPreset = juce::jlimit (0, (int) presets().size() - 1, i);
+}
+// i preset tuoi salvano i comandi del suono, non il ruolo della copia (voce/beat, canale, sorgente)
+static bool roleParam (const juce::String& id) { return id == "mode" || id == "chan" || id == "src" || id == "byp" || id == "delta"; }
+bool Processor::savePresetFile (const juce::File& f)
+{
+    juce::XmlElement x ("VRPRESET");
+    for (auto* pp : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (pp)) if (! roleParam (rp->paramID)) { auto* e = x.createNewChildElement ("P"); e->setAttribute ("id", rp->paramID); e->setAttribute ("v", (double) rp->convertFrom0to1 (rp->getValue())); }
+    const bool ok = x.writeTo (f); if (ok) { presetName = f.getFileNameWithoutExtension(); curPreset = -1; } return ok;
+}
+bool Processor::loadPresetFile (const juce::File& f)
+{
+    auto x = juce::XmlDocument::parse (f); if (! x || ! x->hasTagName ("VRPRESET")) return false;
+    undo.beginNewTransaction();
+    for (auto* e : x->getChildIterator()) { const auto id = e->getStringAttribute ("id"); if (! roleParam (id)) if (auto* rp = apvts.getParameter (id)) rp->setValueNotifyingHost (rp->convertTo0to1 ((float) e->getDoubleAttribute ("v"))); }
+    presetName = f.getFileNameWithoutExtension(); curPreset = -1; return true;
 }
 
 // ------------------------------------------------------------------------------------------------ ONE CLICK
@@ -255,10 +300,10 @@ void Processor::learnApply()
 {
     if (! proposal.ready) return;
     const char* ids[8] = { "amount", "pres", "body", "air", "vol", "stereo", "rel", "ant" };
-    for (int i = 0; i < 8; ++i) backup[i] = v (ids[i]); hasBackup = true;
+    undo.beginNewTransaction(); for (int i = 0; i < 8; ++i) backup[i] = v (ids[i]); hasBackup = true;
     setV ("amount", proposal.amount); setV ("pres", proposal.pres); setV ("body", proposal.body); setV ("air", proposal.air);
     setV ("vol", proposal.vol); setV ("stereo", proposal.stereo); setV ("rel", proposal.rel); setV ("ant", proposal.ant);
-    presetName = "ONE CLICK"; proposal.ready = false; proposal.state = 2;
+    presetName = "ONE CLICK"; curPreset = -1; proposal.ready = false; proposal.state = 2;
 }
 void Processor::learnDiscard()
 {
@@ -268,12 +313,12 @@ void Processor::learnDiscard()
 
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
-    auto s = apvts.copyState(); s.setProperty ("preset", presetName, nullptr); s.setProperty ("theme", uiTheme.load(), nullptr);
+    auto s = apvts.copyState(); s.setProperty ("preset", presetName, nullptr); s.setProperty ("presetIdx", curPreset, nullptr); s.setProperty ("theme", uiTheme.load(), nullptr);
     if (auto x = s.createXml()) copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
-    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (! t.isValid()) return; presetName = t.getProperty ("preset", presetName).toString(); uiTheme = (int) t.getProperty ("theme", 0); apvts.replaceState (t); }
+    if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (! t.isValid()) return; presetName = t.getProperty ("preset", presetName).toString(); curPreset = t.getProperty ("presetIdx", -1); uiTheme = (int) t.getProperty ("theme", 0); apvts.replaceState (t); }
 }
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
 }

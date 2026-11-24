@@ -3,6 +3,7 @@
 #include "Skin.h"
 #include "JackpotScale.h"
 #include "Neo.h"
+#include "PresetBrowser.h"
 
 namespace vr
 {
@@ -27,9 +28,12 @@ public:
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    skin::Keep skinKeep;
 public:
     explicit Editor (Processor&);
-    ~Editor() override { stopTimer(); }
+    ~Editor() override { stopTimer(); removeMouseListener (&undoMark); }
+    bool keyPressed (const juce::KeyPress&) override;
+    void mouseMove (const juce::MouseEvent&) override;
     void paint (juce::Graphics&) override;
     void paintOverChildren (juce::Graphics&) override;
     void resized() override;
@@ -44,7 +48,15 @@ public:
     juce::OwnedArray<neo::Knob> knobs; juce::StringArray tips;
     juce::Rectangle<float> roleR[2], chanR[NCH], srcR[2], deltaR, bypR, clickR, applyR, discardR, prevR, nextR, presetR;
     int hoverKnob = -1, frame = 0;
-    void presetMenu();
+    juce::Rectangle<float> undoR, redoR, themeR; int hoverTop = -1, bgTheme = -1;
+    jbrowse::Browser browser;
+    void setupBrowser(); void askPresetName(); void doUndo (bool redo);
+    struct UndoMark : juce::MouseListener
+    {
+        Processor* p = nullptr; double lastWheel = 0;
+        void mouseDown (const juce::MouseEvent&) override { if (p) p->undo.beginNewTransaction(); }
+        void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override { const double t = juce::Time::getMillisecondCounterHiRes(); if (p && t - lastWheel > 600) p->undo.beginNewTransaction(); lastWheel = t; }
+    } undoMark;
     juce::String liveSentence() const;
     juce::Image bg; float bgScale = 0; void paintStatic (juce::Graphics&);
 private:

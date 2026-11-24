@@ -32,13 +32,17 @@ public:
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
 
+    juce::UndoManager undo { 200000, 60 };
     juce::AudioProcessorValueTreeState apvts;
     float v (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     void setV (const char* id, float real) { if (auto* p = apvts.getParameter (id)) p->setValueNotifyingHost (p->convertTo0to1 (real)); }
     bool beatMode() const { return v ("mode") > 0.5f; }
     int channel() const { return juce::roundToInt (v ("chan")); }
     void loadPreset (int i);
-    juce::String presetName { "Init" };
+    juce::String presetName { "Init" }; int curPreset = 0;
+    // preset tuoi: file .jvr in Musica / Jackpot / Vocal Radar Preset
+    static juce::File presetFolder() { auto f = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Vocal Radar Preset"); f.createDirectory(); return f; }
+    bool savePresetFile (const juce::File&); bool loadPresetFile (const juce::File&);
 
     // ONE CLICK: ascolta voce e beat insieme e propone l'intervento
     void learnStart(); void learnStop(); void learnApply(); void learnDiscard();
@@ -63,6 +67,7 @@ private:
     Peak pm[NB], ps[NB];
     std::vector<float> dM, dS; int dW = 0, dMask = 0;
     std::vector<std::array<float, NB + 1>> gq; int gW = 0, gMask = 0;   // tagli per fotogramma, ritardati per l'anticipo
+    float cw[NB] {}, aw[NB] {}, cutA[NB] {}, cut0[NB] {}, cut1[NB] {}, g0 = 1, g1 = 1, mixS = 1, ogS = 1, deltaS = 0, bypS = 0; juce::uint32 sub = 0; float stS = 0.7f; bool flat = true;
     float cutS[NB] {}, volS = 0, actEnv = 0, avgLvl = -30; int hopN = 0; double vPos = 0; juce::int64 vCounter = 0;
     float colA = 0, colC = 0; int colN = 0;
     // statistiche della prova d'ascolto

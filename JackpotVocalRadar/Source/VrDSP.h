@@ -73,6 +73,13 @@ struct Peak
         const float A = std::pow (10.0f, db / 40.0f), w = juce::MathConstants<float>::twoPi * f / (float) sr, al = std::sin (w) / (2 * q), c = std::cos (w);
         const float a0 = 1 + al / A; b0 = (1 + al * A) / a0; b1 = -2 * c / a0; b2 = (1 - al * A) / a0; a1 = -2 * c / a0; a2 = (1 - al / A) / a0;
     }
+    // versione veloce per gli aggiornamenti continui: coseno e alfa della banda gia' calcolati
+    void setIdentity() { b0 = 1; b1 = b2 = a1 = a2 = 0; }
+    void setFast (float c, float al, float db)
+    {
+        const float A = std::exp (db * 0.0575646273f);   // 10^(db/40)
+        const float a0 = 1 + al / A, ia = 1.0f / a0; b0 = (1 + al * A) * ia; b1 = -2 * c * ia; b2 = (1 - al * A) * ia; a1 = b1; a2 = (1 - al / A) * ia;
+    }
     float run (float x) { const float y = b0 * x + z1; z1 = b1 * x - a1 * y + z2; z2 = b2 * x - a2 * y; return y; }
 };
 }

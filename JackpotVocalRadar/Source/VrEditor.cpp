@@ -9,6 +9,7 @@ using namespace neo;
 static juce::String U (const char* s) { return juce::String::fromUTF8 (s); }
 static void panel (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour edge, bool display = false)
 {
+    if (skin::cur() != 3) { jlook::softShadow (g, r, 14); jlook::card (g, r, 14, edge, true, false, false); if (display) { g.setColour (K::lo.withAlpha (skin::light() ? 0.06f : 0.25f)); g.fillRoundedRectangle (r.reduced (6), 10); } return; }
     const float rad = 16;
     g.setColour (K::lo.withAlpha (0.35f)); g.fillRoundedRectangle (r.translated (0, 3), rad);
     juce::ColourGradient bgc (display ? K::disp0 : K::panel0, 0, r.getY(), display ? K::disp1 : K::panel1, 0, r.getBottom(), false); g.setGradientFill (bgc); g.fillRoundedRectangle (r, rad);
@@ -104,7 +105,6 @@ void LaneView::paint (juce::Graphics& g)
 Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
 {
     skin::init ("vocalradar", { 0xffe58aa0, 0xffb9a6e0, 0xffe9a260, 0xffa8bea0 }, 0xffff2e88);
-    skin::useTheme (1);
     addAndMakeVisible (space); addAndMakeVisible (lanes);
     auto add = [&] (const char* id, const char* lab, juce::Colour a, juce::Colour b2, std::function<juce::String (float)> fm, const char* tip, bool big = false)
     {
@@ -117,7 +117,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
     add ("body", "CORPO", K::amber, K::pink, pct, "Quanto aprire il corpo della voce (160-480 Hz), dove si scontra con 808, bassi e melodie piene. Alzalo se la voce suona impastata o lontana.");
     add ("pres", "PAROLE", K::amber, K::pink, pct, "Quanto aprire 1.8-5.5 kHz, dove si capiscono le parole. Il comando piu' importante: alzalo se non si capisce il testo.");
     add ("air", "ARIA", K::amber, K::pink, pct, "Quanto aprire 7-12 kHz, il respiro e le sibilanti. Utile se hi-hat e piatti coprono la voce.");
-    add ("amount", "AMOUNT  dB", K::amber, K::red, [] (float v) { return v < 0.05f ? juce::String ("OFF") : "-" + juce::String (v, 1); }, "Quanto puo' scendere al massimo il beat nelle zone scelte. 3-6 dB e' gia' tanto: deve sentirsi la voce piu' chiara, non il beat che respira.", true);
+    add ("amount", "AMOUNT", K::amber, K::red, [] (float v) { return v < 0.05f ? juce::String ("OFF") : "-" + juce::String (v, 1) + " dB"; }, "Quanto puo' scendere al massimo il beat nelle zone scelte. 3-6 dB e' gia' tanto: deve sentirsi la voce piu' chiara, non il beat che respira.");
     add ("vol", "VOLUME", K::amber, K::red, [] (float v) { return v < 0.05f ? juce::String ("OFF") : "-" + juce::String (v, 1) + " dB"; }, "Oltre alle zone, abbassa tutto il beat di qualche dB mentre la voce canta. Per parlato e voci deboli; sul rap di solito 0-1 dB.");
     add ("stereo", "STEREO", K::cyan, K::violet, [] (float v) { return v > 0.97f ? juce::String ("SOLO CENTRO") : juce::String (juce::roundToInt (v * 100)) + "%"; }, "100% = il beat si abbassa solo al centro, dove sta la voce, e i lati restano larghi. 0% = si abbassa tutto lo stereo.");
     add ("rel", "RILASCIO", K::cyan, K::violet, [] (float v) { return juce::String (juce::roundToInt (v)) + " ms"; }, "Quanto ci mette il beat a tornare pieno a fine frase. Corto (100-150) per il rap, lungo (300-500) per il cantato.");
@@ -126,6 +126,8 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
     add ("mix", "MIX", K::ink, K::sub, pct, "Quanto dell'effetto arriva in uscita. 100% = tutto.");
     add ("out", "OUTPUT", K::mint, K::cyan, [] (float v) { return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; }, "Volume d'uscita del beat.");
     addAndMakeVisible (sizeChip);
+    setupBrowser();
+    undoMark.p = &p; addMouseListener (&undoMark, true); setWantsKeyboardFocus (true);
     scaler.setup();
     startTimerHz (30);
 }
@@ -137,15 +139,17 @@ void Editor::resized()
     const int xs[11] = { 40, 118, 196, 296, 414, 492, 596, 674, 782, 890, 968 };
     for (int i = 0; i < knobs.size(); ++i)
     {
-        if (i == 3) { knobs[i]->setBounds (juce::Rectangle<int> (xs[i], 634, 108, 120).expanded (Knob::pad)); continue; }
+        if (i == 3) { knobs[i]->setBounds (juce::Rectangle<int> (xs[i] + 4, 636, 92, 112).expanded (Knob::pad)); continue; }
         knobs[i]->setBounds (juce::Rectangle<int> (xs[i], y, w, Sx + 38).expanded (Knob::pad));
     }
     roleR[0] = { 182, 92, 196, 62 }; roleR[1] = { 386, 92, 196, 62 };
     for (int c = 0; c < NCH; ++c) chanR[c] = { 608.0f + c * 38, 104, 34, 38 };
     srcR[0] = { 962, 130, 50, 22 }; srcR[1] = { 1014, 130, 56, 22 };
     clickR = { 764, 274, 296, 40 }; applyR = { 764, 516, 144, 32 }; discardR = { 916, 516, 144, 32 };
-    deltaR = { 788, 18, 150, 34 }; bypR = { 944, 18, 132, 34 };
-    prevR = { 380, 18, 28, 34 }; presetR = { 410, 18, 300, 34 }; nextR = { 712, 18, 28, 34 };
+    prevR = { 318, 18, 28, 34 }; presetR = { 348, 18, 260, 34 }; nextR = { 610, 18, 28, 34 };
+    undoR = { 648, 21, 32, 28 }; redoR = { 682, 21, 32, 28 };
+    deltaR = { 726, 18, 140, 34 }; bypR = { 872, 18, 112, 34 }; themeR = { 992, 21, 86, 28 };
+    browser.setBounds (0, 0, W, H);
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     bg = {};
     jlook::scaleChildren (*this, s);
@@ -153,12 +157,20 @@ void Editor::resized()
 void Editor::paintStatic (juce::Graphics& g)
 {
     const float Hf = (float) H;
+    if (skin::cur() != 3)
+    {   // temi della serie: sfondo e testata della pelle
+        jlook::backdrop (g, { 0, 0, (float) W, Hf }, K::pink, K::amber);
+        jlook::header (g, { 0, 0, (float) W, 66 }, "VOCAL", K::pink, "RADAR", K::amber, K::cyan);
+    }
+    else
+    {
     juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, Hf, false); g.setGradientFill (base); g.fillAll();
     for (int i = 0; i < 3; ++i) { juce::Path a; const float r = 5.0f + i * 5.5f; a.addCentredArc (36, 36, r, r, 0, -1.2f, 1.2f, true); g.setColour ((i == 0 ? K::pink : i == 1 ? K::amber : K::cyan).withAlpha (1.0f - i * 0.2f)); g.strokePath (a, juce::PathStrokeType (2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
     g.setColour (K::pink); g.fillEllipse (33, 33, 6, 6);
     g.setFont (num (15.0f)); g.setColour (K::ink); g.drawText ("JACKPOT", juce::Rectangle<float> (60, 18, 100, 20), juce::Justification::centredLeft);
     g.setFont (big (15.0f)); g.setColour (K::sub); g.drawText ("VOCAL RADAR", juce::Rectangle<float> (137, 18, 160, 20), juce::Justification::centredLeft);
     g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (U ("LA VOCE PARLA, IL BEAT FA SPAZIO"), juce::Rectangle<float> (60, 38, 300, 12), juce::Justification::centredLeft);
+    }
     panel (g, { 24, 72, 1052, 94 }, K::pink);
     panel (g, { 24, 178, 712, 300 }, K::amber, true);
     panel (g, { 24, 488, 712, 112 }, K::pink, true);
@@ -193,12 +205,11 @@ juce::String Editor::liveSentence() const
 }
 void Editor::paint (juce::Graphics& g)
 {
-    skin::useTheme (1);
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
-    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f)
+    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgTheme != skin::cur())
     {
-        bgScale = sc; bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false);
+        bgTheme = skin::cur(); bgScale = sc; bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false);
         juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig);
     }
     { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.drawImageAt (bg, 0, 0); g.restoreState(); }
@@ -208,6 +219,9 @@ void Editor::paint (juce::Graphics& g)
       g.setFont (cap (7.0f)); g.setColour (K::faint); g.drawText ("PRESET", pr.withHeight (12).translated (0, 2), juce::Justification::centred);
       g.setFont (f (13.0f, 1)); g.setColour (K::ink); g.drawFittedText (proc.presetName, pr.withTrimmedTop (11).toNearestInt(), juce::Justification::centred, 1);
       g.setFont (f (18.0f)); g.setColour (K::sub); g.drawText ("<", prevR, juce::Justification::centred); g.drawText (">", nextR, juce::Justification::centred); }
+    chip (g, undoR, U ("\xe2\x86\xb6"), false, proc.undo.canUndo() ? K::mint : K::faint, 12.0f, hoverTop == 1);
+    chip (g, redoR, U ("\xe2\x86\xb7"), false, proc.undo.canRedo() ? K::mint : K::faint, 12.0f, hoverTop == 2);
+    skin::chipDraw (g, themeR, hoverTop == 3);
     if (beat) { chip (g, deltaR, "DELTA: COSA TOGLIE", proc.v ("delta") > 0.5f, K::red, 8.5f); chip (g, bypR, "CONFRONTA (OFF)", proc.v ("byp") > 0.5f, K::amber, 8.5f); }
     // ---------------- collegamento
     {
@@ -308,10 +322,13 @@ void Editor::mouseDown (const juce::MouseEvent& e)
     for (int c = 0; c < NCH; ++c) if (chanR[c].contains (p)) { set ("chan", (float) c); return; }
     if (prevR.contains (p) || nextR.contains (p))
     {
-        const int n = (int) presets().size(); int cur = 0; for (int i = 0; i < n; ++i) if (proc.presetName == presets()[(size_t) i].name) cur = i;
+        const int n = (int) presets().size(); const int cur = juce::jmax (0, proc.curPreset);
         proc.loadPreset ((cur + (nextR.contains (p) ? 1 : n - 1)) % n); repaint(); return;
     }
-    if (presetR.contains (p)) { presetMenu(); return; }
+    if (presetR.contains (p)) { browser.open(); return; }
+    if (undoR.contains (p)) { doUndo (false); return; }
+    if (redoR.contains (p)) { doUndo (true); return; }
+    if (themeR.contains (p)) { skin::cycle(); bg = {}; std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* q : c->getChildren()) all (q); }; all (this); return; }
     if (! proc.beatMode()) return;
     if (deltaR.contains (p)) { set ("delta", proc.v ("delta") > 0.5f ? 0.0f : 1.0f); return; }
     if (bypR.contains (p)) { set ("byp", proc.v ("byp") > 0.5f ? 0.0f : 1.0f); return; }
@@ -321,15 +338,70 @@ void Editor::mouseDown (const juce::MouseEvent& e)
     if (applyR.contains (p) && proc.proposal.state == 1) { proc.learnApply(); repaint(); return; }
     if (discardR.contains (p) && proc.proposal.state != 0) { proc.learnDiscard(); repaint(); return; }
 }
-void Editor::presetMenu()
+void Editor::mouseMove (const juce::MouseEvent& e)
 {
-    juce::PopupMenu m; m.addSectionHeader ("PRESET");
-    for (int i = 0; i < (int) presets().size(); ++i) m.addItem (1 + i, presets()[(size_t) i].name, true, proc.presetName == presets()[(size_t) i].name);
+    const auto p = e.position / scaler.s;
+    const int h = undoR.contains (p) ? 1 : redoR.contains (p) ? 2 : themeR.contains (p) ? 3 : -1;
+    if (h != hoverTop) { hoverTop = h; repaint (scaler.map (juce::Rectangle<int> (600, 10, 490, 50))); }
+    setMouseCursor (h >= 0 || presetR.contains (p) || prevR.contains (p) || nextR.contains (p) || deltaR.contains (p) || bypR.contains (p) || clickR.contains (p) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+bool Editor::keyPressed (const juce::KeyPress& k)
+{
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Z' || k.getKeyCode() == 'z')) { doUndo (k.getModifiers().isShiftDown()); return true; }
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Y' || k.getKeyCode() == 'y')) { doUndo (true); return true; }
+    return false;
+}
+void Editor::doUndo (bool redo) { proc.undo.beginNewTransaction(); if (redo) proc.undo.redo(); else proc.undo.undo(); repaint(); }
+void Editor::setupBrowser()
+{
+    addChildComponent (browser);
+    browser.accent = K::pink; browser.title = "Preset";
+    auto userFiles = [] { auto f = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jvr"); f.sort(); return f; };
+    browser.entries = [userFiles]
+    {
+        std::vector<jbrowse::Entry> v;
+        for (int i = 0; i < (int) presets().size(); ++i)
+        {
+            const juce::String nm (presets()[(size_t) i].name); jbrowse::Entry e; e.id = i; e.note = juce::String::fromUTF8 (presets()[(size_t) i].note);
+            e.group = nm.contains (" | ") ? nm.upToFirstOccurrenceOf (" | ", false, false) : juce::String ("BASE"); e.name = nm.contains (" | ") ? nm.fromFirstOccurrenceOf (" | ", false, false) : nm;
+            v.push_back (e);
+        }
+        const auto fs = userFiles();
+        for (int i = 0; i < fs.size(); ++i) { jbrowse::Entry e; e.id = 100000 + i; e.user = true; e.group = "I MIEI"; e.name = fs[i].getFileNameWithoutExtension(); e.note = "Preset tuo, salvato in Musica / Jackpot / Vocal Radar Preset."; v.push_back (e); }
+        return v;
+    };
+    browser.current = [this, userFiles]
+    {
+        if (proc.curPreset < 0) { const auto fs = userFiles(); for (int i = 0; i < fs.size(); ++i) if (fs[i].getFileNameWithoutExtension() == proc.presetName) return 100000 + i; return -1; }
+        return proc.curPreset;
+    };
+    browser.load = [this] (const jbrowse::Entry& e) { if (e.user) proc.loadPresetFile (Processor::presetFolder().getChildFile (e.name + ".jvr")); else proc.loadPreset (e.id); repaint(); };
+    browser.save = [this] { askPresetName(); };
+    browser.canOverwrite = [this] { return proc.curPreset < 0 && Processor::presetFolder().getChildFile (proc.presetName + ".jvr").existsAsFile(); };
+    browser.overwrite = [this] { proc.savePresetFile (Processor::presetFolder().getChildFile (proc.presetName + ".jvr")); repaint(); };
+    browser.folder = [] { Processor::presetFolder().startAsProcess(); };
+    browser.remove = [] (const jbrowse::Entry& e) { Processor::presetFolder().getChildFile (e.name + ".jvr").moveToTrash(); };
+    browser.onClose = [this] { repaint(); };
+}
+void Editor::askPresetName()
+{
+    auto* w = new juce::AlertWindow ("Salva preset", "Nome del preset (finisce in Musica / Jackpot / Vocal Radar Preset):", juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", proc.curPreset < 0 ? proc.presetName : juce::String());
+    w->addButton ("SALVA", 1, juce::KeyPress (juce::KeyPress::returnKey)); w->addButton ("ANNULLA", 0, juce::KeyPress (juce::KeyPress::escapeKey));
     juce::Component::SafePointer<Editor> sp (this);
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (localAreaToGlobal (scaler.map (presetR.toNearestInt()))), [sp] (int r) { if (sp != nullptr && r > 0) { sp->proc.loadPreset (r - 1); sp->repaint(); } });
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([sp, w] (int r)
+    {
+        if (sp != nullptr && r == 1)
+        {
+            const auto nm = juce::File::createLegalFileName (w->getTextEditorContents ("name").trim());
+            if (nm.isNotEmpty()) { sp->proc.savePresetFile (Processor::presetFolder().getChildFile (nm + ".jvr")); sp->browser.refresh(); sp->repaint(); }
+        }
+    }), true);
 }
 void Editor::timerCallback()
 {
+    if (browser.isVisible()) return;
+    if (bgTheme != skin::cur() && bgTheme >= 0) { skin::apply(); bg = {}; repaint(); }
     ++frame;
     for (int b = 0; b < NB; ++b)
     {
@@ -345,7 +417,7 @@ void Editor::timerCallback()
     }
     if (hov != hoverKnob) { hoverKnob = hov; repaint (scaler.map (juce::Rectangle<int> (24, 556, 712, 48))); }
     space.repaint(); lanes.repaint();
-    repaint (scaler.map (juce::Rectangle<int> (24, 72, 1052, 94)));
+    repaint (scaler.map (juce::Rectangle<int> (24, 72, 1052, 94))); repaint (scaler.map (juce::Rectangle<int> (640, 16, 80, 36)));
     repaint (scaler.map (juce::Rectangle<int> (30, 196, 700, 28)));
     if (proc.learning.load() || frame % 15 == 0) repaint (scaler.map (juce::Rectangle<int> (748, 178, 328, 422)));
 }
