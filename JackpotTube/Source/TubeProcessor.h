@@ -36,6 +36,7 @@ public:
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     float valueS (const juce::String& id) const { return apvts.getRawParameterValue (id)->load(); }
     Settings settings() const;
+    juce::UndoManager undo { 200000, 60 };
     juce::AudioProcessorValueTreeState apvts;
     jlook::ABCompare ab;
     int preset = 0;

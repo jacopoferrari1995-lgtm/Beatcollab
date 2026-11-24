@@ -1,5 +1,5 @@
-// JACKPOT TUBE BOX: frontale da hardware come Dust, FX e Space. Sopra le valvole HG con le due valvole a vista e il VU,
-// sotto l'enhancer a quattro comandi con il disegno di dove nascono le armoniche.
+// JACKPOT TUBE BOX 2: sopra le valvole a vista e il VU, il DRIVE grande e i sei caratteri;
+// sotto CALORE, ARIA, ENHANCER, MIX e OUTPUT. Niente altro: il resto lo fa il carattere.
 #include "TubeEditor.h"
 
 namespace jtbx
@@ -18,7 +18,8 @@ namespace C
         text = p.text; dim = p.dim; faint = p.faint; amber = p.amber; red = p.red; cyan = p.cyan; pink = p.pink; lcd1 = p.lcd0; lcd2 = p.lcd1;
     }
 }
-static juce::Colour charCol (int c) { return c == 0 ? C::amber : c == 1 ? juce::Colour (0xffd9a066).interpolatedWith (C::cream, 0.2f) : C::cyan; }
+static const juce::Colour plateInk { 0xffe9e2d4 }, plateDim { 0xff9a9080 };   // scritte sui frontali (sempre scuri)
+static juce::Colour charCol (int c) { static const juce::uint32 k[kChars] = { 0xffffb347, 0xffff7a2e, 0xffe6cfa0, 0xff9fe8ff, 0xffff3b30, 0xffd98a4a }; return juce::Colour (k[juce::jlimit (0, kChars - 1, c)]); }
 static void glowText (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> r, juce::Colour c, juce::Font f, juce::Justification j = juce::Justification::centredLeft)
 {
     g.setFont (f); g.setColour (c.withAlpha (0.2f)); g.drawText (t, r.translated (-0.7f, 0.3f), j); g.drawText (t, r.translated (0.7f, 0.3f), j);
@@ -30,7 +31,6 @@ static void lcd (juce::Graphics& g, juce::Rectangle<float> r, float rad)
     g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillRoundedRectangle (r.expanded (1.5f), rad + 1.5f);
     juce::ColourGradient cg (C::lcd1, r.getCentreX(), r.getCentreY(), C::lcd2, r.getX(), r.getY(), true); g.setGradientFill (cg); g.fillRoundedRectangle (r, rad);
 }
-static juce::String clock (float v) { const float h = 7.0f + v; const int hh = (int) std::floor (h), mm = juce::roundToInt ((h - hh) * 60) % 60; return juce::String (hh) + ":" + juce::String (mm).paddedLeft ('0', 2); }
 
 // ======================================================================= manopola
 void Knob::mouseDown (const juce::MouseEvent& e)
@@ -101,16 +101,17 @@ void TubeView::paint (juce::Graphics& g)
     using namespace juce;
     auto b = getLocalBounds().toFloat();
     // finestra scura con le valvole
-    auto win = b.withWidth (b.getWidth() * 0.4f);
+    auto win = b.withWidth (b.getWidth() * 0.5f);
     lcd (g, win, 10);
-    const bool on = ed.on ("hg_on");
-    const float heat = ed.proc.eng.heat.load(), tgt = on ? jlimit (0.25f, 1.0f, 0.35f + heat * 12.0f) : 0.0f;
+    const bool on = ed.active();
+    const float heat = ed.proc.eng.heat.load(), tgt = on ? jlimit (0.2f, 1.0f, 0.2f + ed.proc.value ("drive") * 0.05f + heat * 10.0f) : 0.0f;
+    const auto& K = charOf (ed.character());
     if (glow < 0) glow = tgt;
     glow += (tgt - glow) * (tgt > glow ? 0.08f : 0.04f);
     flick = 0.5f + 0.5f * std::sin ((float) (Time::getMillisecondCounter() % 100000) * 0.013f) * std::sin ((float) (Time::getMillisecondCounter() % 100000) * 0.0071f);
     const float tw = win.getWidth() * 0.34f;
-    drawTube (g, Rectangle<float> (win.getX() + win.getWidth() * 0.12f, win.getY() + 14, tw, win.getHeight() - 26), glow, flick, "6U8A");
-    drawTube (g, Rectangle<float> (win.getRight() - win.getWidth() * 0.12f - tw, win.getY() + 14, tw, win.getHeight() - 26), glow * 0.9f, 1.0f - flick, "12AT7");
+    drawTube (g, Rectangle<float> (win.getX() + win.getWidth() * 0.12f, win.getY() + 14, tw, win.getHeight() - 26), glow, flick, K.tube);
+    drawTube (g, Rectangle<float> (win.getRight() - win.getWidth() * 0.12f - tw, win.getY() + 14, tw, win.getHeight() - 26), glow * 0.9f, 1.0f - flick, K.stages > 1 || K.curve == TRAFO ? juce::String (K.curve == TRAFO ? "OUT TRAFO" : "12AX7") : juce::String (K.tube));
     // VU crema come sull'hardware
     auto vb = b.withTrimmedLeft (win.getWidth() + 12).reduced (0, 6);
     g.setColour (Colours::black.withAlpha (0.7f)); g.fillRoundedRectangle (vb.expanded (2), 8);
@@ -127,7 +128,7 @@ void TubeView::paint (juce::Graphics& g)
     { Path arc; arc.addCentredArc (cx, cy, R * 0.9f, R * 0.9f, 0, angOf (0), angOf (3), true); g.setColour (Colour (0xffb3261e)); g.strokePath (arc, PathStrokeType (3.0f)); }
     g.setColour (Colour (0xff2a2016)); g.setFont (uf (13.0f)); g.drawText ("VU", Rectangle<float> (cx - 20, cy - R * 0.45f, 40, 16), Justification::centred);
     g.setFont (uf (15.0f)); g.drawText ("JACKPOT", Rectangle<float> (vb.getX(), vb.getY() + 16, vb.getWidth(), 18), Justification::centred);
-    g.setFont (mf (8.0f)); g.drawText ("TUBE BOX  /  2 STAGE", Rectangle<float> (vb.getX(), vb.getY() + 36, vb.getWidth(), 12), Justification::centred);
+    g.setFont (mf (8.0f)); g.drawText (juce::String ("TUBE BOX  /  ") + K.name, Rectangle<float> (vb.getX(), vb.getY() + 36, vb.getWidth(), 12), Justification::centred);
     
     const float lv = ed.proc.eng.vuUi.load(), db = Decibels::gainToDecibels (lv * 1.414f, -60.0f) + 14.0f;   // 0 VU = -14 dBFS RMS
     needle += (angOf (db) - needle) * 0.22f;
@@ -138,233 +139,163 @@ void TubeView::paint (juce::Graphics& g)
     g.setColour (Colours::white.withAlpha (0.12f)); g.drawRoundedRectangle (vb, 6, 1.0f);
 }
 
-// ======================================================================= dove nascono le armoniche
-static float xOfHz (juce::Rectangle<float> r, float f) { return r.getX() + r.getWidth() * std::log (juce::jlimit (20.0f, 20000.0f, f) / 20.0f) / std::log (1000.0f); }
-void HarmView::paint (juce::Graphics& g)
-{
-    using namespace juce;
-    auto b = getLocalBounds().toFloat(); lcd (g, b, 8);
-    auto r = b.reduced (16, 14).withTrimmedBottom (16);
-    const bool on = ed.on ("mb_on"); const int ch = roundToInt (ed.proc.value ("char")); const auto cc = charCol (ch);
-    // griglia
-    for (float f : { 50.f, 100.f, 200.f, 500.f, 1000.f, 2000.f, 5000.f, 10000.f })
-    {
-        const float x = xOfHz (r, f); g.setColour (C::text.withAlpha (f == 100 || f == 1000 || f == 10000 ? 0.1f : 0.05f)); g.fillRect (x, r.getY(), 1.0f, r.getHeight());
-        g.setColour (C::dim); g.setFont (mf (8.0f)); g.drawText (f >= 1000 ? String (f / 1000, 0) + "k" : String ((int) f), Rectangle<float> (x - 16, r.getBottom() + 2, 32, 12), Justification::centred);
-    }
-    g.setColour (C::text.withAlpha (0.08f)); g.fillRect (r.getX(), r.getBottom() - 1, r.getWidth(), 1.0f);
-    const float f0 = focusHz (ed.proc.value ("e_focus")), amt = ed.proc.value ("e_amt") / 10.0f;
-    // zona del fuoco: da qui nascono le armoniche
-    {
-        const float x0 = xOfHz (r, f0 * 0.7f), x1 = xOfHz (r, f0 * 1.6f);
-        ColourGradient zg (cc.withAlpha (on ? 0.35f : 0.12f), (x0 + x1) * 0.5f, r.getBottom(), cc.withAlpha (0.0f), (x0 + x1) * 0.5f, r.getY(), false);
-        g.setGradientFill (zg); g.fillRect (Rectangle<float> (x0, r.getY(), x1 - x0, r.getHeight()));
-        g.setColour (cc.withAlpha (on ? 0.9f : 0.35f)); g.fillRect (xOfHz (r, f0) - 1, r.getY(), 2.0f, r.getHeight());
-        g.setFont (uf (9.0f)); g.drawText ("FUOCO " + (f0 >= 1000 ? String (f0 / 1000, 1) + " kHz" : String (roundToInt (f0)) + " Hz"), Rectangle<float> (xOfHz (r, f0) + 6, r.getY() + 2, 140, 14), Justification::centredLeft);
-    }
-    // armoniche: barre a 2x, 3x, 4x, 5x della zona; altezza = quanto ne nasce (si muove con la musica)
-    const float lvl = ed.proc.eng.harmUi[4].load(), live = jlimit (0.15f, 1.0f, 0.15f + std::sqrt (lvl) * 3.0f);
-    static const char* hn[4] = { "2a", "3a", "4a", "5a" };
-    float k[4];
-    switch (ch) { case 0: k[0] = 0.75f; k[1] = 0.25f; k[2] = 0.12f; k[3] = 0.0f; break; case 1: k[0] = 0.2f; k[1] = 0.65f; k[2] = 0.0f; k[3] = 0.1f; break; default: k[0] = 0.0f; k[1] = 0.55f; k[2] = 0.0f; k[3] = 0.4f; }
-    for (int j = 0; j < 4; ++j)
-    {
-        const float f = f0 * (j + 2); if (f > 20000) continue;
-        const float x = xOfHz (r, f), hgt = r.getHeight() * 0.92f * jlimit (0.0f, 1.0f, k[j] * (0.25f + 0.75f * amt) * (on ? live : 0.3f) * 1.3f);
-        if (k[j] <= 0) { g.setColour (C::dim.withAlpha (0.3f)); g.fillRect (x - 1, r.getBottom() - 4, 2.0f, 4.0f); continue; }
-        ColourGradient bg (cc.withAlpha (on ? 0.95f : 0.35f), x, r.getBottom(), cc.brighter (0.4f).withAlpha (on ? 0.7f : 0.2f), x, r.getBottom() - hgt, false);
-        g.setGradientFill (bg); g.fillRoundedRectangle (x - 5, r.getBottom() - hgt, 10, hgt, 3);
-        if (on) { g.setColour (cc.withAlpha (0.18f)); g.fillRoundedRectangle (x - 10, r.getBottom() - hgt - 4, 20, hgt + 4, 6); }
-        g.setColour (C::text.withAlpha (0.8f)); g.setFont (mf (8.0f)); g.drawText (hn[j], Rectangle<float> (x - 12, r.getBottom() - hgt - 14, 24, 12), Justification::centred);
-    }
-    static const char* cn[3] = { "TUBO: pari, caldo", "NASTRO: terza, morbido", "TRANSISTOR: dispari, grinta" };
-    g.setColour (cc.withAlpha (on ? 1.0f : 0.5f)); g.setFont (uf (9.0f)); g.drawText (cn[jlimit (0, 2, ch)], r.withHeight (14).translated (0, 2), Justification::centredRight);
-    if (! on) { g.setColour (C::dim); g.setFont (uf (10.0f, false)); g.drawText ("accendi ENHANCER: trascina qui per spostare il fuoco", b, Justification::centred); }
-}
-void HarmView::mouseDrag (const juce::MouseEvent& e)
-{
-    auto r = getLocalBounds().toFloat().reduced (16, 14);
-    const float f = 20.0f * std::pow (1000.0f, juce::jlimit (0.0f, 1.0f, (e.position.x - r.getX()) / r.getWidth()));
-    auto* p = ed.P ("e_focus"); if (! dragging) { p->beginChangeGesture(); dragging = true; }
-    p->setValueNotifyingHost (p->convertTo0to1 (juce::jlimit (0.0f, 1.0f, std::log (f / 60.0f) / std::log (150.0f))));
-    repaint();
-}
-void HarmView::mouseUp (const juce::MouseEvent&) { if (dragging) ed.P ("e_focus")->endChangeGesture(); dragging = false; }
-
 // ======================================================================= editor
 std::unique_ptr<Knob> Editor::mk (const char* id, const char* label, int style, juce::Colour col, std::function<juce::String()> txt, const char* tip, bool big, bool bip)
 {
     auto k = std::make_unique<Knob> (P (id)); k->spec.label = label; k->spec.style = style; k->spec.col = col; k->spec.big = big; k->spec.bipolar = bip; k->text = std::move (txt); k->setTooltip (tip);
-    addAndMakeVisible (*k); return k;
+    k->defV = k->param->getDefaultValue(); addAndMakeVisible (*k); return k;
 }
 Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
 {
     skin::init ("tubebox", { 0xffe0b07a, 0xffd99a70, 0xffc9b08a, 0xffe6cfa0 }, 0xffff8a2a); C::sync();
     setLookAndFeel (&lnf);
-    addAndMakeVisible (tubes); addAndMakeVisible (harm);
+    addAndMakeVisible (tubes);
     auto v = [this] (const char* id) { return proc.value (id); };
-    auto dbTxt = [v] (const char* id) { return [v, id] { const float x = v (id); return (x > 0.05f ? "+" : "") + juce::String (x, 1) + " dB"; }; };
-    auto clkTxt = [v] (const char* id) { return [v, id] { return juce::String (v (id), 1) + "  (" + clock (v (id)) + ")"; }; };
-    hgKnobs.push_back (mk ("sat", "SATURATION", 0, C::amber, clkTxt ("sat"), "Saturazione parallela 12AT7, sommata prima del pentodo. Si sente solo con SAT IN acceso.", true));
-    hgKnobs.push_back (mk ("pentode", "PENTODE", 0, C::amber, clkTxt ("pentode"), "Il primo stadio: spinge e satura per primo (armoniche dispari, ginocchio netto). Ore 12 = colore senza distorsione.", true));
-    hgKnobs.push_back (mk ("triode", "TRIODE", 0, C::amber, clkTxt ("triode"), "Il secondo stadio: seconda armonica e volume d'uscita delle valvole.", true));
-    hgKnobs.push_back (mk ("density", "DENSITY", 1, C::orange, [v] { return juce::String (v ("density"), 1); }, "Spinge entrambe le valvole senza alzare il volume: piu' densita' e compressione."));
-    hgKnobs.push_back (mk ("air", "AIR", 1, C::cream, [v] { return juce::String (v ("air"), 1); }, "Aria sopra i 10 kHz allo stadio del triodo (con AIR IN acceso)."));
-    hgKnobs.push_back (mk ("in", "INPUT", 1, C::cream, dbTxt ("in"), "Quanto entra nelle valvole.", false, true));
-    hgKnobs.push_back (mk ("mix", "MIX", 1, C::amber, [v] { return juce::String (juce::roundToInt (v ("mix") * 100)) + "%"; }, "Valvole in parallelo col suono pulito."));
-    hgKnobs.push_back (mk ("out", "OUTPUT", 1, C::cream, dbTxt ("out"), "Volume finale (anche dell'enhancer).", false, true));
-    for (auto& k : hgKnobs) k->defV = k->param->getDefaultValue();
-    enKnobs.push_back (mk ("e_amt", "QUANTITA'", 0, C::amber, [v] { return juce::String (v ("e_amt"), 1); }, "Quante armoniche nascono dalla zona del FUOCO. Si sommano al suono: il pulito non cambia.", true));
-    enKnobs.push_back (mk ("e_focus", "FUOCO", 0, C::amber, [v] { const float f = focusHz (v ("e_focus")); return f >= 1000 ? juce::String (f / 1000, 1) + " kHz" : juce::String (juce::roundToInt (f)) + " Hz"; }, "Dove nascono le armoniche: a sinistra i bassi (l'808 si sente sul telefono), a destra l'aria.", true));
-    enKnobs.push_back (mk ("e_width", "LARGHEZZA", 1, C::cyan, [v] { return juce::String (juce::roundToInt (v ("e_width") * 100)) + "%"; }, "Larghezza delle armoniche: 0 = al centro, 100% = come il suono, 200% = larghe."));
-    for (auto& k : enKnobs) k->defV = k->param->getDefaultValue();
-    btns = {
-        { {}, "hg_on", -1, "POWER", C::red }, { {}, "ms", -1, "MID / SIDE", C::cyan },
-        { {}, "sat_in", -1, "SAT IN", C::amber }, { {}, "alt", -1, "ALT TUBE", C::orange },
-        { {}, "satFreq", 0, "LOW", C::amber }, { {}, "satFreq", 1, "FLAT", C::amber }, { {}, "satFreq", 2, "HIGH", C::amber },
-        { {}, "calib", 0, "DARK", C::amber }, { {}, "calib", 1, "NORMAL", C::amber }, { {}, "calib", 2, "BRIGHT", C::amber },
-        { {}, "air_in", -1, "AIR IN", C::cream },
-        { {}, "mb_on", -1, "ENHANCER", C::red },
-        { {}, "char", 0, "TUBO", charCol (0) }, { {}, "char", 1, "NASTRO", charCol (1) }, { {}, "char", 2, "TRANSISTOR", charCol (2) } };
+    auto one = [v] (const char* id) { return [v, id] { return juce::String (v (id), 1); }; };
+    knobs.push_back (mk ("drive", "DRIVE", 0, C::orange, one ("drive"), "Quanto spingi la valvola. A zero e' spenta; il volume resta uguale, cambia solo il carattere.", true));
+    knobs.push_back (mk ("warmth", "CALORE", 0, C::amber, one ("warmth"), "Armoniche sui bassi: corpo e peso, l'808 e la voce si sentono anche sul telefono.", true));
+    knobs.push_back (mk ("air", "ARIA", 0, C::cream, one ("air"), "Apre la parte alta con dolcezza, con un velo di armoniche sopra gli 11 kHz.", true));
+    knobs.push_back (mk ("enh", "ENHANCER", 0, C::amber, one ("enh"), "Armoniche nuove nella zona della presenza (la sceglie il carattere): il suono viene avanti senza alzarlo.", true));
+    knobs.push_back (mk ("mix", "MIX", 1, C::amber, [v] { return juce::String (juce::roundToInt (v ("mix") * 100)) + "%"; }, "Il suono trattato in parallelo col pulito."));
+    knobs.push_back (mk ("out", "OUTPUT", 1, C::cream, [v] { const float x = v ("out"); return (x > 0.05f ? "+" : "") + juce::String (x, 1) + " dB"; }, "Volume finale.", false, true));
     addAndMakeVisible (sizeChip);
     setupBrowser();
+    undoMark.p = &p; addMouseListener (&undoMark, true); setWantsKeyboardFocus (true);
     scaler.setup();
     startTimerHz (30);
 }
 void Editor::resized()
 {
     const float s = scaler.update();
-    presetR = { 412, 15, 360, 36 }; prevR = { 374, 15, 36, 36 }; nextR = { 774, 15, 36, 36 }; abR = { 850, 15, 120, 36 }; themeR = { 1060, 19, 100, 28 };
-    const auto hc = hgCard(), ec = enCard();
-    tubes.setBounds (juce::Rectangle<float> (hc.getX() + 18, hc.getY() + 46, 330, 270).toNearestInt());
-    // stadi in serie: SAT -> PENTODE -> TRIODE -> AIR
-    const float x0 = hc.getX() + 372;
-    hgKnobs[0]->setBounds (juce::Rectangle<float> (x0, hc.getY() + 82, 140, 168).toNearestInt());
-    hgKnobs[1]->setBounds (juce::Rectangle<float> (x0 + 150, hc.getY() + 46, 150, 190).toNearestInt());
-    hgKnobs[2]->setBounds (juce::Rectangle<float> (x0 + 310, hc.getY() + 46, 150, 190).toNearestInt());
-    hgKnobs[3]->setBounds (juce::Rectangle<float> (x0 + 175, hc.getY() + 252, 100, 110).toNearestInt());
-    hgKnobs[4]->setBounds (juce::Rectangle<float> (x0 + 472, hc.getY() + 82, 110, 130).toNearestInt());
-    hgKnobs[5]->setBounds (juce::Rectangle<float> (x0 + 472, hc.getY() + 252, 110, 110).toNearestInt());
-    hgKnobs[6]->setBounds (juce::Rectangle<float> (hc.getRight() - 196, hc.getY() + 46, 88, 112).toNearestInt());
-    hgKnobs[7]->setBounds (juce::Rectangle<float> (hc.getRight() - 104, hc.getY() + 46, 88, 112).toNearestInt());
-    auto B = [this] (const juce::String& id, int val) -> juce::Rectangle<float>& { for (auto& b : btns) if (b.id == id && b.value == val) return b.r; return btns[0].r; };
-    B ("hg_on", -1) = { hc.getX() + 18, hc.getY() + 330, 160, 36 }; B ("ms", -1) = { hc.getX() + 188, hc.getY() + 330, 160, 36 };
-    B ("sat_in", -1) = { x0 + 10, hc.getY() + 46, 120, 28 };
-    for (int i = 0; i < 3; ++i) B ("satFreq", i) = { x0 + i * 47.0f, hc.getY() + 262, 44, 26 };
-    B ("alt", -1) = { x0 + 10, hc.getY() + 300, 120, 28 };
-    for (int i = 0; i < 3; ++i) B ("calib", i) = { x0 + 300 + i * 57.0f, hc.getY() + 262, 54, 26 };
-    B ("air_in", -1) = { x0 + 477, hc.getY() + 46, 100, 28 };
-    B ("mb_on", -1) = { ec.getX() + 18, ec.getY() + 46, 170, 36 };
-    for (int i = 0; i < 3; ++i) B ("char", i) = { ec.getX() + 204, ec.getY() + 46 + i * 44.0f, 136, 36 };
-    enKnobs[0]->setBounds (juce::Rectangle<float> (ec.getX() + 18, ec.getY() + 92, 170, 186).toNearestInt());
-    harm.setBounds (juce::Rectangle<float> (ec.getX() + 354, ec.getY() + 46, 520, 228).toNearestInt());
-    enKnobs[1]->setBounds (juce::Rectangle<float> (ec.getX() + 888, ec.getY() + 46, 130, 170).toNearestInt());
-    enKnobs[2]->setBounds (juce::Rectangle<float> (ec.getX() + 1024, ec.getY() + 70, 104, 130).toNearestInt());
+    presetR = { 372, 15, 340, 36 }; prevR = { 334, 15, 36, 36 }; nextR = { 714, 15, 36, 36 }; abR = { 760, 15, 120, 36 };
+    undoR = { 890, 19, 30, 28 }; redoR = { 922, 19, 30, 28 }; themeR = { 980, 19, 100, 28 };
+    const auto mc = mainCard(), lc = lowCard();
+    tubes.setBounds (juce::Rectangle<float> (mc.getX() + 18, mc.getY() + 42, 400, 280).toNearestInt());
+    knobs[0]->setBounds (juce::Rectangle<float> (mc.getX() + 436, mc.getY() + 36, 250, 290).toNearestInt());
+    for (int i = 0; i < kChars; ++i) charR[i] = { mc.getX() + 706 + (i % 2) * 172.0f, mc.getY() + 46 + (i / 2) * 58.0f, 164, 50 };
+    for (int i = 0; i < 3; ++i) knobs[(size_t) i + 1]->setBounds (juce::Rectangle<float> (lc.getX() + 24 + i * 200.0f, lc.getY() + 36, 180, 176).toNearestInt());
+    knobs[4]->setBounds (juce::Rectangle<float> (lc.getX() + 650, lc.getY() + 56, 120, 140).toNearestInt());
+    knobs[5]->setBounds (juce::Rectangle<float> (lc.getX() + 780, lc.getY() + 56, 120, 140).toNearestInt());
+    autoR = { lc.getX() + 914, lc.getY() + 160, 132, 30 };
     sizeChip.setBounds (W - 76, H - 16, 58, 14);
     browser.setBounds (0, 0, W, H);
     jlook::scaleChildren (*this, s);
 }
 juce::String Editor::staticKey()
 {
-    juce::String k; k << skin::cur() << "/" << proc.preset << "/" << proc.ab.label() << "/" << hoverBtn << "/" << hoverTop;
-    for (auto& b : btns) k << (proc.value (b.id.toRawUTF8()) > (b.value < 0 ? 0.5f : -1.0f) ? (b.value < 0 ? "1" : juce::String (juce::roundToInt (proc.value (b.id.toRawUTF8())))) : "0");
+    juce::String k; k << skin::cur() << "/" << proc.preset << "/" << proc.ab.label() << "/" << hoverChar << "/" << hoverTop << "/" << character() << "/" << (int) active() << "/" << (int) on ("auto")
+                      << "/" << (int) proc.undo.canUndo() << (int) proc.undo.canRedo();
     return k;
 }
 void Editor::paintStatic (juce::Graphics& g)
 {
     const float Wf = (float) W, Hf = (float) H;
+    const int ch = character(); const auto& K = charOf (ch); const auto cc = charCol (ch);
     jlook::backdrop (g, { 0, 0, Wf, Hf }, C::orange, C::amber);
-    jlook::header (g, { 0, 0, Wf, 64 }, "TUBE BOX", C::orange, U ("JTB-2  PENTODE / TRIODE / HARMONIC ENHANCER"), C::amber, C::orange);
+    jlook::header (g, { 0, 0, Wf, 64 }, "TUBE BOX", C::orange, U ("JTB-3  SEI VALVOLE"), C::amber, C::orange);
     lcd (g, presetR.toFloat(), 8); jlook::glass (g, presetR.toFloat(), 8);
     {
         const auto& pr = presets()[(size_t) juce::jlimit (0, (int) presets().size() - 1, proc.preset)];
-        const juce::String nm (pr.name); const bool grp = nm.contains (" | ");
-        g.setColour (C::dim); g.setFont (uf (7.5f)); g.drawText (grp ? nm.upToFirstOccurrenceOf (" | ", false, false).toUpperCase() : juce::String ("BASE"), presetR.toFloat().withWidth (80).translated (12, 0), juce::Justification::centredLeft);
+        const juce::String nm (proc.userName.isNotEmpty() ? proc.userName : juce::String (pr.name)); const bool grp = nm.contains (" | ");
+        g.setColour (C::dim); g.setFont (uf (7.5f)); g.drawText (proc.userName.isNotEmpty() ? juce::String ("MIO") : grp ? nm.upToFirstOccurrenceOf (" | ", false, false).toUpperCase() : juce::String ("BASE"), presetR.toFloat().withWidth (80).translated (12, 0), juce::Justification::centredLeft);
         glowText (g, (grp ? nm.fromFirstOccurrenceOf (" | ", false, false) : nm).toUpperCase(), presetR.toFloat().withTrimmedLeft (60).withTrimmedRight (20), C::amber, mf (12.5f), juce::Justification::centred);
     }
     g.setColour (C::amber); g.setFont (uf (20.0f));
     g.drawText (U ("\xe2\x80\xb9"), prevR, juce::Justification::centred); g.drawText (U ("\xe2\x80\xba"), nextR, juce::Justification::centred);
     jlook::button (g, abR.toFloat(), C::cyan, proc.ab.cur == 1, hoverTop == 0, "MEMORIA " + proc.ab.label(), uf (11.0f));
+    jlook::button (g, undoR.toFloat(), C::amber, false, hoverTop == 2, U ("\xe2\x86\xb6"), uf (13.0f));
+    jlook::button (g, redoR.toFloat(), C::amber, false, hoverTop == 3, U ("\xe2\x86\xb7"), uf (13.0f));
+    if (! proc.undo.canUndo()) { g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillRoundedRectangle (undoR.toFloat(), 5); }
+    if (! proc.undo.canRedo()) { g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillRoundedRectangle (redoR.toFloat(), 5); }
     skin::chipDraw (g, themeR.toFloat(), hoverTop == 1);
-    // ---- valvole
+    // ---- valvola e caratteri
     {
-        const auto hc = hgCard();
-        hw::faceplate (g, hc, juce::Colour (0xff1d1a17), juce::Colour (0xff0d0c0b), on ("hg_on") ? C::orange : C::faint, 32, 7, 12);
-        g.setColour (C::text); g.setFont (uf (12.0f)); g.drawText ("VALVOLE HG", juce::Rectangle<float> (hc.getX() + 16, hc.getY() + 4, 160, 24), juce::Justification::centredLeft);
-        g.setColour (C::dim); g.setFont (uf (9.0f, false));
-        g.drawText (U ("6U8A pentodo + triodo in serie  \xc2\xb7  saturazione parallela 12AT7  \xc2\xb7  trasformatori  \xc2\xb7  4x a fase lineare"), juce::Rectangle<float> (hc.getX() + 150, hc.getY() + 4, 700, 24), juce::Justification::centredLeft);
-        hw::jewel (g, hc.getRight() - 22, hc.getY() + 16, 5.0f, on ("hg_on"), C::red);
-        const float x0 = hc.getX() + 372;
-        // la linea degli stadi in serie, come la serigrafia dell'hardware
-        g.setColour (C::amber.withAlpha (0.35f)); g.fillRect (x0, hc.getY() + 372.0f, 582.0f, 1.0f);
-        g.setFont (uf (8.0f)); g.setColour (C::dim);
-        g.drawText (U ("SAT  \xe2\x86\x92  PENTODE  \xe2\x86\x92  AIR  \xe2\x86\x92  TRIODE  \xe2\x86\x92  CALIBRATION"), juce::Rectangle<float> (x0, hc.getY() + 376.0f, 582.0f, 14), juce::Justification::centred);
-        g.drawText ("SAT FREQ", juce::Rectangle<float> (x0, hc.getY() + 248.0f, 140, 12), juce::Justification::centred);
-        g.drawText ("CALIBRATION", juce::Rectangle<float> (x0 + 300, hc.getY() + 248.0f, 171, 12), juce::Justification::centred);
-        for (float dx : { 145.0f, 305.0f, 466.0f }) { g.setColour (C::text.withAlpha (0.06f)); g.fillRect (x0 + dx, hc.getY() + 50.0f, 1.0f, 310.0f); }
-        g.setColour (C::dim); g.setFont (uf (9.5f, false));
-        g.drawFittedText (U ("PENTODE spinge e satura per primo, TRIODE da' la seconda armonica e il volume. Ore 12 = colore senza distorsione, oltre le 14 si sente il crunch.\n\nSATURATION aggiunge in parallelo una valvola colorata dal SAT FREQ. DENSITY spinge tutto senza alzare il volume."),
-                          juce::Rectangle<int> ((int) hc.getRight() - 196, (int) hc.getY() + 170, 180, 190), juce::Justification::topLeft, 12);
+        const auto mc = mainCard();
+        hw::faceplate (g, mc, juce::Colour (0xff1d1a17), juce::Colour (0xff0d0c0b), active() ? cc : C::faint, 32, 7, 12);
+        g.setColour (plateInk); g.setFont (uf (12.0f)); g.drawText ("VALVOLA", juce::Rectangle<float> (mc.getX() + 16, mc.getY() + 4, 160, 24), juce::Justification::centredLeft);
+        g.setColour (plateDim); g.setFont (uf (9.0f, false));
+        g.drawText (U ("4x senza aliasing  \xc2\xb7  volume compensato  \xc2\xb7  a zero e' trasparente"), juce::Rectangle<float> (mc.getX() + 100, mc.getY() + 4, 500, 24), juce::Justification::centredLeft);
+        hw::jewel (g, mc.getRight() - 22, mc.getY() + 16, 5.0f, active(), C::red);
+        hw::bezel (g, juce::Rectangle<float> (mc.getX() + 18, mc.getY() + 42, 400, 280), 10);
+        g.setColour (plateDim); g.setFont (uf (8.0f)); g.drawText ("CARATTERE", juce::Rectangle<float> (mc.getX() + 706, mc.getY() + 30, 336, 12), juce::Justification::centredLeft);
+        for (int i = 0; i < kChars; ++i)
+        {
+            const auto r = charR[i]; const bool lit = i == ch, hv = i == hoverChar; const auto col = charCol (i);
+            jlook::button (g, r, col, lit, hv, "", uf (10.0f));
+            glowText (g, charOf (i).name, r.withTrimmedLeft (14).withTrimmedBottom (18), lit ? col : C::text.withAlpha (0.8f), uf (15.0f));
+            g.setColour (lit ? col.withAlpha (0.8f) : C::dim); g.setFont (mf (8.5f)); g.drawText (charOf (i).tube, r.withTrimmedLeft (14).withTrimmedTop (28), juce::Justification::centredLeft);
+        }
+        // descrizione del carattere scelto
+        auto dr = juce::Rectangle<float> (mc.getX() + 706, mc.getY() + 226, 336, 96);
+        lcd (g, dr, 8);
+        glowText (g, juce::String (K.name) + "  \xc2\xb7  " + K.tube, dr.reduced (14, 10).withHeight (18), cc, mf (12.0f));
+        g.setColour (C::text.withAlpha (0.85f)); g.setFont (uf (11.0f, false));
+        g.drawFittedText (U (K.desc), dr.reduced (14, 10).withTrimmedTop (24).toNearestInt(), juce::Justification::topLeft, 3);
     }
-    // ---- enhancer
+    // ---- colore
     {
-        const auto ec = enCard();
-        hw::faceplate (g, ec, juce::Colour (0xff1c1a20), juce::Colour (0xff0c0b0e), on ("mb_on") ? C::amber : C::faint, 32, 17, 12);
-        g.setColour (C::text); g.setFont (uf (12.0f)); g.drawText ("HARMONIC ENHANCER", juce::Rectangle<float> (ec.getX() + 16, ec.getY() + 4, 220, 24), juce::Justification::centredLeft);
-        g.setColour (C::dim); g.setFont (uf (9.0f, false));
-        g.drawText (U ("armoniche nuove dalla zona che scegli, sommate al suono: il pulito non cambia  \xc2\xb7  trascina nel grafico per spostare il fuoco"), juce::Rectangle<float> (ec.getX() + 220, ec.getY() + 4, 760, 24), juce::Justification::centredLeft);
-        hw::jewel (g, ec.getRight() - 22, ec.getY() + 16, 5.0f, on ("mb_on"), C::red);
-        g.setColour (C::dim); g.setFont (uf (8.0f)); g.drawText ("CARATTERE", juce::Rectangle<float> (ec.getX() + 204, ec.getY() + 182, 136, 12), juce::Justification::centred);
-        hw::bezel (g, juce::Rectangle<float> (ec.getX() + 354, ec.getY() + 46, 520, 228), 8);
-    }
-    hw::bezel (g, juce::Rectangle<float> (hgCard().getX() + 18, hgCard().getY() + 46, 330, 270), 10);
-    for (int i = 0; i < (int) btns.size(); ++i)
-    {
-        const auto& b = btns[(size_t) i]; const float pv = proc.value (b.id.toRawUTF8());
-        const bool lit = b.value < 0 ? pv > 0.5f : juce::roundToInt (pv) == b.value;
-        jlook::button (g, b.r, b.col, lit, hoverBtn == i, b.label, uf (b.value < 0 && (b.id == "hg_on" || b.id == "mb_on") ? 12.0f : 9.5f));
+        const auto lc = lowCard();
+        hw::faceplate (g, lc, juce::Colour (0xff1c1a20), juce::Colour (0xff0c0b0e), active() ? C::amber : C::faint, 32, 17, 12);
+        g.setColour (plateInk); g.setFont (uf (12.0f)); g.drawText ("COLORE", juce::Rectangle<float> (lc.getX() + 16, lc.getY() + 4, 160, 24), juce::Justification::centredLeft);
+        g.setColour (plateDim); g.setFont (uf (9.0f, false));
+        g.drawText (U ("CALORE sui bassi  \xc2\xb7  ARIA in alto  \xc2\xb7  ENHANCER sulla presenza del carattere"), juce::Rectangle<float> (lc.getX() + 100, lc.getY() + 4, 600, 24), juce::Justification::centredLeft);
+        for (float dx : { 620.0f }) { g.setColour (plateInk.withAlpha (0.06f)); g.fillRect (lc.getX() + dx, lc.getY() + 40.0f, 1.0f, 170.0f); }
+        jlook::button (g, autoR, C::cyan, on ("auto"), hoverTop == 4, "VOLUME AUTO", uf (9.5f));
+        g.setColour (plateDim); g.setFont (uf (8.0f)); g.drawText ("USCITA", juce::Rectangle<float> (autoR.getX(), lc.getY() + 56, autoR.getWidth(), 12), juce::Justification::centredLeft);
     }
     g.setColour (C::dim); g.setFont (uf (9.0f, false));
-    g.drawText (U ("doppio clic su una manopola = valore di partenza  \xc2\xb7  shift = movimento fine  \xc2\xb7  spento = suono intatto, latenza compensata"), juce::Rectangle<float> (20, Hf - 24, 900, 16), juce::Justification::centredLeft);
+    g.drawText (U ("doppio clic su una manopola = zero  \xc2\xb7  shift = movimento fine  \xc2\xb7  cmd+Z annulla"), juce::Rectangle<float> (20, Hf - 24, 900, 16), juce::Justification::centredLeft);
 }
 void Editor::paint (juce::Graphics& g)
 {
     skin::apply(); C::sync();
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     bg.draw (g, { 0, 0, W, H }, staticKey(), [this] (juce::Graphics& g2) { paintStatic (g2); });
-    // uscita
-    const auto hc = hgCard();
-    auto mr = juce::Rectangle<float> (hc.getRight() - 196, hc.getY() + 160, 180, 6);
+    // uscita: picco
+    const auto lc = lowCard();
+    auto mr = juce::Rectangle<float> (lc.getX() + 914, lc.getY() + 76, 132, 8);
     const float db = juce::Decibels::gainToDecibels (proc.eng.outPk.load(), -60.0f), n = juce::jlimit (0.0f, 1.0f, (db + 48) / 48);
-    g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRoundedRectangle (mr, 3);
-    g.setColour (db > -0.5f ? C::red : C::amber); g.fillRoundedRectangle (mr.withWidth (mr.getWidth() * n), 3);
+    g.setColour (juce::Colours::white.withAlpha (0.06f)); g.fillRoundedRectangle (mr, 4);
+    g.setColour (db > -0.5f ? C::red : C::amber); g.fillRoundedRectangle (mr.withWidth (mr.getWidth() * n), 4);
+    g.setColour (plateDim); g.setFont (mf (9.0f));
+    g.drawText (db > -59 ? juce::String (db, 1) + " dB" : juce::String ("-inf"), juce::Rectangle<float> (mr.getX(), mr.getBottom() + 4, mr.getWidth(), 12), juce::Justification::centredLeft);
+    // compensazione automatica in corso
+    if (on ("auto") && active())
+    {
+        const float ag = juce::Decibels::gainToDecibels (proc.eng.agUi.load());
+        g.drawText ("auto " + juce::String (ag >= 0 ? "+" : "") + juce::String (ag, 1) + " dB", juce::Rectangle<float> (mr.getX(), mr.getBottom() + 22, mr.getWidth(), 12), juce::Justification::centredLeft);
+    }
 }
 void Editor::mouseMove (const juce::MouseEvent& e0)
 {
     const auto p = e0.position / scaler.s;
-    int h = -1; for (int i = 0; i < (int) btns.size(); ++i) if (btns[(size_t) i].r.contains (p)) h = i;
-    const int t = abR.toFloat().contains (p) ? 0 : themeR.toFloat().contains (p) ? 1 : -1;
-    if (h != hoverBtn || t != hoverTop) { hoverBtn = h; hoverTop = t; repaint(); }
+    int h = -1; for (int i = 0; i < kChars; ++i) if (charR[i].contains (p)) h = i;
+    const int t = abR.toFloat().contains (p) ? 0 : themeR.toFloat().contains (p) ? 1 : undoR.toFloat().contains (p) ? 2 : redoR.toFloat().contains (p) ? 3 : autoR.contains (p) ? 4 : -1;
+    if (h != hoverChar || t != hoverTop) { hoverChar = h; hoverTop = t; repaint(); }
     setMouseCursor (h >= 0 || t >= 0 || presetR.toFloat().contains (p) || prevR.toFloat().contains (p) || nextR.toFloat().contains (p) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
     const auto p = e0.position / scaler.s;
     const int n = (int) presets().size();
-    for (auto& b : btns)
-        if (b.r.contains (p))
-        {
-            auto* rp = P (b.id);
-            if (b.value < 0) rp->setValueNotifyingHost (rp->getValue() > 0.5f ? 0.0f : 1.0f);
-            else rp->setValueNotifyingHost (rp->convertTo0to1 ((float) b.value));
-            repaint(); return;
-        }
+    for (int i = 0; i < kChars; ++i)
+        if (charR[i].contains (p)) { auto* rp = P ("char"); rp->beginChangeGesture(); rp->setValueNotifyingHost (rp->convertTo0to1 ((float) i)); rp->endChangeGesture(); repaint(); return; }
+    if (autoR.contains (p)) { auto* rp = P ("auto"); rp->setValueNotifyingHost (rp->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); return; }
     if (themeR.toFloat().contains (p)) { skin::cycle(); C::sync(); repaint(); for (auto* c : getChildren()) c->repaint(); return; }
+    if (undoR.toFloat().contains (p)) { doUndo (false); return; }
+    if (redoR.toFloat().contains (p)) { doUndo (true); return; }
     if (abR.toFloat().contains (p)) { proc.ab.toggle (proc); repaint(); return; }
     if (prevR.toFloat().contains (p)) { proc.loadPreset ((juce::jmax (0, proc.preset) + n - 1) % n); repaint(); return; }
     if (nextR.toFloat().contains (p)) { proc.loadPreset ((proc.preset + 1) % n); repaint(); return; }
     if (presetR.toFloat().contains (p)) { browser.open(); return; }
 }
+bool Editor::keyPressed (const juce::KeyPress& k)
+{
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Z' || k.getKeyCode() == 'z')) { doUndo (k.getModifiers().isShiftDown()); return true; }
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Y' || k.getKeyCode() == 'y')) { doUndo (true); return true; }
+    return false;
+}
+void Editor::doUndo (bool redo) { proc.undo.beginNewTransaction(); if (redo) proc.undo.redo(); else proc.undo.undo(); repaint(); }
 void Editor::setupBrowser()
 {
     addChildComponent (browser);
@@ -418,11 +349,9 @@ void Editor::askPresetName()
 void Editor::timerCallback()
 {
     if (browser.isVisible()) return;
-    tubes.repaint(); harm.repaint();
-    const bool hon = on ("hg_on"), eon = on ("mb_on");
-    for (int i = 0; i < (int) hgKnobs.size(); ++i) hgKnobs[(size_t) i]->refresh (i >= 6 || hon);
-    for (auto& k : enKnobs) k->refresh (eon);
+    tubes.repaint();
+    for (auto& k : knobs) { k->spec.col = k.get() == knobs[0].get() ? charCol (character()) : k->spec.col; k->refresh (true); }
     if (bg.key != staticKey()) repaint();
-    repaint (scaler.map (juce::Rectangle<int> ((int) hgCard().getRight() - 200, (int) hgCard().getY() + 156, 190, 14)));
+    repaint (scaler.map (juce::Rectangle<int> ((int) lowCard().getX() + 910, (int) lowCard().getY() + 70, 140, 64)));
 }
 }

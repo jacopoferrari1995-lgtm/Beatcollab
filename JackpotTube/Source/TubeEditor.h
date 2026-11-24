@@ -36,54 +36,50 @@ public:
     void paint (juce::Graphics&) override;
     Editor& ed; float glow = -1, needle = -0.75f, flick = 0;
 };
-// dove nascono le armoniche: la zona del FUOCO e le sue armoniche che salgono (2a, 3a, 4a, 5a)
-class HarmView : public juce::Component
-{
-public:
-    explicit HarmView (Editor& e) : ed (e) {}
-    void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent& e) override { mouseDrag (e); }
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override;
-    Editor& ed; bool dragging = false;
-};
-
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
     skin::Keep skinKeep;
 public:
     explicit Editor (Processor&);
-    ~Editor() override { stopTimer(); setLookAndFeel (nullptr); }
+    ~Editor() override { stopTimer(); removeMouseListener (&undoMark); setLookAndFeel (nullptr); }
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
-    static constexpr int W = 1180, H = 800;
-    static juce::Rectangle<float> hgCard() { return { 18, 72, 1144, 400 }; }
-    static juce::Rectangle<float> enCard() { return { 18, 482, 1144, 290 }; }
+    bool keyPressed (const juce::KeyPress&) override;
+    static constexpr int W = 1100, H = 680;
+    static juce::Rectangle<float> mainCard() { return { 18, 76, 1064, 340 }; }
+    static juce::Rectangle<float> lowCard() { return { 18, 428, 1064, 222 }; }
     jlook::LnF lnf;
     Processor& proc;
-    jlook::Scaler scaler { *this, "tubebox", W, H };
+    jlook::Scaler scaler { *this, "tubebox2", W, H };
     jlook::SizeChip sizeChip { scaler };
     juce::RangedAudioParameter* P (const juce::String& id) { return proc.apvts.getParameter (id); }
     bool on (const char* id) const { return proc.value (id) > 0.5f; }
+    bool active() const { return proc.value ("drive") > 0.001f || proc.value ("warmth") > 0.001f || proc.value ("air") > 0.001f || proc.value ("enh") > 0.001f; }
+    int character() const { return juce::jlimit (0, kChars - 1, juce::roundToInt (proc.value ("char"))); }
     TubeView tubes { *this };
-    HarmView harm { *this };
     jbrowse::Browser browser;
     void tickForTest() { for (int i = 0; i < 30; ++i) timerCallback(); }
     void refreshAll() { repaint(); }
+    struct UndoMark : juce::MouseListener
+    {
+        Processor* p = nullptr; double lastWheel = 0;
+        void mouseDown (const juce::MouseEvent&) override { if (p) p->undo.beginNewTransaction(); }
+        void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override { const double t = juce::Time::getMillisecondCounterHiRes(); if (p && t - lastWheel > 600) p->undo.beginNewTransaction(); lastWheel = t; }
+    } undoMark;
 private:
     void timerCallback() override;
     juce::String staticKey();
     void paintStatic (juce::Graphics&);
     void setupBrowser();
     void askPresetName();
+    void doUndo (bool redo);
     std::unique_ptr<Knob> mk (const char* id, const char* label, int style, juce::Colour col, std::function<juce::String()> txt, const char* tip, bool big = false, bool bip = false);
-    struct Btn { juce::Rectangle<float> r; juce::String id; int value; juce::String label; juce::Colour col; };   // value -1 = interruttore
-    std::vector<Btn> btns;
-    std::vector<std::unique_ptr<Knob>> hgKnobs, enKnobs;
-    juce::Rectangle<int> presetR, prevR, nextR, abR, themeR;
-    int hoverBtn = -1, hoverTop = -1;
+    std::vector<std::unique_ptr<Knob>> knobs;   // DRIVE, CALORE, ARIA, ENHANCER, MIX, OUTPUT
+    juce::Rectangle<float> charR[kChars], autoR;
+    juce::Rectangle<int> presetR, prevR, nextR, abR, themeR, undoR, redoR;
+    int hoverChar = -1, hoverTop = -1;
     jlook::StaticLayer bg;
 };
 }

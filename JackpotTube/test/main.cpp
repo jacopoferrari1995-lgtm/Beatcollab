@@ -8,8 +8,10 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && juce::String (argv[1]) == "lab")
     {   // come THE_LAB: latenza vera, buffer, aliasing, click per manopola, 48/96 kHz, CPU. JPRESET = indice del preset
-        const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "15").getIntValue();
-        auto mk = [&] (double rate, int blk = 512) { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk); p->loadPreset (pr); return p; };
+        const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "7").getIntValue();
+        auto mk = [&] (double rate, int blk = 512) { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, rate, blk); p->prepareToPlay (rate, blk); p->loadPreset (pr);
+            for (auto kv : juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("JSET", ""), ",", "")) if (kv.contains ("=")) setP (*p, kv.upToFirstOccurrenceOf ("=", false, false), kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
+            return p; };
         auto render = [&] (Processor& p, int len, std::function<float (int)> gen, int blk = 512, bool uneven = false, std::function<void (int)> at = {})
         {
             std::vector<float> o; juce::MidiBuffer m; juce::Random rb (3);
@@ -101,7 +103,7 @@ int main (int argc, char** argv)
                 skin::cur() = t; neo::K::theme = -1; skin::apply(); ed.repaint();
                 auto t0 = juce::Time::getMillisecondCounterHiRes(); auto im = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f); const double full = juce::Time::getMillisecondCounterHiRes() - t0;
                 t0 = juce::Time::getMillisecondCounterHiRes();
-                for (int i = 0; i < 30; ++i) { ed.tickForTest(); ed.tubes.createComponentSnapshot (ed.tubes.getLocalBounds(), true, 1.0f); ed.harm.createComponentSnapshot (ed.harm.getLocalBounds(), true, 1.0f); }
+                for (int i = 0; i < 30; ++i) { ed.tickForTest(); ed.tubes.createComponentSnapshot (ed.tubes.getLocalBounds(), true, 1.0f); }
                 std::printf ("tema %2d: primo disegno %.1f ms, fotogramma %.2f ms\n", t, full, (juce::Time::getMillisecondCounterHiRes() - t0) / 30.0);
                 juce::File f ("/tmp/tb_tema" + juce::String (t) + ".png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (im, os);
             }
@@ -127,21 +129,45 @@ int main (int argc, char** argv)
         const double tot = eo / out.size(); thd = (float) (100.0 * std::sqrt (std::max (0.0, tot - f1 * f1 / 2) / std::max (1e-12, f1 * f1 / 2)));
     };
     float r, t, h2, h3;
-    run ([] (Processor&) {}, 0.3f, 1000, r, t, h2, h3); std::printf ("spento: %+.3f dB thd %.3f%%\n", r, t);
-    run ([] (Processor& p) { setP (p, "mb_on", 1); }, 0.3f, 1000, r, t, h2, h3); std::printf ("enhancer acceso a zero: %+.3f dB thd %.3f%%\n", r, t);
-    for (double f : { 60.0, 300.0, 1500.0, 5000.0, 12000.0 }) { run ([] (Processor& p) { setP (p, "mb_on", 1); }, 0.3f, f, r, t, h2, h3); std::printf ("  piatto a %5.0f Hz: %+.3f dB\n", f, r); }
-    for (float pent : { 5.0f, 7.0f, 9.0f })
-        for (float amp : { 0.1f, 0.5f })
-        { run ([pent] (Processor& p) { setP (p, "hg_on", 1); setP (p, "pentode", pent); }, amp, 220, r, t, h2, h3); std::printf ("HG pentode %.0f ampiezza %.1f: %+.2f dB thd %.2f%% (2a %.2f%% 3a %.2f%%)\n", pent, amp, r, t, h2, h3); }
-    for (float tri : { 7.0f, 9.0f }) { run ([tri] (Processor& p) { setP (p, "hg_on", 1); setP (p, "triode", tri); }, 0.3f, 220, r, t, h2, h3); std::printf ("HG triode %.0f: %+.2f dB thd %.2f%% (2a %.2f%% 3a %.2f%%)\n", tri, r, t, h2, h3); }
-    for (int fr = 0; fr < 3; ++fr) for (bool alt : { false, true }) { run ([fr, alt] (Processor& p) { setP (p, "hg_on", 1); setP (p, "sat_in", 1); setP (p, "sat", 7); setP (p, "satFreq", (float) fr); setP (p, "alt", alt ? 1.0f : 0.0f); }, 0.3f, 220, r, t, h2, h3); std::printf ("SAT 7 freq %d alt %d: %+.2f dB thd %.2f%% (2a %.2f%% 3a %.2f%%)\n", fr, (int) alt, r, t, h2, h3); }
-    run ([] (Processor& p) { setP (p, "hg_on", 1); setP (p, "density", 8); }, 0.3f, 220, r, t, h2, h3); std::printf ("DENSITY 8: %+.2f dB thd %.2f%%\n", r, t);
-    for (int c = 0; c < 3; ++c) { run ([c] (Processor& p) { setP (p, "mb_on", 1); setP (p, "char", (float) c); for (int k = 1; k <= 5; ++k) setP (p, "h" + juce::String (k), 0.6f); }, 0.3f, 220, r, t, h2, h3); std::printf ("enhancer carattere %d armoniche 60%%: %+.2f dB thd %.2f%% (2a %.2f%% 3a %.2f%%)\n", c, r, t, h2, h3); }
-    for (int i = 0; i < (int) presets().size(); ++i) { run ([i] (Processor& p) { p.loadPreset (i); }, 0.3f, 150, r, t, h2, h3); std::printf ("preset %-34s %+.2f dB thd %.2f%%\n", presets()[(size_t) i].name, r, t); }
+    {   // neutro: all'avvio l'uscita e' l'ingresso ritardato, al bit
+        Processor p; p.prepareToPlay (sr, 512); const int L = p.getLatencySamples(); juce::Random rr (5); std::vector<float> in, out;
+        juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m;
+        for (int k = 0; k < 50; ++k) { for (int i = 0; i < 512; ++i) { const float v = rr.nextFloat() - 0.5f; in.push_back (v); b.setSample (0, i, v); b.setSample (1, i, v); } p.processBlock (b, m); for (int i = 0; i < 512; ++i) out.push_back (b.getSample (0, i)); }
+        double e = 0; for (size_t i = (size_t) L; i < out.size(); ++i) e = std::max (e, (double) std::abs (out[i] - in[i - (size_t) L]));
+        std::printf ("neutro all'avvio: latenza %d, differenza massima %.2g\n", L, e);
+        // acceso e poi rimesso a zero: torna al bit
+        setP (p, "drive", 6); setP (p, "enh", 5);
+        for (int k = 0; k < 40; ++k) { for (int i = 0; i < 512; ++i) { const float v = rr.nextFloat() - 0.5f; b.setSample (0, i, v); b.setSample (1, i, v); } p.processBlock (b, m); }
+        setP (p, "drive", 0); setP (p, "enh", 0); in.clear(); out.clear();
+        for (int k = 0; k < 80; ++k) { for (int i = 0; i < 512; ++i) { const float v = rr.nextFloat() - 0.5f; in.push_back (v); b.setSample (0, i, v); b.setSample (1, i, v); } p.processBlock (b, m); for (int i = 0; i < 512; ++i) out.push_back (b.getSample (0, i)); }
+        e = 0; for (size_t i = 40000; i < out.size(); ++i) e = std::max (e, (double) std::abs (out[i] - in[i - (size_t) L]));
+        std::printf ("rimesso a zero: differenza massima %.2g\n", e);
+    }
+    for (int c = 0; c < kChars; ++c)
     {
-        Processor p; p.prepareToPlay (sr, 512); p.loadPreset ((int) presets().size() - 1);
+        std::printf ("%-7s", charOf (c).name);
+        for (float d : { 2.0f, 5.0f, 8.0f, 10.0f }) for (float amp : { 0.1f, 0.5f })
+        { run ([c, d] (Processor& p) { setP (p, "char", (float) c); setP (p, "drive", d); }, amp, 220, r, t, h2, h3); std::printf ("  d%.0f/%.1f %+.1fdB %.1f%% (%.1f/%.1f)", d, amp, r, t, h2, h3); }
+        std::printf ("\n");
+    }
+    for (const char* id : { "warmth", "air", "enh" }) for (double f : { 80.0, 1000.0, 6000.0 })
+    { run ([id] (Processor& p) { setP (p, id, 8); }, 0.3f, f, r, t, h2, h3); std::printf ("%-7s 8 a %5.0f Hz: %+.2f dB thd %.2f%% (2a %.2f 3a %.2f)\n", id, f, r, t, h2, h3); }
+    for (int c = 0; c < kChars; ++c) { run ([c] (Processor& p) { setP (p, "char", (float) c); setP (p, "auto", 0); setP (p, "drive", 6); }, 0.3f, 220, r, t, h2, h3); std::printf ("%-7s drive 6 senza AUTO: %+.2f dB\n", charOf (c).name, r); }
+    for (int i = 0; i < (int) presets().size(); ++i) { run ([i] (Processor& p) { p.loadPreset (i); }, 0.3f, 150, r, t, h2, h3); std::printf ("preset %-34s %+.2f dB thd %.2f%%\n", presets()[(size_t) i].name, r, t); }
+    {   // cambio di carattere mentre suona: cerca salti
+        Processor p; p.prepareToPlay (sr, 512); setP (p, "drive", 6);
+        juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; double ph = 0; std::vector<float> o;
+        for (int k = 0; k < 400; ++k) { if (k >= 100 && k % 40 == 0) setP (p, "char", (float) ((k / 40) % kChars)); for (int i = 0; i < 512; ++i) { const float v = 0.4f * (float) std::sin (ph); ph += 2 * juce::MathConstants<double>::pi * 110 / sr; b.setSample (0, i, v); b.setSample (1, i, v); } p.processBlock (b, m); for (int i = 0; i < 512; ++i) o.push_back (b.getSample (0, i)); }
+        auto d2 = [&] (size_t a, size_t b) { double w = 0; for (size_t i = a; i + 2 < b; ++i) w = std::max (w, (double) std::abs (o[i + 2] - 2 * o[i + 1] + o[i])); return w; };
+        double worst = 0;
+        for (int k = 120; k < 400; k += 40) { const size_t at = (size_t) k * 512; const double sw = d2 (at - 2000, at + 4000), st = juce::jmax (d2 (at - 20000, at - 6000), d2 (at + 8000, at + 20000)); worst = std::max (worst, sw / st); }
+        std::printf ("cambio carattere: salto / fermo peggiore %.2f\n", worst);
+        if (std::getenv ("JDBG")) for (int k = 120; k < 400; k += 40) { std::printf ("%d:", (k / 40) % kChars); for (int j = -8; j < 24; ++j) { const size_t at = (size_t) k * 512 + (size_t) (j * 512); std::printf (" %.4f", d2 (at, at + 512)); } std::printf ("\n"); }
+    }
+    {
+        Processor p; p.prepareToPlay (sr, 512); p.loadPreset (7);
         juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; juce::Random rr; const auto t0 = juce::Time::getMillisecondCounterHiRes();
         for (int k = 0; k < 860; ++k) { for (int i = 0; i < 512; ++i) { b.setSample (0, i, rr.nextFloat() - 0.5f); b.setSample (1, i, rr.nextFloat() - 0.5f); } p.processBlock (b, m); }
-        std::printf ("CPU 10 s di audio (valvole + enhancer): %.0f ms\n", juce::Time::getMillisecondCounterHiRes() - t0);
+        std::printf ("CPU 10 s di audio (preset 7): %.0f ms\n", juce::Time::getMillisecondCounterHiRes() - t0);
     }
 }
