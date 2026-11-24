@@ -56,10 +56,85 @@ int main (int argc, char** argv)
         { float dev[kBal]; ed.spec.bandDeviation (dev); std::printf ("scarti per banda:"); for (float d : dev) std::printf (" %+.1f", d); auto R = p.reference(); std::printf ("   rif ok %d lufs %.1f picco %.1f | io lufsI %.1f\n", (int) R.ok, R.lufs, R.peak, p.lufsI.load());
           if (R.ok) for (int i : { 10, 40, 80, 120, 160, 200, 240, 280, 310 }) std::printf ("  %6.0f Hz  live %.1f  file %.1f\n", ptFreq (i), ed.spec.ltasDb (i), R.spec[(size_t) i]); std::printf ("ltasN %d\n", ed.spec.ltasN); }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+        { const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < 20; ++i) ed.spec.analyse();
+          const auto t1 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < 20; ++i) ed.spec.createComponentSnapshot (ed.spec.getLocalBounds(), true, 1.0f);
+          std::printf ("analisi %.2f ms, disegno spettro %.2f ms\n", (t1 - t0) / 20.0, (juce::Time::getMillisecondCounterHiRes() - t1) / 20.0); }
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;
     }
     const double sr = 48000;
+    if (argc > 1 && juce::String (argv[1]) == "lab")
+    {
+        auto gen = [&] (long n, float& l, float& r) { const double t = n / sr; l = (float) (0.3 * std::sin (2 * 3.14159265 * 110 * t) + 0.1 * std::sin (2 * 3.14159265 * 1234 * t)); r = (float) (0.25 * std::sin (2 * 3.14159265 * 110 * t + 0.4) + 0.1 * std::sin (2 * 3.14159265 * 2345 * t)); };
+        auto setup = [] (Processor& p, bool busy)
+        {
+            auto set = [&p] (const char* id, float v) { auto* r = p.apvts.getParameter (id); r->setValueNotifyingHost (r->convertTo0to1 (v)); };
+            if (busy) { set ("b1_on", 1); set ("b3_on", 1); set ("b3_freq", 400); set ("b3_gain", -3); set ("b3_dyn", -6); set ("b5_on", 1); set ("b5_type", BELL); set ("b5_freq", 3000); set ("b5_gain", 3); set ("b6_on", 1);
+                        set ("imOn", 1); set ("imWidth", 1.3f); set ("imMono", 120); set ("imHigh", 1.4f); }
+        };
+        auto render = [&] (Processor& p, int len, int blk, bool uneven, std::function<void (int)> at = {})
+        {
+            std::vector<float> o; juce::MidiBuffer m; juce::Random rb (3);
+            for (int off = 0; off < len; )
+            {
+                const int n = uneven ? juce::jmin (len - off, 1 + rb.nextInt (blk)) : juce::jmin (blk, len - off);
+                if (at) at (off);
+                juce::AudioBuffer<float> b (2, n); for (int i = 0; i < n; ++i) { float l, r; gen (off + i, l, r); b.setSample (0, i, l); b.setSample (1, i, r); }
+                p.processBlock (b, m); for (int i = 0; i < n; ++i) { o.push_back (b.getSample (0, i)); o.push_back (b.getSample (1, i)); } off += n;
+            }
+            return o;
+        };
+        const int len = (int) sr * 4;
+        {
+            Processor p; setup (p, false); p.prepareToPlay (sr, 512); auto o = render (p, len, 512, false);
+            double e = 0; for (int i = 0; i < len; ++i) { float l, r; gen (i, l, r); e = std::max (e, (double) std::abs (o[(size_t) i * 2] - l) + std::abs (o[(size_t) i * 2 + 1] - r)); }
+            std::printf ("neutro all'avvio: differenza massima %.2g, latenza %d\n", e, p.getLatencySamples());
+        }
+        {
+            Processor a, b2; setup (a, true); setup (b2, true); a.prepareToPlay (sr, 512); b2.prepareToPlay (sr, 512);
+            auto o1 = render (a, len, 512, false), o2 = render (b2, len, 512, true);
+            double e = 0, d = 0; for (size_t i = 0; i < o1.size(); ++i) { e += (double) o1[i] * o1[i]; d += std::pow (o1[i] - o2[i], 2.0); }
+            std::printf ("EQ + imager, blocchi irregolari: %.1f dB\n", 10 * std::log10 (d / (e + 1e-30) + 1e-30));
+            Processor big; setup (big, true); big.prepareToPlay (sr, 256); auto o3 = render (big, len, 4096, false);   // buffer piu' lunghi del previsto
+            bool nan = false; for (float x : o3) if (! std::isfinite (x)) nan = true; std::printf ("buffer 4096 con 256 preparati: nan %d, true peak %.2f\n", (int) nan, big.tpMax.load());
+        }
+        {
+            const char* ids[] = { "b3_on", "b3_type", "b3_freq", "b3_gain", "b3_q", "b3_dyn", "b5_gain", "eqOn", "imOn", "imWidth", "imLow", "imHigh", "imMono", "imBal", "monoChk", "out" };
+            int nc = 0;
+            for (auto* id : ids)
+            {
+                auto run = [&] (int mode)
+                {
+                    Processor p; setup (p, true); p.prepareToPlay (sr, 512);
+                    auto* prm = p.apvts.getParameter (id); const float v0 = prm->getValue(), v1 = v0 > 0.5f ? v0 - 0.4f : v0 + 0.4f;
+                    if (mode == 1) prm->setValueNotifyingHost (v1);
+                    return render (p, len, 512, false, [&] (int off) { const int bk = off / 512; if (mode == 2 && bk >= 100 && (bk - 100) % 50 == 0 && bk < 300) prm->setValueNotifyingHost (((bk - 100) / 50) % 2 ? v0 : v1); });
+                };
+                const auto a = run (0), c1 = run (1), b2 = run (2);
+                double worst = 0;
+                for (int j = 0; j < 4; ++j)
+                {
+                    const size_t at = (size_t) (100 + j * 50) * 512;
+                    auto hf = [&] (const std::vector<float>& x) { double s2 = 0; for (size_t i = at - 100; i < at + 1500; ++i) for (int c = 0; c < 2; ++c) s2 = std::max (s2, (double) std::abs (x[(i + 2) * 2 + c] - 2 * x[(i + 1) * 2 + c] + x[i * 2 + c])); return s2; };
+                    worst = std::max (worst, hf (b2) / juce::jmax (1e-9, hf (a), hf (c1)));
+                }
+                std::printf ("  %-8s salto / fermo %.2f%s\n", id, worst, worst > 1.5 ? "  CLICK?" : ""); if (worst > 1.5) ++nc;
+            }
+            std::printf ("click sospetti: %d\n", nc);
+        }
+        {   // solo di banda acceso e spento
+            Processor p; setup (p, true); p.prepareToPlay (sr, 512); std::vector<float> o;
+            o = render (p, len, 512, false, [&] (int off) { const int bk = off / 512; if (bk == 150) p.soloBand = 2; if (bk == 250) p.soloBand = -1; });
+            double w = 0; for (int bk : { 150, 250 }) for (size_t i = (size_t) bk * 512 - 50; i < (size_t) bk * 512 + 1000; ++i) w = std::max (w, (double) std::abs (o[(i + 2) * 2] - 2 * o[(i + 1) * 2] + o[i * 2]));
+            double ref = 0; for (size_t i = 60000; i < 70000; ++i) ref = std::max (ref, (double) std::abs (o[(i + 2) * 2] - 2 * o[(i + 1) * 2] + o[i * 2]));
+            std::printf ("SOLO dentro/fuori: derivata seconda %.4f (fermo %.4f)\n", w, ref);
+        }
+        {
+            Processor p; setup (p, true); p.prepareToPlay (sr, 512); const auto t0 = juce::Time::getMillisecondCounterHiRes(); render (p, (int) sr * 10, 512, false);
+            std::printf ("CPU: %.1f%% di un core (6 bande, imager, misure)\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 100.0);
+        }
+        return 0;
+    }
     // 1) sinusoide 1 kHz a -20 dBFS stereo: deve dare circa -20 + 3.01 - 0.691 + K(1k)= ~ -17.0 LUFS? (stereo: -20 dBFS sin = -23 dB RMS, x2 canali +3 = -20 LUFS + 0.7 di K a 1 kHz)
     {
         Processor p; p.prepareToPlay (sr, 480);

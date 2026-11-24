@@ -61,7 +61,8 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     SpecEq& sp; int band = -1;
-    struct Hot { juce::Rectangle<float> r; int id; }; std::vector<Hot> hots;
+    struct Hot { juce::Rectangle<float> r; int id; 
+}; std::vector<Hot> hots;
 private:
     int dragK = -1; float dragStart = 0;
     int hit (juce::Point<float>) const;
@@ -113,6 +114,7 @@ private:
     void paintImager (juce::Graphics&, juce::Rectangle<float>);
     void paintPeak (juce::Graphics&, juce::Rectangle<float>);
     void paintGram (juce::Graphics&, juce::Rectangle<float>);
+    jlook::StaticLayer frame;
 };
 
 class Loud : public juce::Component
@@ -160,10 +162,18 @@ public:
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
     skin::Keep skinKeep;
-    juce::Rectangle<int> themeRect;
+    juce::Rectangle<int> themeRect, undoRect, redoRect;
 public:
     explicit Editor (Processor&);
-    ~Editor() override { setLookAndFeel (nullptr); }
+    ~Editor() override { stopTimer(); removeMouseListener (&undoMark); setLookAndFeel (nullptr); }
+    bool keyPressed (const juce::KeyPress&) override;
+    void doUndo (bool redo) { proc.undo.beginNewTransaction(); if (redo) proc.undo.redo(); else proc.undo.undo(); repaint(); for (auto* c : getChildren()) c->repaint(); }
+    struct UndoMark : juce::MouseListener
+    {
+        Processor* p = nullptr; double lastWheel = 0;
+        void mouseDown (const juce::MouseEvent&) override { if (p) p->undo.beginNewTransaction(); }
+        void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override { const double t = juce::Time::getMillisecondCounterHiRes(); if (p && t - lastWheel > 600) p->undo.beginNewTransaction(); lastWheel = t; }
+    } undoMark;
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -172,7 +182,7 @@ public:
     Processor& proc;
     jlook::Scaler scaler { *this, "meter", W, H };
     jlook::SizeChip sizeChip { scaler };
-    int selBand = 0, tick = 0;
+    int selBand = 0, tick = 0; bool lastCanU = false, lastCanR = false;
     juce::RangedAudioParameter* P (const juce::String& id) { return proc.apvts.getParameter (id); }
     float bp (int b, const char* k) const { return proc.value (("b" + juce::String (b + 1) + "_" + k).toRawUTF8()); }
     juce::RangedAudioParameter* bpar (int b, const char* k) { return P ("b" + juce::String (b + 1) + "_" + k); }

@@ -110,6 +110,7 @@ public:
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     double getSr() const { return sr; }
 
+    juce::UndoManager undo { 200000, 60 };
     juce::AudioProcessorValueTreeState apvts;
     jlook::ABCompare ab;
 
@@ -143,6 +144,9 @@ private:
     double sr = 44100;
     // EQ dinamico
     Biq eq[kBands], det[kBands]; float env[kBands] {}; int sub = 0;
+    struct BP { bool on; int type; float f, g, q, dyn, thr; };
+    struct BandState { float on = 0, want = 0, f = 1000, g = 0, q = 1, dg = 0, detF = -1, detQ = -1, lastF = -1; int type = 0; } bs[kBands];
+    juce::uint32 tick = 0; int soloCur = -1, soloTick = 0, imTick = 0; float soloMix = 0, soloFs = 1000, im[6] { 1, 1, 1, 1, 20, 0 }, monoS = 0, ogS = -1; bool imRunning = false;
     // K-weighting
     double kb[2][3], ka[2][3], kz[2][2][2] {};
     double blockE = 0; int blockN = 0, blockLen = 4410;

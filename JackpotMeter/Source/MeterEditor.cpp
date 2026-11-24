@@ -170,8 +170,13 @@ void SpecEq::paint (juce::Graphics& g)
 {
     auto& P = ed.proc;
     auto b = getLocalBounds().toFloat().reduced (1);
-    jlook::card (g, b, 14, C::phos, true, false, false);
     const int v = view();
+    const bool frozen = P.frozen.load(), hasSc = P.hasSc.load();
+    // la cornice, le schede e i tasti cambiano di rado: stanno in un'immagine pronta (il fotogramma ridisegna solo i grafici)
+    juce::String key; key << skin::cur() << "/" << v << "/" << (int) frozen << (int) P.freezeBtn.load() << (int) hasSc << (int) (P.value ("scShow") > 0.5f) << (int) (P.value ("dynSc") > 0.5f)
+                          << "/" << juce::roundToInt (P.value ("profile")) << "/" << juce::roundToInt (P.value ("imView")) << "/" << getWidth() << "x" << getHeight();
+    frame.draw (g, getLocalBounds(), key, [&] (juce::Graphics& g) {
+    jlook::card (g, b, 14, C::phos, true, false, false);
     // schede delle viste
     float x = 14;
     for (int i = 0; i < 5; ++i)
@@ -182,7 +187,6 @@ void SpecEq::paint (juce::Graphics& g)
     }
     freezeR = scR = dynScR = clearR = loadR = resetAvgR = {};
     for (auto& r : imTabR) r = {};
-    const bool frozen = P.frozen.load(), hasSc = P.hasSc.load();
     if (v == 0)
     {
         freezeR = { b.getRight() - 336, 7, 84, 24 }; scR = { b.getRight() - 248, 7, 104, 24 }; dynScR = { b.getRight() - 140, 7, 124, 24 };
@@ -207,8 +211,9 @@ void SpecEq::paint (juce::Graphics& g)
         freezeR = { b.getRight() - 100, 7, 84, 24 };
         jlook::button (g, freezeR, C::amber, frozen, false, frozen && ! P.freezeBtn.load() ? "FERMO" : "FREEZE", uf (10.0f));
     }
+    lcd (g, plot(), 6);
+    });
     auto p = plot();
-    lcd (g, p, 6);
     switch (v)
     {
         case 1: paintRef (g, p); break;
@@ -985,13 +990,20 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     setLookAndFeel (&lnf);
     for (auto* c : std::initializer_list<juce::Component*> { &spec, &loud, &bal, &st, &refp }) addAndMakeVisible (c);
     addAndMakeVisible (sizeChip);
+    undoMark.p = &p; addMouseListener (&undoMark, true); setWantsKeyboardFocus (true);
     scaler.setup();
     startTimerHz (30);
+}
+bool Editor::keyPressed (const juce::KeyPress& k)
+{
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Z' || k.getKeyCode() == 'z')) { doUndo (k.getModifiers().isShiftDown()); return true; }
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Y' || k.getKeyCode() == 'y')) { doUndo (true); return true; }
+    return false;
 }
 void Editor::resized()
 {
     const float sc = scaler.update();
-    specRect = { 470, 15, 220, 36 }; eqRect = { 700, 15, 120, 36 }; abRect = { 830, 15, 110, 36 };
+    specRect = { 470, 15, 220, 36 }; undoRect = { 1062, 15, 40, 36 }; redoRect = { 1106, 15, 40, 36 }; eqRect = { 700, 15, 120, 36 }; abRect = { 830, 15, 110, 36 };
     spec.setBounds (18, 80, 820, 510); loud.setBounds (850, 80, 372, 510);
     bal.setBounds (18, 602, 250, 284); st.setBounds (278, 602, 560, 284); refp.setBounds (850, 602, 372, 284);
     sizeChip.setBounds (W - 76, 24, 58, 15);
@@ -1009,6 +1021,10 @@ void Editor::paint (juce::Graphics& g)
     jlook::button (g, eqRect.toFloat(), C::magenta, proc.value ("eqOn") > 0.5f, false, proc.value ("eqOn") > 0.5f ? "EQ ATTIVO" : "EQ BYPASS", uf (11.5f));
     jlook::button (g, abRect.toFloat(), C::phos, proc.ab.cur == 1, false, "MEMORIA " + proc.ab.label(), uf (11.5f));
     skin::chipDraw (g, themeRect.toFloat());
+    jlook::button (g, undoRect.toFloat(), C::phos, false, false, juce::String::fromUTF8 ("\xe2\x86\xb6"), uf (14.0f));
+    jlook::button (g, redoRect.toFloat(), C::phos, false, false, juce::String::fromUTF8 ("\xe2\x86\xb7"), uf (14.0f));
+    if (! proc.undo.canUndo()) { g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillRoundedRectangle (undoRect.toFloat(), 6); }
+    if (! proc.undo.canRedo()) { g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillRoundedRectangle (redoRect.toFloat(), 6); }
 }
 void Editor::mouseDown (const juce::MouseEvent& e0)
 {
@@ -1017,6 +1033,8 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
     if (specRect.contains (e.getPosition())) setP (P ("spec"), proc.value ("spec") < 0.5f ? 1.0f : 0.0f);
     else if (eqRect.contains (e.getPosition())) setP (P ("eqOn"), proc.value ("eqOn") > 0.5f ? 0.0f : 1.0f);
     else if (abRect.contains (e.getPosition())) proc.ab.toggle (proc);
+    else if (undoRect.contains (e.getPosition())) { doUndo (false); return; }
+    else if (redoRect.contains (e.getPosition())) { doUndo (true); return; }
     repaint();
 }
 void Editor::timerCallback()
@@ -1026,6 +1044,7 @@ void Editor::timerCallback()
     if (spec.popHold > 0 && --spec.popHold == 0 && ! spec.pop.isMouseOver (true) && spec.dragBand < 0) { spec.popBand = -1; spec.updatePop(); }
     spec.repaint(); loud.repaint(); st.repaint();
     if (++tick % 5 == 0) { bal.repaint(); refp.repaint(); }
+    if (tick % 10 == 0 && (proc.undo.canUndo() != lastCanU || proc.undo.canRedo() != lastCanR)) { lastCanU = proc.undo.canUndo(); lastCanR = proc.undo.canRedo(); repaint (scaler.map (juce::Rectangle<int> (1060, 12, 90, 42))); }
     for (auto* k : { &st.width, &st.bal, &st.low, &st.mid, &st.high, &st.mono }) k->repaint();
 }
 }

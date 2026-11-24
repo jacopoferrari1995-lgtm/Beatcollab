@@ -45,7 +45,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
 Processor::Processor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true).withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                                        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false)),
-      apvts (*this, nullptr, "JMH", layout())
+      apvts (*this, &undo, "JMH", layout())
 {
     for (int i = 0; i < kHist; ++i) { histS[i] = -100; histM[i] = -100; }
     static const char* ks[7] = { "on", "type", "freq", "gain", "q", "dyn", "thr" };
@@ -76,12 +76,19 @@ void Processor::prepareToPlay (double s, int maxBlock)
     blockLen = juce::jmax (1, (int) (sr * 0.1)); blockE = 0; blockN = 0;
     blocks.assign (30, 0.0); blockIdx = 0;
     histI.assign (760, 0); histST.assign (760, 0); nI = nST = 0;
-    os.reset(); os.initProcessing ((size_t) maxBlock); tpBuf.setSize (2, maxBlock);
+    os.reset(); os.initProcessing ((size_t) juce::jmax (64, maxBlock)); tpBuf.setSize (2, juce::jmax (64, maxBlock));
     imX[0].set (HCUT, 150, 0, 0.707, sr); imX[1].set (HCUT, 150, 0, 0.707, sr); imX[2].set (LCUT, 2000, 0, 0.707, sr); imX[3].set (LCUT, 2000, 0, 0.707, sr);
     for (auto& x : imX) x.reset(); imMonoLast = -1; soloLast[0] = -1;
     xo[0].set (HCUT, 150, 0, 0.707, sr); xo[1].set (LCUT, 150, 0, 0.707, sr); xo[2].set (HCUT, 2000, 0, 0.707, sr); xo[3].set (LCUT, 2000, 0, 0.707, sr);
     for (auto& x : xo) x.reset();
-    for (int b = 0; b < kBands; ++b) { eq[b].reset(); det[b].reset(); env[b] = 0; }
+    for (int b = 0; b < kBands; ++b)
+    {
+        eq[b].reset(); det[b].reset(); env[b] = 0;
+        auto& S = bs[b]; S = {}; S.type = juce::roundToInt (bpp[b][1]->load()); S.f = bpp[b][2]->load(); S.g = bpp[b][3]->load(); S.q = bpp[b][4]->load();
+        S.on = S.want = (value ("eqOn") > 0.5f && bpp[b][0]->load() > 0.5f) ? 1.0f : 0.0f; if (S.on > 0) eq[b].set (S.type, S.f, S.g, S.q, sr);
+    }
+    tick = 0; soloMix = 0; soloCur = -1; soloTick = imTick = 0; imRunning = false; monoS = value ("monoChk") > 0.5f ? 1.0f : 0.0f; ogS = -1;
+    { const bool on = value ("imOn") > 0.5f; const float t[6] = { on ? value ("imWidth") : 1.0f, on ? value ("imLow") : 1.0f, on ? value ("imMid") : 1.0f, on ? value ("imHigh") : 1.0f, on ? value ("imMono") : 20.0f, on ? value ("imBal") : 0.0f }; for (int k = 0; k < 6; ++k) im[k] = t[k]; }
     resetLoudness();
 }
 
@@ -109,75 +116,119 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     if (resetReq.exchange (false)) resetLoudness();
 
     // ---------- EQ dinamico (IIR, latenza zero) ----------
-    if (value ("eqOn") > 0.5f)
+    // ogni comando scivola (frequenza in scala logaritmica), i coefficienti si rifanno ogni 16 campioni su un contatore libero
+    // (suono identico con qualsiasi buffer), accensione/spegnimento e cambio di tipo sfumati in 15 ms
     {
-        struct BP { bool on; int type; float f, g, q, dyn, thr; } bp[kBands];
-        bool any = false;
+        const bool eqOn = value ("eqOn") > 0.5f;
+        BP bp[kBands];
         for (int b = 0; b < kBands; ++b)
         {
             auto** q = bpp[b];   // puntatori presi una volta: niente stringhe nel thread audio
-            bp[b] = { q[0]->load() > 0.5f, juce::roundToInt (q[1]->load()), q[2]->load(), q[3]->load(), q[4]->load(), q[5]->load(), q[6]->load() };
-            any |= bp[b].on;
-            if (! bp[b].on) dynGain[b] = 0;
+            bp[b] = { eqOn && q[0]->load() > 0.5f, juce::roundToInt (q[1]->load()), q[2]->load(), q[3]->load(), q[4]->load(), q[5]->load(), q[6]->load() };
         }
-        if (any)
+        const float at = std::exp (-1.0f / (0.005f * (float) sr)), rl = std::exp (-1.0f / (0.08f * (float) sr));
+        const float fade = 1.0f / (0.015f * (float) sr);
+        for (int i = 0; i < N; ++i)
         {
-            const float at = std::exp (-1.0f / (0.005f * (float) sr)), rl = std::exp (-1.0f / (0.08f * (float) sr));
-            for (int i0 = 0; i0 < N; i0 += 32)
+            if ((tick & 15) == 0)
             {
-                const int n = juce::jmin (32, N - i0);
                 for (int b = 0; b < kBands; ++b)
                 {
-                    if (! bp[b].on) continue;
+                    auto& S = bs[b];
+                    // tipo diverso: si spegne, si cambia, si riaccende
+                    const bool wantOn = bp[b].on && bp[b].type == S.type;
+                    if (S.on <= 0.0f && bp[b].type != S.type) { S.type = bp[b].type; eq[b].reset(); det[b].reset(); env[b] = 0; S.lastF = -1; }
+                    S.want = wantOn ? 1.0f : 0.0f;
+                    if (S.on <= 0.0f && S.want <= 0.0f) { S.f = bp[b].f; S.g = bp[b].g; S.q = bp[b].q; S.dg = 0; dynGain[b] = 0; continue; }
+                    const float k = 1.0f - std::exp (-16.0f / (0.02f * (float) sr));   // 20 ms
+                    S.f = std::exp (std::log (S.f) + (std::log (bp[b].f) - std::log (S.f)) * k); S.g += (bp[b].g - S.g) * k; S.q += (bp[b].q - S.q) * k;
                     float dg = 0;
-                    if (std::abs (bp[b].dyn) > 0.05f && bp[b].type <= HSHELF)
+                    if (std::abs (bp[b].dyn) > 0.05f && S.type <= HSHELF)
                     {
-                        det[b].set (9, bp[b].f, 0, juce::jmax (0.5f, bp[b].q), sr);
-                        for (int i = i0; i < i0 + n; ++i) { const float x = std::abs (det[b].tick (useScDyn ? 0.5f * (sL[i] + sR[i]) : 0.5f * (L[i] + R[i]), 0)); env[b] = x > env[b] ? at * env[b] + (1 - at) * x : rl * env[b] + (1 - rl) * x; }
                         const float lev = juce::Decibels::gainToDecibels (env[b] * 1.414f, -100.0f);
                         dg = bp[b].dyn * juce::jlimit (0.0f, 1.0f, (lev - bp[b].thr) / 12.0f);
+                        if (std::abs (S.f - S.detF) > 0.001f * S.f || std::abs (S.q - S.detQ) > 0.001f) { det[b].set (9, S.f, 0, juce::jmax (0.5f, S.q), sr); S.detF = S.f; S.detQ = S.q; }
                     }
-                    const float cur = dynGain[b].load() + (dg - dynGain[b].load()) * 0.3f; dynGain[b] = cur;
-                    eq[b].set (bp[b].type, bp[b].f, bp[b].g + cur, bp[b].q, sr);
+                    S.dg += (dg - S.dg) * 0.3f; dynGain[b] = S.dg;
+                    eq[b].set (S.type, S.f, S.g + S.dg, S.q, sr);
                 }
-                for (int i = i0; i < i0 + n; ++i)
-                    for (int b = 0; b < kBands; ++b) if (bp[b].on) { L[i] = eq[b].tick (L[i], 0); R[i] = eq[b].tick (R[i], 1); }
             }
+            ++tick;
+            const float x0 = L[i], x1 = R[i];
+            const float dIn = useScDyn ? 0.5f * (sL[i] + sR[i]) : 0.5f * (x0 + x1);
+            float l = x0, r = x1;
+            for (int b = 0; b < kBands; ++b)
+            {
+                auto& S = bs[b];
+                if (S.on <= 0.0f && S.want <= 0.0f) continue;
+                S.on = juce::jlimit (0.0f, 1.0f, S.on + (S.want > S.on ? fade : -fade));
+                if (std::abs (bp[b].dyn) > 0.05f && S.type <= HSHELF) { const float xd = std::abs (det[b].tick (dIn, 0)); env[b] = xd > env[b] ? at * env[b] + (1 - at) * xd : rl * env[b] + (1 - rl) * xd; }
+                const float yl = eq[b].tick (l, 0), yr = eq[b].tick (r, 1);
+                if (S.on >= 1.0f) { l = yl; r = yr; } else { l += (yl - l) * S.on; r += (yr - r) * S.on; }
+                if (S.on <= 0.0f && S.want <= 0.0f) { eq[b].reset(); dynGain[b] = 0; }
+            }
+            L[i] = l; R[i] = r;
         }
     }
-    // ---------- solo di una banda ----------
+    // ---------- solo di una banda (entra ed esce sfumato) ----------
     {
         const int sb = soloBand.load();
-        if (sb >= 0 && sb < kBands)
+        if (sb != soloCur && soloMix <= 0.0f) { soloCur = sb; soloF.reset(); soloLast[0] = -1; }
+        const float tgt = (sb == soloCur && soloCur >= 0 && soloCur < kBands) ? 1.0f : 0.0f;
+        if (soloMix > 0.0f || tgt > 0.0f)
         {
-            const float f = bpp[sb][2]->load(), q = bpp[sb][4]->load(); const int t = juce::roundToInt (bpp[sb][1]->load());
-            const float qq = t == BELL ? juce::jmax (0.5f, q) : 0.8f;
-            if (f != soloLast[0] || qq != soloLast[1]) { soloF.set (9, f, 0, qq, sr); soloLast[0] = f; soloLast[1] = qq; }
-            for (int i = 0; i < N; ++i) { L[i] = soloF.tick (L[i], 0) * 1.4f; R[i] = soloF.tick (R[i], 1) * 1.4f; }
-        }
-    }
-    // ---------- imager multibanda ----------
-    if (value ("imOn") > 0.5f)
-    {
-        const float wG = value ("imWidth"), wl = value ("imLow"), wm = value ("imMid"), wh = value ("imHigh"), mono = value ("imMono"), bal = value ("imBal");
-        const bool active = std::abs (wG - 1) > 0.003f || std::abs (wl - 1) > 0.003f || std::abs (wm - 1) > 0.003f || std::abs (wh - 1) > 0.003f || mono > 21 || std::abs (bal) > 0.003f;
-        if (active)
-        {
-            if (mono > 21 && mono != imMonoLast) { imMono.set (HCUT, mono, 0, 0.707, sr); imMonoLast = mono; }
-            const float gl = juce::jmin (1.0f, 1.0f - bal), gr = juce::jmin (1.0f, 1.0f + bal);
+            const int cb = juce::jlimit (0, kBands - 1, soloCur);
+            const float f = bpp[cb][2]->load(), q = bpp[cb][4]->load(); const int t = juce::roundToInt (bpp[cb][1]->load());
+            const float qq = t == BELL ? juce::jmax (0.5f, q) : 0.8f, fade = 1.0f / (0.015f * (float) sr);
             for (int i = 0; i < N; ++i)
             {
+                if ((i + soloTick) % 16 == 0) { soloFs = soloLast[0] < 0 ? f : std::exp (std::log (soloFs) + (std::log (f) - std::log (soloFs)) * (1.0f - std::exp (-16.0f / (0.02f * (float) sr)))); soloF.set (9, soloFs, 0, qq, sr); soloLast[0] = 1; }
+                soloMix = juce::jlimit (0.0f, 1.0f, soloMix + (tgt > soloMix ? fade : -fade));
+                const float yl = soloF.tick (L[i], 0) * 1.4f, yr = soloF.tick (R[i], 1) * 1.4f;
+                L[i] += (yl - L[i]) * soloMix; R[i] += (yr - R[i]) * soloMix;
+            }
+        }
+        soloTick = (soloTick + N) % 16;
+    }
+    // ---------- imager multibanda (comandi che scivolano, acceso/spento sfumato) ----------
+    {
+        const bool on = value ("imOn") > 0.5f;
+        const float t[6] = { on ? value ("imWidth") : 1.0f, on ? value ("imLow") : 1.0f, on ? value ("imMid") : 1.0f, on ? value ("imHigh") : 1.0f, on ? value ("imMono") : 20.0f, on ? value ("imBal") : 0.0f };
+        bool still = true; for (int k = 0; k < 6; ++k) if (std::abs (im[k] - t[k]) > 1e-4f * (k == 4 ? 20.0f : 1.0f)) still = false;
+        const bool neutral = std::abs (t[0] - 1) < 1e-4f && std::abs (t[1] - 1) < 1e-4f && std::abs (t[2] - 1) < 1e-4f && std::abs (t[3] - 1) < 1e-4f && t[4] <= 20.01f && std::abs (t[5]) < 1e-4f;
+        if (still && neutral) { for (int k = 0; k < 6; ++k) im[k] = t[k]; imRunning = false; }
+        else
+        {
+            if (! imRunning) { for (auto& x : imX) x.reset(); imMono.reset(); imRunning = true; }
+            const float sk = 1.0f - std::exp (-1.0f / (0.02f * (float) sr));
+            for (int i = 0; i < N; ++i)
+            {
+                for (int k = 0; k < 6; ++k) im[k] += (t[k] - im[k]) * sk;
+                if (((imTick + i) & 15) == 0 && std::abs (im[4] - imMonoLast) > 0.01f) { imMono.set (HCUT, juce::jmax (20.0f, im[4]), 0, 0.707, sr); imMonoLast = im[4]; }
                 const float m = 0.5f * (L[i] + R[i]), sd = 0.5f * (L[i] - R[i]);
                 const float lo = imX[1].tick (imX[0].tick (sd, 0), 0), hi = imX[3].tick (imX[2].tick (sd, 0), 0), mid = sd - lo - hi;
-                float s2 = (lo * wl + mid * wm + hi * wh) * wG;
-                if (mono > 21) s2 -= imMono.tick (s2, 0);
+                float s2 = (lo * im[1] + mid * im[2] + hi * im[3]) * im[0];
+                // mono sui bassi: dosato da 20 a 30 Hz per entrare senza scatto
+                const float mono = imMono.tick (s2, 0), mAmt = juce::jlimit (0.0f, 1.0f, (im[4] - 20.0f) / 10.0f);
+                s2 -= mono * mAmt;
+                const float gl = juce::jmin (1.0f, 1.0f - im[5]), gr = juce::jmin (1.0f, 1.0f + im[5]);
                 L[i] = (m + s2) * gl; R[i] = (m - s2) * gr;
             }
         }
+        imTick = (imTick + N) & 15;
     }
-    if (value ("monoChk") > 0.5f) for (int i = 0; i < N; ++i) { const float m = 0.5f * (L[i] + R[i]); L[i] = R[i] = m; }
-    const float og = juce::Decibels::decibelsToGain (value ("out"));
-    if (std::abs (og - 1.0f) > 1.0e-4f) mainB.applyGain (0, 0, N, og);
+    {   // controllo mono e uscita sfumati
+        const float mt = value ("monoChk") > 0.5f ? 1.0f : 0.0f, og = juce::Decibels::decibelsToGain (value ("out"));
+        const float fade = 1.0f / (0.015f * (float) sr), sk = 1.0f - std::exp (-1.0f / (0.02f * (float) sr));
+        if (monoS > 0.0f || mt > 0.0f)
+            for (int i = 0; i < N; ++i) { monoS = juce::jlimit (0.0f, 1.0f, monoS + (mt > monoS ? fade : -fade)); const float m = 0.5f * (L[i] + R[i]); L[i] += (m - L[i]) * monoS; R[i] += (m - R[i]) * monoS; }
+        if (ogS < 0) ogS = og;
+        if (ogS != og || og != 1.0f)
+        {
+            for (int i = 0; i < N; ++i) { ogS += (og - ogS) * sk; L[i] *= ogS; R[i] *= ogS; }
+            if (std::abs (ogS - og) < 1e-6f) ogS = og;
+        }
+    }
 
     // ---------- storia dei picchi (vista PEAK): un punto ogni 10 ms, solo in play ----------
     if (isPlay && ! freezeBtn.load())
@@ -255,12 +306,16 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
 
     // ---------- true peak (sovracampionamento 4x solo sulla copia di analisi) ----------
     {
-        if (tpBuf.getNumSamples() < N) tpBuf.setSize (2, N, false, false, true);
-        tpBuf.copyFrom (0, 0, L, N); tpBuf.copyFrom (1, 0, R, N);
-        juce::dsp::AudioBlock<float> blk (tpBuf.getArrayOfWritePointers(), 2, (size_t) N);
-        auto up = os.processSamplesUp (blk);
-        float pk = 0;
-        for (size_t c = 0; c < up.getNumChannels(); ++c) { auto* d = up.getChannelPointer (c); for (size_t i = 0; i < up.getNumSamples(); ++i) pk = juce::jmax (pk, std::abs (d[i])); }
+        // a pezzi della misura preparata: con buffer piu' lunghi del previsto niente memoria nuova nel thread audio
+        float pk = 0; const int cap = tpBuf.getNumSamples();
+        for (int off = 0; off < N; off += cap)
+        {
+            const int n = juce::jmin (cap, N - off);
+            tpBuf.copyFrom (0, 0, L + off, n); tpBuf.copyFrom (1, 0, R + off, n);
+            juce::dsp::AudioBlock<float> blk (tpBuf.getArrayOfWritePointers(), 2, (size_t) n);
+            auto up = os.processSamplesUp (blk);
+            for (size_t c = 0; c < up.getNumChannels(); ++c) { auto* d = up.getChannelPointer (c); for (size_t i = 0; i < up.getNumSamples(); ++i) pk = juce::jmax (pk, std::abs (d[i])); }
+        }
         float sp = 0; for (int i = 0; i < N; ++i) sp = juce::jmax (sp, juce::jmax (std::abs (L[i]), std::abs (R[i])));
         pk = juce::jmax (pk, sp);
         const float db = juce::Decibels::gainToDecibels (pk, -100.0f);
