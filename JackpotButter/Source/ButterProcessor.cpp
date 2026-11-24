@@ -64,7 +64,7 @@ void Processor::safety (float* l, float* r, int n, float inPk)
     bool broken = false; float pk = 0;
     for (int i = 0; i < n; ++i) { if (! std::isfinite (l[i]) || ! std::isfinite (r[i])) { broken = true; break; } pk = juce::jmax (pk, std::abs (l[i]), std::abs (r[i])); }
     if (! broken && pk > 1.4f && inPk < 0.05f) { runaway += n; if (runaway > (int) (curSr * 0.5)) broken = true; } else runaway = juce::jmax (0, runaway - n);
-    if (broken) { ++panics; runaway = 0; muteLeft = (int) (curSr * 0.15); fadeIn = 0; triggerAsyncUpdate(); }
+    if (broken) { ++panics; runaway = 0; muteLeft = (int) (curSr * 0.15); fadeIn = 0; if (bbReason.load() == 0) bbReason = 1; bbFreeze = true; triggerAsyncUpdate(); }
     if (muteLeft > 0) { const int m = juce::jmin (n, muteLeft); std::fill (l, l + m, 0.0f); std::fill (r, r + m, 0.0f); muteLeft -= m; if (m == n) return; }
     // 2) tetto: sotto +3 dBFS non tocca niente, poi curva morbida fino a +6 dBFS che non si supera mai
     constexpr float k = 1.4125f, c = 1.9953f;
@@ -90,7 +90,17 @@ void Processor::processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&)
         for (int i = 0; i < n; ++i) { if (! std::isfinite (l[i])) l[i] = 0; if (! std::isfinite (r[i])) r[i] = 0; }   // un NaN da un plugin prima non entra
         for (int i = 0; i < n; ++i) { const float g = gIn.getNextValue(); l[i] *= g; r[i] *= g; p0 = juce::jmax (p0, std::abs (l[i])); p1 = juce::jmax (p1, std::abs (r[i])); }
         inL = juce::jmax (p0, inL.load() * 0.85f); inR = juce::jmax (p1, inR.load() * 0.85f);
+        double eI = 0; for (int i = 0; i < n; ++i) eI += (double) l[i] * l[i] + (double) r[i] * r[i];
+        if (! bbFreeze.load()) for (int i = 0; i < n; ++i) { bb[0][(size_t) bbW] = l[i]; bb[1][(size_t) bbW] = r[i]; if (++bbW >= bbLen) bbW = 0; }
         dsp.process (l, r, n, apvts);
+        {   // il suono che impazzisce mentre la musica e' normale: uscita forte e 20 dB sopra l'ingresso per piu' di 30 ms
+            double eO = 0; float pk = 0; int zc = 0;
+            for (int i = 0; i < n; ++i) { eO += (double) l[i] * l[i] + (double) r[i] * r[i]; pk = juce::jmax (pk, std::abs (l[i]), std::abs (r[i])); if (i > 0 && (l[i] >= 0) != (l[i - 1] >= 0)) ++zc; }
+            const double rI = std::sqrt (eI / (2.0 * n)), rO = std::sqrt (eO / (2.0 * n));
+            // rumore (tanti attraversamenti dello zero), forte, e 30 dB sopra quello che entra: non e' musica, e' il motore rotto
+            if (pk > 0.9f && rO > rI * 30.0 + 0.1 && zc > n / 4) wild += n; else wild = juce::jmax (0, wild - n / 2);
+            if (wild > (int) (curSr * 0.03)) { wild = 0; bbReason = 2; for (int i = 0; i < n; ++i) l[i] = r[i] = std::numeric_limits<float>::quiet_NaN(); }   // la protezione qui sotto spegne e ricostruisce
+        }
         p0 = p1 = 0;
         const float inPk = juce::jmax (inL.load(), inR.load());
         for (int i = 0; i < n; ++i) { const float g = gOut.getNextValue(); l[i] *= g; r[i] *= g; }
@@ -98,6 +108,29 @@ void Processor::processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&)
         for (int i = 0; i < n; ++i) { p0 = juce::jmax (p0, std::abs (l[i])); p1 = juce::jmax (p1, std::abs (r[i])); }
         outL = juce::jmax (p0, outL.load() * 0.85f); outR = juce::jmax (p1, outR.load() * 0.85f);
     }
+}
+
+void Processor::saveBlackBox()
+{
+    auto dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Butter Debug"); dir.createDirectory();
+    const auto stamp = juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+    juce::AudioBuffer<float> b (2, bbLen);
+    for (int i = 0; i < bbLen; ++i) { const int k = (bbW + i) % bbLen; b.setSample (0, i, bb[0][(size_t) k]); b.setSample (1, i, bb[1][(size_t) k]); }
+    {
+        juce::WavAudioFormat wav; auto f = dir.getChildFile ("butter-" + stamp + "-ingresso.wav");
+        if (auto* os = new juce::FileOutputStream (f); os->openedOk()) { std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (os, curSr, 2, 24, {}, 0)); if (w) w->writeFromAudioSampleBuffer (b, 0, bbLen); else delete os; } else delete os;
+    }
+    juce::MemoryBlock mb; getStateInformation (mb);
+    if (auto x = getXmlFromBinary (mb.getData(), (int) mb.getSize()))
+    {
+        x->setAttribute ("motivo", bbReason.load() == 2 ? "uscita impazzita con musica normale" : "valore rotto o autoalimentazione nel silenzio");
+        x->setAttribute ("sampleRate", curSr); x->setAttribute ("blocco", maxBlock); 
+#ifdef JucePlugin_VersionString
+        x->setAttribute ("versione", JucePlugin_VersionString);
+#endif
+        x->writeTo (dir.getChildFile ("butter-" + stamp + "-impostazioni.xml"));
+    }
+    bbReason = 0; bbFreeze = false;
 }
 
 juce::File Processor::presetFolder()

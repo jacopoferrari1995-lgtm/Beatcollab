@@ -5,6 +5,40 @@
 using namespace jb;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "rap")
+    {   // il caso di Lo: preset Voce | Rap davanti, CLIP mosso un poco, minuti di voce rap con pause, buffer fisso
+        const double sr = std::getenv ("JSR") ? std::atof (std::getenv ("JSR")) : 48000; const int blk = std::getenv ("JBLK") ? std::atoi (std::getenv ("JBLK")) : 512;
+        const double mins = std::getenv ("JMIN") ? std::atof (std::getenv ("JMIN")) : 8;
+        auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, sr, blk); p->prepareToPlay (sr, blk);
+        int pr = 0; for (int i = 0; i < p->getNumPrograms(); ++i) if (p->getProgramName (i).contains ("Rap davanti")) pr = i;
+        p->loadPreset (pr); std::printf ("preset %d %s\n", pr, p->getProgramName (pr).toRawUTF8());
+        if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = p->apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+        juce::MidiBuffer mb; juce::Random r (5); float b1 = 0, b2 = 0, b3 = 0; double ph = 0;
+        const juce::int64 total = (juce::int64) (sr * 60 * mins); float worst = 0; double lastRep = 0; float secPk = 0, prevPk = 0;
+        const bool uneven = std::getenv ("JUNEVEN") != nullptr; juce::Random rb (11);
+        for (juce::int64 pos = 0, blkN = blk; pos < total; pos += blkN)
+        {
+            blkN = uneven ? 1 + rb.nextInt (blk) : blk;
+            juce::AudioBuffer<float> buf (2, (int) blkN);
+            for (int i = 0; i < (int) blkN; ++i)
+            {
+                const double t = (pos + i) / sr; const double phr = std::fmod (t, 7.3); const bool talk = phr < 5.5;
+                const float syl = (float) std::pow (std::max (0.0, std::sin (3.14159 * std::fmod (t * 4.7, 1.0))), 2.0);
+                const float n = r.nextFloat() * 2 - 1; b1 += 0.3f * (n - b1); b2 += 0.08f * (b1 - b2); b3 += 0.02f * (b2 - b3);
+                ph += (120 + 30 * std::sin (t * 1.3)) / sr; const float voiced = (float) (std::fmod (ph, 1.0) * 2 - 1) * 0.3f;
+                static const float lvl = std::getenv ("JLVL") ? (float) std::atof (std::getenv ("JLVL")) : 1.0f;
+                float x = talk ? (0.5f * (b1 - b3) + voiced * 0.6f) * syl * 0.5f * lvl : 0.0f;
+                x += 0.15f * (float) std::sin (2 * 3.14159 * 55 * t) * (float) std::exp (-std::fmod (t, 0.6) * 4);   // beat che filtra dal microfono
+                buf.setSample (0, i, x); buf.setSample (1, i, x * 0.97f);
+            }
+            p->processBlock (buf, mb);
+            for (int c = 0; c < 2; ++c) for (int i = 0; i < (int) blkN; ++i) { const float y = buf.getSample (c, i); if (! std::isfinite (y)) { std::printf ("NaN a %.2f s\n", (pos + i) / sr); return 1; } secPk = std::max (secPk, std::abs (y)); worst = std::max (worst, std::abs (y)); }
+            const double t = (double) pos / sr;
+            if (t - lastRep >= 1.0) { if (secPk > 1.2f || secPk > prevPk * 4 + 0.3f) std::printf ("  %.0f s: picco %.2f (prima %.2f) protezioni %d\n", t, secPk, prevPk, p->panics.load()); prevPk = secPk; secPk = 0; lastRep = t; }
+        }
+        std::printf ("picco massimo %.2f, protezioni scattate %d\n", worst, p->panics.load());
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "torture")
     {   // caccia all'esplosione: preset a caso, comandi che saltano, blocchi irregolari, segnali da live (colpi, sinusoidi, silenzio, picchi)
         const double sr = std::getenv ("JSR") ? std::atof (std::getenv ("JSR")) : 48000; const int runs = std::getenv ("JRUNS") ? std::atoi (std::getenv ("JRUNS")) : 40;
