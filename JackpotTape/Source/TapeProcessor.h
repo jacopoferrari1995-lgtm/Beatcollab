@@ -107,7 +107,7 @@ private:
     struct Bq { double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0; inline float run (float x) { const double y = b0 * x + z1; z1 = b1 * x - a1 * y + z2; z2 = b2 * x - a2 * y; return (float) y; } };
     Bq bump[2];
     float lpIcL[2] = {}, lpIcR[2] = {}, cutoffSm = 20000, dS = 0, outSm = 1, spdSm = 1, lastBumpD = -1;
-    float volSm = 1, hissLp = 0, stLp[2] = {};
+    float volSm = 1, hissLp = 0, hissLp2 = 0, hissHp = 0, hissEnv = 0, stLp[2] = {};
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
     static constexpr int kMax = 1024;
     std::vector<float> spdArr, dryT[2], ring[2], dgArr;

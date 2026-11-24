@@ -155,7 +155,7 @@ void Processor::prepareToPlay (double s, int blk)
     hist.setSize (2, HL); hist.clear();
     T = 0; R = 0; live = true; xf.on = false;
     for (auto& f : F) f = FxState();
-    rng.setSeed (20241117); smInit = true; trPh = afPh = 0; rngHiss.setSeed (777); freeAnchorBeat = 0; freeBf = -1; freeAnchorT = 0; for (auto& a : satAd) a = AdS();   // stesso suono a ogni apertura (fruscio, dropout e glitch ripetibili)
+    rng.setSeed (20241117); smInit = true; trPh = afPh = 0; rngHiss.setSeed (777); hissLp = hissLp2 = hissHp = hissEnv = 0; freeAnchorBeat = 0; freeBf = -1; freeAnchorT = 0; for (auto& a : satAd) a = AdS();   // stesso suono a ogni apertura (fruscio, dropout e glitch ripetibili)
     eBuf.setSize (2, (int) (sr * 4.5) + 8); eBuf.clear(); eW = 0; eSend = eCut = 0; eTime = 0;
     verb.setSampleRate (sr); verb.reset(); vPre.setSize (2, (int) (sr * 0.25) + 8); vPre.clear(); vW = 0; vSend = vCut = 0; vPreS = -1;
     rBuf.setSize (2, 8192); rBuf.clear(); rW = 0; rPh = 0; rFade = 0;
@@ -259,6 +259,8 @@ void Processor::tapeStage (float* L, float* R, int n, float drive, float tone, f
     const float kS = (float) (1.0 - std::exp (-1.0 / (0.02 * sr))), kSpd = (float) (1.0 - std::exp (-1.0 / (0.03 * sr))), kCut = (float) (1.0 - std::exp (-1.0 / (0.01 * sr)));
     const double kE = 1.0 - std::exp (-1.0 / (0.3 * sr)); const float kAg = (float) (1.0 - std::exp (-1.0 / (0.05 * sr)));
     const float dcR = (float) (1.0 - juce::MathConstants<double>::twoPi * 5.0 / sr);
+    const float hissK = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * 7000.0 / sr)), hissKh = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * 300.0 / sr));
+    const float hissA = (float) (1.0 - std::exp (-1.0 / (0.005 * sr))), hissR = (float) (1.0 - std::exp (-1.0 / (0.4 * sr)));
     if (dS < 0) dS = drive; if (outSm < 0) outSm = outG;
     const float base = 700.0f * std::pow (20000.0f / 700.0f, tone);   // tono: da 700 Hz (scurissimo) a aperto
     float* io[2] = { L, R };
@@ -334,7 +336,10 @@ void Processor::tapeStage (float* L, float* R, int n, float drive, float tone, f
         // 3) fruscio, passa basso (si chiude quando il nastro rallenta), uscita
         for (int i = 0; i < m; ++i)
         {
-            hissLp = hissLp * 0.6f + (rngHiss.nextFloat() * 2 - 1) * 0.4f; const float hs = hiss * 0.0035f * hissLp;
+            // fruscio: piu' scuro e piu' basso di prima (curva al quadrato) e solo quando c'e' musica: nei silenzi sfuma via
+            hissLp = hissLp * 0.6f + (rngHiss.nextFloat() * 2 - 1) * 0.4f; hissLp2 += (hissLp - hissLp2) * hissK; hissHp += (hissLp2 - hissHp) * hissKh;
+            { const float a = juce::jmax (std::abs (x[0][i]), std::abs (x[1][i])); hissEnv += (a > hissEnv ? hissA : hissR) * (a - hissEnv); }
+            const float hs = hiss * hiss * 0.0045f * (hissLp2 - hissHp) * juce::jlimit (0.0f, 1.0f, hissEnv * 20.0f);
             float l = x[0][i] + hs, r = x[1][i] + hs * 0.9f;
             const float sc = juce::jmin (1.0f, spdArr[(size_t) (off + i)]);
             const float cutT = juce::jlimit (150.0f, 20000.0f, base * std::pow (sc, 1.6f * (0.3f + tone)));

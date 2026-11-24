@@ -6,6 +6,20 @@ using namespace jt;
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String (argv[1]) == "hiss")
+    {   // fruscio al massimo: silenzio, poi un tono a -20 dBFS (fruscio sotto la musica)
+        for (float h : { 0.35f, 1.0f })
+        {
+            Processor p; p.setPlayConfigDetails (2, 2, 48000, 512); p.prepareToPlay (48000, 512); p.loadPreset (0);
+            auto* r = p.apvts.getParameter ("hiss"); r->setValueNotifyingHost (r->convertTo0to1 (h));
+            std::vector<float> o = testlab::render (p, 48000 * 6, [&] (int k) { return k < 48000 * 3 ? 0.0f : 0.1f * (float) std::sin (2 * 3.14159265 * 440 * k / 48000.0); });
+            double eS = 0; for (int i = 48000; i < 48000 * 3 - 2000; ++i) eS += (double) o[(size_t) i] * o[(size_t) i];
+            const int a = 48000 * 4, b = 48000 * 6; double re = 0, im = 0; for (int i = a; i < b; ++i) { const double w = 2 * 3.14159265 * 440 * i / 48000.0; re += o[(size_t) i] * std::cos (w); im += o[(size_t) i] * std::sin (w); }
+            re *= 2.0 / (b - a); im *= 2.0 / (b - a); double eR = 0; for (int i = a; i < b; ++i) { const double w = 2 * 3.14159265 * 440 * i / 48000.0; eR += std::pow (o[(size_t) i] - re * std::cos (w) - im * std::sin (w), 2.0); }
+            std::printf ("HISS %.0f%%: silenzio %.1f dBFS, sotto la musica %.1f dBFS\n", h * 100, 10 * std::log10 (eS / (48000 * 2 - 2000) + 1e-30), 10 * std::log10 (eR / (b - a) + 1e-30));
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "blk")
     {   // primo campione diverso tra blocchi da 512 e blocchi irregolari
         const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "3").getIntValue(); const int mb = juce::SystemStats::getEnvironmentVariable ("JBLK", "64").getIntValue();
