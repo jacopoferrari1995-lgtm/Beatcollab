@@ -197,8 +197,10 @@ public:
         param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, nv)); repaint();
     }
     void mouseDoubleClick (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getDefaultValue()); }
-    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
     {
+        // scorrimento orizzontale (trackpad, shift+rotella): passa al rack, la manopola non si muove
+        if (std::abs (w.deltaX) > std::abs (w.deltaY) * 1.2f || e.mods.isShiftDown()) { juce::Component::mouseWheelMove (e, w); return; }
         const float dy = w.isReversed ? -w.deltaY : w.deltaY;
         if (stepsN > 1) { wheelAcc += dy; if (std::abs (wheelAcc) < 0.12f) return; const float st = 1.0f / (stepsN - 1); param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + (wheelAcc > 0 ? st : -st))); wheelAcc = 0; }
         else param->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param->getValue() + juce::jlimit (-0.04f, 0.04f, dy * 0.06f)));

@@ -19,6 +19,8 @@ public:
     std::function<void()> onClose;
     juce::Colour accent { 0xffa66bff };
     juce::String title { "Preset" };
+    juce::String hint;                         // riga sotto il titolo (vuota: il testo di sempre)
+    bool buttons = true, userGroup = true;     // SALVA / SOVRASCRIVI / CARTELLA e il gruppo I MIEI
 
     void open()
     {
@@ -40,9 +42,9 @@ public:
         juce::ColourGradient bg (K::panel0, 0, bx.getY(), K::panel1, 0, bx.getBottom(), false); g.setGradientFill (bg); g.fillRoundedRectangle (bx, 20);
         g.setColour (K::hi.withAlpha (0.08f)); g.drawRoundedRectangle (bx.reduced (0.5f), 20, 1.0f);
         g.setFont (big (20.0f)); g.setColour (K::ink); g.drawText (title, juce::Rectangle<float> (bx.getX() + 22, bx.getY() + 14, 200, 32), juce::Justification::centredLeft);
-        g.setFont (f (10.5f)); g.setColour (K::sub); g.drawText (juce::String::fromUTF8 ("clic per caricare  \xc2\xb7  clic fuori per chiudere"), juce::Rectangle<float> (bx.getX() + 130, bx.getY() + 14, 300, 32), juce::Justification::centredLeft);
+        g.setFont (f (10.5f)); g.setColour (K::sub); g.drawText (hint.isNotEmpty() ? hint : juce::String::fromUTF8 ("clic per caricare  \xc2\xb7  clic fuori per chiudere"), juce::Rectangle<float> (bx.getX() + 22 + juce::jmax (108.0f, title.length() * 11.5f), bx.getY() + 14, 520, 32), juce::Justification::centredLeft);
         const char* bl[3] = { "SALVA NUOVO", "SOVRASCRIVI", "CARTELLA" };
-        for (int i = 0; i < 3; ++i) { if (i == 1 && ! (canOverwrite && canOverwrite())) continue; chip (g, btn (i), bl[i], false, accent, 9.5f, hovB == i); }
+        if (buttons) for (int i = 0; i < 3; ++i) { if (i == 1 && ! (canOverwrite && canOverwrite())) continue; chip (g, btn (i), bl[i], false, accent, 9.5f, hovB == i); }
         const auto gs = groups();
         for (int i = 0; i < gs.size(); ++i) chip (g, grpCell (bx, i), gs[i].toUpperCase(), i == group, accent, 9.5f, hovG == i);
         auto lr = listRect();
@@ -69,7 +71,7 @@ public:
     {
         auto bx = box(); int h = -1, hg = -1, hb = -1;
         const auto gs = groups(); for (int i = 0; i < gs.size(); ++i) if (grpCell (bx, i).contains (e.position)) hg = i;
-        for (int i = 0; i < 3; ++i) if (btn (i).contains (e.position)) hb = i;
+        if (buttons) for (int i = 0; i < 3; ++i) if (btn (i).contains (e.position)) hb = i;
         auto lr = listRect();
         if (lr.contains (e.position)) { const auto it = items (group); const int k = (int) ((e.position.y - lr.getY() + scroll) / kRowH); if (k >= 0 && k < (int) it.size()) h = it[(size_t) k]; }
         if (h != hov || hg != hovG || hb != hovB) { hov = h; hovG = hg; hovB = hb; repaint(); }
@@ -79,7 +81,7 @@ public:
     {
         auto bx = box();
         if (! bx.contains (e.position)) { close(); return; }
-        for (int i = 0; i < 3; ++i) if (btn (i).contains (e.position))
+        if (buttons) for (int i = 0; i < 3; ++i) if (btn (i).contains (e.position))
         {
             if (i == 0 && save) save();
             if (i == 1 && canOverwrite && canOverwrite() && overwrite) { overwrite(); refresh(); }
@@ -113,7 +115,7 @@ private:
     {
         juce::StringArray g; g.add ("TUTTI");
         for (auto& e : list) if (! e.user && ! g.contains (e.group)) g.add (e.group);
-        g.add ("I MIEI");
+        if (userGroup) g.add ("I MIEI");
         return g;
     }
     std::vector<int> items (int gi) const

@@ -137,7 +137,7 @@ const std::vector<MixPreset>& factoryPresets()
             .m ("EQP-1A", { { "LOW FREQ", 1 }, { "BOOST", 2 }, { "ATTEN", 1.5f }, { "HIGH FREQ", 3 }, { "BOOST#2", 3 } })
             .m ("OPTO 2A", { { "PEAK RED.", 0.45f } })
             .m ("DS 902", {})
-            .m ("CHAMBER", { { "DECAY", 2000 } }, 0.15f).done());
+            .m ("CHAMBER", { { "DECAY", 2000 } }, 0.15f).eq (BT_LCUT, 80, 0, 1).eq (BT_BELL, 350, -2.5f, 1.1f).eq (BT_BELL, 3000, 1.5f, 0.9f).eq (BT_BELL, 6800, -2, 4).dyn (-30, -4).eq (BT_HSHELF, 12000, 2, 0.7f).done());
         v.push_back (PB ("VOCE", "Femminile Pop | Ariosa", "Voce femminile alta: niente fango, sibilanti tenute, aria a 16k, plate brillante.", T_VOX)
             .m ("737 PRE", { { "GAIN", 6 }, { "LOW CUT", 3 } }).eq (BT_BELL, 400, -2.5f, 1).eq (BT_BELL, 2800, -2, 3).dyn (-30, -4).eq (BT_HSHELF, 14000, 4, 0.7f)
             .m ("OPTO 2A", { { "PEAK RED.", 0.4f } })
@@ -155,7 +155,7 @@ const std::vector<MixPreset>& factoryPresets()
         v.push_back (PB ("VOCE", "Telefono | Effetto radio", "Voce dentro una radiolina: banda stretta, saturazione e un filo di spring.", T_VOX)
             .m ("RADIO", { { "DRIVE", 0.5f } })
             .m ("FET 76", { { "INPUT", 0.5f }, { "RATIO", 2 } })
-            .m ("SPRING", { { "DECAY", 900 } }, 0.1f).done());
+            .m ("SPRING", { { "DECAY", 900 } }, 0.1f).eq (BT_LCUT, 250, 0, 1, 0, 1).eq (BT_BELL, 1600, 4, 0.8f).eq (BT_HCUT, 6000, 0, 1, 0, 1).done());
         // ================================================================ VOCI DI SUPPORTO
         v.push_back (PB ("SUPPORTO", "Doppie | Dietro la lead", "Doppie della strofa: piu scure e strette, compresse forte, si sentono senza coprire.", T_BGV)
             .m ("UTILITY", { { "LOW CUT", 180 } }).eq (BT_HSHELF, 8000, -3, 0.7f).eq (BT_BELL, 3000, -2, 1)
@@ -167,7 +167,7 @@ const std::vector<MixPreset>& factoryPresets()
             .m ("FET 76", { { "INPUT", 0.55f }, { "RATIO", 2 } })
             .m ("DECAP", { { "DRIVE", 0.3f }, { "STILE", 2 } }, 0.5f)
             .m ("PING PONG", { { "TEMPO", 5 }, { "FEEDBACK", 0.3f } }, 0.2f)
-            .m ("PLATE 140", { { "DECAY", 1500 } }, 0.15f).done());
+            .m ("PLATE 140", { { "DECAY", 1500 } }, 0.15f).eq (BT_BELL, 500, -3, 0.9f).eq (BT_BELL, 2200, 3, 1.0f).eq (BT_BELL, 6500, -3, 3).dyn (-30, -4).done());
         v.push_back (PB ("SUPPORTO", "Cori | Muro largo", "Cori e armonie: ensemble, wider, chamber. Un muro dietro la lead.", T_BGV)
             .m ("UTILITY", { { "LOW CUT", 200 } }).eq (BT_BELL, 2500, -2, 1)
             .m ("OPTO 2A", { { "PEAK RED.", 0.55f } })
@@ -179,7 +179,7 @@ const std::vector<MixPreset>& factoryPresets()
             .m ("UTILITY", { { "LOW CUT", 160 } })
             .m ("OPTO 3A", { { "PEAK RED.", 0.5f } })
             .m ("PRO DS", { { "RANGE", 12 } })
-            .m ("LUSH PLATE", { { "DECAY", 3000 } }, 0.22f).done());
+            .m ("LUSH PLATE", { { "DECAY", 3000 } }, 0.22f).eq (BT_BELL, 300, -3, 1.0f).eq (BT_BELL, 2800, -2, 1.2f).eq (BT_BELL, 7000, -3, 3).dyn (-32, -5).eq (BT_HSHELF, 12000, 1.5f, 0.7f).done());
         // ================================================================ KICK
         v.push_back (PB ("KICK", "Trap | Corta e dura", "Cassa trap: niente sub (lo fa l'808), click a 4k, clip morbido.", T_KICK)
             .eq (BT_LCUT, 35, 0, 1, 0, 2).eq (BT_BELL, 60, 2, 1.2f).eq (BT_BELL, 350, -4, 1.3f).eq (BT_BELL, 4000, 3, 1.2f)
@@ -189,7 +189,7 @@ const std::vector<MixPreset>& factoryPresets()
             .m ("API 312 PRE", { { "GAIN", 12 } })
             .m ("EQP-1A", { { "LOW FREQ", 2 }, { "BOOST", 4 }, { "ATTEN", 2.5f }, { "HIGH FREQ", 1 }, { "BOOST#2", 3 } })
             .m ("RMS 160", { { "THRESH", 0.4f }, { "RATIO", 2 } })
-            .m ("TAPE MACHINE", { { "DRIVE", 0.5f } }).done());
+            .m ("TAPE MACHINE", { { "DRIVE", 0.5f } }).eq (BT_LCUT, 30, 0, 1, 0, 1).eq (BT_BELL, 380, -4, 1.4f).eq (BT_BELL, 3500, 2.5f, 1.2f).eq (BT_HCUT, 12000, 0, 1).done());
         v.push_back (PB ("KICK", "Drill | Sub e botta", "Cassa drill: botta a 70 Hz, transiente in avanti, saturazione A.", T_KICK)
             .eq (BT_BELL, 70, 3, 1.4f).eq (BT_BELL, 300, -5, 1.2f).eq (BT_BELL, 3000, 2, 1)
             .m ("TRANSIENT", { { "ATTACK", 45 } })
@@ -226,11 +226,11 @@ const std::vector<MixPreset>& factoryPresets()
             .m ("610 PRE", { { "GAIN", 12 } })
             .m ("EQP-1A", { { "LOW FREQ", 2 }, { "BOOST", 4 }, { "ATTEN", 3 }, { "HIGH FREQ", 0 }, { "BOOST#2", 2 } })
             .m ("OPTO 3A", { { "PEAK RED.", 0.5f } })
-            .m ("AMP CRUNCH", { { "DRIVE", 0.3f } }, 0.25f).done());
+            .m ("AMP CRUNCH", { { "DRIVE", 0.3f } }, 0.25f).eq (BT_LCUT, 32, 0, 1).eq (BT_BELL, 250, -2.5f, 1.2f).eq (BT_BELL, 900, 2, 1.0f).eq (BT_BELL, 2500, 2, 1.4f).done());
         v.push_back (PB ("BASSO", "Synth Bass | Avanti", "Basso synth: Tube Box per le armoniche, compressione, clip.", T_808)
-            .m ("TUBE BOX", { { "PENTODE", 6 }, { "TRIODE", 5 }, { "SAT", 3 }, { "SAT FREQ", 0 } })
+            .m ("TUBE BOX", { { "DRIVE", 5 }, { "CARATTERE", 5 }, { "CALORE", 4 } })
             .m ("BUS VCA", { { "THRESH", 0.4f }, { "RATIO", 1 } })
-            .m ("CLASSIC CLIP", { { "MODO", 0 }, { "DRIVE", 2 } }).done());
+            .m ("CLASSIC CLIP", { { "MODO", 0 }, { "DRIVE", 2 } }).eq (BT_LCUT, 28, 0, 1, 0, 2).eq (BT_BELL, 300, -3, 1.2f).eq (BT_BELL, 1200, 2, 1.0f).eq (BT_HCUT, 9000, 0, 1).done());
         v.push_back (PB ("808", "Distorto | Rage", "808 distorto da rage: fuzz in parallelo, wavefolder, tanto clip.", T_808)
             .eq (BT_LCUT, 30, 0, 1, 0, 2)
             .m ("FUZZ FACE", { { "DRIVE", 0.5f } }, 0.4f)
@@ -282,25 +282,25 @@ const std::vector<MixPreset>& factoryPresets()
         // ================================================================ DRUM BUS
         v.push_back (PB ("DRUM BUS", "Trap | Incollato e forte", "Bus batteria trap: VCA a 30 ms, Tube Box, clip.", T_DRUMS)
             .m ("BUS VCA", { { "THRESH", 0.35f }, { "RATIO", 1 }, { "ATTACK", 0.8f }, { "RELEASE", 1 } })
-            .m ("TUBE BOX", { { "PENTODE", 5.5f }, { "TRIODE", 4 } })
-            .m ("CLASSIC CLIP", { { "MODO", 1 }, { "DRIVE", 3 } }).done());
+            .m ("TUBE BOX", { { "DRIVE", 4.5f }, { "CARATTERE", 2 }, { "CALORE", 2 } })
+            .m ("CLASSIC CLIP", { { "MODO", 1 }, { "DRIVE", 3 } }).eq (BT_LCUT, 25, 0, 1).eq (BT_BELL, 420, -2.5f, 1.0f).eq (BT_HSHELF, 9000, 2, 0.7f).done());
         v.push_back (PB ("DRUM BUS", "Boom Bap | Schiacciato", "Bus 90: 1176 in ALL in parallelo, nastro, low pass morbido.", T_DRUMS)
             .m ("FET 76", { { "INPUT", 0.6f }, { "RATIO", 4 } }, 0.4f)
             .m ("TAPE MACHINE", { { "DRIVE", 0.5f } }).eq (BT_HCUT, 14000, 0, 0.7f, 0, 0).eqAt (2).done());
         v.push_back (PB ("DRUM BUS", "Rock | Stanza grossa", "Bus rock: Distressor, room, transienti.", T_DRUMS)
             .m ("TRANSIENT", { { "ATTACK", 15 } })
             .m ("DISTRESS", { { "INPUT", 0.4f }, { "RATIO", 2 } }, 0.6f)
-            .m ("ROOM", { { "DECAY", 1000 } }, 0.15f).done());
+            .m ("ROOM", { { "DECAY", 1000 } }, 0.15f).eq (BT_LCUT, 35, 0, 1).eq (BT_LSHELF, 90, 2, 0.7f).eq (BT_BELL, 500, -3, 1.0f).eq (BT_BELL, 4500, 2, 0.9f).done());
         v.push_back (PB ("DRUM BUS", "Lo-fi | Vinile", "Bus lo-fi: banda stretta, cassetta, SSL comp lento.", T_DRUMS)
             .eq (BT_LCUT, 50, 0, 1, 0, 1).eq (BT_HCUT, 9000, 0, 1, 0, 1)
             .m ("BUS VCA", { { "THRESH", 0.3f }, { "RATIO", 0 } })
             .m ("TAPE MACHINE", { { "MACCHINA", 2 }, { "DRIVE", 0.5f }, { "FRUSCIO", 0.2f } }).done());
         v.push_back (PB ("DRUM BUS", "Pulito | Solo colla", "Bus moderno trasparente: VCA leggero e limiter morbido.", T_DRUMS)
             .m ("BUS VCA", { { "THRESH", 0.25f }, { "RATIO", 0 }, { "ATTACK", 0.8f } })
-            .m ("LIMITER", { { "STILE", 1 }, { "GAIN", 2 }, { "CEILING", -2 } }).done());
+            .m ("LIMITER", { { "STILE", 1 }, { "GAIN", 2 }, { "CEILING", -2 } }).eq (BT_LCUT, 25, 0, 1).eq (BT_BELL, 300, -1.5f, 0.9f).eq (BT_HSHELF, 10000, 1.5f, 0.7f).done());
         v.push_back (PB ("DRUM BUS", "OTT | In faccia", "OTT in parallelo al 30%: tutti i dettagli davanti.", T_DRUMS)
             .m ("OTT", { { "DEPTH", 0.5f } }, 0.3f)
-            .m ("CLASSIC CLIP", { { "MODO", 1 }, { "DRIVE", 2 } }).done());
+            .m ("CLASSIC CLIP", { { "MODO", 1 }, { "DRIVE", 2 } }).eq (BT_LCUT, 30, 0, 1).eq (BT_BELL, 600, -2, 0.8f).eq (BT_BELL, 7000, -1.5f, 2).dyn (-26, -3).done());
         // ================================================================ CHITARRA
         v.push_back (PB ("CHITARRA", "Acustica | Brillante", "Acustica: 81 pulito, taglio del rimbombo, LA-2A, aria, plate.", T_GTR)
             .m ("81 PRE", { { "GAIN", 6 }, { "LOW CUT", 2 } }).eq (BT_BELL, 200, -3, 1.2f).dyn (-30, -4).eq (BT_HSHELF, 10000, 3, 0.7f)
@@ -309,12 +309,12 @@ const std::vector<MixPreset>& factoryPresets()
         v.push_back (PB ("CHITARRA", "Elettrica | Crunch", "DI o pulita: overdrive, amp e room.", T_GTR)
             .m ("OVERDRIVE 808", { { "DRIVE", 0.3f } })
             .m ("AMP CRUNCH", { { "DRIVE", 0.5f } })
-            .m ("ROOM", { { "DECAY", 700 } }, 0.12f).done());
+            .m ("ROOM", { { "DECAY", 700 } }, 0.12f).eq (BT_LCUT, 90, 0, 1, 0, 2).eq (BT_BELL, 400, -2.5f, 1.0f).eq (BT_BELL, 2000, 2, 1.0f).eq (BT_HCUT, 9000, 0, 1).done());
         v.push_back (PB ("CHITARRA", "Clean | Chorus e spazio", "Chitarra clean anni 80: chorus, delay, hall.", T_GTR)
             .m ("OPTO 3A", { { "PEAK RED.", 0.35f } })
             .m ("CHORUS CE-1", {}, 0.4f)
             .m ("TAPE ECHO", { { "TEMPO", 7 }, { "FEEDBACK", 0.3f } }, 0.18f)
-            .m ("HALL 480", { { "DECAY", 2500 } }, 0.15f).done());
+            .m ("HALL 480", { { "DECAY", 2500 } }, 0.15f).eq (BT_LCUT, 110, 0, 1).eq (BT_BELL, 300, -2, 1.0f).eq (BT_HSHELF, 6000, 2.5f, 0.7f).done());
         v.push_back (PB ("CHITARRA", "Sample | Vintage campionata", "Chitarra campionata per beat: banda stretta, nastro, spring.", T_GTR)
             .eq (BT_LCUT, 150, 0, 1, 0, 2).eq (BT_HCUT, 8000, 0, 1, 0, 1)
             .m ("TAPE MACHINE", { { "MACCHINA", 1 }, { "DRIVE", 0.4f } })
@@ -328,15 +328,15 @@ const std::vector<MixPreset>& factoryPresets()
             .m ("TRIDENT PRE", { { "GAIN", 8 } })
             .m ("EQP-1A", { { "LOW FREQ", 3 }, { "BOOST", 2 }, { "HIGH FREQ", 4 }, { "BOOST#2", 2 } })
             .m ("OPTO 2A", { { "PEAK RED.", 0.3f } })
-            .m ("CHAMBER", { { "DECAY", 1800 } }, 0.15f).done());
+            .m ("CHAMBER", { { "DECAY", 1800 } }, 0.15f).eq (BT_LCUT, 45, 0, 1).eq (BT_BELL, 260, -2, 1.0f).eq (BT_BELL, 3000, 1.5f, 0.8f).eq (BT_HSHELF, 10000, 1.5f, 0.7f).done());
         v.push_back (PB ("PIANO", "Rhodes | Lo-fi", "Rhodes per beat: phaser lento, nastro, spring.", T_KEYS)
             .m ("PHASER 90", { { "RATE", 0.3f } }, 0.35f)
             .m ("TAPE MACHINE", { { "MACCHINA", 2 }, { "DRIVE", 0.4f } })
-            .m ("SPRING", { { "DECAY", 2200 } }, 0.15f).done());
+            .m ("SPRING", { { "DECAY", 2200 } }, 0.15f).eq (BT_LCUT, 70, 0, 1).eq (BT_BELL, 400, 1.5f, 0.8f).eq (BT_HCUT, 6500, 0, 1, 0, 1).done());
         v.push_back (PB ("PIANO", "Organo | Leslie e grinta", "Organo: tube box, chorus, room.", T_KEYS)
-            .m ("TUBE BOX", { { "PENTODE", 6 }, { "TRIODE", 6 } })
+            .m ("TUBE BOX", { { "DRIVE", 5 }, { "CARATTERE", 0 }, { "CALORE", 3 } })
             .m ("VIBRATO", {}, 0.4f)
-            .m ("ROOM", { { "DECAY", 900 } }, 0.12f).done());
+            .m ("ROOM", { { "DECAY", 900 } }, 0.12f).eq (BT_LCUT, 60, 0, 1).eq (BT_BELL, 700, 2, 0.9f).eq (BT_BELL, 3000, -2, 1.2f).eq (BT_HCUT, 10000, 0, 1).done());
         v.push_back (PB ("PIANO", "Piano | Pop brillante", "Piano pop: niente fango, aria, plate.", T_KEYS)
             .eq (BT_BELL, 300, -3, 1).eq (BT_HSHELF, 9000, 3, 0.7f)
             .m ("BUS VCA", { { "THRESH", 0.25f } })
@@ -344,7 +344,7 @@ const std::vector<MixPreset>& factoryPresets()
         v.push_back (PB ("PIANO", "Keys | Larghi", "Keys e pad di piano: dimension, wider, hall.", T_KEYS)
             .m ("DIMENSION D", {}, 1.0f)
             .m ("WIDER", { { "WIDTH", 1.4f }, { "DA", 400 } })
-            .m ("HALL 480", { { "DECAY", 2800 } }, 0.15f).done());
+            .m ("HALL 480", { { "DECAY", 2800 } }, 0.15f).eq (BT_LCUT, 120, 0, 1).eq (BT_BELL, 350, -2.5f, 0.9f).eq (BT_HSHELF, 8000, 2, 0.7f).done());
         // ================================================================ SYNTH / PAD
         v.push_back (PB ("SYNTH", "Pad | Infinito", "Pad: Blackhole con shimmer, wider, alti morbidi.", T_SYN)
             .eq (BT_LCUT, 150, 0, 1, 0, 1).eq (BT_HCUT, 12000, 0, 1, 0, 1)
@@ -353,18 +353,18 @@ const std::vector<MixPreset>& factoryPresets()
         v.push_back (PB ("SYNTH", "Lead | Avanti", "Lead synth: saturazione, compressione, delay a 1/8 puntato.", T_SYN)
             .m ("DECAP", { { "DRIVE", 0.3f }, { "STILE", 3 } })
             .m ("FET 76", { { "INPUT", 0.4f } })
-            .m ("TAPE ECHO", { { "TEMPO", 6 }, { "FEEDBACK", 0.35f } }, 0.2f).done());
+            .m ("TAPE ECHO", { { "TEMPO", 6 }, { "FEEDBACK", 0.35f } }, 0.2f).eq (BT_LCUT, 150, 0, 1).eq (BT_BELL, 450, -2, 1.0f).eq (BT_BELL, 2800, 2.5f, 1.0f).done());
         v.push_back (PB ("SYNTH", "Pluck | Rimbalzo", "Pluck: ping pong a 1/16, plate corta.", T_SYN)
             .m ("PING PONG", { { "TEMPO", 2 }, { "FEEDBACK", 0.4f } }, 0.2f)
-            .m ("PLATE 140", { { "DECAY", 1200 } }, 0.15f).done());
+            .m ("PLATE 140", { { "DECAY", 1200 } }, 0.15f).eq (BT_LCUT, 180, 0, 1).eq (BT_BELL, 600, -2, 1.0f).eq (BT_HSHELF, 7000, 2.5f, 0.7f).done());
         v.push_back (PB ("SYNTH", "Arp | Wide e dinamico", "Arpeggio: OTT al 30%, wider, delay digitale.", T_SYN)
             .m ("OTT", { { "DEPTH", 0.4f } }, 0.3f)
             .m ("WIDER", { { "WIDTH", 1.4f }, { "DA", 500 } })
-            .m ("DIGITAL 2290", { { "TEMPO", 5 }, { "FEEDBACK", 0.3f } }, 0.15f).done());
+            .m ("DIGITAL 2290", { { "TEMPO", 5 }, { "FEEDBACK", 0.3f } }, 0.15f).eq (BT_LCUT, 200, 0, 1).eq (BT_BELL, 500, -2, 1.0f).eq (BT_BELL, 4000, 1.5f, 1.0f).done());
         v.push_back (PB ("SYNTH", "Bass Synth | Analogico", "Basso synth analogico: Decap N, mono sotto, compressione.", T_SYN)
             .m ("DECAP", { { "DRIVE", 0.3f }, { "STILE", 2 } })
             .m ("WIDER", { { "WIDTH", 1 }, { "DA", 150 }, { "MONO SOTTO", 1 } })
-            .m ("RMS 160", { { "THRESH", 0.3f } }).done());
+            .m ("RMS 160", { { "THRESH", 0.3f } }).eq (BT_LCUT, 28, 0, 1, 0, 2).eq (BT_BELL, 70, 2, 1.2f).eq (BT_BELL, 350, -3, 1.2f).eq (BT_HCUT, 7000, 0, 1).done());
         // ================================================================ SAMPLE / LOOP
         v.push_back (PB ("SAMPLE", "Soul | Disco vecchio", "Campione soul: banda da vinile, Pultec, nastro, compressione lenta.", T_SMP)
             .eq (BT_LCUT, 80, 0, 1, 0, 1).eq (BT_HCUT, 12000, 0, 1, 0, 1)
@@ -387,19 +387,19 @@ const std::vector<MixPreset>& factoryPresets()
             .m ("ROOM", { { "DECAY", 900 } }, 0.15f).done());
         v.push_back (PB ("SAMPLE", "Chop | Ducking sulla voce", "Sample con compressore in SIDECHAIN: si abbassa quando entra la voce (collega la voce al sidechain).", T_SMP)
             .m ("BUS VCA", { { "THRESH", 0.5f }, { "RATIO", 1 }, { "SIDECHAIN", 1 }, { "AUTO GAIN", 0 } })
-            .m ("TAPE MACHINE", { { "DRIVE", 0.3f } }).done());
+            .m ("TAPE MACHINE", { { "DRIVE", 0.3f } }).eq (BT_LCUT, 60, 0, 1).eq (BT_BELL, 1500, -2.5f, 0.7f).eq (BT_BELL, 3200, -1.5f, 1.2f).done());
         // ================================================================ MIX BUS
         v.push_back (PB ("MIX BUS", "Hip Hop | Colla e calore", "Mix bus: VCA a 2:1, nastro 15 ips, Pultec leggero.", T_MIX)
             .m ("BUS VCA", { { "THRESH", 0.2f }, { "RATIO", 0 }, { "ATTACK", 0.8f }, { "RELEASE", 1 } })
             .m ("TAPE MACHINE", { { "DRIVE", 0.3f } })
-            .m ("EQP-1A", { { "LOW FREQ", 1 }, { "BOOST", 2 }, { "ATTEN", 1.5f }, { "HIGH FREQ", 5 }, { "BOOST#2", 1.5f }, { "TUBE", 0.15f } }).done());
+            .m ("EQP-1A", { { "LOW FREQ", 1 }, { "BOOST", 2 }, { "ATTEN", 1.5f }, { "HIGH FREQ", 5 }, { "BOOST#2", 1.5f }, { "TUBE", 0.15f } }).eq (BT_LCUT, 22, 0, 1).eq (BT_BELL, 350, -1, 0.8f).eq (BT_HSHELF, 11000, 1, 0.7f).done());
         v.push_back (PB ("MIX BUS", "Trap | Moderno pulito", "VCA, Tube Box leggero, sub in mono.", T_MIX)
             .m ("BUS VCA", { { "THRESH", 0.2f }, { "RATIO", 0 } })
-            .m ("TUBE BOX", { { "PENTODE", 5 }, { "TRIODE", 4 } })
-            .m ("WIDER", { { "WIDTH", 1.1f }, { "DA", 120 }, { "MONO SOTTO", 1 } }).done());
+            .m ("TUBE BOX", { { "DRIVE", 3.5f }, { "CARATTERE", 2 }, { "CALORE", 1.5f } })
+            .m ("WIDER", { { "WIDTH", 1.1f }, { "DA", 120 }, { "MONO SOTTO", 1 } }).eq (BT_LCUT, 22, 0, 1).eq (BT_BELL, 280, -1, 0.9f).eq (BT_BELL, 3000, -0.8f, 1.2f).dyn (-24, -2).eq (BT_HSHELF, 12000, 1.5f, 0.7f).done());
         v.push_back (PB ("MIX BUS", "Vintage | Varimu", "Vari-mu lento, nastro: colla d'altri tempi.", T_MIX)
             .m ("VARI-MU", { { "INPUT", 0.3f }, { "TIME CONST.", 1 } })
-            .m ("TAPE MACHINE", { { "MACCHINA", 0 }, { "DRIVE", 0.35f } }).done());
+            .m ("TAPE MACHINE", { { "MACCHINA", 0 }, { "DRIVE", 0.35f } }).eq (BT_LCUT, 25, 0, 1).eq (BT_LSHELF, 100, 1, 0.7f).eq (BT_HSHELF, 9000, 0.8f, 0.7f).done());
         v.push_back (PB ("MIX BUS", "Lo-fi | Beat tape", "Bus lo-fi: banda stretta, cassetta, compressione.", T_MIX)
             .eq (BT_LCUT, 40, 0, 1, 0, 1).eq (BT_HCUT, 11000, 0, 1, 0, 1)
             .m ("BUS VCA", { { "THRESH", 0.3f }, { "RATIO", 1 } })
@@ -414,20 +414,20 @@ const std::vector<MixPreset>& factoryPresets()
             .m ("LIMITER", { { "STILE", 0 }, { "GAIN", 6 }, { "CEILING", -1 } }).done());
         v.push_back (PB ("MASTER", "Trap Drill | Forte", "Master loud: clip prima del limiter, limiter aggressivo.", T_LOUD)
             .eq (BT_LCUT, 25, 0, 1, 0, 2)
-            .m ("TUBE BOX", { { "PENTODE", 5 }, { "TRIODE", 4 } })
+            .m ("TUBE BOX", { { "DRIVE", 3.5f }, { "CARATTERE", 2 }, { "CALORE", 1.5f } })
             .m ("CLASSIC CLIP", { { "MODO", 3 }, { "DRIVE", 4 }, { "CEILING", -1.5f } })
             .m ("LIMITER", { { "STILE", 2 }, { "GAIN", 8 }, { "CEILING", -1 } }).done());
         v.push_back (PB ("MASTER", "Boom Bap | Caldo", "Master caldo: nastro, Pultec, limiter morbido.", T_MST)
             .m ("TAPE MACHINE", { { "DRIVE", 0.35f } })
             .m ("EQP-1A", { { "LOW FREQ", 1 }, { "BOOST", 1.5f }, { "ATTEN", 1 }, { "HIGH FREQ", 5 }, { "BOOST#2", 1 }, { "TUBE", 0.1f } })
-            .m ("LIMITER", { { "STILE", 3 }, { "GAIN", 6 }, { "CEILING", -1 } }).done());
+            .m ("LIMITER", { { "STILE", 3 }, { "GAIN", 6 }, { "CEILING", -1 } }).eq (BT_LCUT, 22, 0, 1).eq (BT_BELL, 300, -0.8f, 0.8f).eq (BT_HCUT, 18000, 0, 1).done());
         v.push_back (PB ("MASTER", "R&B | Morbido e largo", "Master R&B: EQ spettrale sui medi alti, wider sopra 2k, limiter pulito.", T_MST)
             .eq (BT_BELL, 3000, -2, 1).spec (-34, -3)
             .m ("WIDER", { { "WIDTH", 1.12f }, { "DA", 2000 } })
             .m ("LIMITER", { { "STILE", 0 }, { "GAIN", 5 }, { "CEILING", -1 } }).done());
         v.push_back (PB ("MASTER", "Lo-fi | Morbido", "Master lo-fi: cassetta leggera, limiter morbido, poco volume.", T_MST)
             .m ("TAPE MACHINE", { { "MACCHINA", 2 }, { "DRIVE", 0.3f } })
-            .m ("LIMITER", { { "STILE", 3 }, { "GAIN", 4 }, { "CEILING", -1 } }).done());
+            .m ("LIMITER", { { "STILE", 3 }, { "GAIN", 4 }, { "CEILING", -1 } }).eq (BT_LCUT, 30, 0, 1).eq (BT_HSHELF, 8000, -2, 0.7f).eq (BT_HCUT, 12000, 0, 1).done());
         v.push_back (PB ("MASTER", "Pop | Brillante", "Master pop: aria, VCA, clip leggero e limiter punch.", T_MST)
             .eq (BT_HSHELF, 10000, 1.5f, 0.7f).eq (BT_BELL, 250, -1, 1)
             .m ("BUS VCA", { { "THRESH", 0.2f } })
@@ -436,21 +436,21 @@ const std::vector<MixPreset>& factoryPresets()
         // ================================================================ CREATIVI
         v.push_back (PB ("FX", "Dub | Delay che si avvita", "Voce o rullante dub: delay con feedback alto e spring. Alza FEEDBACK oltre 100% per l'autoscillazione.", T_VOX)
             .m ("DUB DELAY", { { "FEEDBACK", 0.8f } }, 0.35f)
-            .m ("SPRING", {}, 0.25f).done());
+            .m ("SPRING", {}, 0.25f).eq (BT_LCUT, 180, 0, 1, 0, 2).eq (BT_HCUT, 5000, 0, 1, 0, 1).eq (BT_BELL, 1200, 2, 0.8f).done());
         v.push_back (PB ("FX", "Transizione | Lavaggio", "Lunghissimo e ampio: Blackhole con shimmer al massimo.", T_SYN)
-            .m ("BLACKHOLE", { { "DECAY", 15000 }, { "SHIMMER", 0.6f } }, 0.6f).done());
+            .m ("BLACKHOLE", { { "DECAY", 15000 }, { "SHIMMER", 0.6f } }, 0.6f).eq (BT_LCUT, 250, 0, 1, 0, 2).eq (BT_HSHELF, 8000, 2, 0.7f).done());
         v.push_back (PB ("FX", "Megafono | Bridge", "Voce o sample attraverso un megafono rotto.", T_VOX)
             .m ("RADIO", { { "DRIVE", 0.7f } })
-            .m ("HARD CLIP", { { "DRIVE", 0.4f } }).done());
+            .m ("HARD CLIP", { { "DRIVE", 0.4f } }).eq (BT_LCUT, 200, 0, 1, 0, 1).eq (BT_BELL, 1800, 4, 0.9f).eq (BT_HCUT, 7000, 0, 1, 0, 1).done());
         v.push_back (PB ("FX", "Underwater | Sott'acqua", "Passa basso stretto, chorus lento, hall.", T_SMP)
             .eq (BT_HCUT, 600, 0, 1.4f, 0, 2)
             .m ("CHORUS CE-1", {}, 0.5f)
             .m ("HALL 480", { { "DECAY", 3000 } }, 0.3f).done());
         v.push_back (PB ("FX", "Octave Fuzz | Synth sporco", "Octavia + wavefolder: per synth e bassi che urlano.", T_SYN)
             .m ("OCTAVIA", { { "DRIVE", 0.5f } })
-            .m ("WAVEFOLDER", { { "DRIVE", 0.3f } }, 0.5f).done());
+            .m ("WAVEFOLDER", { { "DRIVE", 0.3f } }, 0.5f).eq (BT_LCUT, 40, 0, 1).eq (BT_BELL, 800, 2, 0.8f).eq (BT_HCUT, 8000, 0, 1).done());
         v.push_back (PB ("FX", "Flanger | Jet sul beat", "Flanger sul loop o sul bus prima del drop.", T_DRUMS)
-            .m ("FLANGER", {}, 0.5f).done());
+            .m ("FLANGER", {}, 0.5f).eq (BT_LCUT, 30, 0, 1).eq (BT_HSHELF, 6000, 2, 0.7f).done());
         return v;
     }();
     return P;

@@ -60,12 +60,12 @@ const std::vector<ModDef>& mods()
             ModDef d; d.name = "DS 902"; d.inspired = "dbx 902 / Lindell 902"; d.cat = C_DEESS; d.kind = K_DS; d.sub = 0;
             d.desc = "De-esser analogico classico: sopra la frequenza scelta abbassa solo le sibilanti (SPLIT) o tutta la voce per un istante (WIDE). Veloce e trasparente.";
             d.look = look (0xff202226, 0xffe6e6e6, 0xffe7b416, 2, 3, true);
-            d.spec = { S ("FREQ", 2500, 12000, 6000, F_HZ), S ("THRESH", -50, 0, -24, F_DB), S ("RANGE", 0, 20, 8, F_DB), S ("MODO", 0, 1, 0, F_ITEMS, { "SPLIT", "WIDE" }), S ("ASCOLTA", 0, 1, 0, F_BOOL) };
+            d.spec = { S ("FREQ", 2500, 12000, 6000, F_HZ), S ("THRESH", -50, 0, -24, F_DB), S ("RANGE", 0, 30, 10, F_DB), S ("MODO", 0, 1, 0, F_ITEMS, { "SPLIT", "WIDE" }), S ("ASCOLTA", 0, 1, 0, F_BOOL) };
             d.spec.resize (kP); add (d);
             ModDef p; p.name = "PRO DS"; p.inspired = "FabFilter Pro-DS"; p.cat = C_DEESS; p.kind = K_DS; p.sub = 1;
             p.desc = "De-esser intelligente: guarda quanto le sibilanti sporgono sul resto della voce (non il volume assoluto), con lookahead: lavora uguale su strofe piano e ritornelli forti.";
             p.look = look (0xff1c2a33, 0xffd8f0ff, 0xff38c6ff, 2, 3, true);
-            p.spec = { S ("SOGLIA", -30, 30, 0, F_NUM), S ("RANGE", 0, 20, 8, F_DB), S ("DA", 2500, 12000, 5500, F_HZ), S ("A", 8000, 20000, 16000, F_HZ),
+            p.spec = { S ("SOGLIA", -30, 30, 0, F_NUM), S ("RANGE", 0, 30, 10, F_DB), S ("DA", 2500, 12000, 5500, F_HZ), S ("A", 8000, 20000, 16000, F_HZ),
                        S ("MODO", 0, 1, 0, F_ITEMS, { "SPLIT", "WIDE" }), S ("LOOKAHEAD", 0, 1, 1, F_BOOL), S ("ASCOLTA", 0, 1, 0, F_BOOL) };
             p.spec.resize (kP); add (p);
         }
@@ -77,11 +77,12 @@ const std::vector<ModDef>& mods()
             d.spec = { S ("DRIVE", 0, 1, 0.3f, F_PCT), S ("STILE", 0, 4, 0, F_ITEMS, { "A", "E", "N", "T", "P" }), S ("TONE", -1, 1, 0, F_BIP), S ("LOW CUT", 10, 600, 10, F_HZ),
                        S ("HIGH CUT", 2000, 22000, 22000, F_HZ), S ("PUNISH", 0, 1, 0, F_BOOL), S ("OUTPUT", -24, 12, 0, F_DB), S ("AUTO", 0, 1, 1, F_BOOL) };
             d.spec.resize (kP); add (d);
-            ModDef t; t.name = "TUBE BOX"; t.inspired = "Black Box HG-2"; t.cat = C_SAT; t.kind = K_TUBE;
-            t.desc = "Pentodo e triodo in serie come l'HG-2: PENTODE spinge, TRIODE scalda, SAT in parallelo con la sua frequenza, AIR apre gli alti. Il nostro Tube Box dentro il rack.";
+            ModDef t; t.name = "TUBE BOX"; t.inspired = "Jackpot Tube Box"; t.cat = C_SAT; t.kind = K_TUBE;
+            t.desc = "Il nostro Tube Box: DRIVE spinge la valvola scelta (volume compensato), sei caratteri con la loro personalita' (CALDO, SPINTO, CREMA, VETRO, FUOCO, SPESSO), CALORE sui bassi, ARIA in alto, ENHANCER sulla presenza.";
             t.look = look (0xff16181b, 0xffd9d9d9, 0xffff9f1a, 2, 2, true);
-            t.spec = { S ("INPUT", -12, 12, 0, F_DB), S ("PENTODE", 0, 10, 5, F_NUM), S ("TRIODE", 0, 10, 5, F_NUM), S ("DENSITY", 0, 10, 0, F_NUM), S ("SAT", 0, 10, 0, F_NUM),
-                       S ("SAT FREQ", 0, 2, 1, F_ITEMS, { "LOW", "FLAT", "HIGH" }), S ("AIR", 0, 10, 0, F_NUM), S ("CALIB", 0, 2, 1, F_ITEMS, { "DARK", "NORMAL", "BRIGHT" }), S ("OUTPUT", -12, 12, 0, F_DB) };
+            juce::StringArray chs; for (int i = 0; i < jtbx::kChars; ++i) chs.add (jtbx::charOf (i).name);
+            t.spec = { S ("DRIVE", 0, 10, 4, F_NUM), S ("CARATTERE", 0, (float) (jtbx::kChars - 1), 0, F_ITEMS, chs), S ("CALORE", 0, 10, 0, F_NUM), S ("ARIA", 0, 10, 0, F_NUM),
+                       S ("ENHANCER", 0, 10, 0, F_NUM), S ("OUTPUT", -12, 12, 0, F_DB) };
             t.spec.resize (kP); add (t);
             ModDef m; m.name = "MB SAT"; m.inspired = "saturatore multibanda"; m.cat = C_SAT; m.kind = K_MBSAT;
             m.desc = "Saturazione su tre bande, ognuna col suo carattere (valvola, nastro, triodo, caldo, retro, brillante): bassi pieni, medi densi e alti lucidi senza impastare.";
@@ -369,7 +370,7 @@ public:
     void process (float* L, float* R, int n, const float* v, const Ctx&) override
     {
         const bool decap = mod (type).kind == K_DECAP;
-        int model = mod (type).sub; const float drive = rv (v, 0), tone = rv (v, decap ? 2 : 1), lo = rv (v, decap ? 3 : 2), hi = rv (v, decap ? 4 : 3), outDb = rv (v, decap ? 6 : 4); const bool autoL = rv (v, decap ? 7 : 5) > 0.5f;
+        int model = mod (type).sub; const float drive = mod (type).kind == K_DECAP ? std::pow (rv (v, 0), 0.6f) : rv (v, 0), tone = rv (v, decap ? 2 : 1), lo = rv (v, decap ? 3 : 2), hi = rv (v, decap ? 4 : 3), outDb = rv (v, decap ? 6 : 4); const bool autoL = rv (v, decap ? 7 : 5) > 0.5f;
         float boost = 0;
         if (decap) { static const int st[] = { ja::TAPE, ja::TRASFORMATORE, ja::CONSOLE, ja::VALVOLA, ja::CLIPPER }; model = st[juce::jlimit (0, 4, (int) rv (v, 1))]; if (rv (v, 5) > 0.5f) boost = 20; }
         for (auto& c : ch) c.setModel (model);
@@ -446,8 +447,7 @@ public:
     int latency (const float*) const override { return e.latency(); }
     void process (float* L, float* R, int n, const float* v, const Ctx&) override
     {
-        jtbx::Settings S; S.hgOn = true; S.inDb = rv (v, 0); S.pentode = rv (v, 1); S.triode = rv (v, 2); S.density = rv (v, 3); S.sat = rv (v, 4); S.satIn = S.sat > 0.01f; S.satFreq = (int) rv (v, 5);
-        S.air = rv (v, 6); S.airIn = S.air > 0.01f; S.calib = (int) rv (v, 7); S.outDb = rv (v, 8); S.mix = 1;
+        jtbx::Settings S; S.drive = rv (v, 0); S.character = (int) rv (v, 1); S.warmth = rv (v, 2); S.air = rv (v, 3); S.enh = rv (v, 4); S.outDb = rv (v, 5); S.mix = 1; S.autoGain = true;
         e.process (L, R, n, S); peakOut (*this, L, R, n);
     }
     jtbx::Engine e;
@@ -455,16 +455,27 @@ public:
 class MbSatEng : public Engine
 {
 public:
-    void prepare (double s, int) override { e.prepare (s); }
+    void prepare (double s, int) override { e.prepare (s); sr = s; eIn = eOut = 0; agS = 1; }
     void process (float* L, float* R, int n, const float* v, const Ctx&) override
     {
         jms::ExSettings S; S.x1 = rv (v, 6); S.x2 = juce::jmax (rv (v, 7), S.x1 * 2); S.mix = 1;
-        for (int b = 0; b < 3; ++b) { S.amt[b] = rv (v, b); S.mode[b] = (int) rv (v, 3 + b); }
-        for (int off = 0; off < n; off += 512) e.process (L + off, R + off, juce::jmin (512, n - off), S);
-        const float og = juce::Decibels::decibelsToGain (rv (v, 8)); for (int i = 0; i < n; ++i) { L[i] *= og; R[i] *= og; }
+        // corsa della manopola piu' uniforme: prima la prima meta' non faceva quasi niente e l'ultimo quarto esplodeva
+        float amax = 0; for (int b = 0; b < 3; ++b) { const float a = rv (v, b); S.amt[b] = 1.0f - (1.0f - a) * (1.0f - a); S.mode[b] = (int) rv (v, 3 + b); amax = juce::jmax (amax, a); }
+        const float kE = (float) (1.0 - std::exp (-1.0 / (0.4 * sr))), kG = (float) (1.0 - std::exp (-1.0 / (0.05 * sr)));
+        for (int off = 0; off < n; off += 512)
+        {
+            const int m = juce::jmin (512, n - off);
+            for (int i = 0; i < m; ++i) { const float x = 0.5f * (L[off + i] + R[off + i]); eIn += (x * x - eIn) * kE; }
+            e.process (L + off, R + off, m, S);
+            for (int i = 0; i < m; ++i) { const float y = 0.5f * (L[off + i] + R[off + i]); eOut += (y * y - eOut) * kE; }
+            // volume compensato (lento, 400 ms): girando le manopole senti il colore, non il volume
+            const float want = amax > 0.001f && eOut > 1e-9f && eIn > 1e-9f ? juce::jlimit (0.5f, 2.0f, std::sqrt (eIn / eOut)) : 1.0f;
+            for (int i = 0; i < m; ++i) { agS += (want - agS) * kG; L[off + i] *= agS; R[off + i] *= agS; }
+        }
+        const float og = juce::Decibels::decibelsToGain (rv (v, 8)); if (og != 1.0f) for (int i = 0; i < n; ++i) { L[i] *= og; R[i] *= og; }
         peakOut (*this, L, R, n);
     }
-    jms::Exciter e;
+    jms::Exciter e; double sr = 44100; float eIn = 0, eOut = 0, agS = 1;
 };
 // compressori del nostro Studio Comp: a 4x con filtri a fase lineare come nello Studio Comp (prima giravano a 1x: rilevatore che
 // mancava i picchi veri e saturazioni COLOR che ripiegavano armoniche nell'udibile)

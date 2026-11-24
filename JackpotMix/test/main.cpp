@@ -214,7 +214,17 @@ int main (int argc, char** argv)
         if (auto* s = std::getenv ("JSOLO")) p.soloSlot = std::atoi (s);
         if (auto* s = std::getenv ("JDELTA")) p.deltaSlot = std::atoi (s);
         if (std::getenv ("JBROWSE")) ed.browser.open();
+        if (std::getenv ("JMODS")) ed.openModuleChooser (std::atoi (std::getenv ("JMODS")));
+        if (std::getenv ("JMODP")) ed.openModulePresets (std::atoi (std::getenv ("JMODP")));
+        if (std::getenv ("JSCROLL")) { ed.rackView.scrollTo ((float) std::atoi (std::getenv ("JSCROLL")), false); }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+        if (std::getenv ("JPERF"))
+        {
+            auto tm = [] (juce::Component& c, int n) { const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < n; ++i) c.createComponentSnapshot (c.getLocalBounds(), true, 1.0f); return (juce::Time::getMillisecondCounterHiRes() - t0) / n; };
+            std::printf ("intero %.2f ms, rack %.2f ms, EQ %.2f ms, loudness %.2f ms, imager %.2f ms\n", tm (ed, 5), tm (ed.rack, 10), tm (ed.graph, 20), tm (ed.loud, 20), tm (ed.imager, 20));
+            if (ed.rack.slots.size() > 0) { auto& s0 = *ed.rack.slots[1]; double kn = 0; for (auto& c : s0.ctl) kn += tm (*c, 20); std::printf ("modulo 2 da solo %.2f ms, sue manopole %.2f ms\n", tm (s0, 20), kn); }
+            const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < 30; ++i) ed.timerCallback(); std::printf ("30 timer %.2f ms\n", juce::Time::getMillisecondCounterHiRes() - t0);
+        }
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;
     }
@@ -236,6 +246,53 @@ int main (int argc, char** argv)
                 std::printf ("%-14s mix %3.0f%%: effetto %+6.1f dB rispetto al dry\n", mod (t).name.toRawUTF8(), mx * 100, juce::Decibels::gainToDecibels (std::sqrt (ew / ei)));
             }
         }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "sat")
+    {   // saturatori: livello d'uscita e armoniche al variare del DRIVE (sinusoide 110 Hz e 1 kHz a -18 dBFS)
+        for (int t = 1; t < (int) mods().size(); ++t)
+        {
+            if (mod (t).cat != C_SAT && ! (std::getenv ("JALL") && mod (t).cat == C_DIST)) continue;
+            int di = -1; for (int i = 0; i < kP; ++i) { juce::String l (mod (t).spec[(size_t) i].label); if (di < 0 && (l == "DRIVE" || l == "BASSI")) di = i; }
+            for (double f : { 110.0, 1000.0 })
+            {
+                juce::String line;
+                for (float d : { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f })
+                {
+                    Processor p; p.prepareToPlay (44100, 512); p.insertModule (0, t); p.setP ("eq_on", 0);
+                    if (mod (t).kind == K_MBSAT) { p.setP ("s1_p1", d); p.setP ("s1_p2", d); p.setP ("s1_p3", d); } else if (di >= 0) p.setP ("s1_p" + juce::String (di + 1), d);
+                    pump (p); double ph = 0; std::vector<float> o; feed (p, 80, 0.177f, f, ph, &o);
+                    // fondamentale con i minimi quadrati, il resto sono armoniche e rumore
+                    const size_t a = 20000, n = o.size() - a; double sc = 0, cc = 0, ss = 0, cs = 0, sx = 0, cx = 0;
+                    for (size_t i = 0; i < n; ++i) { const double w = 2 * juce::MathConstants<double>::pi * f * (double) (a + i) / 44100.0, sn = std::sin (w), cn = std::cos (w); ss += sn * sn; cc += cn * cn; cs += sn * cn; sx += sn * o[a + i]; cx += cn * o[a + i]; }
+                    const double det = ss * cc - cs * cs, A = (sx * cc - cx * cs) / det, B = (cx * ss - sx * cs) / det; double er = 0, et = 0;
+                    for (size_t i = 0; i < n; ++i) { const double w = 2 * juce::MathConstants<double>::pi * f * (double) (a + i) / 44100.0; const double r = o[a + i] - A * std::sin (w) - B * std::cos (w); er += r * r; et += (double) o[a + i] * o[a + i]; }
+                    line << juce::String (juce::roundToInt (d * 100)) << "%: " << juce::String (rmsDb (o, a) + 18.0f, 1) << "dB thd " << juce::String (100.0 * std::sqrt (er / juce::jmax (1e-12, et)), 1) << "%  ";
+                }
+                std::printf ("%-12s %5.0f Hz  %s\n", mod (t).name.toRawUTF8(), f, line.toRawUTF8());
+            }
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "ds")
+    {   // de-esser: quanto toglie sulle sibilanti (rumore sopra 6 kHz) e quanto lascia sotto (sinusoide 300 Hz)
+        for (const char* nm : { "DS 902", "PRO DS" })
+            for (float rg : { 10.0f, 20.0f, 30.0f })
+            {
+                const int t = findMod (nm); Processor p; p.prepareToPlay (44100, 512); p.insertModule (0, t); p.setP ("eq_on", 0);
+                const auto& d = mod (t); for (int i = 0; i < kP; ++i) { juce::String l (d.spec[(size_t) i].label); if (l == "RANGE") p.setP ("s1_p" + juce::String (i + 1), specNorm (d.spec[(size_t) i], rg)); if (l == "THRESH" || l == "SOGLIA") p.setP ("s1_p" + juce::String (i + 1), specNorm (d.spec[(size_t) i], d.spec[(size_t) i].lo)); }
+                pump (p); juce::Random r (5); jkit::Bq h1, h2; h1.hp (44100, 6500); h2.hp (44100, 6500);
+                juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mm; double eHi = 0, eHiIn = 0, eLo = 0, eLoIn = 0; double ph = 0; jkit::Bq a1, a2, z1, z2; a1.hp (44100, 6000); a2.hp (44100, 6000); z1.lp (44100, 1000); z2.lp (44100, 1000);
+                for (int k = 0; k < 300; ++k)
+                {
+                    float in[512]; for (int i = 0; i < 512; ++i) { const float sib = h2.p (h1.p (r.nextFloat() - 0.5f)) * 0.5f; const float lo = (float) std::sin (ph) * 0.2f; ph += 2 * juce::MathConstants<double>::pi * 300 / 44100.0; in[i] = lo + sib; b.setSample (0, i, in[i]); b.setSample (1, i, in[i]); }
+                    p.processBlock (b, mm);
+                    if (k > 100) for (int i = 0; i < 512; ++i) { const float o = b.getSample (0, i); const float oh = a2.p (a1.p (o)), ol = z2.p (z1.p (o)); eHi += oh * oh; eLo += ol * ol; }
+                }
+                r = juce::Random (5); h1.reset(); h2.reset(); ph = 0; a1.reset(); a2.reset(); z1.reset(); z2.reset();
+                for (int k = 0; k < 300; ++k) for (int i = 0; i < 512; ++i) { const float sib = h2.p (h1.p (r.nextFloat() - 0.5f)) * 0.5f; const float lo = (float) std::sin (ph) * 0.2f; ph += 2 * juce::MathConstants<double>::pi * 300 / 44100.0; const float x = lo + sib; const float oh = a2.p (a1.p (x)), ol = z2.p (z1.p (x)); if (k > 100) { eHiIn += oh * oh; eLoIn += ol * ol; } }
+                std::printf ("%-7s RANGE %2.0f: sibilanti %+6.1f dB, sotto %+5.2f dB\n", nm, rg, 10 * std::log10 (eHi / eHiIn), 10 * std::log10 (eLo / eLoIn));
+            }
         return 0;
     }
     if (argc > 1 && juce::String (argv[1]) == "eqmax")

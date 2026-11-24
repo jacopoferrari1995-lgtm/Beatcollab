@@ -26,7 +26,7 @@ class SlotView : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     SlotView (Editor&, int slot);
-    static constexpr int kUnit = 136, kRail = 26;
+    static constexpr int kUnit = 112, kRail = 40;
     static int unitsFor (int type, int height);
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -37,9 +37,11 @@ public:
     Editor& ed; const int slot; int type = 0; Design D;
     std::vector<std::unique_ptr<juce::Component>> ctl;
     std::unique_ptr<hw::Knob> mixK;
-    juce::Rectangle<float> meterR, nameR, menuR, irR, footR, inR, soloR, deltaR;
+    juce::Rectangle<float> meterR, nameR, menuR, irR, footR, inR, soloR, deltaR, presetR, bypR;
     float vu = -20, ledV = 0; int heroN = 0;
 private:
+    void paintStatic (juce::Graphics&);
+    juce::Image bg; juce::String bgKey;   // frontale disegnato una volta sola (prima si ridisegnava tutto a ogni lancetta)
     juce::Point<float> downAt; bool dragging = false;
 };
 
@@ -71,6 +73,10 @@ class RackContent : public juce::Component, public juce::DragAndDropTarget
 {
 public:
     explicit RackContent (Editor& e) : ed (e) {}
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override { setMouseCursor (juce::MouseCursor::NormalCursor); }
+    int panFrom = 0;
     void rebuild();
     void layoutTiles (int height);
     void paint (juce::Graphics&) override;
@@ -83,6 +89,44 @@ public:
     Editor& ed;
     juce::OwnedArray<SlotView> slots; std::unique_ptr<EqTile> eqTile; std::unique_ptr<AddTile> addTile;
     juce::String signature; int dropAt = -1;
+};
+
+// il rack scorre con la rotella (anche quella verticale), col trackpad, trascinando lo sfondo; i salti sono animati
+class RackView : public juce::Viewport
+{
+public:
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override
+    {
+        const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
+        scrollTo ((float) (target >= 0 ? target : getViewPositionX()) - (w.isReversed ? -d : d) * (w.isSmooth ? 700.0f : 1100.0f), ! w.isSmooth);
+    }
+    void scrollTo (float x, bool anim = true)
+    {
+        const float mx = (float) juce::jmax (0, getViewedComponent() ? getViewedComponent()->getWidth() - getViewWidth() : 0);
+        target = juce::jlimit (0.0f, mx, x);
+        if (! anim) { setViewPosition (juce::roundToInt (target), 0); target = -1; }
+    }
+    void step()
+    {
+        if (target < 0) return;
+        const float x = (float) getViewPositionX(), nx = x + (target - x) * 0.35f;
+        if (std::abs (target - nx) < 1.0f) { setViewPosition (juce::roundToInt (target), 0); target = -1; } else setViewPosition (juce::roundToInt (nx), 0);
+    }
+    float target = -1;
+};
+
+// striscia sopra il rack: tutti i moduli in fila, clic per andarci, x per toglierlo, tasto destro per il menu, + per aggiungerne
+class ChainNav : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    explicit ChainNav (Editor& e) : ed (e) {}
+    void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override { hov = -1; hovX = false; repaint(); }
+    void mouseDown (const juce::MouseEvent&) override;
+    struct Chip { juce::Rectangle<float> r, x; int slot; };   // slot: -1 EQ, -2 aggiungi
+    std::vector<Chip> layout() const;
+    Editor& ed; int hov = -1; bool hovX = false;
 };
 
 // --------------------------------------------------------------------- misure a destra
@@ -140,11 +184,18 @@ public:
     void updatePop();
     float xOf (float f) const; float fOf (float x) const; float yOf (float db) const; float dbOf (float y) const;
     juce::Point<float> nodeOf (int b) const; int hit (juce::Point<float>) const;
-    juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (8).withTrimmedTop (22).withTrimmedBottom (16).withTrimmedLeft (26); }
+    juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (8).withTrimmedTop (30).withTrimmedBottom (46).withTrimmedLeft (26); }
     Editor& ed; BandPop pop { *this };
     int hover = -1, drag = -1, sel = -1, popBand = -1, popHold = 0; float dragF = 1000, dragG = 0; juce::Point<float> lastPos;
+    float span = 12;   // scala verticale: +-6, +-12, +-24 dB
+    int ana = 0;       // analizzatore: 0 prima e dopo, 1 solo dopo, 2 spento
+    struct Hot { juce::Rectangle<float> r; int id; };
+    std::vector<Hot> hots;   // pulsanti della testata e tessere delle bande in basso
+    void addBand (float f);
 private:
-    juce::dsp::FFT fft { 12 }; std::vector<float> win, buf, specPre, specPost;
+    juce::dsp::FFT fft { 12 }; std::vector<float> win, buf, specPre, specPost, dispPre, dispPost;
+    juce::Image grid; juce::String gridKey;
+    void paintGrid (juce::Graphics&);
 };
 
 class GainChip : public juce::Component
@@ -186,13 +237,19 @@ public:
     void presetMenu();
     jbrowse::Browser browser; void setupBrowser();
     void slotMenu (int s, juce::Component* target);
+    jbrowse::Browser modBrowser;                   // scelta dei moduli e preset del singolo modulo
+    void openModuleChooser (int s);                // s = -1: nuovo modulo in fondo
+    void openModulePresets (int s);
+    void scrollToSlot (int s);
+    struct ModPre { int type = 0, id = -1; juce::String name; } modPre[kSlots];
+    juce::Image bgImg; juce::String bgKey;
     static juce::PopupMenu moduleMenu (int baseId, int current);
     void pickModule (int s, juce::Component* target);   // s = -1: nuovo modulo in fondo
     Processor& proc;
     jlook::Scaler scaler { *this, "mixology", W, H };
     jlook::LnF lnf;
     juce::TooltipWindow tips { this, 600 };
-    juce::Viewport rackView; RackContent rack { *this };
+    RackView rackView; RackContent rack { *this }; ChainNav nav { *this };
     EqGraph graph { *this };
     LoudPanel loud { *this }; ImagerPanel imager { *this };
     std::unique_ptr<GainChip> inChip, outChip;

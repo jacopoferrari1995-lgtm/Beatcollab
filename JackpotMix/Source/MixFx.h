@@ -277,7 +277,7 @@ struct DsSettings { float freq = 6000, thr = -24, range = 8, hiLim = 16000; bool
 class DeEsser
 {
 public:
-    void prepare (double s) { sr = s; for (auto& c : st) c = {}; env = 0; gr = 0; last = -1; for (int c = 0; c < 2; ++c) dl[c].prepare ((int) (sr * 0.006)); fullEnv = 0; }
+    void prepare (double s) { sr = s; for (auto& c : st) c = {}; env = 0; gr = 0; dynG = 0; tick = 0; last = -1; for (int c = 0; c < 2; ++c) dl[c].prepare ((int) (sr * 0.006)); fullEnv = 0; }
     void process (float* L, float* R, int n, const DsSettings& S)
     {
         const int key = juce::roundToInt (S.freq) * 3 + juce::roundToInt (S.hiLim) * 7;
@@ -294,18 +294,38 @@ public:
             const float lev = S.relative ? g2db (env) - g2db (fullEnv) + 12.0f + S.thr * 0.0f : g2db (env);
             const float th = S.relative ? 12.0f + S.thr * 0.5f : S.thr;
             const float over = lev - th;
-            const float target = over > 0 ? -juce::jmin (S.range, over * 0.8f) : 0.0f;
-            gr += (target - gr) * (target < gr ? 0.3f : 0.002f);
+            // riduzione piu' decisa (prima 0.8 dB per dB e uno split che lasciava passare meta' delle sibilanti)
+            const float target = over > 0 ? -juce::jmin (S.range, over * 1.25f) : 0.0f;
+            gr += (target - gr) * (target < gr ? 0.3f : 0.0025f);
+            if (gr > -0.01f && target == 0.0f) gr = 0.0f;
             grMax = juce::jmin (grMax, gr);
             const float g = db2g (gr);
+            if (! S.wide && ((tick++ & 15) == 0 || (gr == 0.0f) != (dynG == 0.0f)))
+            {   // SPLIT: filtro dinamico (due shelf in serie, o una campana se la banda finisce prima di 15 kHz) che segue la riduzione;
+                // a 0 dB il filtro e' piatto: il suono passa identico
+                if (std::abs (gr - dynG) > 0.005f || (gr == 0.0f) != (dynG == 0.0f))
+                {
+                    dynG = gr;
+                    for (int c = 0; c < 2; ++c)
+                    {
+                        if (gr == 0.0f) { st[c].d1.flat(); st[c].d2.flat(); continue; }
+                        if (S.hiLim >= 15000) { st[c].d1.highShelf (sr, S.freq * 0.9, gr * 0.5, 1.0); st[c].d2.highShelf (sr, S.freq * 1.25, gr * 0.5, 1.0); }
+                        else
+                        {
+                            const double fc = std::sqrt ((double) S.freq * juce::jmax ((double) S.freq * 1.2, (double) S.hiLim)), q = juce::jlimit (0.5, 4.0, fc / juce::jmax (200.0, (double) S.hiLim - S.freq));
+                            st[c].d1.peak (sr, fc, q, gr * 0.5); st[c].d2.peak (sr, fc, q * 1.3, gr * 0.5);
+                        }
+                    }
+                }
+            }
             for (int c = 0; c < 2; ++c)
             {
                 float& x = c ? R[i] : L[i]; dl[c].push (x); const float xd = la ? dl[c].tap (la) : x;
                 if (S.wide) { const float hh = st[c].x2.p (st[c].x1.p (xd)); x = S.listen ? hh * (1 - g) : xd * g; }
                 else
-                {   // split: abbassa solo la parte alta
-                    const float hh = st[c].x2.p (st[c].x1.p (xd));
-                    x = S.listen ? hh * (1 - g) : xd - hh * (1 - g);
+                {
+                    const float y = st[c].d2.p (st[c].d1.p (xd));
+                    x = S.listen ? xd - y : y;   // ASCOLTA: senti solo quello che toglie
                 }
             }
         }
@@ -314,8 +334,8 @@ public:
     int latency (const DsSettings& S) const { return S.look ? (int) (0.003 * sr) : 0; }
     float grUi = 0;
 private:
-    struct Ch { jkit::Bq h1, h2, l1, x1, x2; } st[2]; Line dl[2];
-    double sr = 44100; float env = 0, fullEnv = 0, gr = 0; int last = -1;
+    struct Ch { jkit::Bq h1, h2, l1, x1, x2, d1, d2; } st[2]; Line dl[2];
+    double sr = 44100; float env = 0, fullEnv = 0, gr = 0, dynG = 0; int last = -1; unsigned tick = 0;
 };
 
 // ======================================================================= gate / expander
