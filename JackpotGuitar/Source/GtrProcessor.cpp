@@ -8,7 +8,7 @@ juce::File presetFolder()
     auto d = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Guitar Preset");
     d.createDirectory(); return d;
 }
-static const char* kGenIds[] = { "key", "scale", "genre", "mode", "pat", "vstyle", "tuning", "bars", "perBar", "color", "pos", "density", "dyn", "strum", "human", "swing", "ring", "emb", "tech", "borrow", "mood", "rest", "lyBase", "lyArp", "lyLead", "arpFig", "arpRit", "arpRot" };
+static const char* kGenIds[] = { "key", "scale", "genre", "mode", "pat", "vstyle", "tuning", "bars", "perBar", "color", "pos", "density", "dyn", "strum", "human", "swing", "ring", "emb", "tech", "borrow", "mood", "rest", "lyBase", "lyArp", "lyLead", "arpFig", "arpRit", "arpRot", "vary", "octave" };
 
 // preset: gruppo | nome. Ogni preset e' una parte completa (giro, modo, suonata, suono); il giro parte dal grado indicato
 const std::vector<GPreset>& presets()
@@ -115,13 +115,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     { StringArray r; for (int i = 0; i < kRits; ++i) r.add (ritOf (i).name); ch ("arpRit", "Ritmo", r, 0); }
     p.push_back (std::make_unique<AudioParameterInt> (ParameterID { "arpRot", 1 }, "Partenza", 0, 7, 0));
     ch ("vstyle", "Voicing", vs, V_OPEN); ch ("tuning", "Accordatura", tu, STANDARD);
-    ch ("bars", "Battute", { "1", "2", "4", "8" }, 2); ch ("perBar", "Accordi per battuta", { "1", "2", "1/2" }, 0);
+    ch ("bars", "Battute", { "1", "2", "4", "8", "16" }, 2); ch ("perBar", "Accordi per battuta", { "1", "2", "1/2" }, 0);
     { StringArray mo; for (int i = 0; i < kMoods; ++i) mo.add (moodName (i)); ch ("mood", "Mood", mo, 0); }
     fl ("rest", "Pause", 0.3f);
     ch ("color", "Colore", { "AUTO", "TRIADI", "SETTIME", "NONE", "SUS / ADD9" }, 0);
     p.push_back (std::make_unique<AudioParameterInt> (ParameterID { "pos", 1 }, "Posizione", 0, 12, 2));
     fl ("density", "Densita'", 0.5f); fl ("dyn", "Dinamica", 0.6f); fl ("strum", "Pennata", 0.35f); fl ("human", "Umano", 0.4f); fl ("swing", "Swing", 0.0f);
-    fl ("ring", "Risuona", 0.7f); fl ("emb", "Abbellimenti", 0.3f); fl ("tech", "Tecnica", 0.5f); fl ("borrow", "Interscambio", 0.0f);
+    fl ("ring", "Risuona", 0.7f); fl ("emb", "Abbellimenti", 0.3f); fl ("tech", "Tecnica", 0.5f); fl ("borrow", "Interscambio", 0.0f); fl ("vary", "Variazione", 0.45f);
+    p.push_back (std::make_unique<AudioParameterInt> (ParameterID { "octave", 1 }, "Ottava", -2, 2, 0));
     ch ("body", "Suono", bd, NYLON); fl ("tone", "Tono", 0.5f); fl ("bodyAmt", "Corpo", 0.6f); fl ("drive", "Drive", 0.5f); fl ("space", "Spazio", 0.25f); fl ("width", "Larghezza", 0.3f);
     fl ("vol", "Volume", 0.0f, -36.0f, 6.0f);
     bo ("listen", "Suono acceso", true); bo ("live", "Giro in play", true); bo ("midiOut", "MIDI out", true); bo ("chStr", "Canale per corda", false); bo ("play", "Prova", false);
@@ -199,6 +200,21 @@ void Processor::generaGiro()
         for (auto* k : { "seedB", "seedA", "seedL" }) apvts.state.setProperty (k, R.nextInt (0x7ffffff) | 1, &undo);
     }
 }
+void Processor::aCaso()
+{
+    auto& R = juce::Random::getSystemRandom(); undo.beginNewTransaction();
+    auto rr = [&R] (float a, float b) { return a + (b - a) * R.nextFloat(); };
+    const int g = R.nextInt (kGenres); setV ("genre", (float) g); setV ("mood", (float) R.nextInt (kMoods));
+    static const int modes[] = { ARPEGGIO, ARPEGGIO, ARPEGGIO, COMPOSIZIONE, COMPOSIZIONE, ACCORDI, RITMICA, RITMICA, LEAD, LEAD };
+    setV ("mode", (float) modes[R.nextInt (10)]); setV ("vstyle", (float) R.nextInt (kVStyles)); setV ("pos", (float) R.nextInt (8));
+    setV ("density", rr (0.3f, 0.75f)); setV ("dyn", rr (0.4f, 0.8f)); setV ("human", rr (0.25f, 0.55f)); setV ("strum", rr (0.2f, 0.6f));
+    const bool swingy = g == RNB || g == LOFI || g == BOOMBAP || g == AFRO || g == FUNK;
+    setV ("swing", swingy ? rr (0.1f, 0.35f) : (R.nextFloat() < 0.15f ? rr (0.05f, 0.2f) : 0.0f));
+    setV ("rest", rr (0.1f, 0.45f)); setV ("ring", rr (0.5f, 0.9f)); setV ("emb", rr (0.1f, 0.5f)); setV ("tech", rr (0.3f, 0.7f)); setV ("vary", rr (0.25f, 0.6f));
+    setV ("color", (float) (R.nextFloat() < 0.5f ? 0 : 1 + R.nextInt (4))); setV ("borrow", R.nextFloat() < 0.25f ? rr (0.2f, 0.6f) : 0.0f);
+    generaGiro();
+    presetName = "A CASO";
+}
 void Processor::varia()
 {
     // stesso giro e stessi pattern, nuova suonata (in composizione cambiano tutti e tre gli strati)
@@ -221,7 +237,7 @@ Settings Processor::settings() const
     S.figSeq = apvts.state.getProperty ("figSeq", "1 3 4 2").toString();
     S.color = (float) (vi ("color") - 1); S.pos = vi ("pos");
     S.density = v ("density"); S.dyn = v ("dyn"); S.strum = v ("strum"); S.human = v ("human"); S.swing = v ("swing");
-    S.ring = v ("ring"); S.emb = v ("emb"); S.tech = v ("tech"); S.borrow = v ("borrow");
+    S.ring = v ("ring"); S.emb = v ("emb"); S.tech = v ("tech"); S.borrow = v ("borrow"); S.vary = v ("vary"); S.octave = vi ("octave");
     S.prog = prog(); S.seed = seed(); S.bpm = genBpm;
     return S;
 }
@@ -230,7 +246,7 @@ juce::String Processor::settingsKey() const
     const auto S = settings(); juce::String k;
     auto f = [] (float x) { return juce::String (juce::roundToInt (x * 1000.0f)); };   // arrotondati: annulla / ripeti ridanno lo stesso valore
     k << S.key << "|" << S.scale << "|" << S.genre << "|" << S.mode << "|" << S.pattern << "|" << S.vstyle << "|" << S.tuning << "|" << S.bars << "|" << S.perBar << "|" << f (S.color) << "|" << S.pos
-      << "|" << f (S.density) << "|" << f (S.dyn) << "|" << f (S.strum) << "|" << f (S.human) << "|" << f (S.swing) << "|" << f (S.ring) << "|" << f (S.emb) << "|" << f (S.tech) << "|" << f (S.borrow) << "|" << S.mood << "|" << f (S.space)
+      << "|" << f (S.density) << "|" << f (S.dyn) << "|" << f (S.strum) << "|" << f (S.human) << "|" << f (S.swing) << "|" << f (S.ring) << "|" << f (S.emb) << "|" << f (S.tech) << "|" << f (S.borrow) << "|" << f (S.vary) << "|" << S.octave << "|" << S.mood << "|" << f (S.space)
       << "|" << S.lyBase << "|" << S.lyArp << "|" << S.lyLead << "|" << (int) S.seed << "|" << (int) S.seedB << "|" << (int) S.seedA << "|" << (int) S.seedL << "|" << apvts.state.getProperty ("prog").toString()
       << "|" << S.arpFig << "|" << S.arpRit << "|" << apvts.state.getProperty ("grid").toString() << "|" << S.arpRot << "|" << S.figSeq;
     return k;

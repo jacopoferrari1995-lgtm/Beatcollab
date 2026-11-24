@@ -8,7 +8,7 @@ juce::File presetFolder()
     auto d = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Jackpot").getChildFile ("Bass Preset");
     d.createDirectory(); return d;
 }
-static const char* kGenIds[] = { "key", "scale", "genre", "mood", "mode", "fig", "rit", "rot", "bars", "perBar", "color", "octave", "density", "dyn", "human", "swing", "rest", "len", "glide", "approach", "ghost", "borrow" };
+static const char* kGenIds[] = { "key", "scale", "genre", "mood", "mode", "fig", "rit", "rot", "bars", "perBar", "color", "octave", "density", "dyn", "human", "swing", "rest", "len", "glide", "approach", "ghost", "borrow", "vary" };
 
 // preset: gruppo | nome. Lo stile imposta figura, ritmo, glide e lunghezza; il resto lo dice il preset
 const std::vector<BPreset>& presets()
@@ -58,11 +58,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     p.push_back (std::make_unique<AudioParameterInt> (ParameterID { "style", 1 }, "Stile", 0, 7, 0));
     ch ("fig", "Figura", fg, 0); ch ("rit", "Ritmo", rt, 0);
     p.push_back (std::make_unique<AudioParameterInt> (ParameterID { "rot", 1 }, "Partenza", 0, 7, 0));
-    ch ("bars", "Battute", { "1", "2", "4", "8" }, 2); ch ("perBar", "Accordi per battuta", { "1", "2", "1/2" }, 0);
+    ch ("bars", "Battute", { "1", "2", "4", "8", "16" }, 2); ch ("perBar", "Accordi per battuta", { "1", "2", "1/2" }, 0);
     ch ("color", "Colore", { "AUTO", "TRIADI", "SETTIME", "NONE", "SUS / ADD9" }, 0);
     p.push_back (std::make_unique<AudioParameterInt> (ParameterID { "octave", 1 }, "Ottava", -1, 1, 0));
     fl ("density", "Densita'", 0.5f); fl ("dyn", "Dinamica", 0.6f); fl ("human", "Umano", 0.3f); fl ("swing", "Swing", 0.0f); fl ("rest", "Pause", 0.2f);
-    fl ("len", "Lunghezza", 0.95f); fl ("glide", "Glide", 0.2f); fl ("approach", "Passaggi", 0.3f); fl ("ghost", "Ghost", 0.2f); fl ("borrow", "Interscambio", 0.0f);
+    fl ("len", "Lunghezza", 0.95f); fl ("glide", "Glide", 0.2f); fl ("approach", "Passaggi", 0.3f); fl ("ghost", "Ghost", 0.2f); fl ("borrow", "Interscambio", 0.0f); fl ("vary", "Variazione", 0.45f);
     fl ("tone", "Tono", 0.5f); fl ("drive", "Drive", 0.3f); fl ("decay", "Decay", 0.6f); fl ("punch", "Punch", 0.5f); fl ("vol", "Volume", 0.0f, -36.0f, 6.0f);
     bo ("listen", "Suono acceso", true); bo ("live", "Giro in play", true); bo ("midiOut", "MIDI out", true); bo ("play", "Prova", false);
     return { p.begin(), p.end() };
@@ -119,6 +119,20 @@ void Processor::generaGiro()
     applyStyle (L[(size_t) R.nextInt ((int) L.size())]);
     if (R.nextFloat() < 0.35f) { setV ("fig", (float) R.nextInt (kBLibera)); setV ("rit", (float) R.nextInt (kBRits)); }
 }
+void Processor::aCaso()
+{
+    auto& R = juce::Random::getSystemRandom(); undo.beginNewTransaction();
+    auto rr = [&R] (float a, float b) { return a + (b - a) * R.nextFloat(); };
+    const int g = R.nextInt (kGenres); setV ("genre", (float) g); setV ("mood", (float) R.nextInt (kMoods));
+    setV ("density", rr (0.3f, 0.75f)); setV ("dyn", rr (0.4f, 0.8f)); setV ("human", rr (0.2f, 0.5f));
+    const bool swingy = g == RNB || g == LOFI || g == BOOMBAP || g == AFRO || g == FUNK;
+    setV ("swing", swingy ? rr (0.1f, 0.35f) : 0.0f); setV ("rest", rr (0.05f, 0.4f)); setV ("approach", rr (0.1f, 0.6f)); setV ("vary", rr (0.25f, 0.6f));
+    setV ("borrow", R.nextFloat() < 0.2f ? rr (0.2f, 0.5f) : 0.0f); setV ("color", 0); setV ("rot", (float) R.nextInt (3));
+    generaGiro();
+    // dopo lo stile (che imposta glide, lunghezza e ghost) un po' di carattere a caso
+    setV ("glide", juce::jlimit (0.0f, 1.0f, v ("glide") + rr (-0.15f, 0.25f))); setV ("ghost", vi ("mode") == BASSO ? rr (0.05f, 0.5f) : 0.0f);
+    presetName = "A CASO";
+}
 void Processor::varia() { undo.beginNewTransaction(); setSeed ((juce::uint32) (juce::Random::getSystemRandom().nextInt (0x7ffffff) | 1)); }
 
 BSettings Processor::settings() const
@@ -129,7 +143,7 @@ BSettings Processor::settings() const
     S.bars = barsOf (vi ("bars")); { static const int pb[3] = { 1, 2, 0 }; S.perBar = pb[juce::jlimit (0, 2, vi ("perBar"))]; }
     S.color = (float) (vi ("color") - 1); S.octave = vi ("octave");
     S.density = v ("density"); S.dyn = v ("dyn"); S.human = v ("human"); S.swing = v ("swing"); S.space = v ("rest"); S.len = v ("len");
-    S.glide = v ("glide"); S.approach = v ("approach"); S.ghost = v ("ghost"); S.borrow = v ("borrow");
+    S.glide = v ("glide"); S.approach = v ("approach"); S.ghost = v ("ghost"); S.borrow = v ("borrow"); S.vary = v ("vary");
     S.prog = prog(); S.seed = seed();
     return S;
 }
@@ -138,7 +152,7 @@ juce::String Processor::settingsKey() const
     const auto S = settings(); juce::String k; auto f = [] (float x) { return juce::String (juce::roundToInt (x * 1000.0f)); };
     k << S.key << "|" << S.scale << "|" << S.genre << "|" << S.mood << "|" << S.mode << "|" << S.fig << "|" << S.rit << "|" << S.rot << "|" << S.figSeq << "|" << apvts.state.getProperty ("grid").toString()
       << "|" << S.bars << "|" << S.perBar << "|" << f (S.color) << "|" << S.octave << "|" << f (S.density) << "|" << f (S.dyn) << "|" << f (S.human) << "|" << f (S.swing) << "|" << f (S.space) << "|" << f (S.len)
-      << "|" << f (S.glide) << "|" << f (S.approach) << "|" << f (S.ghost) << "|" << f (S.borrow) << "|" << (int) S.seed << "|" << apvts.state.getProperty ("prog").toString();
+      << "|" << f (S.glide) << "|" << f (S.approach) << "|" << f (S.ghost) << "|" << f (S.borrow) << "|" << f (S.vary) << "|" << (int) S.seed << "|" << apvts.state.getProperty ("prog").toString();
     return k;
 }
 static juce::String serialize (const Part& P)

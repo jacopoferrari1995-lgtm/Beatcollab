@@ -322,6 +322,8 @@ struct Settings
     float space = 0.3f;                  // pause: quanto respira la parte
     std::vector<int> prog;               // gradi scelti a mano (vuoto = dal genere)
     juce::uint32 seed = 1;
+    float vary = 0.45f;                  // VARIAZIONE: quanto cambia ogni battuta rispetto alla prima della frase
+    int octave = 0;                      // OTTAVA: tutta la parte su o giu'
 };
 // nomi dei pattern di ogni modo
 inline const juce::StringArray& patternNames (int mode)

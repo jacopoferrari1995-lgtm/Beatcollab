@@ -61,6 +61,29 @@ int main (int argc, char** argv)
         juce::uint32 ha, hb; const int b1 = check (512, false, ha), b2 = check (512, true, hb);
         std::printf ("note riaccese senza chiudere: %d / %d, MIDI con buffer irregolari: %s\n", b1, b2, ha == hb ? "identico" : "DIVERSO");
     }
+    {   // suono interno: si sente, resta sotto 0 dB, identico con buffer irregolari, CPU; tastiera: il beat segue la nota tenuta
+        auto audio = [] (int blk, bool uneven, std::vector<float>& out, int hold)
+        {
+            Processor q; q.setV ("density", 0.8f); q.setV ("energy", 0.8f); PH ph; q.setPlayHead (&ph); q.prepareToPlay (48000, 4096);
+            juce::Random rb (9); juce::int64 t = 0; out.clear(); int notes808 = 0, sum808 = 0;
+            const auto t0 = juce::Time::getMillisecondCounterHiRes();
+            while (t < (juce::int64) (48000 * 10))
+            {
+                const int n = uneven ? 1 + rb.nextInt (blk) : blk; ph.ppq = t / 48000.0 * 140 / 60;
+                juce::AudioBuffer<float> b (2, n); juce::MidiBuffer m; if (t == 0 && hold >= 0) m.addEvent (juce::MidiMessage::noteOn (1, hold, (juce::uint8) 100), 0);
+                q.processBlock (b, m);
+                for (int i = 0; i < n; ++i) out.push_back (b.getSample (0, i));
+                for (auto ev : m) { auto msg = ev.getMessage(); if (msg.isNoteOn() && msg.getChannel() == 5) { ++notes808; sum808 += msg.getNoteNumber() % 12; } }
+                t += n;
+            }
+            q.setPlayHead (nullptr); return std::make_pair ((juce::Time::getMillisecondCounterHiRes() - t0) / 100.0, notes808 > 0 ? (double) sum808 / notes808 : -1.0);
+        };
+        std::vector<float> a, b2, c2; const auto ra = audio (512, false, a, -1); audio (333, true, b2, -1); const auto rc = audio (512, false, c2, 64);
+        float pk = 0, d = 0; bool fin = true; for (size_t i = 0; i < std::min ({ a.size(), b2.size(), (size_t) 480000 }); ++i) { pk = std::max (pk, std::abs (a[i])); d = std::max (d, std::abs (a[i] - b2[i])); fin &= std::isfinite (a[i]); }
+        { size_t fi = 0; while (fi < std::min ({ a.size(), b2.size(), (size_t) 480000 }) && std::abs (a[fi] - b2[fi]) < 1e-6f) ++fi; std::printf ("prima differenza a %zu\n", fi); }
+        std::printf ("SUONO: picco %.2f, finito %s, buffer irregolari diff %.1e, cpu %.2f%%\n", pk, fin ? "si" : "NO", d, ra.first);
+        std::printf ("TASTIERA: 808 senza tastiera classe media %.2f, con MI tenuto %.2f\n", ra.second, rc.second);
+    }
     if (argc > 1)
     {
         PH ph; ph.ppq = 5.3; p.setPlayHead (&ph); juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; p.processBlock (b, m);

@@ -39,6 +39,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
     add ("approach", "PASSAGGI", C::red, pct, "L'ultima nota prima del cambio d'accordo diventa la nota della scala vicina al nuovo accordo: la linea arriva per grado.");
     add ("ghost", "GHOST", C::red, pct, "Basso: note stoppate fra una nota e l'altra (funk, R&B).");
     add ("borrow", "INTERSCAMBIO", C::violet, pct, "Accordi presi in prestito. Spento: la scala si rispetta sempre.");
+    add ("vary", "VARIAZIONE", C::red, pct, "Quanto ogni battuta cambia rispetto alla prima della frase: colpi che saltano o si spostano di un sedicesimo, ottave, ripetute, dinamica che respira e una corsa per grado a fine frase. A zero il pattern si ripete identico.");
     add ("color", "COLORE BASE", C::violet, [] (float v) { static const char* n[5] = { "AUTO", "TRIADI", "SETTIME", "NONE", "SUS/ADD9" }; return juce::String (n[juce::jlimit (0, 4, juce::roundToInt (v))]); }, "Colore degli accordi (decide la settima e la terza che il basso puo' usare). Ogni accordo puo' avere il suo: clic sull'accordo.");
     add ("tone", "TONO", C::phos, pct, "808: quanta parte del drive passa. Basso: dita scure o brillanti. Synth: apertura del filtro.");
     add ("drive", "DRIVE", C::phos, pct, "Saturazione.");
@@ -56,7 +57,7 @@ void Editor::resized()
     for (int i = 0; i < 12; ++i) keyR[i] = { 44.0f + i * 47, 114, 43, 24 };
     for (int i = 0; i < kScales; ++i) scaleR[i] = { 44.0f + i * 94, 146, 90, 24 };
     genreR = { 44, 186, 106, 24 }; moodR = { 156, 186, 106, 24 };
-    for (int i = 0; i < 2; ++i) barsR[i] = { 276.0f + i * 44, 186, 40, 24 };
+    for (int i = 0; i < 4; ++i) barsR[i] = { 276.0f + i * 36, 186, 33, 24 };
     for (int i = 0; i < 3; ++i) perBarR[i] = { 428.0f + i * 38, 186, 34, 24 };
     remR = { 560, 186, 28, 24 }; addR = { 592, 186, 28, 24 };
     for (int i = 0; i < 8; ++i) slotR[i] = { 44.0f + i * 73, 228, 68, 66 };
@@ -67,13 +68,13 @@ void Editor::resized()
     rotR = { 520, 376, 96, 24 }; writeR = { 620, 376, 76, 24 }; gridBtnR = { 700, 376, 144, 24 };
     rollR = { 204, 424, 640, 212 };
     dragR = { 866, 344, 272, 70 };
-    genR = { 866, 452, 134, 30 }; varR = { 1004, 452, 134, 30 };
+    genR = { 866, 452, 88, 30 }; varR = { 958, 452, 88, 30 }; rndR = { 1050, 452, 88, 30 };
     playR = { 866, 490, 134, 26 }; liveR = { 1004, 490, 134, 26 }; midiR = { 866, 522, 272, 26 };
     snapR = { 866, 568, 134, 24 }; resetEditR = { 1004, 568, 134, 24 };
     auto put = [this] (const char* id, int x, int y) { if (auto* k = knobById (knobs, id)) k->setBounds (x, y, 74, 100); };
     int x = 44; for (auto* id : { "density", "dyn", "human", "swing", "rest", "len" }) { put (id, x, 696); x += 80; }
     x += 16; for (auto* id : { "glide", "approach", "ghost" }) { put (id, x, 696); x += 80; }
-    x += 16; for (auto* id : { "borrow", "color" }) { put (id, x, 696); x += 80; }
+    x += 16; for (auto* id : { "borrow", "color", "vary" }) { put (id, x, 696); x += 80; }
     x = 44; for (auto* id : { "tone", "drive", "decay", "punch" }) { put (id, x, 812); x += 80; }
     put ("vol", 1050, 812);
     listenR = { 400, 846, 220, 26 };
@@ -96,7 +97,7 @@ void Editor::paintStatic (juce::Graphics& g)
     grp (g, 276, 172, 84, U ("BATTUTE")); grp (g, 428, 172, 110, U ("ACC. PER BATT.")); grp (g, 560, 172, 60, U ("ACCORDI")); grp (g, 156, 172, 106, U ("MOOD"));
     grp (g, 44, 172, 106, U ("GENERE")); grp (g, 44, 213, 580, U ("GIRO (CLIC PER CAMBIARE L'ACCORDO E IL SUO COLORE)"));
     grp (g, 830, 252, 308, U ("OTTAVA"));
-    grp (g, 44, 682, 474, U ("SUONATA")); grp (g, 540, 682, 232, U ("NOTE")); grp (g, 796, 682, 152, U ("ARMONIA"));
+    grp (g, 44, 682, 474, U ("SUONATA")); grp (g, 540, 682, 232, U ("NOTE")); grp (g, 796, 682, 232, U ("ARMONIA"));
     grp (g, 44, 798, 312, U ("SUONO")); grp (g, 1050, 798, 74, U ("USCITA"));
 }
 void Editor::drawNeck (juce::Graphics& g, const Part& P, int slot)
@@ -210,7 +211,7 @@ void Editor::paint (juce::Graphics& g)
     for (int i = 0; i < kScales; ++i) chipBtn (g, scaleR[i], scaleName (i), S.scale == i, C::amber, 10.0f, hoverId == 120 + i);
     chipBtn (g, genreR, juce::String (genreName (S.genre)) + U (" \xe2\x96\xbe"), true, C::yellow, 9.5f, hoverId == 130);
     chipBtn (g, moodR, juce::String (moodName (S.mood)) + U (" \xe2\x96\xbe"), true, C::yellow, 9.5f, hoverId == 132);
-    for (int i = 0; i < 2; ++i) chipBtn (g, barsR[i], juce::String (barsOf (i + 2)), proc.vi ("bars") == i + 2, C::amber, 10.5f, hoverId == 140 + i);
+    for (int i = 0; i < 4; ++i) chipBtn (g, barsR[i], juce::String (barsOf (i + 1)), proc.vi ("bars") == i + 1, C::amber, 10.5f, hoverId == 140 + i);
     { static const char* pb[3] = { "1", "2", "1/2" }; for (int i = 0; i < 3; ++i) chipBtn (g, perBarR[i], pb[i], proc.vi ("perBar") == i, C::amber, 10.5f, hoverId == 150 + i); }
     const auto pr = proc.prog();
     chipBtn (g, remR, "-", false, pr.size() > 1 ? C::amber : C::dim, 13, hoverId == 160); chipBtn (g, addR, "+", false, pr.size() < 8 ? C::amber : C::dim, 13, hoverId == 161);
@@ -259,7 +260,7 @@ void Editor::paint (juce::Graphics& g)
         jlook::button (g, dragR, c, dragging, hoverId == 230, "", jkit::uf (10));
         g.setFont (jkit::uf (13)); g.setColour (c); g.drawText (U ("TRASCINA IL CLIP MIDI"), dragR.withHeight (30).translated (0, 8), juce::Justification::centred);
         g.setFont (jkit::mf (9.5f)); g.setColour (C::dim); g.drawText (juce::String (barsOf (proc.vi ("bars"))) + U (" battute - nella traccia del tuo basso"), dragR.withTrimmedTop (40).withHeight (14), juce::Justification::centred);
-        chipBtn (g, genR, U ("GENERA GIRO"), false, C::yellow, 10.5f, hoverId == 231); chipBtn (g, varR, U ("VARIA"), false, C::yellow, 10.5f, hoverId == 232);
+        chipBtn (g, genR, U ("GENERA GIRO"), false, C::yellow, 9.5f, hoverId == 231); chipBtn (g, varR, U ("VARIA"), false, C::yellow, 9.5f, hoverId == 232); chipBtn (g, rndR, U ("A CASO"), false, C::red, 9.5f, hoverId == 237);
         chipBtn (g, playR, proc.v ("play") > 0.5f ? U ("\xe2\x96\xa0 FERMA") : U ("\xe2\x96\xb6 PROVA"), proc.v ("play") > 0.5f, C::green, 10, hoverId == 233);
         chipBtn (g, liveR, U ("GIRO IN PLAY"), proc.v ("live") > 0.5f, C::green, 10, hoverId == 234);
         chipBtn (g, midiR, U ("MIDI OUT"), proc.v ("midiOut") > 0.5f, C::green, 10, hoverId == 235);
@@ -424,7 +425,8 @@ void Editor::mouseDown (const juce::MouseEvent& e)
     for (int i = 0; i < kScales; ++i) if (scaleR[i].contains (p)) { proc.setV ("scale", (float) i); proc.curPreset = -1; repaint(); return; }
     if (genreR.contains (p)) { genreMenu(); return; }
     if (moodR.contains (p)) { moodMenu(); return; }
-    for (int i = 0; i < 2; ++i) if (barsR[i].contains (p)) { proc.setV ("bars", (float) (i + 2)); repaint(); return; }
+    for (int i = 0; i < 4; ++i) if (barsR[i].contains (p)) { proc.setV ("bars", (float) (i + 1)); repaint(); return; }
+    if (rndR.contains (p)) { proc.aCaso(); repaint(); return; }
     for (int i = 0; i < 3; ++i) if (perBarR[i].contains (p)) { proc.setV ("perBar", (float) i); repaint(); return; }
     if (addR.contains (p) || remR.contains (p))
     {
@@ -571,7 +573,7 @@ void Editor::mouseMove (const juce::MouseEvent& e)
     auto chk = [&] (const juce::Rectangle<float>& r, int id) { if (r.contains (p)) h = id; };
     for (int i = 0; i < 12; ++i) chk (keyR[i], 100 + i);
     for (int i = 0; i < kScales; ++i) chk (scaleR[i], 120 + i);
-    chk (genreR, 130); chk (moodR, 132); for (int i = 0; i < 2; ++i) chk (barsR[i], 140 + i); for (int i = 0; i < 3; ++i) chk (perBarR[i], 150 + i); chk (remR, 160); chk (addR, 161);
+    chk (genreR, 130); chk (moodR, 132); for (int i = 0; i < 4; ++i) chk (barsR[i], 140 + i); chk (rndR, 237); for (int i = 0; i < 3; ++i) chk (perBarR[i], 150 + i); chk (remR, 160); chk (addR, 161);
     for (int i = 0; i < 3; ++i) chk (octR[i], 170 + i);
     for (int i = 0; i < kBModes; ++i) chk (modeR[i], 200 + i);
     chk (styleR, 280); chk (figR, 281); chk (figDiceR, 282); chk (ritR, 283); chk (ritDiceR, 284); chk (gridBtnR, 285); chk (rotR, 286); chk (writeR, 287);
@@ -590,7 +592,7 @@ void Editor::mouseMove (const juce::MouseEvent& e)
         { 283, "RITMO della linea, indipendente dalla figura." }, { 284, "Un altro ritmo, stessa figura." },
         { 285, "Disegna la figura: radice, quinta, terza, ottava su e giu' per 16 sedicesimi." },
         { 286, "PARTENZA: la stessa figura cominciata da un'altra nota." }, { 287, "Scrivi la tua figura, per esempio R ~8 5 R." },
-        { 230, "Trascina nella traccia: il clip e' gia' in tempo, i glide sono note sovrapposte." }, { 231, "Nuovo giro, nuovo stile adatto al genere, nuova suonata." }, { 232, "Stesso giro e stesso stile, suonati in un altro modo." },
+        { 230, "Trascina nella traccia: il clip e' gia' in tempo, i glide sono note sovrapposte." }, { 231, "Nuovo giro, nuovo stile adatto al genere, nuova suonata." }, { 237, "Tutto nuovo e a caso (genere, mood, modo di suonare, giro, groove) tenendo solo tonalita', scala e lunghezza." }, { 232, "Stesso giro e stesso stile, suonati in un altro modo." },
         { 233, "Ascolta anche a trasporto fermo." }, { 234, "Acceso: la linea suona con il play. Spento: suona solo il MIDI che arriva." },
         { 235, "Manda le note fuori dal plugin, per suonare il tuo 808 o il tuo synth." },
         { 270, "Griglia del piano roll." }, { 271, "Le modifiche a mano restano finche' non cambi il giro o le manopole. Qui le togli." },

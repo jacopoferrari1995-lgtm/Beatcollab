@@ -8,7 +8,7 @@ namespace bss
 struct BPreset { const char* name; const char* note; std::vector<std::pair<const char*, float>> p; std::vector<int> prog; };
 const std::vector<BPreset>& presets();
 juce::File presetFolder();
-inline int barsOf (int idx) { static const int b[4] = { 1, 2, 4, 8 }; return b[juce::jlimit (0, 3, idx)]; }
+inline int barsOf (int idx) { static const int b[5] = { 1, 2, 4, 8, 16 }; return b[juce::jlimit (0, 4, idx)]; }
 
 class Processor : public juce::AudioProcessor, private juce::AsyncUpdater, private juce::AudioProcessorValueTreeState::Listener, private juce::ValueTree::Listener
 {
@@ -43,7 +43,7 @@ public:
     void setProg (const std::vector<int>& p);
     juce::uint32 seed() const { return (juce::uint32) (int) apvts.state.getProperty ("seed", 1); }
     void setSeed (juce::uint32 s) { apvts.state.setProperty ("seed", (int) (s & 0x7fffffff), &undo); }
-    void generaGiro(); void varia();
+    void generaGiro(); void varia(); void aCaso();
     void applyStyle (int style);
     void setFigSeq (const juce::String& f) { apvts.state.setProperty ("figSeq", f, &undo); setV ("fig", (float) kBLibera); }
     std::array<juce::uint16, 5> grid() const; void setGrid (const std::array<juce::uint16, 5>& g);

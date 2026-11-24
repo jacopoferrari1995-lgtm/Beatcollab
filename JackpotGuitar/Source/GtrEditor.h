@@ -36,7 +36,7 @@ public:
     jbrowse::Browser browser;
     // zone cliccabili
     juce::Rectangle<float> keyR[12], scaleR[kScales], genreR, moodR, barsR[4], perBarR[3], slotR[8], addR, remR;
-    juce::Rectangle<float> fretR, vstyleR[kVStyles], tuningR;
+    juce::Rectangle<float> fretR, vstyleR[kVStyles], tuningR, octR[5], rndR;
     juce::Rectangle<float> modeR[kModes], patR[12], rollR, dragR, genR, varR, playR, liveR, midiR, csR, layR[3], diceR[3], layDragR[3], editLayR[3], snapR, resetEditR, styleR, figR, figDiceR, ritR, ritDiceR, gridBtnR, rotR, writeR;
     juce::Rectangle<float> bodyR[kBodies], listenR;
     juce::Rectangle<float> presetR, prevR, nextR, undoR, redoR, themeR;

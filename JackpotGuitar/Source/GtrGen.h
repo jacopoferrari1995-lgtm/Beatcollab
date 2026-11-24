@@ -58,7 +58,7 @@ struct Gen
     }
     // forma: ogni 4 battute una frase. 0 motivo, 1 risposta (variazione), 2 motivo ripetuto, 3 chiusura. Nel giro di 8 la seconda frase sale un po'
     int role (int b) const { if (P.bars == 1) return 0; if (P.bars == 2) return b == 0 ? 0 : 3; return b % 4; }
-    bool lifted (int b) const { return P.bars >= 8 && b >= 4; }
+    bool lifted (int b) const { return P.bars >= 8 && (b / 4) % 2 == 1; }
     float barVel (int b) const { static const float v[4] = { 1.0f, 0.93f, 1.03f, 0.95f }; return v[b % 4] * (lifted (b) ? 1.0f + 0.05f * mk.lift : 1.0f); }
     double ms (double m) const { return m / 1000.0 * S.bpm / 60.0; }
     int slotAt (double t) const { return juce::jlimit (0, nSlots - 1, (int) std::floor (t / slotLen + 1e-9)); }
@@ -725,9 +725,114 @@ struct Gen
     }
 };
 
+// ------------------------------------------------------------------------------------------------ VARIAZIONE
+// Il pattern scelto si ripete uguale a ogni battuta: qui si fa vivere come lo suonerebbe un musicista.
+// La prima battuta di ogni frase (4 battute) resta la "proposta"; le altre cambiano poco: un colpo debole che salta o si sposta
+// di un sedicesimo, un'ottava (linee a una voce), una ripetuta in levare, dinamica che respira sulla frase,
+// e a fine frase un'anacrusi per grado verso la battuta dopo. Solo note della scala o dell'accordo gia' presenti.
+inline void varyPart (Part& P, float amt, juce::uint32 seed, const std::array<bool, 12>& scale, bool mono, int lo, int hi, const std::vector<int>& tun = {})
+{
+    if (amt <= 0.001f || P.ev.empty()) return;
+    // chitarra: ogni nota cambiata deve stare su una corda vera (tasto 0..17, vicino a dove sta la mano)
+    auto place = [&tun] (Ev& e, int note) { if (tun.empty()) { e.note = note; return true; } int bs = -1, bd = 99; for (int k = 0; k < (int) tun.size(); ++k) { const int f = note - tun[(size_t) k]; if (f < 0 || f > 17) continue; const int d = std::abs (f - e.fret) + (k == e.str ? 0 : 1); if (d < bd) { bd = d; bs = k; } } if (bs < 0) return false; e.note = note; e.str = bs; e.fret = note - tun[(size_t) bs]; return true; };
+    Rng r (seed * 2246822519u + 0x5bd1e995u);
+    const double L = P.len();
+    auto barOf = [] (double t) { return (int) std::floor (t / 4.0 + 1e-6); };
+    auto bentAt = [&P] (const Ev& e) { for (auto& b : P.bend) if (b.beat >= e.beat - 0.01 && b.beat <= e.beat + e.len + 0.01) return true; return false; };
+    // colpi: note insieme (pennata) contano come uno
+    struct Hit { std::vector<size_t> idx; double t; int layer; };
+    std::stable_sort (P.ev.begin(), P.ev.end(), [] (const Ev& a, const Ev& b) { return a.beat < b.beat; });
+    std::vector<Hit> hits;
+    for (size_t i = 0; i < P.ev.size(); ++i)
+    {
+        const auto& e = P.ev[i]; bool joined = false;
+        if (! mono) for (auto it = hits.rbegin(); it != hits.rend() && it->t > e.beat - 0.1; ++it) if (it->layer == e.layer && e.beat - it->t < 0.09) { it->idx.push_back (i); joined = true; break; }
+        if (! joined) hits.push_back ({ { i }, e.beat, e.layer });
+    }
+    std::vector<bool> dead (P.ev.size(), false);
+    auto weak = [] (double t) { const double f = t - std::floor (t + 1e-6); return f > 0.05 && std::abs (f - 0.5) > 0.05; };   // non su un battito ne' a meta'
+    auto freeAt = [&] (double t, int layer) { for (auto& h : hits) if (h.layer == layer && std::abs (h.t - t) < 0.12) return false; return true; };
+    std::vector<Ev> extra;
+    for (int b = 0; b < P.bars; ++b)
+    {
+        const int ph = b % 4; std::vector<size_t> inBar;
+        for (size_t h = 0; h < hits.size(); ++h) if (barOf (hits[h].t) == b) inBar.push_back (h);
+        // dinamica della frase: la terza battuta spinge, la quarta respira
+        static const float arc[4] = { 1.0f, 0.95f, 1.05f, 0.93f };
+        const float bv = 1.0f + (arc[ph] - 1.0f) * (0.5f + amt) + r.g() * 0.02f * amt;
+        for (auto h : inBar) for (auto i : hits[h].idx) P.ev[i].vel = juce::jlimit (0.06f, 1.0f, P.ev[i].vel * bv);
+        if (ph == 0 || inBar.size() < 2) continue;   // la proposta resta com'e'
+        for (auto h : inBar)
+        {
+            auto& H = hits[h]; bool skip = false; for (auto i : H.idx) skip |= P.ev[i].art != 0 || bentAt (P.ev[i]);
+            if (skip || ! weak (H.t)) continue;
+            const float w = std::abs (H.t - std::floor (H.t) - 0.5) < 0.05 ? 0.55f : 1.0f;   // i levare di ottavo cambiano meno dei sedicesimi
+            if (inBar.size() > 3 && r.p (amt * 0.3f * w)) { for (auto i : H.idx) dead[i] = true; continue; }       // salta
+            if (r.p (amt * 0.3f * w))
+            {   // si sposta di un sedicesimo (anticipo o ritardo), se il posto e' libero e resta nella battuta
+                const double d = r.p (0.5f) ? 0.25 : -0.25, nt = H.t + d;
+                if (nt >= b * 4.0 && nt <= b * 4.0 + 3.8 && freeAt (nt, H.layer)) { for (auto i : H.idx) { P.ev[i].beat += d; P.ev[i].len = juce::jmax (0.05, P.ev[i].len - (d > 0 ? d : 0.0)); } H.t = nt; }
+            }
+        }
+        // un colpo in piu' nel vuoto dopo un colpo: pennata stoppata (accordi) o ripetuta leggera (note singole)
+        if (r.p (amt * 0.6f))
+        {
+            const auto h = inBar[(size_t) r.i ((int) inBar.size())]; const auto& H = hits[h]; const double nt = H.t + (r.p (0.6f) ? 0.25 : 0.5);
+            bool okH = nt <= b * 4.0 + 3.8 && freeAt (nt, H.layer); for (auto i : H.idx) okH &= P.ev[i].art == 0 && ! bentAt (P.ev[i]);
+            if (okH) for (auto i : H.idx) { Ev x = P.ev[i]; x.beat = nt + (P.ev[i].beat - H.t); x.len = H.idx.size() > 1 ? 0.08 : 0.15; x.vel = P.ev[i].vel * 0.55f; x.mute = H.idx.size() > 1; extra.push_back (x); }
+        }
+        // note singole (arpeggi, lead, basso): ogni tanto un'ottava sopra o sotto
+        for (auto h : inBar)
+        {
+            const auto& H = hits[h]; if (H.idx.size() != 1 || dead[H.idx[0]]) continue;
+            auto& e = P.ev[H.idx[0]]; if (e.art != 0 || e.mute || bentAt (e) || std::abs (e.beat - b * 4.0) < 0.05) continue;
+            if (r.p (amt * 0.12f)) { const int n = e.note + (r.p (0.5f) ? 12 : -12); if (n >= lo && n <= hi) place (e, n); }
+        }
+        if (mono)
+        {
+            if (ph == 3 && b + 1 < P.bars + 1 && r.p (amt * 0.55f))
+            {   // anacrusi: l'ultimo battito diventa due o tre note per grado verso la prima nota della battuta dopo
+                const double t0 = b * 4.0 + 3.0; int target = -1, layer = 0;
+                for (auto& h : hits) if (h.t >= (b + 1) * 4.0 - 0.01) { target = P.ev[h.idx[0]].note; layer = h.layer; break; }
+                if (target < 0) for (auto& h : hits) { target = P.ev[h.idx[0]].note; layer = h.layer; break; }   // giro che ricomincia
+                bool clean = true; for (auto h : inBar) for (auto i : hits[h].idx) if (P.ev[i].beat >= t0 - 0.01 && (P.ev[i].art != 0 || bentAt (P.ev[i]))) clean = false;
+                if (target >= 0 && clean)
+                {
+                    for (auto h : inBar) for (auto i : hits[h].idx) if (P.ev[i].beat >= t0 - 0.01 && P.ev[i].layer == layer) dead[i] = true;
+                    const int n = r.p (0.5f) ? 2 : 3; const int dir = r.p (0.5f) ? 1 : -1; int note = target;
+                    std::vector<int> run; for (int k = 0; k < n; ++k) { for (int z = 0; z < 12; ++z) { note += dir; if (scale[(size_t) (((note % 12) + 12) % 12)]) break; } run.push_back (note); }
+                    std::reverse (run.begin(), run.end());
+                    const double st = n == 2 ? 0.5 : 1.0 / 3.0; float v = 0.5f;
+                    for (int k = 0; k < n; ++k) { int nn = run[(size_t) k]; while (nn < lo) nn += 12; while (nn > hi) nn -= 12; Ev x = P.ev[hits[inBar.back()].idx[0]]; x.beat = t0 + 0.5 * (n == 2) + k * (n == 2 ? 0.25 : st); x.len = 0.2; x.vel = v += 0.08f; x.layer = layer; x.art = 0; x.mute = false; x.pm = false; if (place (x, nn)) extra.push_back (x); }
+                }
+            }
+        }
+    }
+    std::vector<Ev> out; out.reserve (P.ev.size() + extra.size());
+    for (size_t i = 0; i < P.ev.size(); ++i) if (! dead[i]) out.push_back (P.ev[i]);
+    for (auto& x : extra) if (x.beat >= 0 && x.beat < L) out.push_back (x);
+    std::stable_sort (out.begin(), out.end(), [] (const Ev& a, const Ev& b) { return a.beat < b.beat; });
+    if (mono)
+    {   // due note quasi insieme sullo stesso strato: resta la prima
+        std::vector<Ev> k2; for (auto& e : out) { bool dup = false; for (auto it = k2.rbegin(); it != k2.rend() && e.beat - it->beat < 0.1; ++it) if (it->layer == e.layer && e.beat - it->beat < 0.06 && e.art != 2) { dup = true; break; } if (! dup) k2.push_back (e); }
+        out = std::move (k2);
+    }
+    if (mono)
+    {   // una voce per strato: ogni nota chiude quella prima
+        for (size_t k = 0; k < out.size(); ++k) for (size_t j = k + 1; j < out.size(); ++j) if (out[j].layer == out[k].layer) { if (out[j].art != 2 && out[k].beat + out[k].len > out[j].beat - 0.004) out[k].len = juce::jmax (0.03, out[j].beat - out[k].beat - 0.004); break; }
+    }
+    if (! tun.empty())
+    {   // chitarra: una corda suona una nota alla volta (anche dopo gli spostamenti)
+        for (size_t k = 0; k < out.size(); ++k) for (size_t j = k + 1; j < out.size(); ++j)
+            if (out[j].layer == out[k].layer && out[j].str == out[k].str && out[j].beat > out[k].beat + 1e-9) { if (out[k].beat + out[k].len > out[j].beat - 0.004) out[k].len = juce::jmax (0.02, out[j].beat - out[k].beat - 0.004); break; }
+        out.erase (std::remove_if (out.begin(), out.end(), [] (const Ev& e) { return e.len < 0.025 && ! e.mute; }), out.end());
+    }
+    for (auto& e : out) e.len = juce::jmax (0.02, juce::jmin (e.len, L - 0.005 - e.beat));
+    P.ev = std::move (out);
+}
 inline Part generate (const Settings& S)
 {
-    Part P; P.bars = juce::jlimit (1, 8, S.bars);
+    Part P; P.bars = juce::jlimit (1, 16, S.bars);
     Gen G (S, P);
     G.slotLen = juce::jmin (P.len(), S.perBar >= 2 ? 2.0 : S.perBar == 0 ? 8.0 : 4.0); G.nSlots = juce::jmax (1, (int) std::round (P.len() / G.slotLen));
     G.inScale = scaleSet (S.key, S.scale); G.penta = pentaSet (S.key, S.scale);
@@ -802,7 +907,7 @@ inline Part generateComposition (const Settings& S)
 {
     const bool hasB = S.lyBase >= 0, hasA = S.lyArp >= 0, hasL = S.lyLead >= 0;
     if (! hasB && ! hasA && ! hasL) { Settings a = S; a.mode = ARPEGGIO; return generate (a); }
-    Part out; out.bars = juce::jlimit (1, 8, S.bars);
+    Part out; out.bars = juce::jlimit (1, 16, S.bars);
     Part pb, pa, pl;
     // l'armonia e' una sola per tutte e tre le chitarre: i prestiti si decidono qui, una volta
     Settings H = S;
@@ -882,7 +987,17 @@ inline Part generateComposition (const Settings& S)
     std::stable_sort (out.ev.begin(), out.ev.end(), [] (const Ev& a, const Ev& b) { return a.beat < b.beat; });
     return out;
 }
-inline Part generateAny (const Settings& S) { return S.mode == COMPOSIZIONE ? generateComposition (S) : generate (S); }
+inline Part generateAny (const Settings& S)
+{
+    Part P = S.mode == COMPOSIZIONE ? generateComposition (S) : generate (S);
+    if (P.error.isEmpty())
+    {
+        const auto tu = tuning (S.tuning); std::vector<int> tv (tu.begin(), tu.end());
+        varyPart (P, S.vary, S.seed ^ (S.seedA * 7u), scaleSet (S.key, S.scale), S.mode == LEAD, 40, 88, tv);
+        if (S.octave != 0) for (auto& e : P.ev) { e.note = juce::jlimit (0, 127, e.note + 12 * S.octave); e.fret += 12 * S.octave; }
+    }
+    return P;
+}
 
 // giri per funzione armonica: catena di accordi con le mosse tipiche (tonica -> predominante -> dominante -> tonica),
 // pesata dal genere; l'ultimo accordo deve tornare bene sul primo (il giro gira)
@@ -1003,4 +1118,5 @@ inline juce::String degreeRoman (int code, int scale, int key)
     if (c.name.endsWith ("dim")) s += juce::String::fromUTF8 ("\xc2\xb0");
     return s;
 }
+
 }

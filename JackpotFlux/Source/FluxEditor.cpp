@@ -56,6 +56,7 @@ void Editor::resized()
     for (int s2 = 0; s2 < NSEC; ++s2) secR[s2] = { 540.0f + s2 * 74, 612, 70, 38 };
     for (int m = 0; m < 8; ++m) memR[m] = { 540.0f + m * 46, 680, 42, 34 };
     addR = { 752, 506, 120, 26 }; themeR = { 1060, 575, 86, 24 };
+    soundR = { 920, 612, 108, 26 }; volR = { 1034, 612, 112, 26 }; followR = { 920, 646, 226, 26 };
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     bg = {};
     jlook::scaleChildren (*this, s);
@@ -173,8 +174,19 @@ void Editor::paint (juce::Graphics& g)
     for (int s2 = 0; s2 < NSEC; ++s2) chip (g, secR[s2], secName (s2), cs == s2, K::pink, 8.5f);
     g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (U ("MEMORIA: clic = richiama, shift + clic = salva (seme, macro, regole)"), juce::Rectangle<float> (540, 664, 440, 12), juce::Justification::centredLeft);
     for (int m = 0; m < 8; ++m) chip (g, memR[m], juce::String (m + 1), proc.mem[(size_t) m].used, K::amber, 9.0f);
-    g.setFont (f (9.5f)); g.setColour (K::sub);
-    g.drawFittedText (U ("In Ableton: crea tracce MIDI con i tuoi strumenti e in \"MIDI From\" scegli la traccia di FLUX e il canale della corsia (CH 1-8). Usa la versione VST3."), juce::Rectangle<int> (920, 600, 224, 120), juce::Justification::topLeft, 7);
+    // suono interno e tastiera
+    chip (g, soundR, proc.v ("sound") > 0.5f ? U ("SUONO ACCESO") : U ("SUONO SPENTO"), proc.v ("sound") > 0.5f, K::mint, 8.0f);
+    {
+        const float vv = (proc.v ("vol") + 30.0f) / 36.0f; g.setColour (K::lo.withAlpha (0.5f)); g.fillRoundedRectangle (volR, 6);
+        g.setColour (K::mint.withAlpha (0.35f)); g.fillRoundedRectangle (volR.withWidth (volR.getWidth() * juce::jlimit (0.0f, 1.0f, vv)), 6);
+        g.setFont (f (9.0f)); g.setColour (K::ink); g.drawText ("VOL " + juce::String (proc.v ("vol"), 1) + " dB", volR, juce::Justification::centred);
+    }
+    {
+        const int rt = proc.uiFollowRoot.load(); const bool fo = proc.v ("follow") > 0.5f;
+        chip (g, followR, fo ? (rt >= 0 ? U ("SEGUE LA TASTIERA: ") + keyNames[rt] : U ("SEGUI LA TASTIERA: ACCESO")) : U ("SEGUI LA TASTIERA: SPENTO"), fo, K::violet, 8.0f);
+    }
+    g.setFont (f (8.5f)); g.setColour (K::sub);
+    g.drawFittedText (U ("Tieni una nota sulla tastiera: 808 e melodie cambiano tonalita'. Per i tuoi strumenti: MIDI From = FLUX, canale della corsia (CH 1-8)."), juce::Rectangle<int> (920, 678, 226, 44), juce::Justification::topLeft, 3);
 }
 void Editor::mouseDown (const juce::MouseEvent& e)
 {
@@ -192,6 +204,9 @@ void Editor::mouseDown (const juce::MouseEvent& e)
     if (playR.contains (p)) { proc.setV ("play", proc.v ("play") > 0.5f ? 0.0f : 1.0f); repaint(); return; }
     if (varR.contains (p)) { proc.variate(); flash = 8; repaint(); return; }
     if (abR.contains (p)) { proc.abOriginal = ! proc.abOriginal.load(); repaint(); return; }
+    if (soundR.contains (p)) { proc.setV ("sound", proc.v ("sound") > 0.5f ? 0.0f : 1.0f); repaint(); return; }
+    if (followR.contains (p)) { proc.setV ("follow", proc.v ("follow") > 0.5f ? 0.0f : 1.0f); repaint(); return; }
+    if (volR.contains (p)) { volStart = proc.v ("vol"); if (e.getNumberOfClicks() > 1) proc.setV ("vol", -6); return; }
     if (drumR.contains (p)) { proc.setV ("drum1", proc.v ("drum1") > 0.5f ? 0.0f : 1.0f); repaint(); return; }
     for (int l = 0; l < NL; ++l)
     {
@@ -224,6 +239,7 @@ void Editor::mouseDown (const juce::MouseEvent& e)
 void Editor::mouseDrag (const juce::MouseEvent& e)
 {
     const auto p = e.getMouseDownPosition().toFloat() / scaler.s;
+    if (volR.contains (p)) { proc.setV ("vol", juce::jlimit (-30.0f, 6.0f, volStart + e.getDistanceFromDragStartX() / scaler.s * 0.25f - e.getDistanceFromDragStartY() / scaler.s * 0.25f)); repaint(); return; }
     if (! midiR.contains (p) || dragging || e.getDistanceFromDragStart() < 6) return;
     auto f = proc.exportMidi (8); if (! f.existsAsFile()) return;
     dragging = true; repaint();

@@ -8,7 +8,7 @@ namespace gtr
 struct GPreset { const char* name; const char* note; std::vector<std::pair<const char*, float>> p; std::vector<int> prog; };
 const std::vector<GPreset>& presets();
 juce::File presetFolder();
-inline int barsOf (int idx) { static const int b[4] = { 1, 2, 4, 8 }; return b[juce::jlimit (0, 3, idx)]; }
+inline int barsOf (int idx) { static const int b[5] = { 1, 2, 4, 8, 16 }; return b[juce::jlimit (0, 4, idx)]; }
 
 class Processor : public juce::AudioProcessor, private juce::AsyncUpdater, private juce::AudioProcessorValueTreeState::Listener, private juce::ValueTree::Listener
 {
@@ -47,6 +47,7 @@ public:
     juce::uint32 seedOf (const char* k) const { return (juce::uint32) (int) apvts.state.getProperty (k, 1); }
     void generaGiro();      // nuovo giro dal genere + nuovo seme
     void varia();           // stesso giro, nuova suonata
+    void aCaso();           // A CASO: tutto nuovo tranne tonalita', scala, lunghezza e suono
     Settings settings() const;
     void regenerate();      // subito (thread dei messaggi o test)
     std::shared_ptr<const Part> part() const { return std::atomic_load (&partPtr); }

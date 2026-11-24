@@ -47,7 +47,7 @@ int main (int argc, char** argv)
         {
             BSettings S; S.key = k; S.scale = sc; S.mode = md; S.fig = f; S.rit = r; S.seed = (juce::uint32) (k * 131 + f * 7 + r + md); S.prog = progressions ((k + r) % kGenres)[0];
             S.approach = 0.7f; S.ghost = 0.5f; S.glide = 0.6f; S.bars = (k % 2) ? 8 : 4; S.density = (float) ((f + r) % 11) / 10.0f; S.borrow = sc == 0 && k % 3 == 0 ? 0.7f : 0.0f; S.octave = (k % 3) - 1;
-            S.perBar = k % 4 == 0 ? 2 : k % 4 == 1 ? 0 : 1; S.space = (r % 4) * 0.3f; S.mood = (k + f) % kMoods; S.figSeq = "R ~8 3 ^ L 7"; S.rot = f % 3;
+            S.perBar = k % 4 == 0 ? 2 : k % 4 == 1 ? 0 : 1; if (auto* vv = std::getenv ("JVARY")) S.vary = (float) std::atof (vv); S.space = (r % 4) * 0.3f; S.mood = (k + f) % kMoods; S.figSeq = "R ~8 3 ^ L 7"; S.rot = f % 3;
             auto P = generateBass (S); const auto ss = scaleSet (k, sc);
             for (size_t i = 0; i < P.ev.size(); ++i)
             {
@@ -56,8 +56,8 @@ int main (int argc, char** argv)
                 if (! okN) { ++out; if (out < 5) std::printf ("FUORI SCALA k%d %s fig %s nota %d\n", k, scaleName (sc), bfigOf (f).name, e.note); }
                 if (e.note < 12 || e.note > 84) ++range;
                 if (e.art == 2) ++glides;
-                if (i + 1 < P.ev.size()) { const double ov = e.beat + e.len - P.ev[i + 1].beat; if (ov > (P.ev[i + 1].art == 2 ? 0.07 : 0.001)) ++over; }
-                if (e.beat < 0 || e.beat + e.len > P.len() + 1e-6) ++over;
+                if (i + 1 < P.ev.size()) { const double ov = e.beat + e.len - P.ev[i + 1].beat; if (ov > (P.ev[i + 1].art == 2 ? 0.07 : 0.001)) { ++over; if (std::getenv ("JDBG") && over < 6) std::printf ("OV %.3f+%.3f art%d -> %.3f art%d\n", e.beat, e.len, e.art, P.ev[i + 1].beat, P.ev[i + 1].art); } }
+                if (e.beat < 0 || e.beat + e.len > P.len() + 1e-6) { ++over; if (std::getenv ("JDBG") && over < 6) std::printf ("FUORI %.4f+%.4f L %.1f\n", e.beat, e.len, P.len()); }
             }
         }
         std::printf ("GEN: %ld note, fuori scala %ld, sovrapposizioni non volute %ld, fuori registro %ld, glide %ld\n", n, out, over, range, glides);
@@ -68,6 +68,20 @@ int main (int argc, char** argv)
             for (int d = 0; d <= 10; ++d) { BSettings S; S.rit = r; S.density = d / 10.0f; S.prog = { 0, 5, 2, 6 }; S.ghost = 0; S.mode = BASSO; auto P = generateBass (S); std::printf (" %3d", (int) P.ev.size()); }
             std::printf ("\n");
         }
+    }
+    if (mode == "preview" || mode == "all")
+    {   // PROVA a trasporto fermo: deve suonare (tutti e tre i motori), anche senza playhead
+        for (int md = 0; md < kBModes; ++md)
+            for (int withHead = 0; withHead < 2; ++withHead)
+            {
+                auto p = mk (-1); p->setV ("mode", (float) md); p->setV ("play", 1); p->regenerate();
+                Head h; h.playing = false; if (withHead) p->setPlayHead (&h);
+                juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; float pk = 0; int non = 0;
+                for (int k = 0; k < 400; ++k) { m.clear(); p->processBlock (b, m); for (int i = 0; i < 512; ++i) pk = std::max (pk, std::abs (b.getSample (0, i))); for (const auto mm : m) non += mm.getMessage().isNoteOn(); }
+                p->setPlayHead (nullptr);
+                std::printf ("PROVA %s %s: picco %.3f note MIDI %d %s\n", bmodeName (md), withHead ? "playhead fermo" : "senza playhead", pk, non, pk > 0.02f ? "" : "  <-- !!");
+                if (pk <= 0.02f) ++bad;
+            }
     }
     if (mode == "render" || mode == "all")
     {

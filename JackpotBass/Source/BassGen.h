@@ -68,7 +68,7 @@ struct BSettings
     std::array<juce::uint16, 5> grid { 0x0010, 0x0400, 0, 0x8081, 0 };   // righe: 8, 5, 3, R, L; un bit per sedicesimo
     int bars = 4, perBar = 1; float color = -1; int octave = 0;
     float density = 0.5f, dyn = 0.6f, human = 0.3f, swing = 0.0f, space = 0.2f, len = 0.9f;
-    float glide = 0.3f, approach = 0.3f, ghost = 0.3f, borrow = 0.0f;
+    float glide = 0.3f, approach = 0.3f, ghost = 0.3f, borrow = 0.0f, vary = 0.45f;
     std::vector<int> prog; juce::uint32 seed = 1; double bpm = 120;
 };
 // registro della fondamentale per ogni modo (piu' l'ottava scelta)
@@ -88,7 +88,7 @@ struct BGen
         dens = juce::jlimit (0.0f, 1.0f, S.density); space = juce::jlimit (0.0f, 1.0f, S.space + mk.space * 0.5f);
     }
     int role (int b) const { if (P.bars == 1) return 0; if (P.bars == 2) return b == 0 ? 0 : 3; return b % 4; }
-    bool lifted (int b) const { return P.bars >= 8 && b >= 4; }
+    bool lifted (int b) const { return P.bars >= 8 && (b / 4) % 2 == 1; }
     int slotAt (double t) const { return juce::jlimit (0, nSlots - 1, (int) std::floor (t / slotLen + 1e-9)); }
     double sw (double t, double grid) const
     {
@@ -265,7 +265,7 @@ struct BGen
 
 inline Part generateBass (const BSettings& S)
 {
-    Part P; P.bars = juce::jlimit (1, 8, S.bars);
+    Part P; P.bars = juce::jlimit (1, 16, S.bars);
     BGen G (S, P);
     G.slotLen = juce::jmin (P.len(), S.perBar >= 2 ? 2.0 : S.perBar == 0 ? 8.0 : 4.0); G.nSlots = juce::jmax (1, (int) std::round (P.len() / G.slotLen));
     G.inScale = scaleSet (S.key, S.scale);
@@ -286,7 +286,9 @@ inline Part generateBass (const BSettings& S)
         for (int t : c.tones) a[(size_t) t] = true;
         G.allow.push_back (a);
     }
-    G.line(); G.finish();
+    G.line();
+    varyPart (P, S.vary, S.seed, G.inScale, true, regLo (S), regLo (S) + 24);
+    G.finish();
     return P;
 }
 }

@@ -13,6 +13,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "section", 1 }, "Sezione", secs, 1));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "drum1", 1 }, "Batteria sul canale 1", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "play", 1 }, "Anteprima", false));
+    // suono interno (per sentire subito il beat senza instradare niente) e segui accordi dalla tastiera
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "sound", 1 }, "Suono interno", true));
+    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "vol", 1 }, "Volume suono", NormalisableRange<float> (-30, 6), -6));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "follow", 1 }, "Segui la tastiera", true));
     return l;
 }
 Processor::Processor()
@@ -27,7 +31,7 @@ Processor::Processor()
     startTimer (500);
 }
 Processor::~Processor() { stopTimer(); cancelPendingUpdate(); for (auto id : { "density", "energy", "movement", "space", "section" }) apvts.removeParameterListener (id, this); }
-void Processor::prepareToPlay (double s, int) { sr = s; np = 0; cacheBar[0] = cacheBar[1] = -9999; lastEnd = -1; }
+void Processor::prepareToPlay (double s, int) { sr = s; np = 0; nh = 0; cacheBar[0] = cacheBar[1] = -9999; lastEnd = -1; kit.prepare (s); inDown.fill (false); }
 
 void Processor::parameterChanged (const juce::String& id, float)
 {
@@ -109,7 +113,14 @@ juce::File Processor::exportMidi (int bars)
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     buffer.clear(); const int N = buffer.getNumSamples();
-    juce::MidiBuffer in; in.swapWith (midi);   // l'ingresso MIDI per ora non serve: esce solo il beat di FLUX
+    juce::MidiBuffer in; in.swapWith (midi);
+    // tastiera: la nota piu' bassa tenuta diventa la tonalita' di 808, melodia, contro e chop (il beat segue gli accordi che suoni)
+    for (const auto m : in) { const auto& msg = m.getMessage(); if (msg.isNoteOn()) inDown[(size_t) msg.getNoteNumber()] = true; else if (msg.isNoteOff()) inDown[(size_t) msg.getNoteNumber()] = false; else if (msg.isAllNotesOff()) inDown.fill (false); }
+    int trans = 0, root = -1;
+    if (v ("follow") > 0.5f) for (int k = 0; k < 128; ++k) if (inDown[(size_t) k]) { root = k % 12; int d = ((root - snap()->key) % 12 + 12) % 12; if (d > 6) d -= 12; trans = d; break; }
+    uiTrans = trans; uiFollowRoot = root;
+    nh = 0;
+    struct RenderAtEnd { Processor& p; juce::AudioBuffer<float>& b; ~RenderAtEnd() { p.renderKit (b); } } rae { *this, buffer };
     double p0 = 0, bpm = 120; bool playing = false;
     if (auto* ph = getPlayHead()) if (auto pos = ph->getPosition()) { playing = pos->getIsPlaying(); if (auto b = pos->getBpm()) bpm = *b; if (auto q = pos->getPpqPosition()) p0 = *q; }
     const bool preview = ! playing && v ("play") > 0.5f;
@@ -149,14 +160,33 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             if (a < s0 || a >= s1) continue;
             const int off = (int) (a - s0), ch = chOf (e.lane);
             // la stessa nota ancora accesa (roll, ripetizioni): si chiude subito prima, cosi' il suo note-off non taglia quella nuova
-            for (int i = 0; i < np; ++i) if (pend[i].ch == ch && pend[i].note == e.note) { midi.addEvent (juce::MidiMessage::noteOff (ch, e.note), off); pend[i] = pend[--np]; break; }
-            midi.addEvent (juce::MidiMessage::noteOn (ch, e.note, (juce::uint8) e.vel), off);
-            if (np < 512) pend[np++] = { t + juce::jmax (0.02f, e.len), ch, e.note };
+            const int note = juce::jlimit (0, 127, e.note + (isDrum (e.lane) ? 0 : trans));
+            for (int i = 0; i < np; ++i) if (pend[i].ch == ch && pend[i].note == note) { midi.addEvent (juce::MidiMessage::noteOff (ch, note), off); pend[i] = pend[--np]; break; }
+            midi.addEvent (juce::MidiMessage::noteOn (ch, note, (juce::uint8) e.vel), off);
+            if (np < 512) pend[np++] = { t + juce::jmax (0.02f, e.len), ch, note };
+            if (nh < 1024) hits[nh++] = { off, e.lane, note, e.vel, juce::jmax (0.02f, e.len) * spp };
             uiHits[e.lane] = uiHits[e.lane].load() + 1;
         }
     }
 }
 
+void Processor::renderKit (juce::AudioBuffer<float>& b)
+{
+    const int N = b.getNumSamples(); if (N <= 0 || b.getNumChannels() < 2) return;
+    kit.vol = juce::Decibels::decibelsToGain (v ("vol"));
+    const bool on = v ("sound") > 0.5f;
+    float* L = b.getWritePointer (0); float* R = b.getWritePointer (1);
+    std::stable_sort (hits, hits + nh, [] (const Hit& a, const Hit& c) { return a.at < c.at; });
+    int cur = 0;
+    for (int i = 0; i < nh; ++i)
+    {
+        const int at = juce::jlimit (0, N, hits[i].at);
+        if (at > cur) { kit.render (L + cur, R + cur, at - cur); cur = at; }
+        if (on) kit.trigger (hits[i].lane, hits[i].note, hits[i].vel, hits[i].len);
+    }
+    if (cur < N) kit.render (L + cur, R + cur, N - cur);
+    nh = 0;
+}
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
     auto st = apvts.copyState(); auto S = snap();

@@ -34,8 +34,8 @@ public:
     jlook::SizeChip sizeChip { scaler };
     juce::OwnedArray<jkit::Knob> knobs;
     jbrowse::Browser browser;
-    juce::Rectangle<float> keyR[12], scaleR[kScales], genreR, moodR, barsR[2], perBarR[3], slotR[8], addR, remR, octR[3], neckR;
-    juce::Rectangle<float> modeR[kBModes], styleR, figR, figDiceR, ritR, ritDiceR, rotR, writeR, gridBtnR, rollR, dragR, genR, varR, playR, liveR, midiR, snapR, resetEditR, listenR;
+    juce::Rectangle<float> keyR[12], scaleR[kScales], genreR, moodR, barsR[4], perBarR[3], slotR[8], addR, remR, octR[3], neckR;
+    juce::Rectangle<float> modeR[kBModes], styleR, figR, figDiceR, ritR, ritDiceR, rotR, writeR, gridBtnR, rollR, dragR, genR, varR, rndR, playR, liveR, midiR, snapR, resetEditR, listenR;
     juce::Rectangle<float> presetR, prevR, nextR, undoR, redoR, themeR;
     int hoverSlot = -1, selSlot = 0, hoverId = -1, bgTheme = -1; bool dragging = false; juce::String info;
     juce::Image bg; float bgScale = 0; void paintStatic (juce::Graphics&);

@@ -43,6 +43,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
     add ("emb", "ABBELLIM.", C::green, pct, "Hammer-on e scivolate dalle note della scala, negli arpeggi e negli accordi neo soul.");
     add ("tech", "TECNICA", C::green, pct, "Nel LEAD: bend, vibrato, scivolate, legati e doppie note.");
     add ("borrow", "INTERSCAMBIO", C::red, [] (float v) { return v < 0.005f ? juce::String ("OFF") : juce::String (juce::roundToInt (v * 100)) + "%"; }, "Accordi presi in prestito (il V maggiore in minore, il iv minore in maggiore). Spento: la scala si rispetta sempre.");
+    add ("vary", "VARIAZIONE", C::red, [] (float v) { return v < 0.005f ? juce::String ("OFF") : juce::String (juce::roundToInt (v * 100)) + "%"; }, "Quanto ogni battuta cambia rispetto alla prima della frase: colpi che saltano o si spostano, ottave, ripetute, dinamica che respira e un'anacrusi a fine frase. A zero il pattern si ripete identico.");
     add ("pos", "POSIZIONE", C::violet, [] (float v) { return v < 0.5f ? juce::String ("APERTA") : juce::String ("TASTO ") + juce::String (juce::roundToInt (v)); }, "Dove sta la mano sul manico: accordi e lead si cercano attorno a questo tasto.");
     add ("color", "COLORE BASE", C::violet, [] (float v) { static const char* n[5] = { "AUTO", "TRIADI", "SETTIME", "NONE", "SUS/ADD9" }; return juce::String (n[juce::jlimit (0, 4, juce::roundToInt (v))]); }, "Colore di partenza per tutti gli accordi (AUTO segue genere e mood). Ogni accordo puo' avere il suo: clic sull'accordo, voce COLORE.");
     add ("tone", "TONO", C::phos, pct, "Brillantezza della corda e del suono.");
@@ -63,11 +64,12 @@ void Editor::resized()
     for (int i = 0; i < 12; ++i) keyR[i] = { 44.0f + i * 47, 114, 43, 24 };
     for (int i = 0; i < kScales; ++i) scaleR[i] = { 44.0f + i * 94, 146, 90, 24 };
     genreR = { 44, 186, 106, 24 }; moodR = { 156, 186, 106, 24 };
-    for (int i = 0; i < 2; ++i) barsR[i] = { 276.0f + i * 44, 186, 40, 24 };
+    for (int i = 0; i < 4; ++i) barsR[i] = { 276.0f + i * 36, 186, 33, 24 };
     for (int i = 0; i < 3; ++i) perBarR[i] = { 428.0f + i * 38, 186, 34, 24 };
     remR = { 560, 186, 28, 24 }; addR = { 592, 186, 28, 24 };
     for (int i = 0; i < 8; ++i) slotR[i] = { 44.0f + i * 73, 228, 68, 66 };
     fretR = { 672, 134, 470, 120 }; tuningR = { 1052, 100, 90, 24 };
+    for (int i = 0; i < 5; ++i) octR[i] = { 882.0f + i * 33, 100, 30, 24 };
     for (int i = 0; i < kVStyles; ++i) vstyleR[i] = { 672.0f + i * 95, 270, 90, 24 };
     for (int i = 0; i < kModes; ++i) modeR[i] = { 44, 344.0f + i * 38, 140, 32 };
     for (int i = 0; i < 12; ++i) patR[i] = { 204.0f + (i % 6) * 106, 344.0f + (i / 6) * 30, 100, 26 };
@@ -77,13 +79,13 @@ void Editor::resized()
     gridBtnR = { 700, 376, 144, 24 }; rotR = { 520, 376, 96, 24 }; writeR = { 620, 376, 76, 24 };
     dragR = { 866, 344, 272, 70 };
     for (int i = 0; i < 3; ++i) layDragR[i] = { 866.0f + i * 92, 420, 88, 24 };
-    genR = { 866, 452, 134, 30 }; varR = { 1004, 452, 134, 30 };
+    genR = { 866, 452, 88, 30 }; varR = { 958, 452, 88, 30 }; rndR = { 1050, 452, 88, 30 };
     playR = { 866, 490, 134, 26 }; liveR = { 1004, 490, 134, 26 }; midiR = { 866, 522, 134, 26 }; csR = { 1004, 522, 134, 26 };
     snapR = { 866, 568, 134, 24 }; resetEditR = { 1004, 568, 134, 24 };
     auto put = [this] (const char* id, int x, int y) { if (auto* k = knobById (knobs, id)) k->setBounds (x, y, 74, 100); };
     int x = 44; for (auto* id : { "density", "dyn", "strum", "human", "swing", "rest" }) { put (id, x, 696); x += 80; }
     x += 16; for (auto* id : { "ring", "emb", "tech" }) { put (id, x, 696); x += 80; }
-    x += 16; for (auto* id : { "borrow", "pos", "color" }) { put (id, x, 696); x += 80; }
+    x += 16; for (auto* id : { "borrow", "pos", "color", "vary" }) { put (id, x, 696); x += 80; }
     for (int i = 0; i < kBodies; ++i) bodyR[i] = { 44.0f + i * 96, 840, 90, 28 };
     listenR = { 44, 876, 186, 24 };
     x = 450; for (auto* id : { "tone", "bodyAmt", "drive", "space", "width" }) { put (id, x, 808); x += 80; }
@@ -106,7 +108,7 @@ void Editor::paintStatic (juce::Graphics& g)
     panel (g, { 24, 668, 1132, 250 }, C::phos, U (""), U ("IL SUONO E' SOLO PER ASCOLTARE: IL MIDI ESCE UGUALE"));
 grp (g, 276, 172, 84, U ("BATTUTE")); grp (g, 428, 172, 110, U ("ACC. PER BATT.")); grp (g, 560, 172, 60, U ("ACCORDI")); grp (g, 156, 172, 106, U ("MOOD"));
     grp (g, 44, 172, 106, U ("GENERE")); grp (g, 44, 213, 580, U ("GIRO (CLIC PER CAMBIARE L'ACCORDO)"));
-    grp (g, 44, 682, 474, U ("SUONATA")); grp (g, 540, 682, 232, U ("CORDE")); grp (g, 796, 682, 232, U ("ARMONIA E MANO"));
+    grp (g, 44, 682, 474, U ("SUONATA")); grp (g, 540, 682, 232, U ("CORDE")); grp (g, 796, 682, 312, U ("ARMONIA E MANO"));
     grp (g, 44, 822, 380, U ("CHITARRA")); grp (g, 450, 794, 392, U ("SUONO")); grp (g, 1050, 794, 74, U ("USCITA"));
 }
 void Editor::drawFretboard (juce::Graphics& g, const Part& P, int slot)
@@ -360,7 +362,7 @@ void Editor::paint (juce::Graphics& g)
     for (int i = 0; i < kScales; ++i) chipBtn (g, scaleR[i], scaleName (i), S.scale == i, C::amber, 10.0f, hoverId == 120 + i);
     chipBtn (g, genreR, juce::String (genreName (S.genre)) + U (" \xe2\x96\xbe"), true, C::yellow, 9.5f, hoverId == 130);
     chipBtn (g, moodR, juce::String (moodName (S.mood)) + U (" \xe2\x96\xbe"), true, C::yellow, 9.5f, hoverId == 132);
-    for (int i = 0; i < 2; ++i) chipBtn (g, barsR[i], juce::String (barsOf (i + 2)), proc.vi ("bars") == i + 2, C::amber, 10.5f, hoverId == 140 + i);
+    for (int i = 0; i < 4; ++i) chipBtn (g, barsR[i], juce::String (barsOf (i + 1)), proc.vi ("bars") == i + 1, C::amber, 10.5f, hoverId == 140 + i);
     { static const char* pb[3] = { "1", "2", "1/2" }; for (int i = 0; i < 3; ++i) chipBtn (g, perBarR[i], pb[i], proc.vi ("perBar") == i, C::amber, 10.5f, hoverId == 150 + i); }
     const auto pr = proc.prog();
     chipBtn (g, remR, "-", false, pr.size() > 1 ? C::amber : C::dim, 13, hoverId == 160); chipBtn (g, addR, "+", false, pr.size() < 8 ? C::amber : C::dim, 13, hoverId == 161);
@@ -387,6 +389,8 @@ void Editor::paint (juce::Graphics& g)
             drawFretboard (g, *P, sl);
         }
         chipBtn (g, tuningR, tuningName (proc.vi ("tuning")), true, C::green, 9.5f, hoverId == 170);
+        { g.setFont (jkit::mf (9.0f)); g.setColour (C::dim); g.drawText (U ("OTTAVA"), juce::Rectangle<float> (826, 100, 52, 24), juce::Justification::centredRight);
+          static const char* on[5] = { "-2", "-1", "0", "+1", "+2" }; for (int i = 0; i < 5; ++i) chipBtn (g, octR[i], on[i], proc.vi ("octave") == i - 2, C::green, 9.5f, hoverId == 190 + i); }
         for (int i = 0; i < kVStyles; ++i) chipBtn (g, vstyleR[i], vstyleName (i), proc.vi ("vstyle") == i, C::green, 9.5f, hoverId == 180 + i);
     }
     // CLIP
@@ -443,7 +447,7 @@ void Editor::paint (juce::Graphics& g)
         { static const char* sn[4] = { "GRIGLIA 1/16", "GRIGLIA 1/8", "GRIGLIA TERZINE", "GRIGLIA LIBERA" }; chipBtn (g, snapR, sn[snapIdx], false, C::violet, 9, hoverId == 270); }
         const bool ed = proc.edited();
         chipBtn (g, resetEditR, ed ? U ("TORNA AL GENERATO") : U ("NON MODIFICATO"), ed, ed ? C::red : C::dim, 9, hoverId == 271);
-        chipBtn (g, genR, U ("GENERA GIRO"), false, C::yellow, 10.5f, hoverId == 231); chipBtn (g, varR, U ("VARIA"), false, C::yellow, 10.5f, hoverId == 232);
+        chipBtn (g, genR, U ("GENERA GIRO"), false, C::yellow, 9.5f, hoverId == 231); chipBtn (g, varR, U ("VARIA"), false, C::yellow, 9.5f, hoverId == 232); chipBtn (g, rndR, U ("A CASO"), false, C::red, 9.5f, hoverId == 237);
         chipBtn (g, playR, proc.v ("play") > 0.5f ? U ("\xe2\x96\xa0 FERMA") : U ("\xe2\x96\xb6 PROVA"), proc.v ("play") > 0.5f, C::green, 10, hoverId == 233);
         chipBtn (g, liveR, U ("GIRO IN PLAY"), proc.v ("live") > 0.5f, C::green, 10, hoverId == 234);
         chipBtn (g, midiR, U ("MIDI OUT"), proc.v ("midiOut") > 0.5f, C::green, 10, hoverId == 235);
@@ -543,7 +547,8 @@ void Editor::mouseDown (const juce::MouseEvent& e)
     for (int i = 0; i < 12; ++i) if (keyR[i].contains (p)) { proc.setV ("key", (float) i); proc.curPreset = -1; repaint(); return; }
     for (int i = 0; i < kScales; ++i) if (scaleR[i].contains (p)) { proc.setV ("scale", (float) i); proc.curPreset = -1; repaint(); return; }
     if (genreR.contains (p)) { genreMenu(); return; }
-    for (int i = 0; i < 2; ++i) if (barsR[i].contains (p)) { proc.setV ("bars", (float) (i + 2)); repaint(); return; }
+    for (int i = 0; i < 4; ++i) if (barsR[i].contains (p)) { proc.setV ("bars", (float) (i + 1)); repaint(); return; }
+    if (rndR.contains (p)) { proc.aCaso(); repaint(); return; }
     for (int i = 0; i < 3; ++i) if (perBarR[i].contains (p)) { proc.setV ("perBar", (float) i); repaint(); return; }
     if (moodR.contains (p)) { moodMenu(); return; }
     if (addR.contains (p) || remR.contains (p))
@@ -554,6 +559,7 @@ void Editor::mouseDown (const juce::MouseEvent& e)
         proc.undo.beginNewTransaction(); proc.setProg (pr); proc.curPreset = -1; repaint(); return;
     }
     for (int i = 0; i < 8; ++i) if (slotR[i].contains (p)) { selSlot = i; slotMenu (i); repaint(); return; }
+    for (int i = 0; i < 5; ++i) if (octR[i].contains (p)) { proc.setV ("octave", (float) (i - 2)); repaint(); return; }
     if (tuningR.contains (p)) { proc.setV ("tuning", (float) ((proc.vi ("tuning") + 1) % kTunings)); repaint(); return; }
     for (int i = 0; i < kVStyles; ++i) if (vstyleR[i].contains (p)) { proc.setV ("vstyle", (float) i); repaint(); return; }
     for (int i = 0; i < kModes; ++i) if (modeR[i].contains (p)) { proc.setV ("mode", (float) i); if (i != COMPOSIZIONE) proc.setV ("pat", 0); proc.curPreset = -1; sel.clear(); selSig.clear(); if (i != ARPEGGIO && i != COMPOSIZIONE) gridEdit = false; repaint(); return; }
@@ -721,8 +727,8 @@ void Editor::mouseMove (const juce::MouseEvent& e)
     auto chk = [&] (const juce::Rectangle<float>& r, int id) { if (r.contains (p)) h = id; };
     for (int i = 0; i < 12; ++i) chk (keyR[i], 100 + i);
     for (int i = 0; i < kScales; ++i) chk (scaleR[i], 120 + i);
-    chk (genreR, 130); for (int i = 0; i < 2; ++i) chk (barsR[i], 140 + i); for (int i = 0; i < 3; ++i) chk (perBarR[i], 150 + i); chk (moodR, 132); chk (remR, 160); chk (addR, 161);
-    chk (tuningR, 170); for (int i = 0; i < kVStyles; ++i) chk (vstyleR[i], 180 + i);
+    chk (genreR, 130); for (int i = 0; i < 4; ++i) chk (barsR[i], 140 + i); chk (rndR, 237); for (int i = 0; i < 3; ++i) chk (perBarR[i], 150 + i); chk (moodR, 132); chk (remR, 160); chk (addR, 161);
+    chk (tuningR, 170); for (int i = 0; i < 5; ++i) chk (octR[i], 190 + i); for (int i = 0; i < kVStyles; ++i) chk (vstyleR[i], 180 + i);
     for (int i = 0; i < kModes; ++i) chk (modeR[i], 200 + i);
     if (proc.vi ("mode") == COMPOSIZIONE) for (int i = 0; i < 3; ++i) { chk (layR[i], 240 + i); chk (diceR[i], 243 + i); chk (editLayR[i], 250 + i); chk (layDragR[i], 260 + i); }
     else if (proc.vi ("mode") == ARPEGGIO) { chk (styleR, 280); chk (figR, 281); chk (figDiceR, 282); chk (ritR, 283); chk (ritDiceR, 284); chk (gridBtnR, 285); chk (rotR, 286); chk (writeR, 287); }
@@ -742,7 +748,7 @@ void Editor::mouseMove (const juce::MouseEvent& e)
         { 182, "TRIADI ALTE: tre o quattro corde acute, per funk, R&B, afro." }, { 183, "POWER: fondamentale e quinta, per rock, punk e palm mute." }, { 184, "JAZZ: voicing di settima e nona anche senza fondamentale al basso." },
         { 200, "ACCORDI: accordi tenuti, colpi, stab, neo soul." }, { 201, "RITMICA: pennate su e giu' corda per corda, stoppate, palm mute." },
         { 202, "ARPEGGIO: fingerpicking, una corda alla volta, le note si lasciano suonare." }, { 203, "LEAD: melodia con bend, vibrato, scivolate e legati nel box della POSIZIONE." },
-        { 230, "Trascina nella traccia: il clip MIDI e' gia' in tempo e lungo quanto il giro. In composizione: un file con una traccia per chitarra." }, { 231, "Nuovo giro (per funzione armonica, dal genere e dal mood), nuovo pattern adatto al genere, nuova suonata." }, { 232, "Stesso giro e stessi pattern, suonati in un altro modo." },
+        { 230, "Trascina nella traccia: il clip MIDI e' gia' in tempo e lungo quanto il giro. In composizione: un file con una traccia per chitarra." }, { 231, "Nuovo giro (per funzione armonica, dal genere e dal mood), nuovo pattern adatto al genere, nuova suonata." }, { 237, "Tutto nuovo e a caso (genere, mood, modo di suonare, giro, groove) tenendo solo tonalita', scala e lunghezza." }, { 232, "Stesso giro e stessi pattern, suonati in un altro modo." },
         { 233, "Ascolta il giro anche a trasporto fermo." }, { 234, "Acceso: il giro suona con il play della DAW. Spento: la chitarra suona solo il MIDI che arriva (per esempio il clip trascinato)." },
         { 235, "Manda le note fuori dal plugin (per suonare un'altra chitarra o un sampler)." }, { 236, "Ogni corda su un canale (2-7): i bend restano sulla corda giusta in un'altra chitarra virtuale." },
         { 310, "Spenta: nessun suono, esce solo il MIDI." },

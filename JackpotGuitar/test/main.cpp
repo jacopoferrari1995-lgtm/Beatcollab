@@ -149,8 +149,8 @@ static void varTest()
         for (int pat = 0; pat < 9; ++pat) for (int mode : { ARPEGGIO, RITMICA })
         {
             if (pat >= patternNames (mode).size()) continue;
-            Settings S; S.mode = mode; S.pattern = pat; S.mood = mood; S.bars = 8; S.prog = { 0, 0, 0, 0 }; S.seed = 5 + pat; S.human = 0; S.swing = 0;
-            auto P = generate (S);
+            Settings S; S.mode = mode; S.pattern = pat; S.mood = mood; S.bars = 8; S.prog = { 0, 0, 0, 0 }; S.seed = 5 + pat; S.human = 0; S.swing = 0; if (auto* vv = std::getenv ("JVARY")) S.vary = (float) std::atof (vv);
+            auto P = generateAny (S);
             auto bar = [&] (int b) { std::vector<std::pair<int, int>> v; for (auto& e : P.ev) if (e.beat >= b * 4 && e.beat < b * 4 + 4) v.push_back ({ (int) std::floor ((e.beat - b * 4) * 12 + 0.25), e.note }); std::sort (v.begin(), v.end()); return v; };
             const auto b0 = bar (0); int sm = 0; for (int b = 1; b < 8; ++b) { ++tot; sm += bar (b) == b0; } same += sm;
             if (std::getenv ("JVAR") && mood == std::atoi (std::getenv ("JVAR"))) { std::printf ("  %s %s: %d", modeName (mode), patternNames (mode)[pat].toRawUTF8(), sm); for (int b = 0; b < 8; ++b) std::printf (" [%zu]", bar (b).size()); std::printf ("\n"); }

@@ -1,5 +1,5 @@
 #pragma once
-#include "FluxEngine.h"
+#include "FluxSynth.h"
 
 namespace flux
 {
@@ -43,6 +43,7 @@ public:
     void variate() { seed = hsh (seed.load(), (juce::uint32) juce::Time::getMillisecondCounter()) | 1u; }
     void storeMem (int i); void recallMem (int i);
     void selectSection (int s);              // dall'interfaccia: subito
+    void renderKit (juce::AudioBuffer<float>&);
     std::atomic<juce::uint32> seed { 1 }; std::atomic<bool> abOriginal { false };
     std::array<Mem, 8> mem; std::array<Section, NSEC> sections; int starter = TRAP;
     std::atomic<double> uiPpq { 0 }; std::atomic<bool> uiPlaying { false }; std::atomic<double> uiBpm { 120 };
@@ -61,5 +62,9 @@ private:
     BarEvents cache[2]; int cacheBar[2] { -9999, -9999 }; juce::uint32 cacheKey[2] {};
     struct Pending { double end; int ch, note; }; Pending pend[512]; int np = 0;
     std::atomic<bool> allOff { false };
+    Kit kit; struct Hit { int at, lane, note, vel; double len; }; Hit hits[1024]; int nh = 0;
+    std::array<bool, 128> inDown {};
+public:
+    std::atomic<int> uiTrans { 0 }, uiFollowRoot { -1 };
 };
 }

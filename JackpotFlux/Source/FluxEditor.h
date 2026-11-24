@@ -36,7 +36,7 @@ public:
     jlook::Scaler scaler { *this, "flux", W, H };
     jlook::SizeChip sizeChip { scaler };
     juce::OwnedArray<neo::Knob> knobs;
-    juce::Rectangle<float> themeR, starterR[kStarters], keyR, playR, varR, abR, midiR, laneR[NL], muteR[NL], varLR[NL], secR[NSEC], memR[8], addR, drumR;
+    juce::Rectangle<float> themeR, starterR[kStarters], keyR, playR, varR, abR, midiR, laneR[NL], muteR[NL], varLR[NL], secR[NSEC], memR[8], addR, drumR, soundR, volR, followR; float volStart = 0;
     struct RuleUI { juce::Rectangle<float> on, from, to, type, del; }; std::vector<RuleUI> ruleUI;
     bool dragging = false; int flash = 0; juce::String info;
     static juce::Colour laneCol (int l);
