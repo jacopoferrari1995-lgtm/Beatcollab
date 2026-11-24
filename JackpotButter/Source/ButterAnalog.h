@@ -95,6 +95,7 @@ inline void aeBandFilter (const AeSettings& S, int k, double sr, Bq& out, bool& 
 struct AeColour
 {
     float lp[2] {}, dc[2] {}, h1[2] {}, h2[2] {}, aHi = 0.3f; double lastSr = 0;
+    void reset() { for (int c = 0; c < 2; ++c) lp[c] = dc[c] = h1[c] = h2[c] = 0; }
     inline float run (float x, int c, int model, float drive, double sr)
     {
         if (drive < 0.001f) return x;

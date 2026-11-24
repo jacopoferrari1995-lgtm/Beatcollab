@@ -710,19 +710,28 @@ void Burro::process (float* L, float* R, int N, AudioProcessorValueTreeState& s)
         const float iM = v ("u_iMono");
         if (iOn && iM > 21 && iM != imLast) { imB.set (4, sr, iM, 0, 0.707); imLast = iM; }
         const int limType = (int) v ("u_limType");
+        const float kMix = 1.0f - std::exp (-1.0f / (0.02f * (float) sr));
         for (int i = 0; i < N; ++i)
         {
-            if ((i & 31) == 0)
+            if ((puTick++ & 31) == 0)
             {
                 const float a = 1.0f - std::exp (-32.0f / (0.02f * (float) sr));
                 auto sm = [a] (float& x, float t) { x += (t - x) * a; if (std::abs (x - t) < 1e-4f) x = t; };
                 sm (puSm.lb, puS.lb); sm (puSm.la, puS.la); sm (puSm.hb, puS.hb); sm (puSm.ha, puS.ha); sm (puSm.bw, puS.bw);
-                puAct = pultecActive (puSm) || pultecActive (puS);
+                // acceso appena una manopola si muove, spento solo quando tutto e' tornato a zero E la miscela e' sfumata
+                const bool want = pultecActive (puSm) || pultecActive (puS);
+                if (want && ! puAct) { for (auto& f : pu) { f.z1[0] = f.z1[1] = f.z2[0] = f.z2[1] = 0; } puCol.reset(); puMixS = 0; puLast = {}; puLast.lb = -1; }
+                puAct = want || puMixS > 1e-4f;
                 if (puAct && std::memcmp (&puSm, &puLast, sizeof (puSm)) != 0) { pultecFilters (puSm, sr, pu); puLast = puSm; }
                 puMix = jmin (1.0f, (puSm.lb + puSm.la + puSm.hb + puSm.ha) * 2.0f);
                 puDrive = jmin (1.0f, (puSm.lb + puSm.hb) / 20.0f * 0.6f + 0.15f);
             }
-            if (puAct) for (int c = 0; c < 2; ++c) { float y = ch[c][i]; for (auto& f : pu) y = f.run (y, c); const float col = puCol.run (y, c, AE_PE1C, puDrive, sr); ch[c][i] = y + (col - y) * puMix; }
+            if (puAct)
+                for (int c = 0; c < 2; ++c)
+                {   // colore della valvola dosato con una miscela che scivola (prima saltava da 0 a 1 in un millisecondo)
+                    if (c == 0) puMixS += (puMix - puMixS) * kMix;
+                    float y = ch[c][i]; for (auto& f : pu) y = f.run (y, c); const float col = puCol.run (y, c, AE_PE1C, puDrive, sr); ch[c][i] = y + (col - y) * puMixS;
+                }
             const float iW = wR.at (i);
             if (iOn && (std::abs (iW - 1.0f) > 0.005f || iM > 21))
             {

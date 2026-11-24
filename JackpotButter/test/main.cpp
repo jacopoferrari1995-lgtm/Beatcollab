@@ -5,6 +5,43 @@
 using namespace jb;
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "twin")
+    {   // due copie identiche con lo stesso segnale devono dare lo stesso suono: se no c'e' memoria non inizializzata o casualita'
+        auto mk = [] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, 48000, 512); p->prepareToPlay (48000, 512); int pr = 0; for (int i = 0; i < p->getNumPrograms(); ++i) if (p->getProgramName (i).contains ("Rap davanti")) pr = i; p->loadPreset (pr);
+            if (auto* js = std::getenv ("JSET")) for (auto kv : juce::StringArray::fromTokens (js, ",", "")) { auto* r = p->apvts.getParameter (kv.upToFirstOccurrenceOf ("=", false, false)); r->setValueNotifyingHost (r->convertTo0to1 (kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue())); }
+            return p; };
+        std::vector<std::unique_ptr<Processor>> junk; for (int j = 0; j < 3; ++j) { junk.push_back (mk()); }   // sporca la memoria
+        junk.clear();
+        auto a = mk(), b = mk(); juce::Random r1 (4); juce::MidiBuffer mb; int first = -1;
+        for (int k = 0; k < 94 * 10; ++k)
+        {
+            juce::AudioBuffer<float> x (2, 512), y (2, 512);
+            for (int i = 0; i < 512; ++i) { const double t = (k * 512 + i) / 48000.0; const float v = 0.1f * (r1.nextFloat() * 2 - 1) + 0.25f * (float) std::sin (2 * 3.14159265 * 1000 * t); x.setSample (0, i, v); x.setSample (1, i, v); y.setSample (0, i, v); y.setSample (1, i, v); }
+            a->processBlock (x, mb); b->processBlock (y, mb);
+            for (int i = 0; i < 512 && first < 0; ++i) if (x.getSample (0, i) != y.getSample (0, i)) { first = k * 512 + i; std::printf ("prima differenza al campione %d (%.3f s): %.6f vs %.6f\n", first, first / 48000.0, x.getSample (0, i), y.getSample (0, i)); }
+        }
+        if (first < 0) std::printf ("identiche\n");
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "xext")
+    {   // come THE_LAB: un comando a 0% / 100% con rumore + tono, poi torna com'era: il suono deve tornare quello di prima
+        const char* id = std::getenv ("JID") ? std::getenv ("JID") : "u_xAmt"; const float ext = std::getenv ("JEXT") ? (float) std::atof (std::getenv ("JEXT")) : 1.0f;
+        auto mk = [] { auto p = std::make_unique<Processor>(); p->setPlayConfigDetails (2, 2, 48000, 512); p->prepareToPlay (48000, 512); int pr = 0; for (int i = 0; i < p->getNumPrograms(); ++i) if (p->getProgramName (i).contains ("Rap davanti")) pr = i; p->loadPreset (pr); return p; };
+        auto a = mk(), b = mk(); juce::Random r1 (4), r2 (4); auto* prm = b->apvts.getParameter (id); const float v0 = prm->getValue();
+        juce::MidiBuffer mb; double dmax = 0;
+        for (int k = 0; k < 94 * 40; ++k)
+        {
+            if (k == 94 * 5) prm->setValueNotifyingHost (ext); if (k == 94 * 10) prm->setValueNotifyingHost (v0);
+            juce::AudioBuffer<float> x (2, 512), y (2, 512);
+            for (int i = 0; i < 512; ++i) { const double t = (k * 512 + i) / 48000.0; const float v = 0.1f * (r1.nextFloat() * 2 - 1) + 0.25f * (float) std::sin (2 * 3.14159265 * 1000 * t); r2.nextFloat(); x.setSample (0, i, v); x.setSample (1, i, v); y.setSample (0, i, v); y.setSample (1, i, v); }
+            a->processBlock (x, mb); b->processBlock (y, mb);
+            double d = 0, e = 0; for (int i = 0; i < 512; ++i) { d += std::pow (x.getSample (0, i) - y.getSample (0, i), 2.0); e += std::pow (x.getSample (0, i), 2.0); }
+            if (k % 94 == 0) std::printf ("%2d s: differenza %.1f dB, picco %.2f\n", k / 94, 10 * std::log10 (d / (e + 1e-30) + 1e-30), y.getMagnitude (0, 512));
+            if (k > 94 * 15) dmax = std::max (dmax, d / (e + 1e-30));
+        }
+        std::printf ("dopo 5 s dal ritorno: differenza massima %.1f dB\n", 10 * std::log10 (dmax + 1e-30));
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "rap")
     {   // il caso di Lo: preset Voce | Rap davanti, CLIP mosso un poco, minuti di voce rap con pause, buffer fisso
         const double sr = std::getenv ("JSR") ? std::atof (std::getenv ("JSR")) : 48000; const int blk = std::getenv ("JBLK") ? std::atoi (std::getenv ("JBLK")) : 512;

@@ -153,7 +153,7 @@ private:
     float tLp[2] = {}, aLp[2] = {}, mEnvF = 0, mEnvS = 0;
     int lastSpType = -1;
     Bq ae[4]; bool aeAct[4] {}; AeColour aeCol; float lastAe[12] = { 99 };
-    Bq pu[4]; PultecSettings puLast, puSm; bool puInit = false, puAct = false; float puMix = 0, puDrive = 0.15f; AeColour puCol; Maxx maxx;
+    Bq pu[4]; PultecSettings puLast, puSm; bool puInit = false, puAct = false; float puMix = 0, puMixS = 0, puDrive = 0.15f; juce::uint32 puTick = 0; AeColour puCol; Maxx maxx;
     // modulo EXTRA
     juce::AudioBuffer<float> xBuf; int xW = 0; float xLp[2] = {}, xHold[2] = {}; double xPh = 0, xLfo = 0, xDrift = 0, xDt = 0; juce::Random xr; int lastXType = -1;
     float accIn = 0, accOut = 0, accGr = 0, accTr = 0; int accN = 0;
