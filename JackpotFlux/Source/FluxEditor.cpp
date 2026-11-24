@@ -9,6 +9,7 @@ using namespace neo;
 static juce::String U (const char* s) { return juce::String::fromUTF8 (s); }
 static void panel (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour edge, bool display = false)
 {
+    if (skin::cur() != 3) { jlook::softShadow (g, r, 14); jlook::card (g, r, 14, edge, true, false, false); if (display) { g.setColour (K::lo.withAlpha (skin::light() ? 0.06f : 0.25f)); g.fillRoundedRectangle (r.reduced (6), 10); } return; }
     const float rad = 16;
     g.setColour (K::lo.withAlpha (0.35f)); g.fillRoundedRectangle (r.translated (0, 3), rad);
     juce::ColourGradient bgc (display ? K::disp0 : K::panel0, 0, r.getY(), display ? K::disp1 : K::panel1, 0, r.getBottom(), false); g.setGradientFill (bgc); g.fillRoundedRectangle (r, rad);
@@ -27,7 +28,7 @@ static const char* keyNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "
 Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
 {
     skin::init ("flux", { 0xffe58aa0, 0xffb9a6e0, 0xffe9a260, 0xffa8bea0 }, 0xff3ee8ff);
-    skin::useTheme (1);
+    undoMark.p = &p; addMouseListener (&undoMark, true); setWantsKeyboardFocus (true);
     const char* ids[4] = { "density", "energy", "movement", "space" };
     const char* labs[4] = { "DENSITY", "ENERGY", "MOVEMENT", "SPACE" };
     const char* tips[4] = { "Quante note: a sinistra toglie le meno importanti, a destra aggiunge ghost, hi-hat sui sedicesimi, ripetizioni.",
@@ -54,13 +55,16 @@ void Editor::resized()
     for (int i = 0; i < 4; ++i) knobs[i]->setBounds (juce::Rectangle<int> (52 + i * 112, 600, 92, 120).expanded (Knob::pad));
     for (int s2 = 0; s2 < NSEC; ++s2) secR[s2] = { 540.0f + s2 * 74, 612, 70, 38 };
     for (int m = 0; m < 8; ++m) memR[m] = { 540.0f + m * 46, 680, 42, 34 };
-    addR = { 752, 506, 120, 26 };
+    addR = { 752, 506, 120, 26 }; themeR = { 1060, 575, 86, 24 };
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     bg = {};
     jlook::scaleChildren (*this, s);
 }
 void Editor::paintStatic (juce::Graphics& g)
 {
+    if (skin::cur() != 3) { jlook::backdrop (g, { 0, 0, (float) W, (float) H }, K::cyan, K::violet); jlook::header (g, { 0, 0, (float) W, 64 }, "FLUX", K::cyan, "", K::violet, K::amber); }
+    else
+    {
     juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, (float) H, false); g.setGradientFill (base); g.fillAll();
     // logo: onda che scorre
     juce::Path w; for (int i = 0; i <= 30; ++i) { const float x = 22 + i, y = 34 + std::sin (i * 0.42f) * 8 * std::sin (i * 0.1f + 0.4f); if (i == 0) w.startNewSubPath (x, y); else w.lineTo (x, y); }
@@ -68,6 +72,7 @@ void Editor::paintStatic (juce::Graphics& g)
     g.setFont (num (15.0f)); g.setColour (K::ink); g.drawText ("JACKPOT", juce::Rectangle<float> (62, 18, 100, 20), juce::Justification::centredLeft);
     g.setFont (big (15.0f)); g.setColour (K::sub); g.drawText ("FLUX", juce::Rectangle<float> (139, 18, 160, 20), juce::Justification::centredLeft);
     g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (U ("IL BEAT CHE REAGISCE A SE STESSO"), juce::Rectangle<float> (62, 38, 260, 12), juce::Justification::centredLeft);
+    }
     panel (g, { 24, 72, 700, 482 }, K::cyan, true); title (g, { 24, 72, 700, 482 }, U ("CORSIE  //  le 4 battute che stanno suonando"), K::cyan);
     panel (g, { 736, 72, 420, 482 }, K::violet); title (g, { 736, 72, 420, 482 }, "RELAZIONI", K::violet);
     panel (g, { 24, 566, 476, 180 }, K::amber); title (g, { 24, 566, 476, 180 }, "MACRO", K::amber);
@@ -77,12 +82,12 @@ void Editor::paintStatic (juce::Graphics& g)
 }
 void Editor::paint (juce::Graphics& g)
 {
-    skin::useTheme (1);
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
-    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f) { bgScale = sc; bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false); juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig); }
+    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgTheme != skin::cur()) { bgTheme = skin::cur(); bgScale = sc; bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false); juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig); }
     { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.drawImageAt (bg, 0, 0); g.restoreState(); }
     auto S = proc.snap(); const auto M = proc.macros();
+    skin::chipDraw (g, themeR, false);
     // ---------------- testata
     for (int i = 0; i < kStarters; ++i) chip (g, starterR[i], starterName (i), proc.starter == i, K::cyan, 8.5f);
     chip (g, keyR, juce::String (keyNames[S->key]) + (S->minor ? " min" : " magg"), false, K::violet, 9.0f);
@@ -174,6 +179,7 @@ void Editor::paint (juce::Graphics& g)
 void Editor::mouseDown (const juce::MouseEvent& e)
 {
     const auto p = e.position / scaler.s; dragging = false; auto S = proc.snap();
+    if (themeR.contains (p)) { skin::cycle(); bg = {}; std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* q : c->getChildren()) all (q); }; all (this); return; }
     for (int i = 0; i < kStarters; ++i) if (starterR[i].contains (p)) { proc.loadStarter (i, S->key, S->minor); repaint(); return; }
     if (keyR.contains (p))
     {
@@ -232,6 +238,7 @@ void Editor::filesDropped (const juce::StringArray& files, int x, int y)
 }
 void Editor::timerCallback()
 {
+    if (bgTheme != skin::cur() && bgTheme >= 0) { skin::apply(); bg = {}; repaint(); }
     for (auto* k : knobs) if (k->animate()) k->repaint();
     if (flash > 0) --flash;
     // spiegazione del tipo di regola sotto il mouse

@@ -16,7 +16,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     return l;
 }
 Processor::Processor()
-    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)), apvts (*this, nullptr, "PARAMS", layout())
+    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)), apvts (*this, &undo, "PARAMS", layout())
 {
     for (auto& h : uiHits) h = 0;
     snapPtr = std::make_shared<const Snap> (makeStarter (TRAP, 9, true));
@@ -24,8 +24,9 @@ Processor::Processor()
     const Macros sm[NSEC] = { { 0.35f, 0.4f, 0.2f, 0.55f }, { 0.5f, 0.5f, 0.3f, 0.1f }, { 0.7f, 0.8f, 0.5f, 0.0f }, { 0.4f, 0.45f, 0.4f, 0.75f }, { 0.3f, 0.35f, 0.1f, 0.85f } };
     for (int s = 0; s < NSEC; ++s) sections[(size_t) s].m = sm[s];
     for (auto id : { "density", "energy", "movement", "space", "section" }) apvts.addParameterListener (id, this);
+    startTimer (500);
 }
-Processor::~Processor() { cancelPendingUpdate(); for (auto id : { "density", "energy", "movement", "space", "section" }) apvts.removeParameterListener (id, this); }
+Processor::~Processor() { stopTimer(); cancelPendingUpdate(); for (auto id : { "density", "energy", "movement", "space", "section" }) apvts.removeParameterListener (id, this); }
 void Processor::prepareToPlay (double s, int) { sr = s; np = 0; cacheBar[0] = cacheBar[1] = -9999; lastEnd = -1; }
 
 void Processor::parameterChanged (const juce::String& id, float)
@@ -45,7 +46,7 @@ void Processor::handleAsyncUpdate()
 void Processor::selectSection (int s) { setV ("section", (float) s); handleAsyncUpdate(); }
 void Processor::loadStarter (int s, int key, bool minor)
 {
-    starter = s; auto S = std::make_shared<Snap> (makeStarter (s, key, minor)); std::atomic_store (&snapPtr, std::shared_ptr<const Snap> (S)); allOff = true;
+    starter = s; auto S = std::make_shared<Snap> (makeStarter (s, key, minor)); publish (std::shared_ptr<const Snap> (S)); allOff = true;
 }
 void Processor::storeMem (int i) { auto S = snap(); auto& m = mem[(size_t) i]; m.used = true; m.seed = seed.load(); m.m = macros(); m.rules = S->rules; m.mute = S->mute; }
 void Processor::recallMem (int i)
@@ -121,18 +122,22 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     if (! playing && ! preview) { if (lastEnd >= 0) flushAll (0); lastEnd = -1; uiPlaying = false; return; }
     uiPlaying = true; uiPpq = p0;
     const double p1 = p0 + N * bpm / 60.0 / sr, spp = sr * 60.0 / bpm;   // campioni per battito
+    // posizioni in campioni assoluti calcolate dal ppq: lo stesso MIDI con qualsiasi buffer
+    const juce::int64 s0 = (juce::int64) std::llround (p0 * spp), s1 = s0 + N;
+    auto absOf = [spp] (double t) { return (juce::int64) std::llround (t * spp); };
     if (lastEnd >= 0 && (p0 < lastEnd - 0.01 || p0 > lastEnd + 0.25)) flushAll (0);   // salto della testina
     lastEnd = p1;
     // note-off dovuti
     for (int i = 0; i < np;)
     {
-        if (pend[i].end < p1) { midi.addEvent (juce::MidiMessage::noteOff (pend[i].ch, pend[i].note), juce::jlimit (0, N - 1, (int) ((pend[i].end - p0) * spp))); pend[i] = pend[--np]; }
+        const juce::int64 a = absOf (pend[i].end);
+        if (a < s1) { midi.addEvent (juce::MidiMessage::noteOff (pend[i].ch, pend[i].note), (int) juce::jlimit ((juce::int64) 0, (juce::int64) N - 1, a - s0)); pend[i] = pend[--np]; }
         else ++i;
     }
-    auto S = snap(); Macros M = macros(); juce::uint32 sd = seed.load();
+    audioSnap = snap(); const Snap* S = audioSnap.get(); Macros M = macros(); juce::uint32 sd = seed.load();   // il pattern vecchio lo libera il timer
     if (abOriginal.load()) { M = { 0.5f, 0.5f, 0.0f, 0.0f }; sd = 1; }
-    const juce::uint32 key = hsh ((juce::uint32) (size_t) S.get(), sd, (juce::uint32) (M.density * 1000) ^ ((juce::uint32) (M.energy * 1000) << 10), (juce::uint32) (M.movement * 1000) ^ ((juce::uint32) (M.space * 1000) << 10));
-    const int barA = (int) std::floor (p0 / BPB), barB = (int) std::floor ((p1 - 1e-9) / BPB);
+    const juce::uint32 key = hsh ((juce::uint32) (size_t) S, sd, (juce::uint32) (M.density * 1000) ^ ((juce::uint32) (M.energy * 1000) << 10), (juce::uint32) (M.movement * 1000) ^ ((juce::uint32) (M.space * 1000) << 10));
+    const int barA = juce::jmax (p0 >= 0 ? 0 : -100000, (int) std::floor (p0 / BPB - 0.01)), barB = (int) std::floor (p1 / BPB + 0.01);
     for (int bar = barA; bar <= barB; ++bar)
     {
         const int ci = bar & 1;
@@ -140,9 +145,11 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         const auto& be = cache[ci];
         for (int k = 0; k < be.n; ++k)
         {
-            const auto& e = be.ev[k]; const double t = bar * (double) BPB + e.t;
-            if (t < p0 || t >= p1) continue;
-            const int off = juce::jlimit (0, N - 1, (int) ((t - p0) * spp)), ch = chOf (e.lane);
+            const auto& e = be.ev[k]; const double t = bar * (double) BPB + e.t; const juce::int64 a = absOf (t);
+            if (a < s0 || a >= s1) continue;
+            const int off = (int) (a - s0), ch = chOf (e.lane);
+            // la stessa nota ancora accesa (roll, ripetizioni): si chiude subito prima, cosi' il suo note-off non taglia quella nuova
+            for (int i = 0; i < np; ++i) if (pend[i].ch == ch && pend[i].note == e.note) { midi.addEvent (juce::MidiMessage::noteOff (ch, e.note), off); pend[i] = pend[--np]; break; }
             midi.addEvent (juce::MidiMessage::noteOn (ch, e.note, (juce::uint8) e.vel), off);
             if (np < 512) pend[np++] = { t + juce::jmax (0.02f, e.len), ch, e.note };
             uiHits[e.lane] = uiHits[e.lane].load() + 1;
@@ -186,7 +193,7 @@ void Processor::setStateInformation (const void* data, int size)
         else if (c.hasType ("RULE")) S->rules.push_back ({ (int) c.getProperty ("f"), (int) c.getProperty ("t"), (int) c.getProperty ("y"), (bool) c.getProperty ("on") });
         else if (c.hasType ("SEC") && s < NSEC) { auto p = juce::StringArray::fromTokens (c.getProperty ("m").toString(), ";", ""); if (p.size() == 4) sections[(size_t) s].m = { p[0].getFloatValue(), p[1].getFloatValue(), p[2].getFloatValue(), p[3].getFloatValue() }; ++s; }
     }
-    std::atomic_store (&snapPtr, std::shared_ptr<const Snap> (S)); lastSection = juce::roundToInt (v ("section"));
+    publish (std::shared_ptr<const Snap> (S)); lastSection = juce::roundToInt (v ("section"));
 }
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
 }

@@ -6,7 +6,7 @@ namespace flux
 struct Mem { bool used = false; juce::uint32 seed = 1; Macros m; std::vector<Rule> rules; std::array<bool, NL> mute {}; };
 struct Section { Macros m; std::array<bool, NL> mute {}; };
 
-class Processor : public juce::AudioProcessor, private juce::AsyncUpdater, private juce::AudioProcessorValueTreeState::Listener
+class Processor : public juce::AudioProcessor, private juce::AsyncUpdater, private juce::AudioProcessorValueTreeState::Listener, private juce::Timer
 {
 public:
     Processor();
@@ -35,7 +35,8 @@ public:
     Macros macros() const { return { v ("density"), v ("energy"), v ("movement"), v ("space") }; }
 
     std::shared_ptr<const Snap> snap() const { return std::atomic_load (&snapPtr); }
-    void edit (const std::function<void (Snap&)>& fn) { auto s = std::make_shared<Snap> (*snap()); fn (*s); std::atomic_store (&snapPtr, std::shared_ptr<const Snap> (s)); }
+    void edit (const std::function<void (Snap&)>& fn) { auto s = std::make_shared<Snap> (*snap()); fn (*s); publish (std::shared_ptr<const Snap> (s)); }
+    juce::UndoManager undo { 100000, 60 };
     void loadStarter (int s, int key, bool minor);
     bool importLane (int lane, const juce::File& f);
     juce::File exportMidi (int bars = 8);
@@ -51,7 +52,11 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     void handleAsyncUpdate() override;
     void parameterChanged (const juce::String& id, float) override;
-    std::shared_ptr<const Snap> snapPtr;
+    std::shared_ptr<const Snap> snapPtr, audioSnap;
+    // i pattern sostituiti restano qui finche' l'audio non li usa piu': la memoria non si libera mai nel thread audio
+    std::vector<std::shared_ptr<const Snap>> retired; juce::CriticalSection retiredLock;
+    void publish (std::shared_ptr<const Snap> s) { auto old = std::atomic_exchange (&snapPtr, std::move (s)); if (old != nullptr) { const juce::ScopedLock l (retiredLock); retired.push_back (std::move (old)); } }
+    void timerCallback() override { const juce::ScopedLock l (retiredLock); retired.erase (std::remove_if (retired.begin(), retired.end(), [] (const std::shared_ptr<const Snap>& x) { return x.use_count() == 1; }), retired.end()); }
     double sr = 48000, ownPpq = 0, lastEnd = -1; int lastSection = -1; bool loadingSec = false;
     BarEvents cache[2]; int cacheBar[2] { -9999, -9999 }; juce::uint32 cacheKey[2] {};
     struct Pending { double end; int ch, note; }; Pending pend[512]; int np = 0;
