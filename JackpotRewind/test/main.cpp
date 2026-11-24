@@ -44,7 +44,25 @@ int main (int argc, char** argv)
         std::printf ("selezione agganciata: %.3f s -> %.3f s  tonalita %s\n", ed.selA / sr, ed.selB / sr, p.keyOf (sel).toRawUTF8());
         auto f = ed.exportSel(); std::printf ("file: %s (%lld byte)\n", f.getFileName().toRawUTF8(), (long long) f.getSize());
         p.preview (ed.selA, ed.selB, false);
-        for (int k = 0; k < 20; ++k) { b.clear(); p.processBlock (b, m); } std::printf ("ascolto: picco %.2f\n", b.getMagnitude (0, 512));
+        float mx = 0; for (int k = 0; k < 300; ++k) { b.clear(); p.processBlock (b, m); mx = juce::jmax (mx, b.getMagnitude (0, 512)); } std::printf ("ascolto: picco %.2f\n", mx);
+        p.stopPreview(); for (int k = 0; k < 4; ++k) { b.clear(); p.processBlock (b, m); }
+    }
+    {   // fedelta': segnale sopra 0 dBFS e segnale debole, letti dalla memoria
+        Processor q; q.prepareToPlay (sr, 512); juce::AudioBuffer<float> bb (2, 512); juce::MidiBuffer mm; std::vector<float> in;
+        for (int k = 0; k < 400; ++k) { for (int i = 0; i < 512; ++i) { const double t = (k * 512 + i) / sr; const float v = (float) ((k < 200 ? 1.8 : 0.001) * std::sin (2 * 3.14159 * 330 * t)); in.push_back (v); bb.setSample (0, i, v); bb.setSample (1, i, -v); } q.processBlock (bb, mm); }
+        juce::AudioBuffer<float> rb; q.readRange (0, q.written(), rb);
+        double eLoud = 0, eQuiet = 0, sLoud = 0, sQuiet = 0;
+        for (int i = 0; i < rb.getNumSamples(); ++i) { const double d = rb.getSample (0, i) - in[(size_t) i]; if (i < 200 * 512) { eLoud += d * d; sLoud += in[(size_t) i] * in[(size_t) i]; } else { eQuiet += d * d; sQuiet += in[(size_t) i] * in[(size_t) i]; } }
+        std::printf ("fedelta' memoria: +5 dBFS errore %.1f dB, -60 dBFS errore %.1f dB (rispetto al segnale), picco letto %.2f\n", 10 * std::log10 (eLoud / sLoud), 10 * std::log10 (eQuiet / sQuiet), rb.getMagnitude (0, 0, 200 * 512));
+        // ascolto in loop di 1 s su un tono continuo: salti al giro e all'avvio/stop
+        const juce::int64 A = q.written() - (juce::int64) (sr * 2.5) - 512 * 200 + 512 * 200; (void) A;
+        Processor z; z.prepareToPlay (sr, 512); for (int k = 0; k < 300; ++k) { for (int i = 0; i < 512; ++i) { const double t = (k * 512 + i) / sr; const float v = (float) (0.5 * std::sin (2 * 3.14159 * 200 * t)); bb.setSample (0, i, v); bb.setSample (1, i, v); } z.processBlock (bb, mm); }
+        z.preview ((juce::int64) (sr * 1.0) + 37, (juce::int64) (sr * 2.0) + 11, true); std::vector<float> o;
+        for (int k = 0; k < 400; ++k) { if (k == 300) z.stopPreview(); bb.clear(); z.processBlock (bb, mm); for (int i = 0; i < 512; ++i) o.push_back (bb.getSample (0, i)); }
+        double w = 0; size_t wi = 0; for (size_t i = 0; i + 2 < o.size(); ++i) { const double d = std::abs (o[i + 2] - 2 * o[i + 1] + o[i]); if (d > w) { w = d; wi = i; } }
+        std::printf ("  (peggiore al campione %zu = %.3f s; giro ogni %.3f s)\n", wi, wi / sr, (sr - 26 - (int) (0.006 * sr)) / sr);
+        const double ref = 0.5 * std::pow (2 * 3.14159 * 200 / sr, 2);
+        std::printf ("ascolto in loop (avvio, giri, stop): derivata seconda massima %.4f, tono pulito %.4f\n", w, ref);
     }
     if (argc > 1)
     {

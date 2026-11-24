@@ -27,9 +27,12 @@ void Processor::prepareToPlay (double s, int)
     cap = (juce::int64) (sr * 60.0 * minutes);
     ring.assign ((size_t) (cap * 2), 0);
     colN = juce::jmax (64, (int) (sr * kColSec));
+    cap = (cap / colN) * colN;   // la memoria e' fatta di colonne intere
+    ring.assign ((size_t) (cap * 2), 0);
     nCols = (int) (cap / colN) + 4;
+    colBuf.assign ((size_t) colN * 2, 0.0f);
     cols = std::vector<Col> ((size_t) nCols);
-    wr = 0; colAt = 0; cPk = 0; cSq = 0;
+    wr = 0; done = 0; colAt = 0; cPk = 0; cSq = 0; pvEnv = soloEnv = 0; pvPlaying = false; pvG = juce::Decibels::decibelsToGain (value ("pvGain"));
 }
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
@@ -51,54 +54,76 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         juce::int64 w = wr.load();
         for (int i = 0; i < n; ++i)
         {
-            const size_t k = (size_t) ((w % cap) * 2);
-            ring[k] = (juce::int16) juce::jlimit (-32767.0f, 32767.0f, L[i] * 32767.0f);
-            ring[k + 1] = (juce::int16) juce::jlimit (-32767.0f, 32767.0f, R[i] * 32767.0f);
+            const int ci = (int) (w % colN);
+            colBuf[(size_t) ci * 2] = L[i]; colBuf[(size_t) ci * 2 + 1] = R[i];
             const float a = juce::jmax (std::abs (L[i]), std::abs (R[i])); cPk = juce::jmax (cPk, a); cSq += 0.5 * (L[i] * L[i] + R[i] * R[i]); pk = juce::jmax (pk, a);
-            if (w % colN == 0)
+            if (ci == 0)
             {   // inizio di una colonna: annota dove eravamo nella canzone
                 auto& c = cols[(size_t) ((w / colN) % nCols)];
                 c.ppq = (playing && ppq >= 0) ? ppq + i / sr * bpm / 60.0 : -1.0; c.bpm = bpm; c.num = num;
             }
             ++w;
             if (w % colN == 0)
-            {
-                auto& c = cols[(size_t) (((w - 1) / colN) % nCols)];
-                c.pk = cPk; c.rms = (float) std::sqrt (cSq / colN); c.abs = (w - 1) / colN; cPk = 0; cSq = 0;
+            {   // colonna completa: 16 bit scalati sul suo picco (anche sopra 0 dBFS non si taglia nulla)
+                const juce::int64 c0 = w - colN; auto& c = cols[(size_t) ((c0 / colN) % nCols)];
+                const float scl = cPk > 1e-9f ? cPk / 32767.0f : 1.0f / 32767.0f, inv = 1.0f / scl;
+                const size_t base = (size_t) ((c0 % cap) * 2);
+                for (int j = 0; j < colN * 2; ++j) ring[base + (size_t) j] = (juce::int16) juce::jlimit (-32767.0f, 32767.0f, std::round (colBuf[(size_t) j] * inv));
+                c.sc = scl; c.pk = cPk; c.rms = (float) std::sqrt (cSq / colN); c.abs = c0 / colN; cPk = 0; cSq = 0;
+                done = w;
             }
         }
         wr = w;
     }
     else for (int i = 0; i < n; ++i) pk = juce::jmax (pk, std::abs (L[i]), std::abs (R[i]));
     inPk = juce::jmax (pk, inPk.load() * 0.9f);
-    // ascolto della selezione
-    if (pvOn.load())
+    // ascolto della selezione: entra, esce e gira in loop sfumato; volume che scivola
     {
-        const float g = juce::Decibels::decibelsToGain (value ("pvGain")); const bool solo = value ("pvSolo") > 0.5f;
-        float* oL = buffer.getWritePointer (0); float* oR = buffer.getWritePointer (1);
-        juce::int64 p = pvPos.load();
-        for (int i = 0; i < n; ++i)
+        if (pvReq.exchange (false)) { pvP = pvA.load(); pvEnv = 0; pvPlaying = true; }   // nuova selezione: si riparte con un'entrata morbida
+        if (pvPlaying || soloEnv > 0)
         {
-            float l = 0, r = 0;
-            if (pvOn.load() && p < pvB && p >= oldest())
+            const float tg = juce::Decibels::decibelsToGain (value ("pvGain")), sk = 1.0f - std::exp (-1.0f / (0.02f * (float) sr));
+            const bool solo = value ("pvSolo") > 0.5f; const float fade = 1.0f / (0.008f * (float) sr);
+            const juce::int64 A = pvA.load(), B = pvB.load(); const bool loop = pvLoop.load();
+            const int xf = (int) juce::jmin ((juce::int64) (0.012 * sr), juce::jmax ((juce::int64) 1, (B - A) / 4));
+            float* oL = buffer.getWritePointer (0); float* oR = buffer.getWritePointer (1);
+            for (int i = 0; i < n; ++i)
             {
-                const size_t k = (size_t) ((p % cap) * 2); l = ring[k] / 32767.0f * g; r = ring[k + 1] / 32767.0f * g;
-                if (++p >= pvB) { if (pvLoop) p = pvA; else pvOn = false; }
+                pvG += (tg - pvG) * sk;
+                float l = 0, r = 0;
+                if (pvPlaying && pvP < B)
+                {
+                    auto rd = [this] (juce::int64 q, int c) { return q >= oldest() && q < written() ? readS (q, c) : 0.0f; };
+                    l = rd (pvP, 0); r = rd (pvP, 1);
+                    const juce::int64 left = B - pvP;
+                    if (left <= xf)
+                    {
+                        const float t0 = 1.0f - (float) left / (float) xf, t = t0 * t0 * (3.0f - 2.0f * t0);   // curva morbida: niente spigoli
+                        if (loop) { const juce::int64 q = A + (xf - left); l += (rd (q, 0) - l) * t; r += (rd (q, 1) - r) * t; }   // si incrocia con l'inizio
+                        else { l *= 1.0f - t; r *= 1.0f - t; }                                                                     // finisce sfumando
+                    }
+                    if (++pvP >= B) { if (loop) pvP = A + xf; else pvOn = false; }
+                }
+                const bool live = pvPlaying && pvOn.load();
+                pvEnv = juce::jlimit (0.0f, 1.0f, pvEnv + (live ? fade : -fade));
+                if (! live && pvEnv <= 0.0f) pvPlaying = false;
+                soloEnv = juce::jlimit (0.0f, 1.0f, soloEnv + ((solo && pvPlaying) ? fade : -fade));
+                const float e = pvEnv * pvEnv * (3.0f - 2.0f * pvEnv), so = soloEnv * soloEnv * (3.0f - 2.0f * soloEnv), g = pvG * e;
+                oL[i] = oL[i] * (1.0f - so) + l * g; oR[i] = oR[i] * (1.0f - so) + r * g;
             }
-            if (solo) { oL[i] = l; oR[i] = r; } else { oL[i] += l; oR[i] += r; }
+            pvPos = pvP;
         }
-        pvPos = p;
     }
 }
 void Processor::readRange (juce::int64 a, juce::int64 b, juce::AudioBuffer<float>& out) const
 {
-    a = juce::jmax (a, oldest()); b = juce::jmin (b, wr.load());
+    a = juce::jmax (a, oldest()); b = juce::jmin (b, written());
     const int n = (int) juce::jmax ((juce::int64) 0, b - a); out.setSize (2, n);
-    for (int i = 0; i < n; ++i) { const size_t k = (size_t) (((a + i) % cap) * 2); out.setSample (0, i, ring[k] / 32767.0f); out.setSample (1, i, ring[k + 1] / 32767.0f); }
+    for (int i = 0; i < n; ++i) { out.setSample (0, i, readS (a + i, 0)); out.setSample (1, i, readS (a + i, 1)); }
 }
 bool Processor::musicalAt (juce::int64 s, double& ppq, double& bpm, int& num) const
 {
-    if (s < oldest() || s >= wr.load()) return false;
+    if (s < oldest() || s >= written()) return false;
     const auto& c = col (s / colN);
     if (c.ppq.load() < 0 || c.bpm.load() <= 0) return false;
     bpm = c.bpm; num = juce::jmax (1, c.num.load());

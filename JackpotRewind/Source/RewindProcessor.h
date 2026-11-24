@@ -34,10 +34,10 @@ public:
 
     // ---- memoria
     static constexpr double kColSec = 0.05;                  // una colonna della panoramica = 50 ms
-    struct Col { std::atomic<float> pk { 0 }, rms { 0 }; std::atomic<double> ppq { -1 }, bpm { 0 }; std::atomic<int> num { 4 }; std::atomic<juce::int64> abs { -1 }; };
+    struct Col { std::atomic<float> pk { 0 }, rms { 0 }, sc { 0 }; std::atomic<double> ppq { -1 }, bpm { 0 }; std::atomic<int> num { 4 }; std::atomic<juce::int64> abs { -1 }; };
     juce::int64 capacity() const { return cap; }                // campioni per canale
-    juce::int64 written() const { return wr.load(); }           // campioni scritti dall'inizio
-    juce::int64 oldest() const { return juce::jmax ((juce::int64) 0, wr.load() - cap); }
+    juce::int64 written() const { return done.load(); }         // campioni gia' in memoria (colonne complete)
+    juce::int64 oldest() const { return juce::jmax ((juce::int64) 0, done.load() - cap + colN); }
     int colLen() const { return colN; }
     int numCols() const { return nCols; }
     const Col& col (juce::int64 absCol) const { return cols[(size_t) (absCol % nCols)]; }
@@ -49,10 +49,11 @@ public:
 
     // ---- segnalibri
     std::vector<juce::int64> marks; juce::CriticalSection marksLock;
-    void addMark() { const juce::ScopedLock l (marksLock); marks.push_back (wr.load()); }
+    void addMark() { const juce::ScopedLock l (marksLock); marks.push_back (done.load()); }
 
     // ---- ascolto della selezione
-    void preview (juce::int64 a, juce::int64 b, bool loop) { pvA = a; pvB = b; pvLoop = loop; pvPos = a; pvOn = true; }
+    // l'ascolto entra ed esce sfumato (6 ms) e il giro del loop si incrocia: niente click
+    void preview (juce::int64 a, juce::int64 b, bool loop) { pvA = a; pvB = b; pvLoop = loop; pvReq = true; pvOn = true; }
     void stopPreview() { pvOn = false; }
     std::atomic<bool> pvOn { false }; std::atomic<juce::int64> pvPos { 0 };
 
@@ -70,6 +71,9 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
     double sr = 44100; juce::int64 cap = 0; std::vector<juce::int16> ring; std::atomic<juce::int64> wr { 0 };
     std::vector<Col> cols; int nCols = 0, colN = 2205; juce::int64 colAt = 0; float cPk = 0; double cSq = 0;
-    juce::int64 pvA = 0, pvB = 0; bool pvLoop = false;
+    std::atomic<juce::int64> pvA { 0 }, pvB { 0 }, done { 0 }; std::atomic<bool> pvLoop { false }, pvReq { false };
+    float pvEnv = 0, soloEnv = 0, pvG = 1; bool pvPlaying = false; juce::int64 pvP = 0;
+    std::vector<float> colBuf;   // la colonna in corso, scritta in memoria quando e' completa (scala per colonna: niente tagli sopra 0 dB)
+    float readS (juce::int64 p, int ch) const { const size_t k = (size_t) ((p % cap) * 2) + (size_t) ch; return ring[k] * cols[(size_t) ((p / colN) % nCols)].sc.load(); }
 };
 }
