@@ -83,7 +83,9 @@ private:
         if (gS < 0) { gS = g; dS = S.drive; }
         if (biasS < -9) biasS = S.bias;
         const float asym0 = 0.06f + 0.10f * juce::jmax (0.0f, -biasS);       // poco bias = piu seconda armonica
-        const float hiss = S.noise * 0.0025f * ti.noise;
+        // fruscio: 10 dB piu' basso di prima e solo quando c'e' musica (nei silenzi e nei finali sfuma via, come un nastro con il noise gate)
+        const float hiss = S.noise * S.noise * 0.0012f * ti.noise;
+        const float lvA = 1.0f - (float) std::exp (-1.0 / (0.005 * f4)), lvR = 1.0f - (float) std::exp (-1.0 / (0.4 * f4));
         const float dcK = (float) std::exp (-juce::MathConstants<double>::twoPi * 5.0 / f4);
         for (int off = 0; off < n; off += kMax)
         {
@@ -132,8 +134,13 @@ private:
                         }
                         y = st.de (y); y = st.dip (st.bump (y)); y = st.air (y);
                         if (lpOn) y = st.lp (y);
-                        if (hiss > 0 && (i & 3) == 0) st.hz = st.nlp (st.nhp ((rngC[c].nextFloat() * 2 - 1) * hiss * 2.0f));   // un generatore per canale: il fruscio non dipende dai blocchi
-                        if (hiss > 0) y += st.hz;
+                        if (hiss > 0)
+                        {
+                            const float a = std::abs (in); st.lev += (a > st.lev ? lvA : lvR) * (a - st.lev);
+                            const float gate = juce::jlimit (0.0f, 1.0f, st.lev * 20.0f);   // pieno sopra circa -26 dBFS
+                            if ((i & 3) == 0) st.hz = st.nlp (st.nhp ((rngC[c].nextFloat() * 2 - 1) * hiss * 2.0f));   // un generatore per canale: il fruscio non dipende dai blocchi
+                            y += st.hz * gate;
+                        }
                         y = in + (y - in) * mm;
                         x[i] = S.delta ? y - in : y;
                     }
@@ -158,7 +165,7 @@ private:
         return juce::roundToInt (ph / juce::MathConstants<double>::twoPi * sr / f);
     }
     static constexpr int kMax = 1024;
-    struct Ch { Biquad pre, de, bump, dip, lp, air, nlp, nhp, aa1, aa2; AdaaTanh sat; float hz = 0, dc = 0; };
+    struct Ch { Biquad pre, de, bump, dip, lp, air, nlp, nhp, aa1, aa2; AdaaTanh sat; float hz = 0, dc = 0, lev = 0; };
     double sr = 48000; int lastModel = -1, lat = 0; float lastBias = 99, biasS = -99, gS = -1, mS = 0, dS = -1; Ch ch[2]; juce::Random rng { 77 }, rngC[2] { juce::Random (77), juce::Random (78) };
     std::vector<float> ring[2], dryT[2]; int rw = 0, warm = 0; float gm = 0; bool running = false;
     std::unique_ptr<juce::dsp::Oversampling<float>> os;

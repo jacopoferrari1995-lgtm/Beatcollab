@@ -66,68 +66,77 @@ public:
         for (auto* x : { &xo, &mxM, &mxS }) { x->prepare (sp); x->setType (juce::dsp::LinkwitzRileyFilterType::lowpass); }
         eAf.set (sr, 0.4, 40); eAs.set (sr, 20, 40); eSf.set (sr, 1, 45); eSs.set (sr, 1, 350);
         hHp.set (Biquad::LCUT, 90, 0, 0.7, sr); hHp2.set (Biquad::LCUT, 90, 0, 0.7, sr); hLp.set (Biquad::HCUT, 450, 0, 0.7, sr);
-        lastF = lastM = -1; pEnv = 0; pGr = 0; balLo = balAll = 1e-6f;
+        lastF = lastM = -1; pEnv = 0; pGr = 0; balLo = balAll = 1e-6f; init = false; tick = 0;
     }
+    // tutti i comandi scivolano (20 ms) campione per campione; FREQUENZA e MONO si aggiornano ogni 16 campioni su un contatore libero;
+    // il MONO entra ed esce sfumato
     void process (float* L, float* R, int n, const BassSettings& S)
     {
-        if (std::abs (S.freq - lastF) > 0.5f) { xo.setCutoffFrequency (S.freq); lastF = S.freq; }
+        const float sk = 1.0f - std::exp (-1.0f / (0.02f * (float) sr)), k16 = 1.0f - std::exp (-16.0f / (0.02f * (float) sr));
         const bool mono = S.monoBelow >= 20;
-        if (mono && std::abs (S.monoBelow - lastM) > 0.5f) { mxM.setCutoffFrequency (S.monoBelow); mxS.setCutoffFrequency (S.monoBelow); lastM = S.monoBelow; }
-        const float lvl = dbToG (S.balance);
-        // PUNCH (+) piu attacco; WARM (-) attacco morbido e piu sustain
-        const float kP = S.punch * 1.6f, kT = S.tail * 1.4f + (S.punch < 0 ? -S.punch * 0.9f : 0.0f);
-        // controllo picchi: pulito = morbido e lento, sporco = rapido + saturazione
-        const bool peak = S.thr < -0.05f;
-        const float pAtt = (float) std::exp (-1.0 / ((0.004 - 0.0035 * S.dirty) * sr)), pRel = (float) std::exp (-1.0 / ((0.16 - 0.12 * S.dirty) * sr));
-        const float ratio = 4.0f + 16.0f * S.dirty, sat = S.dirty;
+        if (! init) { init = true; fS = S.freq; mS = mono ? S.monoBelow : 120.0f; monoAmt = mono ? 1.0f : 0.0f; hS = S.harm; pS = S.punch; tS = S.tail; lvS = dbToG (S.balance); thS = S.thr; dS = S.dirty;
+                      xo.setCutoffFrequency (fS); mxM.setCutoffFrequency (mS); mxS.setCutoffFrequency (mS); lastF = fS; lastM = mS; }
+        const float lvlT = dbToG (S.balance), monoT = mono ? 1.0f : 0.0f, mTarget = mono ? S.monoBelow : mS;
         float gMin = 1, gMax = 1; double eLo = 0, eAll = 0; float prMax = 0;
         for (int i = 0; i < n; ++i)
         {
+            if ((tick++ & 15) == 0)
+            {
+                fS = std::exp (std::log (fS) + (std::log (S.freq) - std::log (fS)) * k16); if (std::abs (fS - lastF) > 0.01f) { xo.setCutoffFrequency (fS); lastF = fS; }
+                mS = std::exp (std::log (mS) + (std::log (juce::jmax (20.0f, mTarget)) - std::log (mS)) * k16); if (std::abs (mS - lastM) > 0.01f) { mxM.setCutoffFrequency (mS); mxS.setCutoffFrequency (mS); lastM = mS; }
+            }
+            hS += (S.harm - hS) * sk; pS += (S.punch - pS) * sk; tS += (S.tail - tS) * sk; lvS += (lvlT - lvS) * sk; thS += (S.thr - thS) * sk; dS += (S.dirty - dS) * sk;
+            monoAmt = juce::jlimit (0.0f, 1.0f, monoAmt + (monoT > monoAmt ? 1.0f : -1.0f) / (0.015f * (float) sr));
+            // PUNCH (+) piu attacco; WARM (-) attacco morbido e piu sustain
+            const float kP = pS * 1.6f, kT = tS * 1.4f + (pS < 0 ? -pS * 0.9f : 0.0f);
+            // controllo picchi: pulito = morbido e lento, sporco = rapido + saturazione (si dosa con la soglia: niente scatto all'accensione)
+            const float peakAmt = juce::jlimit (0.0f, 1.0f, -thS / 0.5f);
             float lo0, hi0, lo1, hi1;
             xo.processSample (0, L[i], lo0, hi0); xo.processSample (1, R[i], lo1, hi1);
             const float d0 = lo0, d1 = lo1;          // banda bassa originale (per il delta)
             const float lm = 0.5f * (lo0 + lo1), a = std::abs (lm);
             float g = 1;
-            if (std::abs (kP) > 1e-3f) { const float f = eAf (a), sl = eAs (a); g *= std::pow (juce::jlimit (0.25f, 8.0f, (f + 1e-6f) / (sl + 1e-6f)), kP); }
-            if (std::abs (kT) > 1e-3f) { const float f = eSf (a), sl = eSs (a); g *= std::pow (juce::jlimit (0.25f, 8.0f, (sl + 1e-6f) / (f + 1e-6f)), kT); }
-            g = juce::jlimit (0.125f, 4.0f, g) * lvl;
+            { const float f = eAf (a), sl = eAs (a); if (std::abs (kP) > 1e-4f) g *= std::pow (juce::jlimit (0.25f, 8.0f, (f + 1e-6f) / (sl + 1e-6f)), kP); }
+            { const float f = eSf (a), sl = eSs (a); if (std::abs (kT) > 1e-4f) g *= std::pow (juce::jlimit (0.25f, 8.0f, (sl + 1e-6f) / (f + 1e-6f)), kT); }
+            g = juce::jlimit (0.125f, 4.0f, g) * lvS;
             lo0 *= g; lo1 *= g;
-            if (peak)
+            if (peakAmt > 0.0f)
             {
+                const float pAtt = (float) std::exp (-1.0 / ((0.004 - 0.0035 * dS) * sr)), pRel = (float) std::exp (-1.0 / ((0.16 - 0.12 * dS) * sr));
+                const float ratio = 4.0f + 16.0f * dS, sat = dS, thr = juce::jmin (thS, -0.05f);
                 const float pa = juce::jmax (std::abs (lo0), std::abs (lo1));
                 pEnv = pa > pEnv ? pAtt * pEnv + (1 - pAtt) * pa : pRel * pEnv + (1 - pRel) * pa;
-                const float gr = downGain (gToDb (pEnv + 1e-9f), S.thr, ratio, 3.0f);
+                const float gr = downGain (gToDb (pEnv + 1e-9f), thr, ratio, 3.0f) * peakAmt;
                 const float pg = dbToG (gr); lo0 *= pg; lo1 *= pg; prMax = juce::jmax (prMax, -gr);
-                if (sat > 0.01f)
+                if (sat > 0.001f)
                 {
-                    const float c = dbToG (S.thr) * 1.2f;
-                    lo0 = lo0 + (c * std::tanh (lo0 / c) - lo0) * sat; lo1 = lo1 + (c * std::tanh (lo1 / c) - lo1) * sat;
+                    const float c = dbToG (thr) * 1.2f, sa = sat * peakAmt;
+                    lo0 = lo0 + (c * std::tanh (lo0 / c) - lo0) * sa; lo1 = lo1 + (c * std::tanh (lo1 / c) - lo1) * sa;
                 }
                 g *= pg;
             }
             gMin = juce::jmin (gMin, g); gMax = juce::jmax (gMax, g);
+            // armoniche dei bassi: i filtri girano sempre (niente colpo quando si accendono), la quantita' scivola
             float h = 0;
-            if (S.harm > 1e-3f)
             {
                 const float m = 0.5f * (lo0 + lo1);
                 h = std::tanh (4.0f * std::abs (m)) * 0.5f + std::tanh (3.0f * m) * 0.5f;
-                h = hLp (hHp2 (hHp (h))) * S.harm * 0.9f;
+                h = hLp (hHp2 (hHp (h))) * hS * 0.9f;
             }
             eLo += (double) (d0 * d0 + d1 * d1); eAll += (double) (L[i] * L[i] + R[i] * R[i]);
             float l, r;
             if (S.delta) { l = (lo0 - d0) + h; r = (lo1 - d1) + h; }        // solo la variazione sotto FREQUENZA
             else { l = lo0 + hi0 + h; r = lo1 + hi1 + h; }
-            if (mono)
             {
                 const float M = 0.5f * (l + r), Sd = 0.5f * (l - r);
                 float mlo, mhi, slo, shi;
                 mxM.processSample (0, M, mlo, mhi); mxS.processSample (0, Sd, slo, shi);
-                if (S.delta)
-                {   // nel delta si aggiunge il lato tolto sotto MONO (invertito)
-                    const float So = 0.5f * (L[i] - R[i]); float a2, b2; mxS.processSample (1, So, a2, b2);
-                    l = mlo + mhi + shi - a2; r = mlo + mhi - shi + a2;
-                }
-                else { l = mlo + mhi + shi; r = mlo + mhi - shi; }
+                const float So = 0.5f * (L[i] - R[i]); float a2, b2; mxS.processSample (1, So, a2, b2);
+                float ml, mr;
+                if (S.delta) { ml = mlo + mhi + shi - a2; mr = mlo + mhi - shi + a2; }   // nel delta si aggiunge il lato tolto sotto MONO (invertito)
+                else { ml = mlo + mhi + shi; mr = mlo + mhi - shi; }
+                if (monoAmt >= 1.0f) { l = ml; r = mr; }
+                else if (monoAmt > 0.0f) { l += (ml - l) * monoAmt; r += (mr - r) * monoAmt; }
             }
             L[i] = l; R[i] = r;
         }
@@ -140,6 +149,7 @@ public:
     float gainDb = 0, peakGr = 0, lowShare = -20;
 private:
     double sr = 48000; float lastF = -1, lastM = -1, pEnv = 0, pGr = 0, balLo = 1e-6f, balAll = 1e-6f;
+    bool init = false; juce::uint32 tick = 0; float fS = 120, mS = 120, monoAmt = 0, hS = 0, pS = 0, tS = 0, lvS = 1, thS = 0, dS = 0;
     juce::dsp::LinkwitzRileyFilter<float> xo, mxM, mxS;
     Env eAf, eAs, eSf, eSs; Biquad hHp, hHp2, hLp;
 };

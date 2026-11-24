@@ -61,6 +61,70 @@ int main (int argc, char** argv)
         l = (float) m; r = (float) (m * 0.95);
     };
 
+    if (argc > 1 && juce::String (argv[1]) == "bassclick")
+    {   // ogni comando del BASS salta 4 volte su un tono basso + uno medio: energia sopra 5 kHz nel salto contro fermo
+        const char* ids[] = { "bc_freq", "bc_mono", "bc_punch", "bc_tail", "bc_harm", "bc_bal", "bc_thr", "bc_dirty" };
+        for (auto* id : ids)
+        {
+            auto runIt = [&] (int mode)
+            {
+                auto p = blank(); setP (*p, "mode", 1); setP (*p, "engine", 1); setP (*p, "bc_on", 1); setP (*p, "bc_harm", 0.3f); setP (*p, "bc_thr", -6); setP (*p, "bc_punch", 0.3f);
+                auto* prm = p->apvts.getParameter (id); const float v0 = prm->getValue(), v1 = v0 > 0.5f ? v0 - 0.3f : v0 + 0.3f; if (mode == 1) prm->setValueNotifyingHost (v1);
+                std::vector<float> oL, oR; juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer mb;
+                for (int k = 0; k < 400; ++k)
+                {
+                    if (mode == 2 && k >= 200 && (k - 200) % 40 == 0 && k < 360) prm->setValueNotifyingHost (((k - 200) / 40) % 2 ? v0 : v1);
+                    for (int i = 0; i < 512; ++i) { const double t = (k * 512 + i) / sr; const float v = (float) (0.4 * std::sin (2 * 3.14159265 * 55 * t) + 0.1 * std::sin (2 * 3.14159265 * 1000 * t)); b.setSample (0, i, v); b.setSample (1, i, v); }
+                    p->processBlock (b, mb); for (int i = 0; i < 512; ++i) oL.push_back (b.getSample (0, i));
+                }
+                return oL;
+            };
+            const auto a = runIt (0), c1 = runIt (1), j = runIt (2);
+            auto hf = [&] (const std::vector<float>& x, size_t at) { Biquad h1, h2; h1.set (Biquad::LCUT, 5000, 0, 0.707, sr); h2 = h1; double m = 0; for (size_t i = at - 2000; i < at + 4000; ++i) { const float y = h2 (h1 (x[i])); if (i > at - 1000) m = juce::jmax (m, (double) std::abs (y)); } return m; };
+            double worst = -200;
+            for (int q = 0; q < 4; ++q) { const size_t at = (size_t) (200 + q * 40) * 512; const double base = juce::jmax (hf (a, at), hf (c1, at)); worst = juce::jmax (worst, 20 * std::log10 ((hf (j, at) + 1e-12) / 0.5)); (void) base; }
+            std::printf ("  %-9s picco sopra 5 kHz nel salto %.1f dB (rispetto al tono)\n", id, worst);
+        }
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "xtalk")
+    {   // solo il sinistro in ingresso: quanto esce a destra
+        auto test = [&] (const char* name, std::function<void (Processor&)> setup)
+        {
+            auto p = blank(); setup (*p); juce::Random rr (3); std::vector<float> oL, oR; const int len = (int) sr * 6;
+            run (*p, [&] (int, float& l, float& r) { l = 0.25f * (rr.nextFloat() * 2 - 1); r = 0; }, len, oL, oR);
+            double eL = 0, eR = 0; for (int i = len / 2; i < len; ++i) { eL += (double) oL[(size_t) i] * oL[(size_t) i]; eR += (double) oR[(size_t) i] * oR[(size_t) i]; }
+            std::printf ("%-36s destra %.1f dB rispetto alla sinistra\n", name, 10 * std::log10 (eR / (eL + 1e-30) + 1e-30));
+        };
+        test ("FACILE di partenza", [] (Processor&) {});
+        test ("e_wide +0.5", [] (Processor& p) { setP (p, "e_wide", 0.5f); });
+        test ("e_wide -0.5", [] (Processor& p) { setP (p, "e_wide", -0.5f); });
+        test ("e_monob", [] (Processor& p) { setP (p, "e_monob", 1); });
+        for (int st = 0; st < 5; ++st) test (("LOUD 7 stile " + juce::String (st)).toRawUTF8(), [st] (Processor& p) { setP (p, "e_loud", 7); setP (p, "e_style", (float) st); setP (p, "e_pres", 0.8f); });
+        test ("FACILE LOUD 7", [] (Processor& p) { setP (p, "e_loud", 7); });
+        test ("FACILE LOUD 7 + calma/colla", [] (Processor& p) { setP (p, "e_loud", 7); setP (p, "e_glue", 0.5f); setP (p, "e_calm", 0.5f); });
+        for (auto* id : { "e_low", "e_mid", "e_high" }) test (id, [id] (Processor& p) { setP (p, id, 2); });
+        for (auto* id : { "e_calm", "e_thick", "e_warm", "e_silk", "e_glue" }) test (id, [id] (Processor& p) { setP (p, id, 0.5f); });
+        const char* mods[] = { "bc_on", "eq_on", "ds_on", "bus_on", "mb_on", "ex_on", "tp_on", "im_on", "mx_on", "lm_on", "e4_on", "pq_on", "vm_on", "ip_on", "sp_on", "st_on" };
+        for (auto* id : mods) test (id, [id] (Processor& p) { setP (p, "mode", 1); setP (p, "engine", 1); setP (p, id, 1); setP (p, "mx_gain", 6); });
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "tapenoise")
+    {   // solo il nastro acceso: silenzio, tono debole, e residuo rispetto al tono
+        for (int model = 0; model < 3; ++model) for (float drv : { 0.0f, 0.5f, 1.0f })
+        {
+            auto p = blank(); setP (*p, "mode", 1); setP (*p, "engine", 1); setP (*p, "tp_on", 1); setP (*p, "tp_model", (float) model); setP (*p, "tp_drive", drv);
+            if (auto* nz = std::getenv ("JNOISE")) setP (*p, "tp_noise", (float) std::atof (nz));
+            std::vector<float> oL, oR; const int len = (int) sr * 4;
+            run (*p, [&] (int i, float& l, float& r) { const double t = i / sr; l = r = i < len / 2 ? 0.0f : (float) (0.05 * std::sin (2 * 3.14159265 * 440 * t)); }, len, oL, oR);
+            double eS = 0; for (int i = len / 4; i < len / 2 - 1000; ++i) eS += (double) oL[(size_t) i] * oL[(size_t) i];
+            // residuo sul tono: togli la fondamentale (fit) e misura quel che resta
+            const int a = len / 2 + (int) sr / 2, b = len; double re = 0, im = 0; for (int i = a; i < b; ++i) { const double w = 2 * 3.14159265 * 440 * i / sr; re += oL[(size_t) i] * std::cos (w); im += oL[(size_t) i] * std::sin (w); }
+            re *= 2.0 / (b - a); im *= 2.0 / (b - a); double eR = 0, eT = 0; for (int i = a; i < b; ++i) { const double w = 2 * 3.14159265 * 440 * i / sr; const double f = re * std::cos (w) + im * std::sin (w); eR += std::pow (oL[(size_t) i] - f, 2.0); eT += f * f; }
+            std::printf ("nastro %d drive %.1f: silenzio %.1f dBFS, residuo sul tono a -26 dBFS %.1f dB\n", model, drv, 10 * std::log10 (eS / (len / 4 - 1000) + 1e-30), 10 * std::log10 (eR / eT + 1e-30));
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "harm")
     {   // THICK e SILK: armoniche prodotte e sporco fuori posto (aliasing) su sinusoidi
         juce::ScopedJuceInitialiser_GUI gh; const double fs = 44100; const int N = 1 << 15;
