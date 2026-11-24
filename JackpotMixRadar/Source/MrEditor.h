@@ -8,6 +8,7 @@ namespace mr
 {
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
 {
+    skin::Keep skinKeep;
 public:
     explicit Editor (Processor&);
     ~Editor() override { stopTimer(); }
@@ -20,10 +21,11 @@ public:
     Processor& proc;
     jlook::Scaler scaler { *this, "mixradar", W, H };
     jlook::SizeChip sizeChip { scaler };
-    juce::Rectangle<float> modeR[2], roleR[kRoles], clearR;
+    juce::Rectangle<float> modeR[2], roleR[kRoles], clearR, themeR; bool hoverTheme = false;
+    void mouseMove (const juce::MouseEvent&) override;
     float smB[MAXS][NB] {}; float smM[NB] {};
     static juce::Colour roleCol (int r);
-    juce::Image bg; float bgScale = 0; int bgMode = -1; void paintStatic (juce::Graphics&);
+    juce::Image bg; float bgScale = 0; int bgMode = -1, bgTheme = -1; void paintStatic (juce::Graphics&);
     void paintRadar (juce::Graphics&); void paintSensor (juce::Graphics&);
 private:
     void timerCallback() override;

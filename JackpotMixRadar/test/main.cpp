@@ -41,10 +41,17 @@ int main (int argc, char** argv)
     if (argc > 1)
     {
         Processor* P = std::getenv ("JSENS") ? &bass : &rad;
-        Editor ed (*P); for (int i = 0; i < 10; ++i) for (int s = 0; s < MAXS; ++s) for (int b = 0; b < NB; ++b) { ed.smB[s][b] = hub().s[s].bands[b].load(); }
+        if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
+        Editor ed (*P); if (auto* t = std::getenv ("JTHEME")) { skin::cur() = std::atoi (t); neo::K::theme = -1; skin::apply(); } for (int i = 0; i < 10; ++i) for (int s = 0; s < MAXS; ++s) for (int b = 0; b < NB; ++b) { ed.smB[s][b] = hub().s[s].bands[b].load(); }
         for (int b = 0; b < NB; ++b) ed.smM[b] = P->radar() ? P->mBands[b].load() : P->sBands[b].load();
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+        { const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < 20; ++i) ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f); std::printf ("fotogramma intero: %.2f ms\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 20.0); }
         juce::File f (argv[1]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
+    }
+    {   // il suono passa intatto, con qualsiasi buffer
+        Processor q; q.prepareToPlay (sr, 4096); juce::Random rr (4); bool same = true; juce::MidiBuffer mm;
+        for (int k = 0; k < 50; ++k) { const int n = 1 + rr.nextInt (4096); juce::AudioBuffer<float> b (2, n), c (2, n); for (int i = 0; i < n; ++i) { const float x = rr.nextFloat() - 0.5f; b.setSample (0, i, x); b.setSample (1, i, -x); } c.makeCopyOf (b); q.processBlock (b, mm); for (int i = 0; i < n; ++i) if (b.getSample (0, i) != c.getSample (0, i) || b.getSample (1, i) != c.getSample (1, i)) same = false; }
+        std::printf ("sensore: uscita identica all'ingresso %d\n", (int) same);
     }
     rad.setPlayHead (nullptr);
     return 0;

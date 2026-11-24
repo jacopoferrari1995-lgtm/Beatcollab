@@ -9,6 +9,7 @@ using namespace neo;
 static juce::String U (const char* s) { return juce::String::fromUTF8 (s); }
 static void panel (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour edge, bool display = false)
 {
+    if (skin::cur() != 3) { jlook::softShadow (g, r, 14); jlook::card (g, r, 14, edge, true, false, false); if (display) { g.setColour (K::lo.withAlpha (skin::light() ? 0.06f : 0.25f)); g.fillRoundedRectangle (r.reduced (6), 10); } return; }
     const float rad = 16;
     g.setColour (K::lo.withAlpha (0.35f)); g.fillRoundedRectangle (r.translated (0, 3), rad);
     juce::ColourGradient bgc (display ? K::disp0 : K::panel0, 0, r.getY(), display ? K::disp1 : K::panel1, 0, r.getBottom(), false); g.setGradientFill (bgc); g.fillRoundedRectangle (r, rad);
@@ -26,7 +27,6 @@ static juce::Colour typeCol (int t) { static const juce::Colour* c[kTypes] = { &
 Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
 {
     skin::init ("mixradar", { 0xffe58aa0, 0xffb9a6e0, 0xffe9a260, 0xffa8bea0 }, 0xff3ee8ff);
-    skin::useTheme (1);
     for (auto& r : smB) for (auto& x : r) x = -120; for (auto& x : smM) x = -120;
     addAndMakeVisible (sizeChip);
     scaler.setup();
@@ -37,19 +37,27 @@ void Editor::resized()
     const float s = scaler.update();
     modeR[0] = { 760, 18, 130, 34 }; modeR[1] = { 896, 18, 130, 34 };
     for (int r = 0; r < kRoles; ++r) roleR[r] = { 48.0f + (r % 4) * 268, 214.0f + (r / 4) * 64, 256, 54 };
-    clearR = { 1036, 18, 120, 34 };
+    clearR = { 1036, 18, 120, 34 }; themeR = { 636, 21, 110, 28 };
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     bg = {};
     jlook::scaleChildren (*this, s);
 }
 void Editor::paintStatic (juce::Graphics& g)
 {
+    if (skin::cur() != 3)
+    {
+        jlook::backdrop (g, { 0, 0, (float) W, (float) H }, K::cyan, K::amber);
+        jlook::header (g, { 0, 0, (float) W, 66 }, "MIX", K::cyan, "RADAR", K::amber, K::pink);
+    }
+    else
+    {
     juce::ColourGradient base (K::bg1, 0, 0, K::bg0, 0, (float) H, false); g.setGradientFill (base); g.fillAll();
     for (int i = 0; i < 3; ++i) { const float r = 6.0f + i * 6; g.setColour (K::cyan.withAlpha (0.8f - i * 0.2f)); g.drawEllipse (36 - r, 34 - r, r * 2, r * 2, 1.6f); }
     g.setColour (K::amber); g.fillEllipse (41, 25, 5, 5); g.setColour (K::pink); g.fillEllipse (27, 38, 5, 5);
     g.setFont (num (15.0f)); g.setColour (K::ink); g.drawText ("JACKPOT", juce::Rectangle<float> (62, 18, 100, 20), juce::Justification::centredLeft);
     g.setFont (big (15.0f)); g.setColour (K::sub); g.drawText ("MIX RADAR", juce::Rectangle<float> (139, 18, 160, 20), juce::Justification::centredLeft);
     g.setFont (cap (7.5f)); g.setColour (K::faint); g.drawText (U ("CHI CREA IL PROBLEMA, E IN QUALE BATTUTA"), juce::Rectangle<float> (62, 38, 300, 12), juce::Justification::centredLeft);
+    }
     if (proc.radar())
     {
         panel (g, { 24, 76, 300, 520 }, K::cyan); title (g, { 24, 76, 300, 520 }, "TRACCE COLLEGATE", K::cyan);
@@ -67,13 +75,13 @@ void Editor::paintStatic (juce::Graphics& g)
 }
 void Editor::paint (juce::Graphics& g)
 {
-    skin::useTheme (1);
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
     const int mode = proc.radar() ? 1 : 0;
-    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgMode != mode)
-    { bgScale = sc; bgMode = mode; bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false); juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig); }
+    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgMode != mode || bgTheme != skin::cur())
+    { bgTheme = skin::cur(); bgScale = sc; bgMode = mode; bg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false); juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig); }
     { g.saveState(); g.addTransform (juce::AffineTransform::scale (1.0f / sc)); g.drawImageAt (bg, 0, 0); g.restoreState(); }
+    skin::chipDraw (g, themeR, hoverTheme);
     chip (g, modeR[0], "SENSORE (TRACCIA)", mode == 0, K::cyan, 8.5f); chip (g, modeR[1], "RADAR (MASTER)", mode == 1, K::amber, 8.5f);
     if (mode) paintRadar (g); else paintSensor (g);
 }
@@ -192,13 +200,23 @@ void Editor::paintRadar (juce::Graphics& g)
 void Editor::mouseDown (const juce::MouseEvent& e)
 {
     const auto p = e.position / scaler.s;
+    if (themeR.contains (p)) { skin::cycle(); bg = {}; repaint(); return; }
     if (modeR[0].contains (p)) { proc.setV ("mode", 0); bg = {}; repaint(); return; }
     if (modeR[1].contains (p)) { proc.setV ("mode", 1); bg = {}; repaint(); return; }
     if (proc.radar()) { if (clearR.contains (p)) { proc.clearIssues(); repaint(); } return; }
     for (int r = 0; r < kRoles; ++r) if (roleR[r].contains (p)) { proc.setV ("role", (float) r); repaint(); return; }
 }
+void Editor::mouseMove (const juce::MouseEvent& e)
+{
+    const auto p = e.position / scaler.s; const bool h = themeR.contains (p);
+    if (h != hoverTheme) { hoverTheme = h; repaint(); }
+    bool hand = h || modeR[0].contains (p) || modeR[1].contains (p) || (proc.radar() && clearR.contains (p));
+    if (! proc.radar()) for (auto& r : roleR) hand |= r.contains (p);
+    setMouseCursor (hand ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
 void Editor::timerCallback()
 {
+    if (bgTheme != skin::cur() && bgTheme >= 0) { skin::apply(); bg = {}; }
     auto& H = hub();
     for (int i = 0; i < MAXS; ++i) for (int b = 0; b < NB; ++b) smB[i][b] += 0.4f * (H.s[i].bands[b].load() - smB[i][b]);
     for (int b = 0; b < NB; ++b) smM[b] += 0.4f * ((proc.radar() ? proc.mBands[b].load() : proc.sBands[b].load()) - smM[b]);
