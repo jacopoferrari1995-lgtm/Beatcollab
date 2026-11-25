@@ -220,9 +220,15 @@ int main (int argc, char** argv)
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
         if (std::getenv ("JPERF"))
         {
-            auto tm = [] (juce::Component& c, int n) { const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < n; ++i) c.createComponentSnapshot (c.getLocalBounds(), true, 1.0f); return (juce::Time::getMillisecondCounterHiRes() - t0) / n; };
+            auto tm = [] (juce::Component& c, int n) { const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < n; ++i) c.createComponentSnapshot (c.getLocalBounds(), true, 2.0f); return (juce::Time::getMillisecondCounterHiRes() - t0) / n; };
             std::printf ("intero %.2f ms, rack %.2f ms, EQ %.2f ms, loudness %.2f ms, imager %.2f ms\n", tm (ed, 5), tm (ed.rack, 10), tm (ed.graph, 20), tm (ed.loud, 20), tm (ed.imager, 20));
             if (ed.rack.slots.size() > 0) { auto& s0 = *ed.rack.slots[1]; double kn = 0; for (auto& c : s0.ctl) kn += tm (*c, 20); std::printf ("modulo 2 da solo %.2f ms, sue manopole %.2f ms\n", tm (s0, 20), kn); }
+            {   // scorrimento del rack: ridisegno della sola zona visibile del rack dopo uno spostamento
+                juce::Image im (juce::Image::RGB, Editor::W * 2, Editor::H * 2, true); const auto vb = ed.rackView.getBoundsInParent();
+                const auto t0 = juce::Time::getMillisecondCounterHiRes();
+                for (int i = 0; i < 20; ++i) { ed.rackView.setViewPosition ((i % 2) * 40, 0); juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (vb); ed.paintEntireComponent (g, true); }
+                std::printf ("scorrimento rack %.2f ms a fotogramma\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 20);
+            }
             const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < 30; ++i) ed.timerCallback(); std::printf ("30 timer %.2f ms\n", juce::Time::getMillisecondCounterHiRes() - t0);
         }
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);

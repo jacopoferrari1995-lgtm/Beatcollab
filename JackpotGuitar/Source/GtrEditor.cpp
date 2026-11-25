@@ -167,25 +167,44 @@ void Editor::drawRoll (juce::Graphics& g, const Part& P)
         if (lo > hi) { lo = 48; hi = 72; }
         rollLo = lo - 3; rollHi = hi + 3; if (rollHi - rollLo < 18) { const int c = (rollLo + rollHi) / 2; rollLo = c - 9; rollHi = c + 9; }
     }
-    // righe: le note della scala piu' chiare
+    // righe: con un'estensione ampia restano solo le note della scala (piu' quelle usate fuori scala), cosi' le note restano grandi
     const auto S = proc.settings(); const auto sset = scaleSet (S.key, S.scale);
-    const float nh = r.getHeight() / (float) (rollHi - rollLo + 1);
-    for (int n = rollLo; n <= rollHi; ++n) if (sset[(size_t) (n % 12)]) { g.setColour (C::text.withAlpha (n % 12 == S.key ? 0.07f : 0.03f)); g.fillRect (r.getX(), ny (n), r.getWidth(), nh); }
-    // battute alterne appena piu' chiare, numeri di battuta
-    for (int b = 0; b * 4.0 < L - 1e-6; ++b) { if (b % 2) { g.setColour (C::text.withAlpha (0.018f)); g.fillRect (bx (b * 4.0, L), r.getY(), bx ((b + 1) * 4.0, L) - bx (b * 4.0, L), r.getHeight()); } g.setFont (jkit::mf (8.0f)); g.setColour (C::faint); g.drawText (juce::String (b + 1), juce::Rectangle<float> (bx (b * 4.0, L) + 3, r.getY() + 1, 20, 10), juce::Justification::centredLeft); }
-    // tastiera a sinistra: tasti neri e bianchi, i DO segnati, la tonica in colore
+    if (! editing || rows.empty())
+    {
+        rows.clear(); folded = r.getHeight() / (float) (rollHi - rollLo + 1) < 9.0f;
+        std::array<bool, 128> used {}; for (auto& e : P.ev) used[(size_t) juce::jlimit (0, 127, e.note)] = true;
+        for (int n = rollLo; n <= rollHi; ++n) if (! folded || sset[(size_t) (n % 12)] || used[(size_t) n]) rows.push_back (n);
+    }
+    const float nh = rowH();
+    for (size_t i = 0; i < rows.size(); ++i)
+    {
+        const int n = rows[i]; const float y = ny (n);
+        if (folded ? (i % 2 == 0) : sset[(size_t) (n % 12)]) { g.setColour (C::text.withAlpha (n % 12 == S.key ? 0.075f : 0.035f)); g.fillRect (juce::Rectangle<float> ((float) r.getX(), y, (float) r.getWidth(), nh).toNearestInt()); }
+        if (n % 12 == S.key) { g.setColour (C::amber.withAlpha (0.10f)); g.fillRect (r.getX(), (float) juce::roundToInt (y + nh) - 1.0f, r.getWidth(), 1.0f); }
+    }
+    for (int b = 0; b * 4.0 < L - 1e-6; ++b) { if (b % 2) { g.setColour (C::text.withAlpha (0.018f)); g.fillRect (juce::Rectangle<float> (bx (b * 4.0, L), (float) r.getY(), bx ((b + 1) * 4.0, L) - bx (b * 4.0, L), (float) r.getHeight()).toNearestInt()); } g.setFont (jkit::mf (9.0f)); g.setColour (C::faint); g.drawText (juce::String (b + 1), juce::Rectangle<float> (bx (b * 4.0, L) + 4, r.getY() + 1, 20, 11), juce::Justification::centredLeft); }
+    // a sinistra: tastiera, o il nome delle note quando le righe sono solo quelle della scala
     {
         const float kx = 46, kw = r.getX() - kx - 4;
-        for (int n = rollLo; n <= rollHi; ++n)
+        static const char* nn[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        for (int n : rows)
         {
             const int pc = n % 12; const bool blk = pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10; const float y = ny (n);
+            const auto kr = juce::Rectangle<float> (kx, y + 0.5f, kw, juce::jmax (1.0f, nh - 1.0f));
+            if (folded)
+            {
+                g.setColour (pc == S.key ? C::amber.withAlpha (0.22f) : C::text.withAlpha (0.06f)); g.fillRoundedRectangle (kr, 2.0f);
+                if (nh >= 7) { g.setFont (jkit::mf (juce::jmin (10.0f, nh))); g.setColour (pc == S.key ? C::amber : sset[(size_t) pc] ? C::dim : C::red);
+                               g.drawText (juce::String (nn[pc]) + juce::String (n / 12 - 1), kr.reduced (4, 0), juce::Justification::centredRight); }
+                continue;
+            }
             g.setColour (blk ? juce::Colour (0xff15161a) : juce::Colour (0xffd9d6cf).withAlpha (0.85f)); g.fillRect (kx, y + 0.5f, blk ? kw * 0.62f : kw, juce::jmax (1.0f, nh - 1.0f));
             if (pc == S.key) { g.setColour (C::amber.withAlpha (0.9f)); g.fillRect (kx + kw - 4, y + 0.5f, 4.0f, juce::jmax (1.0f, nh - 1.0f)); }
-            if (pc == 0 && nh >= 6) { g.setColour (juce::Colour (0xff2a2a2e)); g.setFont (jkit::mf (juce::jmin (8.5f, nh + 1))); g.drawText ("C" + juce::String (n / 12 - 1), juce::Rectangle<float> (kx + 2, y - 1, kw - 6, nh + 2), juce::Justification::centredRight); }
+            if (pc == 0 && nh >= 6) { g.setColour (juce::Colour (0xff2a2a2e)); g.setFont (jkit::mf (juce::jmin (9.0f, nh + 1))); g.drawText ("C" + juce::String (n / 12 - 1), juce::Rectangle<float> (kx + 2, y - 1, kw - 6, nh + 2), juce::Justification::centredRight); }
         }
     }
     const double gd = grid() > 0 ? grid() : 0.25;
-    for (double b = 0; b <= L + 1e-6; b += gd) { const bool bar = std::abs (std::fmod (b, 4.0)) < 1e-6, beat = std::abs (b - std::round (b)) < 1e-6; g.setColour (C::dim.withAlpha (bar ? 0.5f : beat ? 0.2f : 0.07f)); g.fillRect (bx (b, L), r.getY(), 1.0f, r.getHeight()); }
+    for (double b = 0; b <= L + 1e-6; b += gd) { const bool bar = std::abs (std::fmod (b, 4.0)) < 1e-6, beat = std::abs (b - std::round (b)) < 1e-6; g.setColour (C::dim.withAlpha (bar ? 0.5f : beat ? 0.2f : 0.07f)); g.fillRect ((float) juce::roundToInt (bx (b, L)), (float) r.getY(), bar ? 1.2f : 1.0f, (float) r.getHeight()); }
     // accordi sopra: si cliccano
     chordLabels.clear(); g.setFont (jkit::uf (9.5f));
     for (size_t i = 0; i < P.chords.size(); ++i)

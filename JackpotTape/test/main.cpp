@@ -89,7 +89,7 @@ int main (int argc, char** argv)
                 const double ms = (juce::Time::getMillisecondCounterHiRes() - t3) / 10; if (ms > 0.5) std::printf ("  %s %dx%d: %.2f ms\n", typeid (*cc).name(), cc->getWidth(), cc->getHeight(), ms);
             }
         }
-        auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.0f);
+        auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, std::getenv ("JX2") ? 2.0f : 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         return 0;
     }

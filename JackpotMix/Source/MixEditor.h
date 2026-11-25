@@ -37,6 +37,7 @@ public:
     Editor& ed; const int slot; int type = 0; Design D;
     std::vector<std::unique_ptr<juce::Component>> ctl;
     std::unique_ptr<hw::Knob> mixK;
+    double paramSig = -1;   // le manopole si ridisegnano solo se un valore del modulo cambia
     juce::Rectangle<float> meterR, nameR, menuR, irR, footR, inR, soloR, deltaR, presetR, bypR;
     float vu = -20, ledV = 0; int heroN = 0;
 private:
@@ -49,7 +50,7 @@ private:
 class EqTile : public juce::Component
 {
 public:
-    explicit EqTile (Editor& e) : ed (e) {}
+    explicit EqTile (Editor& e) : ed (e) { setBufferedToImage (true); }
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
@@ -195,6 +196,7 @@ public:
 private:
     juce::dsp::FFT fft { 12 }; std::vector<float> win, buf, specPre, specPost, dispPre, dispPost;
     juce::Image grid; juce::String gridKey;
+    std::vector<float> bandDb[16]; juce::String bandKey[16];   // curve delle bande: si ricalcolano solo se la banda cambia
     void paintGrid (juce::Graphics&);
 };
 
@@ -250,6 +252,7 @@ public:
     jlook::LnF lnf;
     juce::TooltipWindow tips { this, 600 };
     RackView rackView; RackContent rack { *this }; ChainNav nav { *this };
+    float lastEqOn = -1, lastIo = -1e9f;
     EqGraph graph { *this };
     LoudPanel loud { *this }; ImagerPanel imager { *this };
     std::unique_ptr<GainChip> inChip, outChip;

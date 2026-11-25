@@ -213,6 +213,7 @@ int SlotView::unitsFor (int t, int height)
 SlotView::SlotView (Editor& e, int s) : ed (e), slot (s)
 {
     type = ed.proc.slotType (s); D = designOf (type); const auto& m = mod (type);
+    setBufferedToImage (true);   // il modulo resta in un'immagine: scorrere il rack e' solo una copia
     setTooltip (m.name + "  (ispirato a " + m.inspired + ")\n" + m.desc);
     for (int i = 0; i < kP; ++i)
     {
@@ -527,12 +528,12 @@ void RackContent::layoutTiles (int height)
 }
 void RackContent::paint (juce::Graphics& g)
 {   // telaio lunchbox: fondo scuro, guide in alto e in basso con i fori
-    auto b = getLocalBounds().toFloat();
-    juce::ColourGradient bg (kRack0, 0, 0, kRack1, 0, b.getBottom(), false); g.setGradientFill (bg); g.fillRect (b);
+    auto b = getLocalBounds().toFloat(); const auto clip = g.getClipBounds().toFloat();   // si disegna solo la parte visibile
+    juce::ColourGradient bg (kRack0, 0, 0, kRack1, 0, b.getBottom(), false); g.setGradientFill (bg); g.fillRect (clip);
     for (float y : { 2.0f, b.getBottom() - 8 })
     {
-        juce::ColourGradient rg (juce::Colour (0xff5a5853), 0, y, juce::Colour (0xff2a2926), 0, y + 6, false); g.setGradientFill (rg); g.fillRect (0.0f, y, b.getWidth(), 6.0f);
-        g.setColour (juce::Colours::black.withAlpha (0.7f)); for (float x = 10; x < b.getWidth(); x += 18) g.fillEllipse (x, y + 1.5f, 3, 3);
+        juce::ColourGradient rg (juce::Colour (0xff5a5853), 0, y, juce::Colour (0xff2a2926), 0, y + 6, false); g.setGradientFill (rg); g.fillRect (clip.getX(), y, clip.getWidth(), 6.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.7f)); for (float x = 10 + 18 * std::floor (juce::jmax (0.0f, clip.getX() - 10) / 18); x < juce::jmin (b.getWidth(), clip.getRight()); x += 18) g.fillEllipse (x, y + 1.5f, 3, 3);
     }
 }
 void RackContent::paintOverChildren (juce::Graphics& g)
@@ -849,7 +850,7 @@ void EqGraph::paint (juce::Graphics& g)
         return path;
     };
     g.saveState(); g.reduceClipRegion (p.toNearestInt());
-    if (ana == 0) { g.setColour (juce::Colours::white.withAlpha (0.16f)); g.strokePath (specPath (dispPre, false), juce::PathStrokeType (1.0f, juce::PathStrokeType::curved)); }
+    if (ana == 0) { g.setColour (juce::Colours::white.withAlpha (0.16f)); g.strokePath (specPath (dispPre, false), juce::PathStrokeType (1.0f)); }
     if (ana < 2) { juce::ColourGradient sg (kBlue.withAlpha (0.3f), 0, p.getY(), kBlue.withAlpha (0.04f), 0, p.getBottom(), false); g.setGradientFill (sg); g.fillPath (specPath (dispPost, true)); }
     if (ed.proc.eq.spectralOn (E))
     {
@@ -862,11 +863,18 @@ void EqGraph::paint (juce::Graphics& g)
     for (int k = 0; k < kBands; ++k)
     {
         const auto& B = E.b[k]; if (! B.on) continue;
-        BQ f[8]; const float gNow = B.g + (B.dyn ? ed.proc.eq.dynUi[k].load() : 0.0f); const int n = designBand (B, sr, gNow, f);
-        juce::Path path; int i = 0; bool st = false;
+        const float gNow = B.g + (B.dyn ? ed.proc.eq.dynUi[k].load() : 0.0f);
+        const juce::String key = juce::String (B.type) + "/" + juce::String (B.f, 2) + "/" + juce::String (B.q, 3) + "/" + juce::String (gNow, 2) + "/" + juce::String (B.slope) + "/" + juce::String (sr) + "/" + juce::String (NX) + "/" + juce::String (p.getX());
+        auto& cv = bandDb[k];
+        if (key != bandKey[k] || (int) cv.size() != NX)
+        {
+            bandKey[k] = key; cv.assign ((size_t) NX, 0.0f); BQ f[8]; const int n = designBand (B, sr, gNow, f);
+            int i = 0; for (float x = p.getX(); x < p.getRight() && i < NX; x += 2, ++i) { double d = 0; const float fr = fOf (x); for (int q = 0; q < n; ++q) d += f[q].magDb (fr, sr); cv[(size_t) i] = (float) d; }
+        }
+        juce::Path path; path.preallocateSpace (NX * 3 + 8); int i = 0; bool st = false;
         for (float x = p.getX(); x < p.getRight() && i < NX; x += 2, ++i)
         {
-            double d = 0; const float fr = fOf (x); for (int q = 0; q < n; ++q) d += f[q].magDb (fr, sr);
+            const double d = cv[(size_t) i];
             if (B.ch == 0 || B.ch == 1) sum[(size_t) i] += d;
             const float y = yOf ((float) juce::jlimit (-60.0, 60.0, d));
             if (! st) { path.startNewSubPath (x, y); st = true; } else path.lineTo (x, y);
@@ -878,8 +886,8 @@ void EqGraph::paint (juce::Graphics& g)
     {
         juce::Path tot; int i = 0; bool st = false;
         for (float x = p.getX(); x < p.getRight() && i < NX; x += 2, ++i) { const float y = yOf ((float) juce::jlimit (-60.0, 60.0, sum[(size_t) i])); if (! st) { tot.startNewSubPath (x, y); st = true; } else tot.lineTo (x, y); }
-        g.setColour (juce::Colours::black.withAlpha (0.4f)); g.strokePath (tot, juce::PathStrokeType (4.0f, juce::PathStrokeType::curved));
-        g.setColour ((eqOn ? juce::Colour (0xfffff3d6) : kDim).withAlpha (eqOn ? 1.0f : 0.5f)); g.strokePath (tot, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved));
+        g.setColour (juce::Colours::black.withAlpha (0.4f)); g.strokePath (tot, juce::PathStrokeType (4.0f));
+        g.setColour ((eqOn ? juce::Colour (0xfffff3d6) : kDim).withAlpha (eqOn ? 1.0f : 0.5f)); g.strokePath (tot, juce::PathStrokeType (2.0f));
     }
     g.restoreState();
     for (int k = 0; k < kBands; ++k)
@@ -1468,7 +1476,18 @@ void Editor::timerCallback()
         rack.rebuild();   // ricostruisce solo se la catena e' cambiata
         for (auto* s : rack.slots) s->tickMeters();
     }
-    if (tick % 8 == 0) { for (auto* s : rack.slots) { for (auto& c : s->ctl) c->repaint(); if (s->mixK) s->mixK->repaint(); } if (rack.eqTile) rack.eqTile->repaint(); inChip->repaint(); outChip->repaint(); }
+    if (tick % 8 == 0)
+    {   // automazioni: si ridisegna solo il modulo i cui valori sono cambiati
+        for (auto* s : rack.slots)
+        {
+            const juce::String pre = "s" + juce::String (s->slot + 1) + "_"; double sig = 0; int i = 1;
+            for (auto* pa : proc.getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (pa)) if (rp->paramID.startsWith (pre)) sig += (++i) * 1.618 * rp->getValue();
+            if (sig != s->paramSig) { s->paramSig = sig; for (auto& c : s->ctl) c->repaint(); if (s->mixK) s->mixK->repaint(); }
+        }
+        const float eo = proc.value ("eq_on"), io = proc.value ("in") * 3.1f + proc.value ("out");
+        if (eo != lastEqOn) { lastEqOn = eo; if (rack.eqTile) rack.eqTile->repaint(); }
+        if (io != lastIo) { lastIo = io; inChip->repaint(); outChip->repaint(); }
+    }
     if (tick % 30 == 0) repaint (scaler.map ({ 200, 0, 1200, 54 }));
 }
 }

@@ -56,9 +56,17 @@ public:
     double snapB (double b) const { const double g = grid(); return g > 0 ? std::round (b / g) * g : b; }
     float bx (double b, double L) const { return rollR.getX() + (float) (b / L) * rollR.getWidth(); }
     double xb (float x, double L) const { return (x - rollR.getX()) / rollR.getWidth() * L; }
-    float ny (int n) const { return rollR.getBottom() - (n - rollLo + 1) * rollR.getHeight() / (float) (rollHi - rollLo + 1); }
-    int yn (float y) const { return rollLo - 1 + (int) std::ceil ((rollR.getBottom() - y) / (rollR.getHeight() / (float) (rollHi - rollLo + 1))); }
-    juce::Rectangle<float> noteRect (const Ev& e, double L) const { const float x = bx (e.beat, L); return { x, ny (e.note), juce::jmax (3.0f, bx (e.beat + e.len, L) - x), juce::jmax (2.0f, rollR.getHeight() / (float) (rollHi - rollLo + 1) - 1) }; }
+    std::vector<int> rows; bool folded = false;   // righe visibili (dal basso): tutte, o solo le note della scala se l'estensione e' ampia
+    float rowH() const { return rollR.getHeight() / (float) juce::jmax<size_t> (1, rows.size()); }
+    float ny (int n) const
+    {
+        if (rows.empty()) return rollR.getBottom();
+        const auto it = std::lower_bound (rows.begin(), rows.end(), n); int i = (int) (it - rows.begin());
+        if (it == rows.end() || *it != n) i = juce::jlimit (0, (int) rows.size() - 1, i);   // fuori dalle righe: la riga vicina
+        return rollR.getBottom() - (i + 1) * rowH();
+    }
+    int yn (float y) const { if (rows.empty()) return 60; const int i = juce::jlimit (0, (int) rows.size() - 1, (int) std::floor ((rollR.getBottom() - y) / rowH())); return rows[(size_t) i]; }
+    juce::Rectangle<float> noteRect (const Ev& e, double L) const { const float x = bx (e.beat, L); return { x, ny (e.note) + 0.75f, juce::jmax (3.0f, bx (e.beat + e.len, L) - x), juce::jmax (2.0f, rowH() - 1.5f) }; }
     int hitNote (const Part& P, juce::Point<float> p) const { for (int i = (int) P.ev.size() - 1; i >= 0; --i) if (noteRect (P.ev[(size_t) i], P.len()).expanded (1, 1).contains (p)) return i; return -1; }
     void resolveSel (const Part& P);
     void storeSig (const Part& P);

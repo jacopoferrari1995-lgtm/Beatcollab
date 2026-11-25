@@ -282,7 +282,7 @@ int main (int argc, char** argv)
         if (auto* t = std::getenv ("JTHEME")) skin::cur() = std::atoi (t);
         if (std::getenv ("JGRID")) p->setV ("arpFig", (float) (kFigs - 1));
         Editor ed (*p); if (std::getenv ("JBROWSE")) ed.browser.open(); if (std::getenv ("JGRID")) ed.gridEdit = true;
-        auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+        auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, std::getenv ("JX2") ? 2.0f : 1.0f);
         juce::File f (argc > 2 ? argv[2] : "/tmp/gtr.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         std::printf ("snap %s\n", f.getFullPathName().toRawUTF8());
     }

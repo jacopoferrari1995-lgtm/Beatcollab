@@ -248,9 +248,9 @@ void PadBtn::paint (juce::Graphics& g)
     if (! on) { g.setColour (c.withAlpha (0.8f)); g.fillRect (b.getX() + 2, b.getY() + 6, 2.0f, b.getHeight() - 12); }
     g.setColour (on ? c.brighter (0.4f) : juce::Colours::white.withAlpha (0.09f)); g.strokePath (pth, juce::PathStrokeType (1.0f));
     static const char* shortN[] = { "STOP", "START", "SPIN", "HALF", "REV", "STUTTER", "ZONA", "GLITCH", "GATE", "CRUSH", "SWEEP", "ECO", "REVERB", "RISER", "TREMOLO", "ROTARY", "AUTOFILT", "RING", "SHIFT", "DIST" };
-    g.setColour (on ? juce::Colour (0xff0b0c10) : K::ink); g.setFont (tf (9.5f, 2)); g.drawText (shortN[fx], b.reduced (6, 0).toNearestInt(), juce::Justification::centredLeft);
+    g.setColour (on ? juce::Colour (0xff0b0c10) : K::ink); g.setFont (tf (14.0f, 2)); g.drawText (shortN[fx], b.reduced (9, 0).toNearestInt(), juce::Justification::centredLeft);
     const bool shot = ed.proc.value ("mode") > 0.5f;
-    g.setColour (on ? juce::Colour (0xff0b0c10).withAlpha (0.7f) : c.withAlpha (0.8f)); g.setFont (tf (8.5f, 2, true));
+    g.setColour (on ? juce::Colour (0xff0b0c10).withAlpha (0.7f) : c.withAlpha (0.8f)); g.setFont (tf (10.5f, 2, true));
     g.drawText (juce::String::charToString (kFx[fx].key) + (! en ? juce::String (" OFF") : shot ? juce::String (" 1x") : juce::String()), b.reduced (5, 0).toNearestInt(), juce::Justification::centredRight);
     if (fx == ed.sel) { g.setColour (c); g.fillRect (b.getX() + 6, b.getBottom() - 3, b.getWidth() - 12, 2.0f); }   // l'effetto che stai modificando
 }
@@ -306,15 +306,15 @@ void FxEditor::paint (juce::Graphics& g)
     const auto c = en ? fxCol (ed.sel) : K::faint;
     base.draw (g, getLocalBounds().toFloat(), ((int) c.getARGB()) + 1000 * neo::K::theme, [&] (juce::Graphics& bg) { panel (bg, getLocalBounds().toFloat().reduced (1), 12, c); });
     g.setColour (c.withAlpha (0.3f)); g.fillRect (14.0f, 13.0f, 14.0f, 14.0f); g.setColour (c.brighter (0.3f)); g.fillRect (17.0f, 16.0f, 8.0f, 8.0f);
-    g.setFont (tf (15.0f, 2)); g.setColour (K::pInk); g.drawText (juce::String (kFx[ed.sel].name).toUpperCase(), juce::Rectangle<float> (36, 8, 220, 24), juce::Justification::centredLeft);
-    const float nw = juce::GlyphArrangement::getStringWidth (tf (15.0f, 2), juce::String (kFx[ed.sel].name).toUpperCase());
-    g.setColour (K::pDim); g.setFont (tf (11.0f)); g.drawFittedText (kFx[ed.sel].desc, (int) (48 + nw), 9, (int) (getWidth() - 350 - 48 - nw), 24, juce::Justification::centredLeft, 1, 0.8f);
+    g.setFont (tf (19.0f, 2)); g.setColour (K::pInk); g.drawText (juce::String (kFx[ed.sel].name).toUpperCase(), juce::Rectangle<float> (36, 6, 260, 28), juce::Justification::centredLeft);
+    const float nw = juce::GlyphArrangement::getStringWidth (tf (19.0f, 2), juce::String (kFx[ed.sel].name).toUpperCase());
+    g.setColour (K::pDim); g.setFont (tf (12.5f)); g.drawFittedText (kFx[ed.sel].desc, (int) (48 + nw), 9, (int) (getWidth() - 350 - 48 - nw), 24, juce::Justification::centredLeft, 1, 0.8f);
     caps (g, en ? "Attivo" : "Spento", { getWidth() - 130, 9, 68, 24 }, en ? c : K::pDim, juce::Justification::centredRight);
     {   // preset dell'effetto
         const auto& nm = ed.fxPresetName[ed.sel];
         g.setColour (juce::Colour (0xff12141c)); g.fillRoundedRectangle (presetR, 5);
         g.setColour (c.withAlpha (0.7f)); g.drawRoundedRectangle (presetR.reduced (0.5f), 5, 1.0f);
-        g.setFont (tf (9.5f, 2)); g.setColour (K::ink);
+        g.setFont (tf (12.0f, 2)); g.setColour (K::ink);
         g.drawFittedText ((nm.isEmpty() ? juce::String ("PRESET EFFETTO") : nm.toUpperCase()) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), presetR.reduced (8, 0).toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
     }
     g.setColour (c); g.fillRoundedRectangle (14.0f, 36.0f, getWidth() - 28.0f, 2.0f, 1.0f);
@@ -391,7 +391,7 @@ void FxEditor::paint (juce::Graphics& g)
 }
 
 // ======================= Coreografia =======================
-juce::Rectangle<float> Timeline::grid() const { return getLocalBounds().toFloat().reduced (12, 0).withTrimmedTop (22).withTrimmedBottom (10).withTrimmedLeft (150); }
+juce::Rectangle<float> Timeline::grid() const { return getLocalBounds().toFloat().reduced (12, 0).withTrimmedTop (22).withTrimmedBottom (10).withTrimmedLeft (168); }
 int Timeline::span() const { return ed.res == 0 ? 1 : ed.res == 1 ? 2 : 4; }
 int Timeline::rawStep (float x) const { auto gr = grid(); return juce::jlimit (0, ed.steps() - 1, (int) ((x - gr.getX()) / (gr.getWidth() / ed.steps()))); }
 bool Timeline::cellAt (juce::Point<float> p, int& lane, int& step) const
@@ -433,15 +433,15 @@ void Timeline::paint (juce::Graphics& g)
         if (s % 16 == 0) { g.setColour (K::amber.withAlpha (0.9f)); g.setFont (tf (10.0f, 2, true)); g.drawText ("BAR " + juce::String (s / 16 + 1), juce::Rectangle<float> (x + 3, 4, 60, 14), juce::Justification::centredLeft); }
         else if (cw * 4 > 26) { g.setColour (K::dim); g.setFont (tf (9.0f, 1, true)); g.drawText (juce::String (s / 16 + 1) + "." + juce::String ((s % 16) / 4 + 1), juce::Rectangle<float> (x + 3, 4, 40, 14), juce::Justification::centredLeft); }
     }
-    g.setColour (K::faint); g.setFont (tf (8.5f, 1));
-    g.drawText (selLane >= 0 ? juce::String ("zona selezionata: CANC per cancellare") : juce::String ("trascina per creare una zona"), juce::Rectangle<float> (14, 4, 134, 14), juce::Justification::centredLeft);
+    g.setColour (K::dim); g.setFont (tf (10.0f, 1));
+    g.drawText (selLane >= 0 ? juce::String ("zona selezionata: CANC per cancellare") : juce::String ("trascina per creare una zona"), juce::Rectangle<float> (14, 3, 160, 16), juce::Justification::centredLeft);
     for (int f = 0; f < kNumFx; ++f)
     {
         const float y = gr.getY() + f * lh; const bool en = ed.proc.fxEnabled (f); const auto c = en ? fxCol (f) : K::faint;
         const bool selL = f == ed.sel, hovL = f == hLane;
         if (selL || hovL) { g.setColour (c.withAlpha (selL ? 0.08f : 0.05f)); g.fillRect (12.0f, y, b.getWidth() - 24, lh); }
         g.setColour (c.withAlpha (0.3f)); g.fillRect (17.0f, y + lh * 0.5f - 6, 12.0f, 12.0f); g.setColour (c); g.fillRect (20.0f, y + lh * 0.5f - 3, 6.0f, 6.0f);
-        g.setColour (selL ? c : K::ink.withAlpha (en ? 0.85f : 0.4f)); g.setFont (tf (11.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase() + (en ? "" : " OFF"), juce::Rectangle<float> (36, y, 110, lh), juce::Justification::centredLeft);
+        g.setColour (selL ? c : K::ink.withAlpha (en ? 0.85f : 0.4f)); g.setFont (tf (juce::jmin (13.5f, lh + 0.5f), 2)); g.drawText (juce::String (kFx[f].name).toUpperCase() + (en ? "" : " OFF"), juce::Rectangle<float> (34, y - 1, 130, lh + 2), juce::Justification::centredLeft);
         for (int s = 0; s < S; s += sp)
         {
             auto r = juce::Rectangle<float> (gr.getX() + s * cw + 1.5f, y + 2.5f, sp * cw - 3, lh - 5);
@@ -460,7 +460,7 @@ void Timeline::paint (juce::Graphics& g)
             g.setColour (juce::Colours::white.withAlpha (0.4f)); g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + 3, r.getRight() - 3);
             // maniglie ai bordi
             g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (r.getX() + 2, r.getCentreY() - 6, 3, 12, 1.5f); g.fillRoundedRectangle (r.getRight() - 5, r.getCentreY() - 6, 3, 12, 1.5f);
-            if (r.getWidth() > 70) { g.setColour (juce::Colour (0xff0a0c10).withAlpha (0.85f)); g.setFont (tf (10.0f, 2)); g.drawText (juce::String (kFx[f].name).toUpperCase(), r.reduced (9, 0).toNearestInt(), juce::Justification::centredLeft); }
+            if (r.getWidth() > 70) { g.setColour (juce::Colour (0xff0a0c10).withAlpha (0.85f)); g.setFont (tf (juce::jmin (12.0f, lh - 1), 2)); g.drawText (juce::String (kFx[f].name).toUpperCase(), r.reduced (9, 0).toNearestInt(), juce::Justification::centredLeft); }
             if (f == selLane && s == selS && e == selE) { neo::brackets (g, r.expanded (2.5f), juce::Colours::white, 6.0f, 1.6f); }
             s = e;
         }
