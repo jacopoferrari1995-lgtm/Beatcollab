@@ -188,7 +188,7 @@ Design designOf (int type)
 
 // ======================================================================= modulo
 static int visibleCount (int t) { int c = 0; for (int i = 0; i < kP; ++i) if (! hidden (mod (t).spec[(size_t) i])) ++c; return c; }
-static constexpr float kTop = 58, kMeter = 90, kBottomSend = 100, kBottom = 46, kCellH = 78;
+static constexpr float kTop = 58, kMeter = 90, kBottomSend = 106, kBottom = 58, kCellH = 78;
 static float bottomOf (int t) { const auto& m = mod (t); return m.send || designOf (t).pedal ? kBottomSend : kBottom; }
 static bool isButtons (const Design& D, const PSpec& sp) { return sp.fmt == F_ITEMS && D.buttons && sp.items.size() >= 2 && sp.items.size() <= 6; }
 static constexpr float kBtnH = 34;
@@ -304,7 +304,7 @@ void SlotView::resized()
         if (m.kind == K_CONV) irR = { 10, bottomY + 42, 44, 26 };
     }
     else if (D.pedal) footR = { w * 0.5f - 24, bottomY + 24, 48, 48 };
-    else inR = { w * 0.5f - 22, h - 38, 44, 22 };
+    else inR = { w * 0.5f - 22, h - 48, 44, 22 };
 }
 void SlotView::paintStatic (juce::Graphics& g)
 {

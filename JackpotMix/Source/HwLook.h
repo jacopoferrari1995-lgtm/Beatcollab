@@ -200,6 +200,58 @@ inline void screw (juce::Graphics& g, float x, float y, float r, float rot)
     g.drawLine (x - std::cos (rot) * r * 0.7f, y - std::sin (rot) * r * 0.7f, x + std::cos (rot) * r * 0.7f, y + std::sin (rot) * r * 0.7f, 1.4f);
     g.drawLine (x - std::cos (rot + 1.5708f) * r * 0.7f, y - std::sin (rot + 1.5708f) * r * 0.7f, x + std::cos (rot + 1.5708f) * r * 0.7f, y + std::sin (rot + 1.5708f) * r * 0.7f, 1.4f);
 }
+// materia: vernice non uniforme (macchie larghe), grana fine, graffietti, sporco verso i bordi. Disegnata una volta (il frontale e' in cache)
+inline void grit (juce::Graphics& g, juce::Rectangle<float> r, int seed, float amt, bool metal)
+{
+    const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+    const int W = juce::jmax (1, juce::roundToInt (r.getWidth() * sc)), H = juce::jmax (1, juce::roundToInt (r.getHeight() * sc));
+    juce::Image im (juce::Image::ARGB, W, H, true);
+    {
+        juce::Image::BitmapData bd (im, juce::Image::BitmapData::writeOnly);
+        juce::Random rnd (seed * 7919 + 13);
+        // rumore a valori su griglia larga (macchie della vernice) e media
+        auto grid = [&] (int cell, std::vector<float>& v, int& gw, int& gh) { gw = W / cell + 2; gh = H / cell + 2; v.resize ((size_t) (gw * gh)); for (auto& x : v) x = rnd.nextFloat() * 2 - 1; };
+        std::vector<float> g1, g2; int w1, h1, w2, h2; const int c1 = juce::jmax (8, (int) (46 * sc)), c2 = juce::jmax (3, (int) (9 * sc));
+        grid (c1, g1, w1, h1); grid (c2, g2, w2, h2);
+        auto smp = [] (const std::vector<float>& v, int gw, int cell, int x, int y)
+        { const float fx = x / (float) cell, fy = y / (float) cell; const int ix = (int) fx, iy = (int) fy; const float tx = fx - ix, ty = fy - iy;
+          const float sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+          auto at = [&] (int a, int b) { return v[(size_t) (b * gw + a)]; };
+          return (at (ix, iy) * (1 - sx) + at (ix + 1, iy) * sx) * (1 - sy) + (at (ix, iy + 1) * (1 - sx) + at (ix + 1, iy + 1) * sx) * sy; };
+        for (int y = 0; y < H; ++y)
+        {
+            const float ey = juce::jmin (y, H - 1 - y) / (float) H;
+            for (int x = 0; x < W; ++x)
+            {
+                const float ex = juce::jmin (x, W - 1 - x) / (float) W, edge = juce::jmax (0.0f, 1.0f - juce::jmin (ex * 9.0f, ey * 16.0f));
+                float n = smp (g1, w1, c1, x, y) * 0.85f + smp (g2, w2, c2, x, y) * 0.35f + (rnd.nextFloat() * 2 - 1) * (metal ? 0.22f : 0.38f);
+                n -= edge * edge * 0.9f;   // sporco e usura verso i bordi
+                const float a = juce::jlimit (0.0f, 1.0f, std::abs (n) * amt);
+                const juce::uint8 c = n > 0 ? 255 : 0;
+                bd.setPixelColour (x, y, juce::Colour (c, c, c, a));
+            }
+        }
+    }
+    g.drawImage (im, r, juce::RectanglePlacement::stretchToFit);
+    // graffietti sottili
+    juce::Random rs (seed * 31 + 7);
+    for (int i = 0; i < 24; ++i)
+    {
+        const float x = r.getX() + rs.nextFloat() * r.getWidth(), y = r.getY() + rs.nextFloat() * r.getHeight(), L = 6 + rs.nextFloat() * 26, a = -0.6f + rs.nextFloat() * 1.2f;
+        g.setColour (juce::Colours::white.withAlpha (0.05f + rs.nextFloat() * 0.06f)); g.drawLine (x, y, x + std::cos (a) * L, y + std::sin (a) * L, 0.6f);
+    }
+}
+// orecchie del 500-series: linguetta metallica con asola e vite
+inline void ear (juce::Graphics& g, juce::Rectangle<float> r, float rot)
+{
+    juce::ColourGradient eg (juce::Colour (0xff6c6a66), r.getX(), r.getY(), juce::Colour (0xff2a2927), r.getX(), r.getBottom(), false); g.setGradientFill (eg); g.fillRoundedRectangle (r, 2);
+    g.setColour (juce::Colours::white.withAlpha (0.18f)); g.drawHorizontalLine ((int) r.getY(), r.getX() + 2, r.getRight() - 2);
+    g.setColour (juce::Colours::black.withAlpha (0.55f)); g.drawRoundedRectangle (r, 2, 0.8f);
+    auto slot = r.withSizeKeepingCentre (juce::jmin (r.getWidth() - 10, 34.0f), r.getHeight() - 5);
+    g.setColour (juce::Colour (0xff0a0a09)); g.fillRoundedRectangle (slot, slot.getHeight() * 0.5f);
+    g.setColour (juce::Colours::white.withAlpha (0.12f)); g.drawRoundedRectangle (slot.translated (0, 0.8f), slot.getHeight() * 0.5f, 0.6f);
+    screw (g, slot.getCentreX() + std::sin (rot * 3.1f) * slot.getWidth() * 0.22f, slot.getCentreY(), slot.getHeight() * 0.5f - 0.3f, rot);
+}
 // frontale di un modulo: ombra nel telaio, superficie, smusso, viti in alto e in basso (500-series)
 inline void faceplate (juce::Graphics& g, juce::Rectangle<float> r, int face, juce::Colour c, int seed)
 {
@@ -249,15 +301,20 @@ inline void faceplate (juce::Graphics& g, juce::Rectangle<float> r, int face, ju
             speckle (g, r, seed, 0.09f);
         }
     }
+    if (face != FACE_WOOD) grit (g, r, seed, face == FACE_CREAM ? 0.34f : face == FACE_BRUSHED ? 0.24f : face == FACE_BLACK ? 0.30f : 0.34f, face == FACE_BRUSHED);
+    {   // ombra interna: il pannello e' spesso e un po' incassato
+        juce::ColourGradient vg (juce::Colours::transparentBlack, r.getCentreX(), r.getCentreY(), juce::Colours::black.withAlpha (0.22f), r.getX(), r.getY(), true); g.setGradientFill (vg); g.fillRect (r);
+    }
     g.restoreState();
     // smusso: luce sul bordo alto e sinistro, ombra sotto
     g.setColour (juce::Colours::white.withAlpha (face == FACE_BLACK ? 0.12f : 0.3f)); g.drawLine (r.getX() + rad, r.getY() + 0.8f, r.getRight() - rad, r.getY() + 0.8f, 1.2f);
     g.drawLine (r.getX() + 0.8f, r.getY() + rad, r.getX() + 0.8f, r.getBottom() - rad, 1.0f);
-    g.setColour (juce::Colours::black.withAlpha (0.5f)); g.drawRoundedRectangle (r, rad, 1.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.35f)); g.drawLine (r.getRight() - 0.8f, r.getY() + rad, r.getRight() - 0.8f, r.getBottom() - rad, 1.4f); g.drawLine (r.getX() + rad, r.getBottom() - 0.8f, r.getRight() - rad, r.getBottom() - 0.8f, 1.6f);
+    g.setColour (juce::Colours::black.withAlpha (0.7f)); g.drawRoundedRectangle (r, rad, 1.0f);
     if (face != FACE_PEDAL)
     {
-        screw (g, r.getCentreX(), r.getY() + 9, 4.6f, 0.3f + (seed % 7) * 0.4f);
-        screw (g, r.getCentreX(), r.getBottom() - 9, 4.6f, 1.1f + (seed % 5) * 0.5f);
+        ear (g, juce::Rectangle<float> (r.getCentreX() - 26, r.getY() + 2, 52, 14), 0.3f + (seed % 7) * 0.4f);
+        ear (g, juce::Rectangle<float> (r.getCentreX() - 26, r.getBottom() - 16, 52, 14), 1.1f + (seed % 5) * 0.5f);
     }
 }
 // serigrafia
@@ -417,8 +474,12 @@ public:
 // strumento a ago (VU) con cornice nera e luce calda
 inline void vu (juce::Graphics& g, juce::Rectangle<float> b, float db, const juce::String& title, bool grMode)
 {
-    g.setColour (juce::Colour (0xff111010)); g.fillRoundedRectangle (b.expanded (3), 5);
-    g.setColour (juce::Colour (0xff3a3833)); g.drawRoundedRectangle (b.expanded (3), 5, 1.0f);
+    {   // cornice metallica spessa con ombra sul pannello
+        g.setColour (juce::Colours::black.withAlpha (0.45f)); g.fillRoundedRectangle (b.expanded (7).translated (1.5f, 3), 7);
+        juce::ColourGradient fg (juce::Colour (0xff8d8a84), b.getX(), b.getY() - 7, juce::Colour (0xff1d1c1a), b.getX(), b.getBottom() + 7, false); g.setGradientFill (fg); g.fillRoundedRectangle (b.expanded (7), 7);
+        g.setColour (juce::Colours::white.withAlpha (0.25f)); g.drawRoundedRectangle (b.expanded (6.5f), 6.5f, 0.8f);
+        g.setColour (juce::Colour (0xff0b0a09)); g.fillRoundedRectangle (b.expanded (3), 4);
+    }
     juce::ColourGradient cg (juce::Colour (0xfff8eccb), b.getCentreX(), b.getY(), juce::Colour (0xffd8c08c), b.getCentreX(), b.getBottom(), false); g.setGradientFill (cg); g.fillRoundedRectangle (b, 2);
     juce::ColourGradient lamp (juce::Colour (0x55ffb347), b.getCentreX(), b.getBottom(), juce::Colours::transparentBlack, b.getCentreX(), b.getY(), false); g.setGradientFill (lamp); g.fillRoundedRectangle (b, 2);
     const float cx = b.getCentreX(), cy = b.getBottom() + b.getHeight() * 0.55f, R = b.getHeight() * 1.28f;
@@ -441,9 +502,11 @@ inline void vu (juce::Graphics& g, juce::Rectangle<float> b, float db, const juc
     g.setColour (juce::Colours::black.withAlpha (0.25f)); g.drawLine (cx + 2, cy + 2, cx + 2 + std::sin (a) * R * 0.95f, cy + 2 - std::cos (a) * R * 0.95f, 1.6f);
     g.setColour (juce::Colour (0xff15110c)); g.drawLine (cx, cy, cx + std::sin (a) * R * 0.95f, cy - std::cos (a) * R * 0.95f, 1.3f);
     g.restoreState();
-    // vetro
-    juce::ColourGradient gl (juce::Colours::white.withAlpha (0.28f), b.getX(), b.getY(), juce::Colours::transparentWhite, b.getX(), b.getY() + b.getHeight() * 0.45f, false);
-    g.setGradientFill (gl); g.fillRoundedRectangle (b.withHeight (b.getHeight() * 0.45f), 2);
+    // vetro: ombra interna in alto, riflesso obliquo, polvere
+    { juce::ColourGradient ish (juce::Colours::black.withAlpha (0.35f), b.getX(), b.getY(), juce::Colours::transparentBlack, b.getX(), b.getY() + 10, false); g.setGradientFill (ish); g.fillRect (b.withHeight (10)); }
+    { juce::Path ref; ref.startNewSubPath (b.getX(), b.getY()); ref.lineTo (b.getX() + b.getWidth() * 0.62f, b.getY()); ref.lineTo (b.getX() + b.getWidth() * 0.38f, b.getBottom()); ref.lineTo (b.getX(), b.getBottom()); ref.closeSubPath();
+      juce::ColourGradient gl (juce::Colours::white.withAlpha (0.16f), b.getX(), b.getY(), juce::Colours::transparentWhite, b.getX() + b.getWidth() * 0.5f, b.getBottom(), false); g.setGradientFill (gl); g.fillPath (ref); }
+    { juce::Random rd ((int) (b.getWidth() * 7)); for (int i = 0; i < 40; ++i) { g.setColour (juce::Colours::white.withAlpha (0.08f + rd.nextFloat() * 0.1f)); g.fillEllipse (b.getX() + rd.nextFloat() * b.getWidth(), b.getY() + rd.nextFloat() * b.getHeight(), 0.8f, 0.8f); } }
 }
 // barra di LED verticale (riduzione dall'alto verso il basso o livello dal basso)
 inline void ledBar (juce::Graphics& g, juce::Rectangle<float> b, float frac, bool fromTop, juce::Colour c)
