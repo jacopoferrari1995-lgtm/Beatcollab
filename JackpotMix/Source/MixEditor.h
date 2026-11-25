@@ -50,10 +50,12 @@ private:
 class EqTile : public juce::Component
 {
 public:
-    explicit EqTile (Editor& e) : ed (e) { setBufferedToImage (true); }
+    explicit EqTile (Editor& e) : ed (e) {}
+    juce::Rectangle<float> openR, onR, curveR;
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
     Editor& ed;
 };
 
@@ -90,6 +92,8 @@ public:
     Editor& ed;
     juce::OwnedArray<SlotView> slots; std::unique_ptr<EqTile> eqTile; std::unique_ptr<AddTile> addTile;
     juce::String signature; int dropAt = -1;
+    float k = 1.0f;                        // i moduli sono disegnati a kDesignH e ingranditi per riempire il rack
+    static constexpr int kDesignH = 548;
 };
 
 // il rack scorre con la rotella (anche quella verticale), col trackpad, trascinando lo sfondo; i salti sono animati
@@ -252,7 +256,9 @@ public:
     jlook::LnF lnf;
     juce::TooltipWindow tips { this, 600 };
     RackView rackView; RackContent rack { *this }; ChainNav nav { *this };
-    float lastEqOn = -1, lastIo = -1e9f;
+    float lastEqOn = -1, lastIo = -1e9f; double lastEqSig = -1;
+    bool eqOpen = false; void openEq (bool o);
+    int resizeHold = 0, lastW = 0;   // durante lo zoom si stirano le immagini gia' pronte invece di rifarle a ogni passo
     EqGraph graph { *this };
     LoudPanel loud { *this }; ImagerPanel imager { *this };
     std::unique_ptr<GainChip> inChip, outChip;

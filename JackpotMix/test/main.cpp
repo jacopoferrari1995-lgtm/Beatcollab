@@ -214,6 +214,7 @@ int main (int argc, char** argv)
         if (auto* s = std::getenv ("JSOLO")) p.soloSlot = std::atoi (s);
         if (auto* s = std::getenv ("JDELTA")) p.deltaSlot = std::atoi (s);
         if (std::getenv ("JBROWSE")) ed.browser.open();
+        if (std::getenv ("JEQ")) { ed.openEq (true); for (int i = 0; i < 20; ++i) { feed (p, 4, 0.3f, 300, ph); ed.timerCallback(); } }
         if (std::getenv ("JMODS")) ed.openModuleChooser (std::atoi (std::getenv ("JMODS")));
         if (std::getenv ("JMODP")) ed.openModulePresets (std::atoi (std::getenv ("JMODP")));
         if (std::getenv ("JSCROLL")) { ed.rackView.scrollTo ((float) std::atoi (std::getenv ("JSCROLL")), false); }
@@ -227,7 +228,8 @@ int main (int argc, char** argv)
                 juce::Image im (juce::Image::RGB, Editor::W * 2, Editor::H * 2, true); const auto vb = ed.rackView.getBoundsInParent();
                 const auto t0 = juce::Time::getMillisecondCounterHiRes();
                 for (int i = 0; i < 20; ++i) { ed.rackView.setViewPosition ((i % 2) * 40, 0); juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (vb); ed.paintEntireComponent (g, true); }
-                std::printf ("scorrimento rack %.2f ms a fotogramma\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 20);
+                if (std::getenv ("JHIDE")) { for (auto* sv : ed.rack.slots) sv->setVisible (false); const auto t9 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < 20; ++i) { ed.rackView.setViewPosition ((i % 2) * 40, 0); juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (vb); ed.paintEntireComponent (g, true); } std::printf ("senza moduli %.2f ms\n", (juce::Time::getMillisecondCounterHiRes() - t9) / 20); for (auto* sv : ed.rack.slots) sv->setVisible (true); }
+                std::printf ("cache %d  ", ed.rack.slots.size() ? (int) (ed.rack.slots[0]->getCachedComponentImage() != nullptr) : -1); std::printf ("scorrimento rack %.2f ms a fotogramma\n", (juce::Time::getMillisecondCounterHiRes() - t0) / 20);
             }
             const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < 30; ++i) ed.timerCallback(); std::printf ("30 timer %.2f ms\n", juce::Time::getMillisecondCounterHiRes() - t0);
         }

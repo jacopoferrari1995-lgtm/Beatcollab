@@ -204,7 +204,7 @@ int SlotView::unitsFor (int t, int height)
         else if (sp.fmt != F_BOOL && D.hero.contains (juce::String (sp.label)) && heroes < 2) ++heroes;
         else ++rest;
     }
-    if (heroes > 0) ctrlH -= juce::jmin (118.0f, ctrlH * (btns > 0 ? 0.34f : 0.4f)) + 2;
+    if (heroes > 0) ctrlH -= juce::jmin (140.0f, ctrlH * (btns > 0 ? 0.34f : 0.4f)) + 2;
     ctrlH -= btns * (kBtnH + 4);
     const int rows = juce::jmax (1, (int) (ctrlH / kCellH));
     // largo abbastanza per le file di pulsanti e per i comandi che restano
@@ -213,11 +213,11 @@ int SlotView::unitsFor (int t, int height)
 SlotView::SlotView (Editor& e, int s) : ed (e), slot (s)
 {
     type = ed.proc.slotType (s); D = designOf (type); const auto& m = mod (type);
-    setBufferedToImage (true);   // il modulo resta in un'immagine: scorrere il rack e' solo una copia
     setTooltip (m.name + "  (ispirato a " + m.inspired + ")\n" + m.desc);
     for (int i = 0; i < kP; ++i)
     {
         const auto& sp = m.spec[(size_t) i]; if (hidden (sp)) continue;
+        if (! m.send && juce::String (sp.label) == "MIX") continue;   // il MIX del modulo c'e' gia' (sotto): niente doppione
         auto* prm = ed.P (Processor::sid (s, ("p" + juce::String (i + 1)).toRawUTF8()));
         if (sp.fmt == F_BOOL)
         {
@@ -265,7 +265,7 @@ void SlotView::resized()
     // prima fila: i comandi principali grandi
     if (! heroes.empty())
     {
-        const float hh = juce::jmin (118.0f, (bottomY - y) * (btns.empty() ? 0.4f : 0.34f)), hw2 = juce::jmin ((w - 12) / (float) heroes.size(), 118.0f);
+        const float hh = juce::jmin (140.0f, (bottomY - y) * (btns.empty() ? 0.4f : 0.34f)), hw2 = juce::jmin ((w - 12) / (float) heroes.size(), 140.0f);
         const float x0 = (w - hw2 * heroes.size()) * 0.5f;
         for (size_t k = 0; k < heroes.size(); ++k) heroes[k]->setBounds (juce::Rectangle<float> (x0 + k * hw2, y, hw2, hh).reduced (3, 2).toNearestInt());
         y += hh + 2;
@@ -280,7 +280,7 @@ void SlotView::resized()
         const int colsMax = juce::jmax (1, (int) (w / 66.0f));
         const int cols = juce::jlimit (1, colsMax, juce::jmax ((n + rowsMax - 1) / rowsMax, juce::jmin (n, 2)));
         const int rows = (n + cols - 1) / cols;
-        const float cw = (w - 12) / cols, ch = juce::jmin (heroes.empty() ? 106.0f : 80.0f, ctrlH / rows);   // con i comandi grandi in alto, gli altri restano piu' piccoli
+        const float cw = (w - 12) / cols, ch = juce::jmin (heroes.empty() ? 112.0f : 92.0f, ctrlH / rows);   // con i comandi grandi in alto, gli altri restano piu' piccoli
         const float y0 = y + (ctrlH - ch * rows) * 0.5f;
         for (int k = 0; k < n; ++k)
         {
@@ -290,7 +290,7 @@ void SlotView::resized()
             auto cell = juce::Rectangle<float> (x0 + c * cw, y0 + r * ch, cw, ch).reduced (2, 3);
             auto* comp = cells[(size_t) k];
             if (dynamic_cast<hw::Switch*> (comp)) comp->setBounds (cell.withSizeKeepingCentre (juce::jmin (cell.getWidth(), 60.0f), juce::jmin (cell.getHeight(), 70.0f)).toNearestInt());
-            else comp->setBounds (cell.withSizeKeepingCentre (juce::jmin (cell.getWidth(), 84.0f), cell.getHeight()).toNearestInt());
+            else comp->setBounds (cell.withSizeKeepingCentre (juce::jmin (cell.getWidth(), 92.0f), cell.getHeight()).toNearestInt());
         }
     }
     // in basso: tasto IN (o footswitch) e, per riverberi e delay, la MANDATA grande
@@ -340,12 +340,18 @@ void SlotView::paint (juce::Graphics& g)
     {   // parte fissa in cache, alla risoluzione vera dello schermo
         const float sc = juce::jmax (1.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
         const juce::String key = juce::String (getWidth()) + "x" + juce::String (getHeight()) + "/" + juce::String (sc, 2) + "/" + juce::String (skin::cur()) + "/" + juce::String (type) + "/" + juce::String (slot);
-        if (key != bgKey || ! bg.isValid())
+        const juce::String key2 = key.fromFirstOccurrenceOf ("/", false, false).fromFirstOccurrenceOf ("/", false, false);
+        if (bg.isValid() && key != bgKey && ed.resizeHold > 0 && key2 == bgKey.fromFirstOccurrenceOf ("/", false, false).fromFirstOccurrenceOf ("/", false, false))
+            g.drawImage (bg, juce::Rectangle<float> (0, 0, w, h));   // durante lo zoom: l'immagine vecchia stirata, si rifa' a zoom finito
+        else
         {
-            bgKey = key; bg = juce::Image (juce::Image::ARGB, juce::jmax (1, juce::roundToInt (w * sc)), juce::jmax (1, juce::roundToInt (h * sc)), true);
-            juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig);
+            if (key != bgKey || ! bg.isValid())
+            {
+                bgKey = key; bg = juce::Image (juce::Image::ARGB, juce::jmax (1, juce::roundToInt (w * sc)), juce::jmax (1, juce::roundToInt (h * sc)), true);
+                juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); paintStatic (ig);
+            }
+            g.drawImageTransformed (bg, juce::AffineTransform::scale (1.0f / sc));
         }
-        g.drawImageTransformed (bg, juce::AffineTransform::scale (1.0f / sc));
     }
     {   // tasti del binario
         const bool so = P.soloSlot.load() == slot, de = P.deltaSlot.load() == slot;
@@ -467,21 +473,62 @@ void SlotView::mouseUp (const juce::MouseEvent& e)
 void EqTile::paint (juce::Graphics& g)
 {
     const float w = (float) getWidth(), h = (float) getHeight(); const bool on = ed.proc.value ("eq_on") > 0.5f;
+    const auto ink = juce::Colour (0xff9fd4ff);
     auto rail = juce::Rectangle<float> (0, 0, w, (float) SlotView::kRail - 3);
     juce::ColourGradient rg (juce::Colour (0xff253441), 0, 0, juce::Colour (0xff17202a), 0, rail.getBottom(), false); g.setGradientFill (rg); g.fillRoundedRectangle (rail, 3);
-    g.setFont (alook::serif (10.5f)); g.setColour (juce::Colour (0xff9fd4ff)); g.drawText ("EQ", rail, juce::Justification::centred);
+    g.setColour (kBlue); g.fillRoundedRectangle (3, 4, 3, 13, 1.5f);
+    g.setFont (alook::serif (12.0f)); g.setColour (ink); g.drawText ("EQ CENTRALE", rail.withHeight (20).withTrimmedLeft (10), juce::Justification::centredLeft);
+    g.setFont (alook::typed (8.5f)); g.setColour (kDim); g.drawText ("trascina per spostarlo", rail.withTrimmedTop (20).withTrimmedLeft (10), juce::Justification::centredLeft);
     auto face = juce::Rectangle<float> (0, (float) SlotView::kRail, w, h - SlotView::kRail);
     hw::faceplate (g, face, FACE_BLACK, juce::Colour (0xff141c24), 99);
-    hw::led (g, w * 0.5f, face.getY() + 32, 5, kBlue, on);
-    hw::silk (g, on ? "ON" : "OFF", { 0, face.getY() + 42, w, 12 }, alook::serif (8.0f), juce::Colour (0xff9fd4ff));
-    g.saveState(); g.addTransform (juce::AffineTransform::rotation (-juce::MathConstants<float>::halfPi, w * 0.5f, face.getCentreY()));
-    hw::silk (g, juce::String::fromUTF8 ("EQ CENTRALE  \xc2\xb7  trascina per spostarlo"), { w * 0.5f - 150, face.getCentreY() - 9, 300, 18 }, alook::serif (10.5f), juce::Colour (0xff9fd4ff));
-    g.restoreState();
-    if (! on) { g.setColour (juce::Colours::black.withAlpha (0.35f)); g.fillRoundedRectangle (face, 3); }
+    hw::silk (g, "PRO EQ", { 8, face.getY() + 14, w - 16, 22 }, alook::wide (15.0f), ink);
+    hw::silk (g, juce::String::fromUTF8 ("12 BANDE  \xc2\xb7  DINAMICO"), { 6, face.getY() + 36, w - 12, 11 }, alook::wide (7.0f), ink.withAlpha (0.7f));
+    // acceso / spento
+    onR = { w * 0.5f - 30, face.getY() + 58, 60, 24 };
+    {
+        g.setColour (on ? kBlue.withAlpha (0.9f) : juce::Colour (0xff22262c)); g.fillRoundedRectangle (onR, 4);
+        g.setColour (on ? kBlue.brighter (0.4f) : kLine.brighter (0.4f)); g.drawRoundedRectangle (onR.reduced (0.5f), 4, 1);
+        g.setFont (alook::serif (10.0f)); g.setColour (on ? juce::Colour (0xff0d1822) : ink.withAlpha (0.7f)); g.drawText (on ? "ACCESO" : "SPENTO", onR, juce::Justification::centred);
+    }
+    // curva in miniatura
+    curveR = { 10, face.getY() + 96, w - 20, juce::jmin (230.0f, face.getHeight() - 200) };
+    g.setColour (juce::Colour (0xff0a0d11)); g.fillRoundedRectangle (curveR.expanded (2), 5);
+    g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawHorizontalLine ((int) curveR.getCentreY(), curveR.getX(), curveR.getRight());
+    for (float f : { 100.0f, 1000.0f, 10000.0f }) { const float x = curveR.getX() + curveR.getWidth() * std::log (f / 20.0f) / std::log (1000.0f); g.drawVerticalLine ((int) x, curveR.getY(), curveR.getBottom()); }
+    {
+        const auto E = ed.proc.eqSettings(); const double sr = juce::jmax (8000.0, ed.proc.sampleRate());
+        const int N = 64; std::vector<double> sum ((size_t) N, 0.0); int nOn = 0;
+        for (int kb = 0; kb < kBands; ++kb)
+        {
+            const auto& B = E.b[kb]; if (! B.on || (B.ch != 0 && B.ch != 1)) continue; ++nOn;
+            BQ f[8]; const int n = designBand (B, sr, B.g, f);
+            for (int i = 0; i < N; ++i) { const float fr = 20.0f * std::pow (1000.0f, i / (float) (N - 1)); for (int q = 0; q < n; ++q) sum[(size_t) i] += f[q].magDb (fr, sr); }
+        }
+        juce::Path pth; for (int i = 0; i < N; ++i) { const float x = curveR.getX() + curveR.getWidth() * i / (N - 1.0f), y = curveR.getCentreY() - (float) juce::jlimit (-15.0, 15.0, sum[(size_t) i]) / 15.0f * curveR.getHeight() * 0.48f; if (i == 0) pth.startNewSubPath (x, y); else pth.lineTo (x, y); }
+        juce::Path fp = pth; fp.lineTo (curveR.getRight(), curveR.getCentreY()); fp.lineTo (curveR.getX(), curveR.getCentreY()); fp.closeSubPath();
+        g.setColour (kBlue.withAlpha (on ? 0.18f : 0.06f)); g.fillPath (fp);
+        g.setColour ((on ? juce::Colour (0xfffff3d6) : kDim).withAlpha (on ? 0.95f : 0.5f)); g.strokePath (pth, juce::PathStrokeType (1.6f));
+        g.setFont (alook::typed (8.5f)); g.setColour (ink.withAlpha (0.8f));
+        g.drawText (nOn == 0 ? juce::String ("nessuna banda") : juce::String (nOn) + (nOn == 1 ? " banda" : " bande"), curveR.withY (curveR.getBottom() + 6).withHeight (12), juce::Justification::centred);
+    }
+    // apri a tutto schermo
+    openR = { 12, curveR.getBottom() + 28, w - 24, 40 };
+    {
+        juce::ColourGradient bg (kBlue.brighter (0.2f), 0, openR.getY(), kBlue.darker (0.4f), 0, openR.getBottom(), false);
+        g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillRoundedRectangle (openR.translated (0, 2), 5);
+        g.setGradientFill (bg); g.fillRoundedRectangle (openR, 5);
+        g.setFont (alook::serif (11.5f)); g.setColour (juce::Colour (0xff0b141c)); g.drawText (juce::String::fromUTF8 ("\xe2\xa4\xa2  APRI EQ"), openR, juce::Justification::centred);
+    }
+    hw::silk (g, "clic sulla curva o su APRI EQ", { 6, openR.getBottom() + 10, w - 12, 12 }, alook::serif (8.0f), ink.withAlpha (0.6f));
+    if (! on) { g.setColour (juce::Colours::black.withAlpha (0.3f)); g.fillRoundedRectangle (face.withTrimmedTop (90), 3); }
 }
 void EqTile::mouseDown (const juce::MouseEvent& e)
 {
-    if (e.position.y > SlotView::kRail + 14 && e.position.y < SlotView::kRail + 60) { auto* p = ed.P ("eq_on"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); ed.graph.repaint(); }
+    if (onR.contains (e.position)) { auto* p = ed.P ("eq_on"); p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f); repaint(); ed.graph.repaint(); ed.nav.repaint(); }
+}
+void EqTile::mouseUp (const juce::MouseEvent& e)
+{
+    if (e.getDistanceFromDragStart() < 6 && (openR.contains (e.position) || curveR.contains (e.position))) ed.openEq (true);
 }
 void EqTile::mouseDrag (const juce::MouseEvent& e) { if (e.getDistanceFromDragStart() > 6 && ! ed.isDragAndDropActive()) ed.startDragging ("eq", this); }
 
@@ -517,14 +564,17 @@ void RackContent::rebuild()
 void RackContent::layoutTiles (int height)
 {
     auto& P = ed.proc; const int n = P.chainLen(), ep = juce::jlimit (0, n, juce::roundToInt (P.value ("eq_pos")));
-    int x = 12; const int y = 8, h = height - 16;
+    k = juce::jmax (0.5f, (height - 16) / (float) kDesignH);
+    // posizioni in coordinate di progetto, poi tutto ingrandito di k
+    float x = 12; const float y = 8; const int h = kDesignH;
+    auto place = [this, y] (juce::Component& c, float x0, int w, int hh) { c.setBounds (0, 0, w, hh); c.setTransform (juce::AffineTransform::scale (k).translated (std::round (x0), y)); };
     for (int s = 0; s <= n; ++s)
     {
-        if (s == ep && eqTile) { eqTile->setBounds (x, y, 58, h); x += 58 + 8; }
-        if (s < n && s < slots.size()) { const int w = SlotView::unitsFor (P.slotType (s), h) * SlotView::kUnit; slots[s]->setBounds (x, y, w, h); x += w + 8; }
+        if (s == ep && eqTile) { place (*eqTile, x, 150, h); x += 150 * k + 10; }
+        if (s < n && s < slots.size()) { const int w = SlotView::unitsFor (P.slotType (s), h) * SlotView::kUnit; place (*slots[s], x, w, h); x += w * k + 10; }
     }
-    if (addTile) { addTile->setBounds (x, y, SlotView::kUnit, h); x += SlotView::kUnit + 8; }
-    setSize (juce::jmax (x + 4, ed.rackView.getWidth()), height);
+    if (addTile) { place (*addTile, x, SlotView::kUnit, h); x += SlotView::kUnit * k + 10; }
+    setSize (juce::jmax ((int) x + 4, ed.rackView.getWidth()), height);
 }
 void RackContent::paint (juce::Graphics& g)
 {   // telaio lunchbox: fondo scuro, guide in alto e in basso con i fori
@@ -540,13 +590,13 @@ void RackContent::paintOverChildren (juce::Graphics& g)
 {
     if (dropAt < 0) return;
     float x = 6;
-    for (auto* s : slots) if (s->slot < dropAt) x = (float) s->getRight() + 4;
+    for (auto* s : slots) if (s->slot < dropAt) x = (float) s->getBoundsInParent().getRight() + 4;
     if (dropAt == 0 && eqTile && juce::roundToInt (ed.proc.value ("eq_pos")) == 0) x = 6;
     g.setColour (kAmber); g.fillRoundedRectangle (x - 2, 6, 4, getHeight() - 12.0f, 2);
 }
 int RackContent::insertIndex (juce::Point<float> p) const
 {
-    int idx = 0; for (auto* s : slots) if (p.x > s->getBounds().toFloat().getCentreX()) idx = s->slot + 1;
+    int idx = 0; for (auto* s : slots) if (p.x > s->getBoundsInParent().toFloat().getCentreX()) idx = s->slot + 1;
     return juce::jlimit (0, ed.proc.chainLen(), idx);
 }
 void RackContent::itemDropped (const SourceDetails& d)
@@ -597,11 +647,11 @@ void ChainNav::paint (juce::Graphics& g)
             g.setFont (alook::serif (9.5f)); g.drawText ("+ AGGIUNGI", c.r, juce::Justification::centred); continue;
         }
         bool inView = false; juce::Colour col = kBlue; juce::String t = "EQ"; bool byp = false;
-        if (c.slot == -1) { if (ed.rack.eqTile) inView = view.intersects (ed.rack.eqTile->getBounds()); byp = P.value ("eq_on") < 0.5f; }
+        if (c.slot == -1) { if (ed.rack.eqTile) inView = view.intersects (ed.rack.eqTile->getBoundsInParent()); byp = P.value ("eq_on") < 0.5f; }
         else
         {
             const int ty = P.slotType (c.slot); col = catColour (mod (ty).cat); t = juce::String (c.slot + 1) + "  " + mod (ty).name; byp = P.valueS (Processor::sid (c.slot, "byp")) > 0.5f;
-            if (c.slot < ed.rack.slots.size()) inView = view.intersects (ed.rack.slots[c.slot]->getBounds());
+            if (c.slot < ed.rack.slots.size()) inView = view.intersects (ed.rack.slots[c.slot]->getBoundsInParent());
         }
         g.setColour (inView ? juce::Colour (0xff2c2b28) : juce::Colour (0xff1a1a18)); g.fillRoundedRectangle (c.r, 5);
         g.setColour (inView ? col.withAlpha (0.85f) : kLine.brighter (h ? 0.6f : 0.2f)); g.drawRoundedRectangle (c.r.reduced (0.5f), 5, 1);
@@ -626,7 +676,7 @@ void ChainNav::mouseDown (const juce::MouseEvent& e)
     {
         if (! c.r.contains (e.position)) continue;
         if (c.slot == -2) { ed.openModuleChooser (-1); return; }
-        if (c.slot == -1) { if (ed.rack.eqTile) ed.rackView.scrollTo ((float) ed.rack.eqTile->getBounds().getCentreX() - ed.rackView.getViewWidth() * 0.5f); return; }
+        if (c.slot == -1) { if (ed.rack.eqTile) ed.rackView.scrollTo ((float) ed.rack.eqTile->getBoundsInParent().getCentreX() - ed.rackView.getViewWidth() * 0.5f); return; }
         if (e.mods.isPopupMenu()) { ed.slotMenu (c.slot, this); return; }
         if (c.x.contains (e.position)) { ed.proc.removeSlot (c.slot); ed.chainChanged(); hov = -1; repaint(); return; }
         ed.scrollToSlot (c.slot); return;
@@ -912,8 +962,9 @@ void EqGraph::paint (juce::Graphics& g)
     for (int k = 0; k < 3; ++k) { const float sp = k == 0 ? 6.0f : k == 1 ? 12.0f : 24.0f; hot ({ x, hy, 40, 20 }, juce::String::fromUTF8 ("\xc2\xb1") + juce::String ((int) sp), span == sp, kAmber, 10 + k); x += 44; }
     x += 8; hot ({ x, hy, 74, 20 }, "+ BANDA", false, kGreen, 3); x += 82;
     hot ({ x, hy, 60, 20 }, "AZZERA", false, kRed, 4);
+    hot ({ b.getRight() - 112, hy, 100, 20 }, juce::String::fromUTF8 ("CHIUDI  \xe2\x9c\x95"), true, kAmber, 99);
     g.setFont (alook::serif (8.0f, false)); g.setColour (kDim);
-    g.drawText (juce::String::fromUTF8 ("doppio clic: banda  \xc2\xb7  trascina: freq e gain  \xc2\xb7  rotella: Q  \xc2\xb7  tasto destro: tipo"), juce::Rectangle<float> (x + 70, hy, b.getRight() - x - 80, 20), juce::Justification::centredRight);
+    g.drawText (juce::String::fromUTF8 ("doppio clic: banda  \xc2\xb7  trascina: freq e gain  \xc2\xb7  rotella: Q  \xc2\xb7  tasto destro: tipo"), juce::Rectangle<float> (x + 70, hy, b.getRight() - x - 200, 20), juce::Justification::centredRight);
     // tessere delle bande accese, in basso
     {
         float bx = p.getX(); const float by = b.getBottom() - 32;
@@ -966,6 +1017,7 @@ void EqGraph::mouseDown (const juce::MouseEvent& e)
         else if (h.id == 2) ana = (ana + 1) % 3;
         else if (h.id >= 10 && h.id < 13) { span = h.id == 10 ? 6.0f : h.id == 11 ? 12.0f : 24.0f; updatePop(); }
         else if (h.id == 3) { float f = 1000; for (float c : { 1000.0f, 300.0f, 3000.0f, 120.0f, 8000.0f, 600.0f, 2000.0f, 60.0f, 5000.0f, 12000.0f, 450.0f, 1500.0f }) { bool used = false; for (int k = 0; k < kBands; ++k) if (P.valueS (Processor::bid (k, "on")) > 0.5f && std::abs (std::log (P.valueS (Processor::bid (k, "f")) / c)) < 0.2f) used = true; if (! used) { f = c; break; } } addBand (f); }
+        else if (h.id == 99) { ed.openEq (false); return; }
         else if (h.id == 4) { P.undo.beginNewTransaction(); for (int k = 0; k < kBands; ++k) { P.setP (Processor::bid (k, "on"), 0); P.setP (Processor::bid (k, "solo"), 0); } sel = popBand = -1; updatePop(); }
         else if (h.id >= 100) { const int k = h.id - 100; if (e.mods.isPopupMenu()) bandMenu (k); else { sel = popBand = (sel == k ? -1 : k); popHold = 0; updatePop(); } }
         repaint(); return;
@@ -1164,10 +1216,12 @@ void Editor::resized()
 {
     scaler.update();
     nav.setBounds (10, 58, 1130, 28);
-    rackView.setBounds (10, 88, 1130, 452);
-    rack.signature.clear(); rack.setSize (rack.getWidth(), 452 - 10); rack.rebuild();
-    graph.setBounds (10, 548, 1130, 302);
+    rackView.setBounds (10, 88, 1130, 762);
+    rack.signature.clear(); rack.setSize (rack.getWidth(), 762 - 14); rack.rebuild();
+    graph.setBounds (10, 58, 1130, 792); graph.setVisible (eqOpen); graph.toFront (false);
+    if (getWidth() != lastW) { if (lastW > 0) resizeHold = 15; lastW = getWidth(); }
     loud.setBounds (1148, 60, 242, 480); imager.setBounds (1148, 548, 242, 302);
+    browser.toFront (false); modBrowser.toFront (false);
     browser.setBounds (0, 0, W, H); modBrowser.setBounds (0, 0, W, H);
     inChip->setBounds (1072, 12, 66, 34); outChip->setBounds (1144, 12, 66, 34);
     sizeChip.setBounds (1330, 22, 58, 16);
@@ -1178,7 +1232,9 @@ void Editor::paint (juce::Graphics& g)
     {   // fondo e testata fissi: in cache alla risoluzione dello schermo
         const float sc = juce::jmax (1.0f, g.getInternalContext().getPhysicalPixelScaleFactor()) * scaler.s;
         const juce::String key = juce::String (sc, 3) + "/" + juce::String (skin::cur());
-        if (key != bgKey || ! bgImg.isValid())
+        if (bgImg.isValid() && key != bgKey && resizeHold > 0 && key.fromFirstOccurrenceOf ("/", false, false) == bgKey.fromFirstOccurrenceOf ("/", false, false))
+            g.drawImage (bgImg, juce::Rectangle<float> (0, 0, W * scaler.s, H * scaler.s));
+        else if (key != bgKey || ! bgImg.isValid())
         {
             bgKey = key; bgImg = juce::Image (juce::Image::RGB, juce::roundToInt (W * sc), juce::roundToInt (H * sc), false);
             juce::Graphics ig (bgImg); ig.addTransform (juce::AffineTransform::scale (sc));
@@ -1188,7 +1244,7 @@ void Editor::paint (juce::Graphics& g)
             alook::engrave (ig, "JACKPOT", { 18, 7, 160, 20 }, alook::wide (15.0f), juce::Justification::centredLeft, neo::K::theme == 9 ? skin::INK : kAmber);
             alook::engrave (ig, "MIXOLOGY", { 18, 26, 300, 24 }, alook::wide (21.0f), juce::Justification::centredLeft, kHeadInk);
         }
-        g.drawImageTransformed (bgImg, juce::AffineTransform::scale (scaler.s / sc));
+        if (key == bgKey) g.drawImageTransformed (bgImg, juce::AffineTransform::scale (scaler.s / sc));
     }
     g.addTransform (juce::AffineTransform::scale (scaler.s));
     skin::chipDraw (g, themeR);
@@ -1390,7 +1446,7 @@ void Editor::openModulePresets (int s)
 void Editor::scrollToSlot (int s)
 {
     if (s < 0 || s >= rack.slots.size()) return;
-    const auto r = rack.slots[s]->getBounds();
+    const auto r = rack.slots[s]->getBoundsInParent();
     const int vx = rackView.getViewPositionX(), vw = rackView.getViewWidth();
     if (r.getX() >= vx && r.getRight() <= vx + vw) { rack.slots[s]->repaint(); return; }   // gia' tutto in vista
     rackView.scrollTo (r.getWidth() > vw ? (float) r.getX() - 8 : (float) r.getCentreX() - vw * 0.5f);
@@ -1445,8 +1501,15 @@ void Editor::mouseDown (const juce::MouseEvent& e0)
         all (this); return;
     }
 }
+void Editor::openEq (bool o)
+{
+    eqOpen = o; graph.setVisible (o);
+    if (o) { graph.toFront (true); browser.toFront (false); modBrowser.toFront (false); }
+    if (rack.eqTile) rack.eqTile->repaint();
+}
 bool Editor::keyPressed (const juce::KeyPress& k)
 {
+    if (eqOpen && k == juce::KeyPress::escapeKey) { openEq (false); return true; }
     if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Z' || k.getKeyCode() == 'z')) { doUndo (k.getModifiers().isShiftDown()); return true; }
     if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Y' || k.getKeyCode() == 'y')) { doUndo (true); return true; }
     return false;
@@ -1465,11 +1528,12 @@ void Editor::doUndo (bool redo)
 }
 void Editor::timerCallback()
 {
+    if (resizeHold > 0 && --resizeHold == 0) repaint();   // zoom finito: tutto ridisegnato nitido alla nuova misura
     if (browser.isVisible() || modBrowser.isVisible()) return;
     ++tick;
     const int vx = rackView.getViewPositionX(); rackView.step();
     if (rackView.getViewPositionX() != vx || tick % 8 == 0) nav.repaint();
-    graph.tick();   // 60 fotogrammi al secondo: spettro e curve scorrono senza scatti
+    if (eqOpen) graph.tick();   // 60 fotogrammi al secondo, solo quando l'EQ e' aperto
     if (tick % 2 == 0)
     {   // misure e manopole a 30 al secondo
         loud.repaint(); imager.repaint();
@@ -1483,6 +1547,11 @@ void Editor::timerCallback()
             const juce::String pre = "s" + juce::String (s->slot + 1) + "_"; double sig = 0; int i = 1;
             for (auto* pa : proc.getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (pa)) if (rp->paramID.startsWith (pre)) sig += (++i) * 1.618 * rp->getValue();
             if (sig != s->paramSig) { s->paramSig = sig; for (auto& c : s->ctl) c->repaint(); if (s->mixK) s->mixK->repaint(); }
+        }
+        {   // la curva in miniatura del modulo EQ
+            double sig = 0; int i = 1;
+            for (auto* pa : proc.getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (pa)) if (rp->paramID.startsWith ("e") && rp->paramID.containsChar ('_')) sig += (++i) * 1.618 * rp->getValue();
+            if (sig != lastEqSig) { lastEqSig = sig; if (rack.eqTile) rack.eqTile->repaint(); }
         }
         const float eo = proc.value ("eq_on"), io = proc.value ("in") * 3.1f + proc.value ("out");
         if (eo != lastEqOn) { lastEqOn = eo; if (rack.eqTile) rack.eqTile->repaint(); }
