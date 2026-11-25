@@ -10,6 +10,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout Processor::layout()
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "mode", 1 }, "Modo", StringArray { "SENSORE", "RADAR" }, 0));
     StringArray roles; for (int r = 0; r < kRoles; ++r) roles.add (roleName (r));
     l.add (std::make_unique<AudioParameterChoice> (ParameterID { "role", 1 }, "Ruolo", roles, OTHER));
+    StringArray refs; for (int r = 0; r < kRefs; ++r) refs.add (refName (r));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "ref", 1 }, "Riferimento", refs, R_TRAP));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "span", 1 }, "Media", StringArray { "ULTIMI SECONDI", "TUTTO IL BRANO" }, 1));
+    StringArray so { "OFF" }; for (int f = 0; f < NF; ++f) so.add (fasciaName (f));
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "solo", 1 }, "Ascolta fascia", so, 0));
     return l;
 }
 static juce::int64 newId() { static std::atomic<juce::int64> c { 1 }; return (juce::int64) juce::Time::currentTimeMillis() * 1000 + c.fetch_add (1); }
@@ -31,6 +36,7 @@ void Processor::prepareToPlay (double s, int)
         kw2[c].setCoefficients (juce::IIRCoefficients::makeHighPass (sr, 38.0, 0.5)); kw1[c].reset(); kw2[c].reset();
     }
     kBlocks.assign (30, 0.0); kW = 0; kAcc = 0; kN = 0;
+    scan.setRate (s); soloCur = 0; soloG = 0; dryG = 1; for (auto& c : sf) for (auto& b : c) b.reset();
 }
 
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -41,6 +47,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     if (isRadar)
     {
         hub().radarStamp = nowMs();
+        scan.push (L, R, N);
         if (auto* ph = getPlayHead()) if (auto p = ph->getPosition())
         {
             playing = p->getIsPlaying(); if (auto q = p->getPpqPosition()) ppq = *q; if (auto b = p->getBpm()) bpm = *b;
@@ -90,8 +97,49 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 S.lvl = lvl; S.peak = juce::jmax (pkDb, S.peak.load() - 0.3f); S.sideLo = S.sideLo.load() * 0.9f + 0.1f * side; S.crest = crestS;
                 S.role = juce::roundToInt (v ("role")); S.stamp = nowMs();
             }
+            if (isRadar) songPeak = juce::jmax (songPeak.load(), pkDb);
             hopN = 0; rms = 0; pk = 0; eMid = eSide = 0;
         }
+    }
+    // ASCOLTA FASCIA: sul master si sente solo quella zona (cambio con dissolvenza, mai uno scatto)
+    const int want = isRadar ? soloNow() : 0;
+    if (want != 0 || soloCur != 0 || soloG > 0)
+    {
+        float* W[2] = { buffer.getWritePointer (0), buffer.getWritePointer (1) };
+        const float k = 1.0f - std::exp (-1.0f / (0.012f * (float) sr));
+        for (int i = 0; i < N; ++i)
+        {
+            if (want != soloCur)
+            {
+                if (soloCur == 0) { soloCur = want; setSoloFilters (want); }
+                else if (soloG < 0.002f) { soloCur = want; if (want) setSoloFilters (want); }
+            }
+            const float gT = soloCur != 0 && want == soloCur ? 1.0f : 0.0f, dT = want == 0 ? 1.0f : 0.0f;
+            soloG += (gT - soloG) * k; dryG += (dT - dryG) * k;
+            for (int c = 0; c < 2; ++c)
+            {
+                const float x = W[c][i]; float y = 0;
+                if (soloCur != 0) { y = x; for (auto& b : sf[c]) y = b.p (y); }
+                W[c][i] = x * dryG + y * soloG;
+            }
+        }
+        if (want == 0 && soloG < 1e-4f) { soloCur = 0; soloG = 0; dryG = 1; }
+    }
+}
+void Processor::setSoloFilters (int f)
+{   // fascia f (1..7): passa-alto al bordo basso, passa-basso al bordo alto, 24 dB/ott
+    const int fa = f - 1; const double lo = fasciaEdge (fa), hi = fasciaEdge (fa + 1);
+    auto make = [this] (BQ& b, bool high, double fc)
+    {
+        fc = juce::jlimit (10.0, sr * 0.45, fc); const double w = juce::MathConstants<double>::twoPi * fc / sr, c = std::cos (w), al = std::sin (w) / (2 * 0.70710678), a0 = 1 + al;
+        if (high) { b.b0 = (float) ((1 + c) / 2 / a0); b.b1 = (float) (-(1 + c) / a0); } else { b.b0 = (float) ((1 - c) / 2 / a0); b.b1 = (float) ((1 - c) / a0); }
+        b.b2 = b.b0; b.a1 = (float) (-2 * c / a0); b.a2 = (float) ((1 - al) / a0); b.reset();
+    };
+    auto pass = [] (BQ& b) { b = BQ(); };
+    for (int c = 0; c < 2; ++c)
+    {
+        if (fa > 0) { make (sf[c][0], true, lo); make (sf[c][1], true, lo); } else { pass (sf[c][0]); pass (sf[c][1]); }
+        if (fa < NF - 1) { make (sf[c][2], false, hi); make (sf[c][3], false, hi); } else { pass (sf[c][2]); pass (sf[c][3]); }
     }
 }
 
@@ -146,7 +194,8 @@ void Processor::evaluate()
                       juce::String::fromUTF8 ("Vocal Radar sul beat, oppure abbassa ") + tr[(size_t) culprit].name + " di 2-3 dB tra 2 e 4 kHz.", 2500, juce::jmin (3.0f, 1 + worst / 6), bar);
     }
     // 3) troppi bassi sul master
-    if (lowMid.load() > 8 && once (LOWEND))
+    // (solo con sensori: chi porta i bassi in eccesso rispetto al riferimento del genere; senza sensori ci pensa l'analisi del master)
+    if (! tr.empty() && rep.ready && (rep.dev[0] > refTol (0) || rep.dev[1] > refTol (1)) && once (LOWEND))
     {
         juce::String who = "il mix"; float best = -200;
         for (auto& t : tr) { double e = 0; for (int b = 0; b < NB && bandHz (b) < 100; ++b) e += std::pow (10.0, t.bands[b] / 10); const float d = (float) (10 * std::log10 (e + 1e-12)); if (d > best) { best = d; who = t.name; } }
@@ -162,10 +211,20 @@ void Processor::evaluate()
     // 6) loudness
     if (lufsS.load() > -6.5f && once (LOUD)) addIssue (LOUD, "alto", "Master", "LUFS breve a " + juce::String (lufsS.load(), 1) + juce::String::fromUTF8 (": molto schiacciato"), juce::String::fromUTF8 ("Per Spotify -14, per un beat da vendere -9/-8: oltre -7 perdi i colpi."), 0, 1, bar);
 }
-void Processor::timerCallback() { evaluate(); }
+void Processor::timerCallback()
+{
+    evaluate();
+    if (! radar()) return;
+    scan.pump (ppq.load(), beatsPerBar.load(), playing.load(), bpm.load());
+    if (++anaTick % 20 == 0)
+    {   // una volta al secondo: loudness nel brano e nuovo referto
+        if (playing.load()) scan.addLoudness (lufsS.load(), songPeak.load());
+        rep = scan.analyse (juce::roundToInt (v ("ref")), v ("span") > 0.5f, corr.load());
+    }
+}
 
 void Processor::getStateInformation (juce::MemoryBlock& d) { if (auto x = apvts.copyState().createXml()) copyXmlToBinary (*x, d); }
-void Processor::setStateInformation (const void* data, int size) { if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) apvts.replaceState (t); } }
+void Processor::setStateInformation (const void* data, int size) { if (auto x = getXmlFromBinary (data, size)) { auto t = juce::ValueTree::fromXml (*x); if (t.isValid()) { apvts.replaceState (t); setV ("solo", 0); } } }
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
 }
 

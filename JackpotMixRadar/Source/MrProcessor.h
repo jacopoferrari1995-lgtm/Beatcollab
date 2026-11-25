@@ -1,5 +1,6 @@
 #pragma once
 #include "MrHub.h"
+#include "MrMaster.h"
 #include <map>
 
 namespace mr
@@ -46,8 +47,12 @@ public:
     std::atomic<float> mBands[NB], lufsM { -70 }, lufsS { -70 }, mPeak { -120 }, corr { 1 }, lowMid { 0 };
     std::atomic<double> ppq { 0 }, bpm { 120 }; std::atomic<int> beatsPerBar { 4 }; std::atomic<bool> playing { false };
     juce::CriticalSection issueLock; std::map<juce::String, Issue> issues; std::map<int, int> barFlags; int lastBar = 0;
-    void clearIssues() { const juce::ScopedLock l (issueLock); issues.clear(); barFlags.clear(); }
+    void clearIssues() { { const juce::ScopedLock l (issueLock); issues.clear(); barFlags.clear(); } scan.requestReset(); songPeak = -120; rep = {}; }
+    // analisi del master (anche senza sensori)
+    Scan scan; Report rep; std::atomic<float> songPeak { -120 }; int anaTick = 0;
+    int soloNow() const { return juce::roundToInt (v ("solo")); }
     void evaluate();                         // incrocia i sensori (chiamato dal timer)
+    void timerCallbackForTest() { timerCallback(); }
 
     // sensore (anche per la grafica)
     std::atomic<float> sBands[NB];
@@ -61,5 +66,8 @@ private:
     // loudness (K-weighting) a blocchi di 100 ms
     juce::IIRFilter kw1[2], kw2[2]; double kAcc = 0; int kN = 0; std::vector<double> kBlocks; int kW = 0; double cLR = 0, cLL = 0, cRR = 0;
     int lastBeatKey[kTypes] {};
+    // ascolto di una fascia sola (LR4: due Butterworth in serie per lato)
+    struct BQ { float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0; float p (float x) { const float y = b0 * x + z1; z1 = b1 * x - a1 * y + z2; z2 = b2 * x - a2 * y; return y; } void reset() { z1 = z2 = 0; } };
+    BQ sf[2][4]; int soloCur = 0; float soloG = 0, dryG = 1; void setSoloFilters (int f);
 };
 }

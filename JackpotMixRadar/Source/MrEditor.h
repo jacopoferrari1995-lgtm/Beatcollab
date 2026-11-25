@@ -21,7 +21,9 @@ public:
     Processor& proc;
     jlook::Scaler scaler { *this, "mixradar", W, H };
     jlook::SizeChip sizeChip { scaler };
-    juce::Rectangle<float> modeR[2], roleR[kRoles], clearR, themeR; bool hoverTheme = false;
+    juce::Rectangle<float> modeR[2], roleR[kRoles], clearR, themeR, viewR[2], refR[kRefs], spanR[2], fasciaR[NF], chartR; bool hoverTheme = false;
+    int view = 0;   // radar: 0 analisi del master, 1 tracce (sensori)
+    void paintMaster (juce::Graphics&);
     void mouseMove (const juce::MouseEvent&) override;
     float smB[MAXS][NB] {}; float smM[NB] {};
     static juce::Colour roleCol (int r);
