@@ -252,12 +252,13 @@ void PadBtn::paint (juce::Graphics& g)
     const bool shot = ed.proc.value ("mode") > 0.5f;
     g.setColour (on ? juce::Colour (0xff0b0c10).withAlpha (0.7f) : c.withAlpha (0.8f)); g.setFont (tf (8.5f, 2, true));
     g.drawText (juce::String::charToString (kFx[fx].key) + (! en ? juce::String (" OFF") : shot ? juce::String (" 1x") : juce::String()), b.reduced (5, 0).toNearestInt(), juce::Justification::centredRight);
+    if (fx == ed.sel) { g.setColour (c); g.fillRect (b.getX() + 6, b.getBottom() - 3, b.getWidth() - 12, 2.0f); }   // l'effetto che stai modificando
 }
 void PadBtn::mouseDown (const juce::MouseEvent&) { down = true; ed.select (fx); ed.proc.uiPad[fx] = true; repaint(); }
 void PadBtn::mouseUp (const juce::MouseEvent&) { down = false; ed.proc.uiPad[fx] = false; repaint(); }
 
 // ======================= Editor effetto =======================
-juce::Rectangle<int> FxEditor::curveArea() const { return { 16, 44, getWidth() * 36 / 100 - 16, getHeight() - 58 }; }
+juce::Rectangle<int> FxEditor::curveArea() const { return { 16, 44, getWidth() * 55 / 100 - 16, getHeight() - 54 }; }
 float FxEditor::paramSig() const
 {
     float sg = (float) ed.sel * 1000.0f + (ed.proc.fxEnabled (ed.sel) ? 0.5f : 0.0f);
@@ -286,11 +287,19 @@ void FxEditor::rebuild()
 void FxEditor::resized()
 {
     if (onTog) onTog->setBounds (getWidth() - 56, 11, 38, 20);
-    auto a = getLocalBounds().withTrimmedLeft (getWidth() * 36 / 100 + 6).reduced (6, 10).withTrimmedTop (28);
+    presetR = { (float) getWidth() - 336, 9, 194, 24 };
+    // manopole grandi in griglia (fino a 4 per riga) accanto alla curva
+    auto a = getLocalBounds().withTrimmedLeft (getWidth() * 55 / 100 + 8).reduced (6, 6).withTrimmedTop (38).withTrimmedBottom (12);
     const int n = knobs.size(); if (n == 0) return;
-    const int w = a.getWidth() / n, s = juce::jmin (78, w - 4);
-    for (int i = 0; i < n; ++i) knobs[i]->setBounds (a.getX() + i * w + (w - s) / 2, a.getCentreY() - (s + 27) / 2, s, s + 27);
+    const int cols = juce::jmin (4, n), rows = (n + cols - 1) / cols;
+    const int cw = a.getWidth() / cols, rh = a.getHeight() / rows, s = juce::jmin (84, cw - 10, rh - 30);
+    for (int i = 0; i < n; ++i)
+    {
+        const int r = i / cols, inRow = juce::jmin (cols, n - r * cols), x0 = a.getX() + (a.getWidth() - inRow * cw) / 2;
+        knobs[i]->setBounds (x0 + (i % cols) * cw + (cw - s) / 2, a.getY() + r * rh + (rh - s - 27) / 2, s, s + 27);
+    }
 }
+void FxEditor::mouseDown (const juce::MouseEvent& e) { if (presetR.contains (e.position)) ed.openFxPresets(); }
 void FxEditor::paint (juce::Graphics& g)
 {
     const bool en = ed.proc.fxEnabled (ed.sel);
@@ -299,8 +308,15 @@ void FxEditor::paint (juce::Graphics& g)
     g.setColour (c.withAlpha (0.3f)); g.fillRect (14.0f, 13.0f, 14.0f, 14.0f); g.setColour (c.brighter (0.3f)); g.fillRect (17.0f, 16.0f, 8.0f, 8.0f);
     g.setFont (tf (15.0f, 2)); g.setColour (K::pInk); g.drawText (juce::String (kFx[ed.sel].name).toUpperCase(), juce::Rectangle<float> (36, 8, 220, 24), juce::Justification::centredLeft);
     const float nw = juce::GlyphArrangement::getStringWidth (tf (15.0f, 2), juce::String (kFx[ed.sel].name).toUpperCase());
-    g.setColour (K::pDim); g.setFont (tf (11.0f)); g.drawText (kFx[ed.sel].desc, (int) (48 + nw), 9, 400, 24, juce::Justification::centredLeft);
+    g.setColour (K::pDim); g.setFont (tf (11.0f)); g.drawFittedText (kFx[ed.sel].desc, (int) (48 + nw), 9, (int) (getWidth() - 350 - 48 - nw), 24, juce::Justification::centredLeft, 1, 0.8f);
     caps (g, en ? "Attivo" : "Spento", { getWidth() - 130, 9, 68, 24 }, en ? c : K::pDim, juce::Justification::centredRight);
+    {   // preset dell'effetto
+        const auto& nm = ed.fxPresetName[ed.sel];
+        g.setColour (juce::Colour (0xff12141c)); g.fillRoundedRectangle (presetR, 5);
+        g.setColour (c.withAlpha (0.7f)); g.drawRoundedRectangle (presetR.reduced (0.5f), 5, 1.0f);
+        g.setFont (tf (9.5f, 2)); g.setColour (K::ink);
+        g.drawFittedText ((nm.isEmpty() ? juce::String ("PRESET EFFETTO") : nm.toUpperCase()) + juce::String::fromUTF8 ("  \xe2\x96\xbe"), presetR.reduced (8, 0).toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
+    }
     g.setColour (c); g.fillRoundedRectangle (14.0f, 36.0f, getWidth() - 28.0f, 2.0f, 1.0f);
     auto ca = curveArea().toFloat().withTrimmedTop (6);
     inset (g, ca, 6);
@@ -358,9 +374,19 @@ void FxEditor::paint (juce::Graphics& g)
     }
     juce::Path fill (p); fill.lineTo (in.getRight(), in.getBottom()); fill.lineTo (in.getX(), in.getBottom()); fill.closeSubPath();
     juce::ColourGradient fg (c.withAlpha (0.28f), 0, in.getY(), c.withAlpha (0.0f), 0, in.getBottom(), false); g.setGradientFill (fg); g.fillPath (fill);
-    g.setColour (c.withAlpha (0.25f)); g.strokePath (p, juce::PathStrokeType (5.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (2.0f));
+    g.setColour (c.withAlpha (0.18f)); g.strokePath (p, juce::PathStrokeType (9.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour (c.withAlpha (0.35f)); g.strokePath (p, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); g.setColour (c.brighter (0.15f)); g.strokePath (p, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     if (marker > 0 && marker <= 1) { const float mx = in.getX() + marker * in.getWidth(); g.setColour (K::amber.withAlpha (0.7f)); g.drawVerticalLine ((int) mx, in.getY(), in.getBottom()); }
-    if (timed) { g.setColour (K::dim); g.setFont (tf (8.5f, 2, true)); g.drawText ("2 BATTUTE", in.reduced (4, 2).toNearestInt(), juce::Justification::topRight); }
+    if (timed)
+    {
+        g.setColour (K::dim); g.setFont (tf (9.0f, 2, true)); g.drawText ("2 BATTUTE", in.reduced (6, 4).toNearestInt(), juce::Justification::topRight);
+        for (int q = 0; q < 8; ++q) { g.setColour (K::dim.withAlpha (q % 4 == 0 ? 0.9f : 0.5f)); g.setFont (tf (8.5f, q % 4 == 0 ? 2 : 1, true)); g.drawText (juce::String (q / 4 + 1) + "." + juce::String (q % 4 + 1), juce::Rectangle<float> (in.getX() + in.getWidth() * q / 8.0f + 3, in.getBottom() - 14, 40, 12), juce::Justification::centredLeft); }
+    }
+    {   // che cosa disegna la curva
+        const char* ax = (f == STOP || f == START || f == SPIN || f == HALF || f == REV) ? "VELOCITA' DEL NASTRO" : (f == STUT || f == LOOP || f == GLITCH) ? "RIPETIZIONI" : (f == GATE || f == TREM || f == ECHO || f == THROW) ? "VOLUME"
+                       : (f == SWEEP || f == AUTOFILT) ? "FILTRO" : (f == RISER || f == RINGMOD || f == FSHIFT) ? "INTONAZIONE / FREQUENZA" : "FORMA D'ONDA";
+        g.setColour (c.withAlpha (0.9f)); g.setFont (tf (9.5f, 2, true)); g.drawText (juce::String::fromUTF8 (ax), in.reduced (6, 4).toNearestInt(), juce::Justification::topLeft);
+    }
     scan (g, ca.reduced (2));
 }
 
@@ -566,7 +592,6 @@ void Root::paintStatic (juce::Graphics& g)
     skin::useTheme (skin::cur()); K::sync();
     neo::cyberBackdrop (g, Wf, Hf, 0.6f);
     neo::cyberHeader (g, Wf, 58, "TPE-9", "TAPE MOTION // STOP  SPIN  STUTTER  COREOGRAFIA");
-    neo::plate (g, ed.sidePanel.toFloat().reduced (6, 8), K::brand2);
     neo::plate (g, ed.rightPanel.toFloat().reduced (6, 8), K::amber);
     auto right = ed.rightPanel;
     caps (g, "Macro", { right.getX() + 22, 72, 120, 16 }, K::pInk);
@@ -575,15 +600,15 @@ void Root::paintStatic (juce::Graphics& g)
     caps (g, "Nastro", { right.getX() + 18, 296, 120, 16 }, K::amber);
     caps (g, "Uscita", { right.getX() + 18, 464, 120, 16 }, K::amber);
     // riga sotto il display
-    caps (g, "Pad", { 226, 264, 40, 28 }, K::pDim, juce::Justification::centredLeft, 10.0f);
-    caps (g, "Quantizza", { 404, 264, 80, 28 }, K::pDim, juce::Justification::centredLeft, 10.0f);
-    g.setColour (K::pDim); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto \xc2\xb7 tasti 1-0 e Q-P \xc2\xb7 pi\xc3\xb9 pad insieme si sommano"), juce::Rectangle<int> (640, 264, 366, 28), juce::Justification::centredRight);
+    caps (g, "Pad", { 22, 205, 40, 28 }, K::pDim, juce::Justification::centredLeft, 10.0f);
+    caps (g, "Quantizza", { 216, 205, 80, 28 }, K::pDim, juce::Justification::centredLeft, 10.0f);
+    g.setColour (K::pDim); g.setFont (tf (10.5f)); g.drawText (juce::String::fromUTF8 ("tieni premuto il pad \xc2\xb7 tasti 1-0 e Q-P \xc2\xb7 pi\xc3\xb9 pad insieme si sommano \xc2\xb7 il pad sceglie anche l'effetto da modificare"), juce::Rectangle<int> (480, 205, 530, 28), juce::Justification::centredRight);
     // coreografia
     neo::plate (g, juce::Rectangle<float> (8, 552, Wf - 16, Hf - 32 - 558), K::brand1);
     caps (g, "Coreografia", { 24, 560, 110, 30 }, K::pInk);
     caps (g, "Battute", { 172, 560, 60, 30 }, K::pDim, juce::Justification::centredLeft, 9.5f);
     caps (g, "Griglia", { 432, 560, 50, 30 }, K::pDim, juce::Justification::centredLeft, 9.5f);
-    caps (g, "Stile", { 652, 560, 46, 30 }, K::brand1, juce::Justification::centredLeft, 9.5f);
+    caps (g, "Stile", { 606, 560, 40, 30 }, K::brand1, juce::Justification::centredLeft, 9.5f);
     // piede
     g.setColour (juce::Colours::white.withAlpha (0.06f)); g.drawHorizontalLine (H - 30, 0, Wf);
     g.setColour (K::dim); g.setFont (tf (9.5f, 2, true));
@@ -601,7 +626,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     themeChip.onChange = [this] { skin::useTheme (skin::cur()); K::sync(); std::function<void (juce::Component*)> all = [&all] (juce::Component* c) { c->repaint(); for (auto* ch : c->getChildren()) all (ch); }; all (this); };
     setLookAndFeel (&lnf);
     addAndMakeVisible (root);
-    sidePanel = { 0, 59, 210, 489 }; rightPanel = { 1020, 59, 220, 489 };
+    sidePanel = {}; rightPanel = { 1020, 59, 220, 489 };
     root.addAndMakeVisible (list); root.addAndMakeVisible (disp); root.addAndMakeVisible (fxEd); root.addAndMakeVisible (tl); root.addAndMakeVisible (meter);
     for (int f = 0; f < kNumFx; ++f) root.addAndMakeVisible (pads.add (new PadBtn (*this, f)));
     auto choice = [this] (const char* id) { return [this, id] { return juce::roundToInt (proc.value (id)); }; };
@@ -626,6 +651,9 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (&p), proc (p)
     genBtn->accent = true;
     abBtn = std::make_unique<TextBtn> ("A / B", [this] { pushUndo(); proc.ab.toggle (proc); abBtn->text = juce::String ("MEMORIA ") + proc.ab.label(); fxEd.rebuild(); tl.repaint(); root.repaint(); });
     abBtn->text = "MEMORIA A"; root.addAndMakeVisible (*abBtn);
+    keepBtn = std::make_unique<TextBtn> ("", [this] { proc.keepSeq = ! proc.keepSeq; keepBtn->text = proc.keepSeq ? juce::String ("ZONE BLOCCATE") : juce::String ("BLOCCA ZONE"); keepBtn->accent = proc.keepSeq; keepBtn->repaint(); });
+    keepBtn->text = proc.keepSeq ? juce::String ("ZONE BLOCCATE") : juce::String ("BLOCCA ZONE"); keepBtn->accent = proc.keepSeq;
+    keepBtn->setHelpText ("Bloccata: i preset cambiano i suoni ma lasciano le zone che hai disegnato."); root.addAndMakeVisible (*keepBtn);
     for (auto* c : std::initializer_list<juce::Component*> { modeSeg.get(), qSeg.get(), barsSeg.get(), resSeg.get(), seqTog.get(), clearBtn.get(), styleBtn.get(), genSeg.get(), genBtn.get() }) root.addAndMakeVisible (c);
     // preset
     showName = [this] { const auto n = proc.userName.isNotEmpty() ? "I miei - " + proc.userName : proc.getProgramName (proc.presetIndex); pName->text = n.isEmpty() ? juce::String ("Init") : n; pName->repaint(); };
@@ -690,7 +718,7 @@ void Editor::refreshAll()
 
 void Editor::setupBrowser()
 {
-    root.addChildComponent (browser);
+    root.addChildComponent (browser); root.addChildComponent (fxBrowser);
     browser.accent = K::amber; browser.title = "Preset";
     auto userFiles = [] { auto f = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.jtp"); f.sort(); return f; };
     browser.entries = [this, userFiles]
@@ -715,6 +743,7 @@ void Editor::setupBrowser()
     {
         pushUndo();
         if (e.user) proc.loadUser (Processor::presetFolder().getChildFile (e.name + ".jtp")); else proc.loadPreset (e.id);
+        for (auto& n : fxPresetName) n = {};
         showName(); fxEd.rebuild(); tl.repaint(); root.repaint();
     };
     browser.save = [this] { askPresetName(); };
@@ -723,6 +752,60 @@ void Editor::setupBrowser()
     browser.folder = [] { Processor::presetFolder().startAsProcess(); };
     browser.remove = [] (const jbrowse::Entry& e) { Processor::presetFolder().getChildFile (e.name + ".jtp").moveToTrash(); };
     browser.onClose = [this] { root.repaint(); };
+}
+void Editor::openFxPresets()
+{
+    const int fx = sel; auto& B = fxBrowser;
+    auto fac = std::make_shared<std::vector<Processor::FxPreset>> (proc.fxPresets (fx));
+    auto files = [fx] { auto f = Processor::fxPresetFolder (fx).findChildFiles (juce::File::findFiles, false, "*.xml"); f.sort(); return f; };
+    B.accent = fxCol (fx); B.title = kFx[fx].name;
+    B.hint = juce::String::fromUTF8 ("preset dell'effetto \xc2\xb7 cambia solo le manopole di ") + kFx[fx].name + juce::String::fromUTF8 (", la coreografia resta com'e'");
+    B.entries = [fac, files]
+    {
+        std::vector<jbrowse::Entry> v;
+        for (int i = 0; i < (int) fac->size(); ++i) { jbrowse::Entry e; e.id = i; e.group = (*fac)[(size_t) i].group; e.name = (*fac)[(size_t) i].name; e.note = (*fac)[(size_t) i].note; v.push_back (e); }
+        const auto fs = files();
+        for (int i = 0; i < fs.size(); ++i) { jbrowse::Entry e; e.id = 100000 + i; e.user = true; e.group = "I MIEI"; e.name = fs[i].getFileNameWithoutExtension(); e.note = "Preset tuo dell'effetto, in Musica / Jackpot / Tape Preset / Effetti."; v.push_back (e); }
+        return v;
+    };
+    B.current = [this, fx, fac, files]
+    {
+        const auto& nm = fxPresetName[fx]; if (nm.isEmpty()) return -1;
+        for (int i = 0; i < (int) fac->size(); ++i) if ((*fac)[(size_t) i].name == nm) return i;
+        const auto fs = files(); for (int i = 0; i < fs.size(); ++i) if (fs[i].getFileNameWithoutExtension() == nm) return 100000 + i;
+        return -1;
+    };
+    B.load = [this, fx, fac] (const jbrowse::Entry& e)
+    {
+        pushUndo();
+        if (e.user)
+        {
+            auto x = juce::XmlDocument::parse (Processor::fxPresetFolder (fx).getChildFile (e.name + ".xml")); if (! x) return;
+            std::vector<std::pair<juce::String, float>> v; for (int k = 0; k < kNumParams; ++k) if (kParams[k].fx == fx && x->hasAttribute (kParams[k].id)) v.push_back ({ kParams[k].id, (float) x->getDoubleAttribute (kParams[k].id) });
+            proc.applyFxValues (fx, v);
+        }
+        else if (juce::isPositiveAndBelow (e.id, (int) fac->size())) proc.applyFxValues (fx, (*fac)[(size_t) e.id].v);
+        fxPresetName[fx] = e.name; fxEd.rebuild(); root.repaint();
+    };
+    auto write = [this, fx] (const juce::String& name)
+    {
+        juce::XmlElement x ("TAPE_FX"); x.setAttribute ("fx", kFx[fx].name);
+        for (int k = 0; k < kNumParams; ++k) if (kParams[k].fx == fx) x.setAttribute (kParams[k].id, proc.value (kParams[k].id));
+        x.writeTo (Processor::fxPresetFolder (fx).getChildFile (juce::File::createLegalFileName (name) + ".xml")); fxPresetName[fx] = juce::File::createLegalFileName (name);
+    };
+    B.save = [this, write]
+    {
+        auto* w = new juce::AlertWindow ("Salva preset dell'effetto", "Nome (finisce in Musica / Jackpot / Tape Preset / Effetti):", juce::MessageBoxIconType::NoIcon, this);
+        w->addTextEditor ("name", ""); w->addButton ("SALVA", 1, juce::KeyPress (juce::KeyPress::returnKey)); w->addButton ("ANNULLA", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        juce::Component::SafePointer<Editor> sp (this);
+        w->enterModalState (true, juce::ModalCallbackFunction::create ([sp, w, write] (int r) { if (sp != nullptr && r == 1 && w->getTextEditorContents ("name").trim().isNotEmpty()) { write (w->getTextEditorContents ("name").trim()); sp->fxBrowser.refresh(); sp->fxEd.repaint(); } }), true);
+    };
+    B.canOverwrite = [this, fx, files] { const auto fs = files(); for (auto& f : fs) if (f.getFileNameWithoutExtension() == fxPresetName[fx]) return true; return false; };
+    B.overwrite = [this, fx, write] { write (fxPresetName[fx]); };
+    B.folder = [fx] { Processor::fxPresetFolder (fx).startAsProcess(); };
+    B.remove = [fx] (const jbrowse::Entry& e) { Processor::fxPresetFolder (fx).getChildFile (e.name + ".xml").moveToTrash(); };
+    B.onClose = [this] { root.repaint(); fxEd.repaint(); };
+    B.open();
 }
 void Editor::askPresetName()
 {
@@ -746,15 +829,15 @@ void Editor::resized()
     sizeChip.setBounds (W - 76, H - 18, 58, 15);
     themeChip.setBounds (286, 17, 86, 26);
     root.setBounds (0, 0, W, H); root.setTransform (juce::AffineTransform::scale (s));
-    list.setBounds (20, 74, 172, 404);
-    disp.setBounds (224, 72, 782, 182);
-    modeSeg->setBounds (256, 264, modeSeg->preferredWidth(), 28);
-    qSeg->setBounds (484, 264, qSeg->preferredWidth(), 28);
-    {   // due file di pad: nastro sopra, effetti sovrapposti sotto
-        const int perRow = (kNumFx + 1) / 2, pw = (782 - (perRow - 1) * 5) / perRow;
-        for (int f = 0; f < kNumFx; ++f) pads[f]->setBounds (224 + (f % perRow) * (pw + 5), 298 + (f / perRow) * 30, pw, 27);
+    list.setVisible (false);
+    disp.setBounds (20, 70, 990, 128);
+    modeSeg->setBounds (52, 206, modeSeg->preferredWidth(), 26);
+    qSeg->setBounds (296, 206, qSeg->preferredWidth(), 26);
+    {   // due file di pad: nastro sopra, effetti sovrapposti sotto (il pad e' anche la scheda dell'effetto da modificare)
+        const int perRow = (kNumFx + 1) / 2, pw = (990 - (perRow - 1) * 5) / perRow;
+        for (int f = 0; f < kNumFx; ++f) pads[f]->setBounds (20 + (f % perRow) * (pw + 5), 240 + (f / perRow) * 34, pw, 31);
     }
-    fxEd.setBounds (224, 366, 782, 168);
+    fxEd.setBounds (20, 312, 990, 232);
     // destra
     const int rx = rightPanel.getX();
     tapeKnobs[0]->setBounds (rx + 64, 96, 92, 106);
@@ -772,17 +855,18 @@ void Editor::resized()
     seqTog->setBounds (124, 565, 38, 20);
     barsSeg->setBounds (232, 561, barsSeg->preferredWidth(), 28);
     resSeg->setBounds (484, 561, resSeg->preferredWidth(), 28);
-    styleBtn->setBounds (700, 561, 120, 28);
-    genSeg->setBounds (828, 561, genSeg->preferredWidth(), 28);
-    genBtn->setBounds (828 + genSeg->preferredWidth() + 8, 561, 100, 28);
+    styleBtn->setBounds (648, 561, 96, 28);
+    genSeg->setBounds (752, 561, genSeg->preferredWidth(), 28);
+    genBtn->setBounds (752 + genSeg->preferredWidth() + 8, 561, 90, 28);
     clearBtn->setBounds (W - 104, 561, 84, 28);
+    keepBtn->setBounds (genBtn->getRight() + 8, 561, clearBtn->getX() - genBtn->getRight() - 16, 28);
     tl.setBounds (18, 598, W - 36, H - 32 - 598 - 12);
-    browser.setBounds (0, 0, W, H);
+    browser.setBounds (0, 0, W, H); fxBrowser.setBounds (0, 0, W, H);
 }
 
 void Editor::timerCallback()
 {
-    if (browser.isVisible()) return;
+    if (browser.isVisible() || fxBrowser.isVisible()) return;
     const bool host = proc.uiHost.load(), sync = proc.value ("sync") > 0.5f;
     bpmPill->text = (sync ? (host ? juce::String ("HOST  ") : juce::String ("AUTO  ")) : juce::String ("MAN  ")) + juce::String (proc.uiBpm.load(), 1) + " BPM";
     bpmPill->accent = sync && host;

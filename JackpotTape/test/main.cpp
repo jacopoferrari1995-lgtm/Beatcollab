@@ -33,6 +33,19 @@ int main (int argc, char** argv)
         for (size_t i = 0; i < o1.size(); ++i) if (std::abs (o1[i] - o2[i]) > 1e-7f) { std::printf ("primo diverso a %d (%.4f s): %.6f vs %.6f\n", (int) i, i / 48000.0, o1[i], o2[i]); break; }
         return 0;
     }
+    if (argc > 1 && juce::String (argv[1]) == "pads")
+    {   // ogni pad acceso e spento 4 volte su un tono: salto massimo della derivata seconda (scatto) contro il tono da solo
+        for (int f = 0; f < kNumFx; ++f)
+        {
+            Processor p; p.setPlayConfigDetails (2, 2, 48000, 512); p.prepareToPlay (48000, 512); p.loadPreset (0);
+            auto* pr = p.apvts.getParameter ("pad" + juce::String (f + 1));
+            auto o = testlab::render (p, 512 * 200, [] (int k) { return 0.5f * (float) std::sin (2 * 3.14159265 * 220 * k / 48000.0); }, 512, false,
+                                      [&] (int off) { const int b = off / 512; if (b >= 60 && (b - 60) % 30 == 0 && b < 180) pr->setValueNotifyingHost (((b - 60) / 30) % 2 ? 0.0f : 1.0f); });
+            float mx = 0; int at = 0; for (size_t i = 2 + 512 * 50; i < o.size(); ++i) { const float d = std::abs (o[i] - 2 * o[i - 1] + o[i - 2]); if (d > mx) { mx = d; at = (int) i; } }
+            std::printf ("%-14s salto %.4f a %.3f s %s\n", kFx[f].name, mx, at / 48000.0, mx > 0.02f ? "<-- !!" : "");
+        }
+        return 0;
+    }
     if (argc > 1 && juce::String (argv[1]) == "lab")
     {
         const int pr = juce::SystemStats::getEnvironmentVariable ("JPRESET", "1").getIntValue();
@@ -69,6 +82,12 @@ int main (int argc, char** argv)
             for (int i = 0; i < 20; ++i) { juce::Graphics g (im); g.addTransform (juce::AffineTransform::scale (2.0f)); g.reduceClipRegion (e->disp.getBoundsInParent()); ed->paintEntireComponent (g, true); }
             auto t2 = juce::Time::getMillisecondCounterHiRes();
             std::printf ("ridisegno completo (retina) %.1f ms   solo display %.1f ms\n", (t1 - t0) / 20, (t2 - t1) / 20);
+            for (auto* c : ed->getChildren()) for (auto* cc : c->getChildren())
+            {
+                const auto t3 = juce::Time::getMillisecondCounterHiRes();
+                for (int i = 0; i < 10; ++i) { juce::Image im2 (juce::Image::ARGB, juce::jmax (1, cc->getWidth() * 2), juce::jmax (1, cc->getHeight() * 2), true); juce::Graphics g2 (im2); g2.addTransform (juce::AffineTransform::scale (2.0f)); cc->paintEntireComponent (g2, true); }
+                const double ms = (juce::Time::getMillisecondCounterHiRes() - t3) / 10; if (ms > 0.5) std::printf ("  %s %dx%d: %.2f ms\n", typeid (*cc).name(), cc->getWidth(), cc->getHeight(), ms);
+            }
         }
         auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.0f);
         juce::File f (argv[2]); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);

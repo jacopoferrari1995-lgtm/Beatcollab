@@ -115,6 +115,8 @@ public:
     void rebuild();
     juce::Rectangle<int> curveArea() const;
     float paramSig() const;
+    void mouseDown (const juce::MouseEvent&) override;
+    juce::Rectangle<float> presetR;
     Editor& ed; juce::OwnedArray<Knob> knobs; std::unique_ptr<Toggle> onTog; float lastSig = 0; neo::Cache base;
 };
 
@@ -196,7 +198,10 @@ public:
     std::unique_ptr<Seg> modeSeg, qSeg, barsSeg, resSeg, genSeg;
     std::unique_ptr<Toggle> seqTog;
     std::unique_ptr<TextBtn> pPrev, pNext, pName, bpmPill, clearBtn, styleBtn, genBtn, abBtn, undoBtn, redoBtn;
-    jbrowse::Browser browser;
+    jbrowse::Browser browser, fxBrowser;
+    void openFxPresets();
+    juce::String fxPresetName[kNumFx];
+    std::unique_ptr<TextBtn> keepBtn;
     std::function<void()> showName;
     void setupBrowser();
     void askPresetName();

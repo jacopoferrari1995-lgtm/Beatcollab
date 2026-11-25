@@ -71,6 +71,12 @@ public:
     bool saveUser (const juce::File&);
     bool loadUser (const juce::File&);
     juce::String userName;   // preset tuo caricato (vuoto = preset di fabbrica)
+    bool keepSeq = false;     // TIENI COREOGRAFIA: i preset cambiano i suoni ma non le zone disegnate
+    // preset del singolo effetto: di partenza, presi dai preset di fabbrica che lo usano, e i tuoi
+    struct FxPreset { juce::String group, name, note; std::vector<std::pair<juce::String, float>> v; };
+    std::vector<FxPreset> fxPresets (int fx) const;
+    void applyFxValues (int fx, const std::vector<std::pair<juce::String, float>>& v);
+    static juce::File fxPresetFolder (int fx);
     void applyAge (float a);
     void generate();   // coreografia generata a regole
     float value (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
@@ -99,7 +105,8 @@ private:
     double freeBeat = 0;              // orologio interno quando l'host è fermo
     struct FxState { bool on = false, pad = false, seqOn = false, prevParam = false; juce::int64 shot = 0, t0 = 0, pendAt = -1; bool pendOn = false; double d[6] = {}; int k = 0; int op = 0; };
     FxState F[kNumFx];
-    struct Xf { bool on = false; double from = 0, spd = 1; int n = 0, N = 1; bool fromLive = false; } xf;
+    double lastPos = 0, lastSpd = 1, curPos = 0, curSpd = 1; float ampS = 1, lastG = 1, curG = 1, dcL = 0, dcR = 0, prevOL = 0, prevOR = 0, prev2L = 0, prev2R = 0, rPr = 0; bool anyMoverPrev = false;
+    struct Xf { bool on = false; double from = 0, spd = 1; int n = 0, N = 1; bool fromLive = false; float g = 1; } xf;
     double halfF = 1, ph1 = 0, ph2 = 0, drift = 0, dtgt = 0, gateG = 1, dropG = 1; int dropT = 0;
     int lastStep = -1, lastCol = -1;
     juce::Random rng;

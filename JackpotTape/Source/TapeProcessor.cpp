@@ -426,6 +426,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     auto snapTo = [] (float& v, float t, float k) { v += (t - v) * k; if (std::abs (t - v) < 1e-6f) v = t; };
     const float outG = juce::Decibels::decibelsToGain (value ("out"));
     const double dt = 1.0 / sr;
+    const float ampK = (float) (1.0 - std::exp (-1.0 / (0.003 * sr))), dcK = (float) std::exp (-1.0 / (0.002 * sr));
 
     // pad: interfaccia + automazione
     for (int f = 0; f < kNumFx; ++f)
@@ -501,14 +502,17 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         curDelay = liveDelay;
         const float dryL = hist.getSample (0, (int) ((t - D0) & HM)), dryR = hist.getSample (1, (int) ((t - D0) & HM));   // l'originale, allineato alla latenza
 
-        if (changed && ! anyMover && ! live) { xf = { true, R, juce::jlimit (-2.0, 2.0, v), 0, juce::jmax (32, (int) (0.014 * sr)), false }; live = true; }
-        if (anyMover && live) { R = (double) t - liveDelay; live = false; }
+        // ogni cambio di effetto parte da dove si stava leggendo (non da R, che negli stutter e nei glitch non e' la testina vera): niente scatti
+        const int xN = juce::jmax (32, (int) (0.010 * sr));
+        if (changed && ! anyMover && ! live) { xf = { true, lastPos + lastSpd, juce::jlimit (-2.0, 2.0, lastSpd), 0, juce::jmax (32, (int) (0.014 * sr)), false, lastG }; live = true; }
+        else if (anyMover && live) { R = (double) t - liveDelay; live = false; xf = { true, lastPos + lastSpd, 1.0, 0, xN, false }; }
+        else if (changed && anyMover) xf = { true, lastPos + lastSpd, juce::jlimit (-2.0, 2.0, lastSpd), 0, xN, false, lastG };
 
         float l, r, amp = 1.0f; double vv = v;
         if (live)
         {
             if (tapeMod) { l = rd ((double) t - liveDelay, 0); r = rd ((double) t - liveDelay, 1); } else { l = dryL; r = dryR; }
-            vv = 1.0;
+            vv = 1.0; curPos = (double) t - (tapeMod ? liveDelay : (double) D0); curSpd = 1.0;
         }
         else
         {
@@ -524,7 +528,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 const double rel = w < open - fr2 ? 1.0 : (w >= open ? 0.0 : 0.5 + 0.5 * std::cos (juce::MathConstants<double>::pi * (w - (open - fr2)) / fr2));
                 const float dec = (float) std::pow (1.0 - stutDecay * 0.18, (double) F[STUT].k);
                 const float env = (float) (att * rel) * dec;
-                l = rd (p, 0) * env; r = rd (p, 1) * env; amp = 1; vv = rate * (env > 0.5f ? 1 : 0.15);
+                l = rd (p, 0) * env; r = rd (p, 1) * env; amp = 1; vv = rate * (env > 0.5f ? 1 : 0.15); curPos = p; curSpd = rate; curG = env;
                 if (std::abs (stutFilt) > 0.01f)
                 {
                     // sweep di filtro lungo le ripetizioni: + chiude il passa basso, - apre il passa alto
@@ -555,9 +559,9 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 const double rate = X.op == 3 ? 2.0 : X.op == 4 ? 0.5 : X.op == 2 ? -1.0 : 1.0;
                 const double p = G[3] + w * rate * juce::jmax (0.25, std::abs (v));
                 const float fd = (float) juce::jmin (1.0, juce::jmin (w / (0.002 * sr), (G[2] - w) / (0.003 * sr))), m = X.op == 5 ? 0.0f : 1.0f;
-                l = rd (p, 0) * fd * m; r = rd (p, 1) * fd * m; amp = 1; vv = rate * m;
+                l = rd (p, 0) * fd * m; r = rd (p, 1) * fd * m; amp = 1; vv = rate * m; curPos = p; curSpd = rate * juce::jmax (0.25, std::abs (v));
             }
-            else { l = rd (R, 0); r = rd (R, 1); }
+            else { l = rd (R, 0); r = rd (R, 1); curPos = R; curSpd = v * mod; }
             R += v * mod;
             if (F[LOOP].on)
             {
@@ -567,10 +571,12 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             }
             R = juce::jlimit ((double) (t - HL + 16), (double) t - 2.0, R);
         }
+        lastPos = curPos; lastSpd = curSpd; lastG = curG; curG = 1;
+        ampS += (amp - ampS) * ampK; amp = ampS;   // il volume del nastro (stop, spin) non salta mai
         if (xf.on)
         {
             const float g = (float) xf.n / xf.N, a = std::sin (g * juce::MathConstants<float>::halfPi), b = std::cos (g * juce::MathConstants<float>::halfPi);
-            l = l * a + rd (xf.from, 0) * b; r = r * a + rd (xf.from, 1) * b;
+            l = l * a + rd (xf.from, 0) * b * xf.g; r = r * a + rd (xf.from, 1) * b * xf.g;
             xf.from += xf.spd; if (++xf.n >= xf.N) xf.on = false;
         }
         // gate
@@ -682,13 +688,14 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             }
         }
         // riser: sale di tono lungo la zona (pitch shifter a due teste), si apre e aggiunge rumore
-        rFade += ((F[RISER].on ? 1.0f : 0.0f) - rFade) * (F[RISER].on ? 0.01f : 0.0015f);
+        rFade += ((F[RISER].on ? 1.0f : 0.0f) - rFade) * (F[RISER].on ? 0.0025f : 0.0015f);
         {
             float* rb0 = rBuf.getWritePointer (0); float* rb1 = rBuf.getWritePointer (1); const int RL = rBuf.getNumSamples();
             rb0[rW] = wL; rb1[rW] = wR;
             if (rFade > 0.0005f)
             {
-                const float pr = F[RISER].on ? (float) juce::jmin (1.0, ((double) t - F[RISER].t0) / (rLen * bf)) : 1.0f;
+                if (F[RISER].on) rPr = (float) juce::jmin (1.0, ((double) t - F[RISER].t0) / (rLen * bf));
+                const float pr = rPr;   // in uscita resta dove era arrivato (prima saltava a fine corsa: scatto)
                 rSt += ((F[RISER].on ? shape (pr, rCurve) * rPitch : rSt) - rSt) * 0.02f;
                 const double ratio = std::pow (2.0, rSt / 12.0), win = 0.06 * sr;
                 rPh += (1.0 - ratio) / win; rPh -= std::floor (rPh);
@@ -708,7 +715,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
                 const float k2 = rFade * fxMix[RISER], g2 = fxVol[RISER];
                 wL += (ps[0] * g2 - wL) * k2; wR += (ps[1] * g2 - wR) * k2;
             }
-            else { rSt = 0; rHp[0] = rHp[1] = 0; }
+            else { rSt = 0; rHp[0] = rHp[1] = 0; rPr = 0; }
             if (++rW >= RL) rW = 0;
         }
         // sweep: passa basso che si chiude (direzione +) o passa alto che si apre (-)
@@ -766,7 +773,15 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
             const float ret = fxMix[THROW] * fxVol[THROW] * 1.0f;
             wL = wL * (1.0f - vCut) + vl * ret; wR = wR * (1.0f - vCut) + vr * ret;
         }
-        const float oL = wL * mix + dryL * (1 - mix), oR = wR * mix + dryR * (1 - mix);
+        float oL = wL * mix + dryL * (1 - mix), oR = wR * mix + dryR * (1 - mix);
+        // anti-scatto: quando un effetto entra o esce, il salto di valore si scioglie in 2 ms (il contenuto lo incrocia gia' xf)
+        if (changed && anyMoverPrev != anyMover)
+        {   // si prevede il campione da quelli prima (retta) e si toglie solo lo scarto vero
+            const float pL = 2 * prevOL - prev2L, pR = 2 * prevOR - prev2R;
+            dcL += pL - (oL + dcL); dcR += pR - (oR + dcR);
+        }
+        oL += dcL; oR += dcR; dcL *= dcK; dcR *= dcK; if (std::abs (dcL) < 1e-7f) dcL = 0; if (std::abs (dcR) < 1e-7f) dcR = 0;
+        prev2L = prevOL; prev2R = prevOR; prevOL = oL; prevOR = oR; anyMoverPrev = anyMover;
         io[0][i] = oL; io[1][i] = oR;
         spdArr[(size_t) i] = (float) std::abs (vv);
         // traccia per il display
@@ -901,13 +916,47 @@ void Processor::loadPreset (int i)
     for (int k = 0; k < kNumParams; ++k) { auto* pr = apvts.getParameter (kParams[k].id); pr->setValueNotifyingHost (pr->getDefaultValue()); }
     for (auto id : { "age", "mix", "out", "wow", "flut", "tone", "drive", "hiss", "drop" }) { auto* pr = apvts.getParameter (id); pr->setValueNotifyingHost (pr->getDefaultValue()); }
     for (int f = 0; f < kNumFx; ++f) { auto* pr = apvts.getParameter (juce::String (kFx[f].id) + "_on"); pr->setValueNotifyingHost (1.0f); }
-    for (auto& r : seq) for (auto& s : r) s = false;
-    for (auto& [fx, st] : P.seq) for (int s : st) if (s < kMaxSteps) seq[fx][s] = true;
+    if (! keepSeq)
+    {
+        for (auto& r : seq) for (auto& s : r) s = false;
+        for (auto& [fx, st] : P.seq) for (int s : st) if (s < kMaxSteps) seq[fx][s] = true;
+        const int bi = P.bars == 1 ? 0 : P.bars == 2 ? 1 : P.bars == 4 ? 2 : 3;
+        setParam (apvts, "bars", (float) bi);
+        setParam (apvts, "seqOn", P.seq.empty() ? 0.0f : 1.0f);
+    }
     for (auto& [id, v] : P.p) setParam (apvts, id, v);
-    const int bi = P.bars == 1 ? 0 : P.bars == 2 ? 1 : P.bars == 4 ? 2 : 3;
-    setParam (apvts, "bars", (float) bi);
     if (P.age > 0) { setParam (apvts, "age", P.age); applyAge (P.age); }
-    setParam (apvts, "seqOn", P.seq.empty() ? 0.0f : 1.0f);
+}
+juce::File Processor::fxPresetFolder (int fx)
+{
+    auto f = presetFolder().getChildFile ("Effetti").getChildFile (juce::File::createLegalFileName (kFx[juce::jlimit (0, kNumFx - 1, fx)].name)); f.createDirectory(); return f;
+}
+std::vector<Processor::FxPreset> Processor::fxPresets (int fx) const
+{
+    std::vector<FxPreset> out;
+    auto isMine = [fx] (const juce::String& id) { for (int k = 0; k < kNumParams; ++k) if (kParams[k].fx == fx && id == kParams[k].id) return true; return false; };
+    FxPreset base; base.group = "BASE"; base.name = "Di partenza"; base.note = juce::String::fromUTF8 ("Le regolazioni di fabbrica di ") + kFx[fx].name + ".";
+    for (int k = 0; k < kNumParams; ++k) if (kParams[k].fx == fx) base.v.push_back ({ kParams[k].id, kParams[k].def });
+    out.push_back (base);
+    for (auto& P : presets())
+    {
+        FxPreset q; q.group = juce::String (P.cat).isEmpty() ? juce::String ("BASE") : juce::String (P.cat).toUpperCase(); q.name = P.name;
+        q.note = juce::String::fromUTF8 ("Come nel preset \"") + P.name + juce::String::fromUTF8 ("\" (solo le manopole di questo effetto).");
+        bool any = false; q.v = base.v;
+        for (auto& [id, v] : P.p) if (isMine (id)) { any = true; for (auto& kv : q.v) if (kv.first == id) kv.second = v; }
+        if (! any) continue;
+        bool dup = false; for (auto& o : out) { bool same = true; for (size_t i = 0; i < o.v.size(); ++i) if (std::abs (o.v[i].second - q.v[i].second) > 1e-4f) { same = false; break; } if (same) { dup = true; break; } }
+        if (! dup) out.push_back (q);
+    }
+    return out;
+}
+void Processor::applyFxValues (int fx, const std::vector<std::pair<juce::String, float>>& v)
+{
+    for (auto& [id, x] : v)
+    {
+        bool mine = false; for (int k = 0; k < kNumParams; ++k) if (kParams[k].fx == fx && id == kParams[k].id) mine = true;
+        if (mine) setParam (apvts, id.toRawUTF8(), x);
+    }
 }
 
 
@@ -1036,15 +1085,16 @@ bool Processor::loadUser (const juce::File& f)
     for (auto* pp : getParameters()) if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (pp))
     {
         if (rp->paramID.startsWith ("pad")) continue;
+        if (keepSeq && (rp->paramID == "bars" || rp->paramID == "seqOn")) continue;
         for (int i = 0; i < t.getNumChildren(); ++i) { auto c = t.getChild (i); if (c.getProperty ("id").toString() == rp->paramID) { rp->setValueNotifyingHost (rp->convertTo0to1 ((float) (double) c.getProperty ("value"))); break; } }
     }
-    setSeqString (t.getProperty ("seq").toString());
+    if (! keepSeq) setSeqString (t.getProperty ("seq").toString());
     userName = f.getFileNameWithoutExtension(); return true;
 }
 void Processor::getStateInformation (juce::MemoryBlock& dest)
 {
     auto st = apvts.copyState();
-    st.setProperty ("seq", seqString(), nullptr); st.setProperty ("preset", presetIndex, nullptr); st.setProperty ("user", userName, nullptr);
+    st.setProperty ("seq", seqString(), nullptr); st.setProperty ("preset", presetIndex, nullptr); st.setProperty ("user", userName, nullptr); st.setProperty ("keepSeq", keepSeq, nullptr);
     if (auto x = st.createXml()) copyXmlToBinary (*x, dest);
 }
 void Processor::setStateInformation (const void* data, int size)
@@ -1053,7 +1103,7 @@ void Processor::setStateInformation (const void* data, int size)
     auto st = juce::ValueTree::fromXml (*x); if (! st.isValid()) return;
     apvts.replaceState (st);
     setSeqString (st.getProperty ("seq").toString());
-    presetIndex = st.getProperty ("preset", 0); userName = st.getProperty ("user", "").toString();
+    presetIndex = st.getProperty ("preset", 0); userName = st.getProperty ("user", "").toString(); keepSeq = st.getProperty ("keepSeq", false);
 }
 
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
