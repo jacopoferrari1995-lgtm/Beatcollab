@@ -159,8 +159,24 @@ static void varTest()
     }
 }
 
+// arpeggi: quante sedicesime di fila senza un vuoto (prima: tutta la battuta, e la battuta dopo uguale)
+static void arpFeel()
+{
+    int worst = 0; double avgRun = 0; int nRuns = 0, bars = 0, emptyBeats = 0;
+    for (int rit = 0; rit < kRits; ++rit) for (int sd = 1; sd <= 6; ++sd)
+    {
+        Settings S; S.mode = ARPEGGIO; S.arpRit = rit; S.seed = (juce::uint32) sd * 31u; S.bars = 8; S.density = 0.6f;
+        auto P = generateAny (S); if (! P.error.isEmpty()) continue;
+        std::vector<int> on (P.bars * 16, 0); for (auto& e : P.ev) { const int k = (int) std::round (e.beat * 4); if (k >= 0 && k < (int) on.size()) on[(size_t) k] = 1; }
+        int run = 0; for (int k = 0; k < (int) on.size(); ++k) { if (on[(size_t) k]) ++run; else { if (run > 0) { worst = std::max (worst, run); avgRun += run; ++nRuns; } run = 0; } }
+        for (int b = 0; b < P.bars * 4; ++b) { int c = 0; for (int q = 0; q < 4; ++q) c += on[(size_t) (b * 4 + q)]; emptyBeats += c <= 1; }
+        bars += P.bars;
+    }
+    std::printf ("ARPEGGI: sedicesime di fila al massimo %d, in media %.1f; battiti con al massimo una nota %.0f%%\n", worst, avgRun / std::max (1, nRuns), 100.0 * emptyBeats / (bars * 4));
+}
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "feel") { juce::ScopedJuceInitialiser_GUI g0; arpFeel(); return 0; }
     juce::ScopedJuceInitialiser_GUI gi;
     const juce::String mode = argc > 1 ? argv[1] : "all";
     int bad = 0;

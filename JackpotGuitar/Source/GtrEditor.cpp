@@ -38,7 +38,7 @@ Editor::Editor (Processor& p) : AudioProcessorEditor (p), proc (p)
     add ("strum", "PENNATA", C::amber, [] (float v) { return juce::String (juce::roundToInt (7 + v * 34)) + " ms"; }, "Velocita' della pennata: quanto tempo passa dalla prima all'ultima corda.");
     add ("human", "UMANO", C::amber, pct, "Piccole imprecisioni di tempo e di forza, come un chitarrista vero.");
     add ("swing", "SWING", C::amber, pct, "Ritarda i levare (sedicesimi o ottavi): groove R&B, lo-fi, afro.");
-    add ("rest", "PAUSE", C::amber, pct, "Pause e respiri: a fine frase la parte si ferma o resta una nota lunga. A zero suona sempre.");
+    add ("rest", "RESPIRI", C::amber, pct, "Spazi e vuoti: negli arpeggi alcuni battiti diventano una nota lunga che suona, un vuoto o una ripresa verso il battito dopo; a fine frase la parte si ferma o resta una nota lunga. In sedicesimi c'e' sempre almeno un respiro per battuta.");
     add ("ring", "RISUONA", C::green, pct, "Negli arpeggi: quanto lasciare suonare le corde prima della nota dopo.");
     add ("emb", "ABBELLIM.", C::green, pct, "Hammer-on e scivolate dalle note della scala, negli arpeggi e negli accordi neo soul.");
     add ("tech", "TECNICA", C::green, pct, "Nel LEAD: bend, vibrato, scivolate, legati e doppie note.");
@@ -71,25 +71,25 @@ void Editor::resized()
     fretR = { 672, 134, 470, 120 }; tuningR = { 1052, 100, 90, 24 };
     for (int i = 0; i < 5; ++i) octR[i] = { 882.0f + i * 33, 100, 30, 24 };
     for (int i = 0; i < kVStyles; ++i) vstyleR[i] = { 672.0f + i * 95, 270, 90, 24 };
-    for (int i = 0; i < kModes; ++i) modeR[i] = { 44, 344.0f + i * 38, 140, 32 };
-    for (int i = 0; i < 12; ++i) patR[i] = { 204.0f + (i % 6) * 106, 344.0f + (i / 6) * 30, 100, 26 };
-    for (int i = 0; i < 3; ++i) { layR[i] = { 204.0f + i * 212, 344, 170, 26 }; diceR[i] = { 378.0f + i * 212, 344, 32, 26 }; editLayR[i] = { 300.0f + i * 80, 378, 76, 22 }; }
-    rollR = { 204, 424, 640, 212 };
-    styleR = { 204, 344, 150, 26 }; figR = { 362, 344, 210, 26 }; figDiceR = { 576, 344, 30, 26 }; ritR = { 614, 344, 196, 26 }; ritDiceR = { 814, 344, 30, 26 };
-    gridBtnR = { 700, 376, 144, 24 }; rotR = { 520, 376, 96, 24 }; writeR = { 620, 376, 76, 24 };
-    dragR = { 866, 344, 272, 70 };
+    // modo come schede in alto nel pannello, il piano roll si prende tutta la larghezza
+    for (int i = 0; i < kModes; ++i) modeR[i] = { 112.0f + i * 122, 324, 116, 26 };
+    for (int i = 0; i < 12; ++i) patR[i] = { 84.0f + (i % 6) * 127, 360.0f + (i / 6) * 30, 121, 26 };
+    for (int i = 0; i < 3; ++i) { layR[i] = { 84.0f + i * 254, 360, 210, 26 }; diceR[i] = { 298.0f + i * 254, 360, 32, 26 }; editLayR[i] = { 180.0f + i * 80, 392, 76, 22 }; }
+    rollR = { 84, 440, 760, 206 };
+    styleR = { 84, 360, 170, 26 }; figR = { 262, 360, 236, 26 }; figDiceR = { 502, 360, 30, 26 }; ritR = { 540, 360, 266, 26 }; ritDiceR = { 810, 360, 34, 26 };
+    gridBtnR = { 700, 392, 144, 24 }; rotR = { 520, 392, 96, 24 }; writeR = { 620, 392, 76, 24 };
+    dragR = { 866, 360, 272, 56 };
     for (int i = 0; i < 3; ++i) layDragR[i] = { 866.0f + i * 92, 420, 88, 24 };
     genR = { 866, 452, 88, 30 }; varR = { 958, 452, 88, 30 }; rndR = { 1050, 452, 88, 30 };
     playR = { 866, 490, 134, 26 }; liveR = { 1004, 490, 134, 26 }; midiR = { 866, 522, 134, 26 }; csR = { 1004, 522, 134, 26 };
     snapR = { 866, 568, 134, 24 }; resetEditR = { 1004, 568, 134, 24 };
-    auto put = [this] (const char* id, int x, int y) { if (auto* k = knobById (knobs, id)) k->setBounds (x, y, 74, 100); };
-    int x = 44; for (auto* id : { "density", "dyn", "strum", "human", "swing", "rest" }) { put (id, x, 696); x += 80; }
-    x += 16; for (auto* id : { "ring", "emb", "tech" }) { put (id, x, 696); x += 80; }
-    x += 16; for (auto* id : { "borrow", "pos", "color", "vary" }) { put (id, x, 696); x += 80; }
-    for (int i = 0; i < kBodies; ++i) bodyR[i] = { 44.0f + i * 96, 840, 90, 28 };
-    listenR = { 44, 876, 186, 24 };
-    x = 450; for (auto* id : { "tone", "bodyAmt", "drive", "space", "width" }) { put (id, x, 808); x += 80; }
-    put ("vol", 1050, 808);
+    // in grande quello che cambia la musica (FEEL), piu' piccoli i dettagli della mano, piccolissimo il suono d'ascolto
+    auto put = [this] (const char* id, int x, int y, int w, int h) { if (auto* k = knobById (knobs, id)) k->setBounds (x, y, w, h); };
+    int x = 44; for (auto* id : { "density", "rest", "vary", "human", "swing", "dyn" }) { put (id, x, 744, 78, 104); x += 84; }
+    x = 566; for (auto* id : { "strum", "ring", "emb", "tech", "borrow", "pos", "color" }) { put (id, x, 748, 60, 82); x += 66; }
+    for (int i = 0; i < kBodies; ++i) bodyR[i] = { 566.0f + i * 70, 862, 66, 22 };
+    listenR = { 566, 890, 130, 20 };
+    x = 862; for (auto* id : { "tone", "bodyAmt", "drive", "space", "width", "vol" }) { put (id, x, 846, 46, 66); x += 47; }
     undoR = { 700, 22, 70, 32 }; redoR = { 774, 22, 70, 32 }; themeR = { 1066, 24, 90, 28 };
     prevR = { 316, 22, 28, 32 }; presetR = { 346, 22, 316, 32 }; nextR = { 664, 22, 28, 32 };
     browser.setBounds (0, 0, W, H);
@@ -104,12 +104,13 @@ void Editor::paintStatic (juce::Graphics& g)
     jlook::header (g, { 0, 0, Wf, 72 }, "GUITAR", C::amber, U ("GIRI DI CHITARRA  /  ACCORDI RITMICA ARPEGGIO LEAD"), C::green, C::violet);
     panel (g, { 24, 88, 604, 214 }, C::amber, U ("GIRO"), U ("TONALITA' / SCALA / GENERE / ACCORDI"));
     panel (g, { 644, 88, 512, 214 }, C::green, U ("TASTIERA"), U (""));
-    panel (g, { 24, 318, 1132, 334 }, C::violet, U ("CLIP"), U ("PIANO ROLL MODIFICABILE: CLIC SUGLI ACCORDI IN ALTO PER CAMBIARLI"));
-    panel (g, { 24, 668, 1132, 250 }, C::phos, U (""), U ("IL SUONO E' SOLO PER ASCOLTARE: IL MIDI ESCE UGUALE"));
+    panel (g, { 24, 318, 1132, 386 }, C::violet, U ("CLIP"), U (""));
+    panel (g, { 24, 716, 1132, 202 }, C::phos, U (""), U (""));
 grp (g, 276, 172, 84, U ("BATTUTE")); grp (g, 428, 172, 110, U ("ACC. PER BATT.")); grp (g, 560, 172, 60, U ("ACCORDI")); grp (g, 156, 172, 106, U ("MOOD"));
     grp (g, 44, 172, 106, U ("GENERE")); grp (g, 44, 213, 580, U ("GIRO (CLIC PER CAMBIARE L'ACCORDO)"));
-    grp (g, 44, 682, 474, U ("SUONATA")); grp (g, 540, 682, 232, U ("CORDE")); grp (g, 796, 682, 312, U ("ARMONIA E MANO"));
-    grp (g, 44, 822, 380, U ("CHITARRA")); grp (g, 450, 794, 392, U ("SUONO")); grp (g, 1050, 794, 74, U ("USCITA"));
+    grp (g, 44, 728, 498, U ("FEEL: QUANTE NOTE, RESPIRI, VARIAZIONE, MANO UMANA"));
+    grp (g, 566, 728, 456, U ("DETTAGLI: PENNATA, CORDE, ABBELLIMENTI, ARMONIA, MANO"));
+    grp (g, 566, 846, 280, U ("SUONO D'ASCOLTO (IL MIDI NON CAMBIA)")); grp (g, 862, 834, 280, U (""));
 }
 void Editor::drawFretboard (juce::Graphics& g, const Part& P, int slot)
 {
@@ -159,7 +160,7 @@ static juce::Colour layerCol (int l) { return l == 0 ? C::amber : l == 1 ? C::gr
 void Editor::drawRoll (juce::Graphics& g, const Part& P)
 {
     const auto r = rollR; const double L = P.len(); const bool comp = proc.vi ("mode") == COMPOSIZIONE;
-    g.setColour (C::bg.withAlpha (0.6f)); g.fillRoundedRectangle (r.expanded (4), 6);
+    g.setColour (C::bg.withAlpha (0.75f)); g.fillRoundedRectangle (r.expanded (4).withLeft (44).withBottom (r.getBottom() + 50), 8);
     if (! editing)
     {   // estensione verticale: si fissa durante una modifica
         int lo = 127, hi = 0; for (auto& e : P.ev) { lo = juce::jmin (lo, e.note); hi = juce::jmax (hi, e.note); }
@@ -170,6 +171,19 @@ void Editor::drawRoll (juce::Graphics& g, const Part& P)
     const auto S = proc.settings(); const auto sset = scaleSet (S.key, S.scale);
     const float nh = r.getHeight() / (float) (rollHi - rollLo + 1);
     for (int n = rollLo; n <= rollHi; ++n) if (sset[(size_t) (n % 12)]) { g.setColour (C::text.withAlpha (n % 12 == S.key ? 0.07f : 0.03f)); g.fillRect (r.getX(), ny (n), r.getWidth(), nh); }
+    // battute alterne appena piu' chiare, numeri di battuta
+    for (int b = 0; b * 4.0 < L - 1e-6; ++b) { if (b % 2) { g.setColour (C::text.withAlpha (0.018f)); g.fillRect (bx (b * 4.0, L), r.getY(), bx ((b + 1) * 4.0, L) - bx (b * 4.0, L), r.getHeight()); } g.setFont (jkit::mf (8.0f)); g.setColour (C::faint); g.drawText (juce::String (b + 1), juce::Rectangle<float> (bx (b * 4.0, L) + 3, r.getY() + 1, 20, 10), juce::Justification::centredLeft); }
+    // tastiera a sinistra: tasti neri e bianchi, i DO segnati, la tonica in colore
+    {
+        const float kx = 46, kw = r.getX() - kx - 4;
+        for (int n = rollLo; n <= rollHi; ++n)
+        {
+            const int pc = n % 12; const bool blk = pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10; const float y = ny (n);
+            g.setColour (blk ? juce::Colour (0xff15161a) : juce::Colour (0xffd9d6cf).withAlpha (0.85f)); g.fillRect (kx, y + 0.5f, blk ? kw * 0.62f : kw, juce::jmax (1.0f, nh - 1.0f));
+            if (pc == S.key) { g.setColour (C::amber.withAlpha (0.9f)); g.fillRect (kx + kw - 4, y + 0.5f, 4.0f, juce::jmax (1.0f, nh - 1.0f)); }
+            if (pc == 0 && nh >= 6) { g.setColour (juce::Colour (0xff2a2a2e)); g.setFont (jkit::mf (juce::jmin (8.5f, nh + 1))); g.drawText ("C" + juce::String (n / 12 - 1), juce::Rectangle<float> (kx + 2, y - 1, kw - 6, nh + 2), juce::Justification::centredRight); }
+        }
+    }
     const double gd = grid() > 0 ? grid() : 0.25;
     for (double b = 0; b <= L + 1e-6; b += gd) { const bool bar = std::abs (std::fmod (b, 4.0)) < 1e-6, beat = std::abs (b - std::round (b)) < 1e-6; g.setColour (C::dim.withAlpha (bar ? 0.5f : beat ? 0.2f : 0.07f)); g.fillRect (bx (b, L), r.getY(), 1.0f, r.getHeight()); }
     // accordi sopra: si cliccano
@@ -189,8 +203,14 @@ void Editor::drawRoll (juce::Graphics& g, const Part& P)
     {
         const auto& e = P.ev[i]; const auto nr = noteRect (e, L);
         const auto c = comp ? layerCol (e.layer) : strCol (e.str);
-        g.setColour (c.withAlpha (e.mute ? 0.3f : 0.35f + 0.6f * e.vel)); g.fillRect (nr);
-        if (isSel[i]) { g.setColour (C::text); g.drawRect (nr.expanded (1), 1.5f); }
+        const float rr = juce::jmin (3.0f, nr.getHeight() * 0.4f);
+        g.setColour (c.withAlpha (e.mute ? 0.25f : 0.35f + 0.6f * e.vel)); g.fillRoundedRectangle (nr, rr);
+        g.setColour (c.brighter (0.5f).withAlpha (e.mute ? 0.3f : 0.9f)); g.fillRect (nr.getX() + 1, nr.getY(), juce::jmin (3.0f, nr.getWidth() - 1), nr.getHeight());   // l'attacco si vede
+        g.setColour (juce::Colours::black.withAlpha (0.35f)); g.drawRoundedRectangle (nr, rr, 0.8f);
+        if (isSel[i]) { g.setColour (C::text); g.drawRoundedRectangle (nr.expanded (1.5f), rr + 1, 1.5f); }
+        // corsia della forza sotto il piano roll
+        const float vx = nr.getX(), vh = 38.0f * e.vel, vy = r.getBottom() + 46;
+        g.setColour (c.withAlpha (0.75f)); g.fillRect (vx, vy - vh, 2.0f, vh); g.fillEllipse (vx - 1.5f, vy - vh - 2, 5, 5);
     }
     if (! P.bend.empty())
     {   // curva dei bend
@@ -199,7 +219,9 @@ void Editor::drawRoll (juce::Graphics& g, const Part& P)
     }
     if (editMode == 3) { g.setColour (C::text.withAlpha (0.15f)); g.fillRect (marquee); g.setColour (C::text.withAlpha (0.6f)); g.drawRect (marquee, 1.0f); }
     const double pb = proc.uiBeat.load();
-    if (pb >= 0) { g.setColour (C::text); g.fillRect (bx (pb, L), r.getY() - 2, 1.5f, r.getHeight() + 4); }
+    if (pb >= 0) { const float px = bx (pb, L); g.setColour (C::text.withAlpha (0.15f)); g.fillRect (px - 3, r.getY(), 7.0f, r.getHeight()); g.setColour (C::text); g.fillRect (px, r.getY() - 2, 1.5f, r.getHeight() + 50); }
+    g.setColour (C::dim.withAlpha (0.25f)); g.fillRect (r.getX(), r.getBottom() + 7, r.getWidth(), 1.0f);
+    g.setFont (jkit::mf (7.5f)); g.setColour (C::faint); g.drawText (U ("FORZA"), juce::Rectangle<float> (46, r.getBottom() + 18, 34, 12), juce::Justification::centredLeft);
 }
 juce::Rectangle<float> Editor::gridCell (int row, int k) const
 {
@@ -409,7 +431,7 @@ void Editor::paint (juce::Graphics& g)
                 chipBtn (g, diceR[i], U ("\xe2\x86\xbb"), false, layerCol (i), 12, hoverId == 243 + i);
                 chipBtn (g, editLayR[i], nm[i], editLayer == i, layerCol (i), 8.5f, hoverId == 250 + i);
             }
-            g.setFont (jkit::mf (9)); g.setColour (C::dim); g.drawText (U ("NOTE NUOVE IN:"), juce::Rectangle<float> (204, 378, 94, 22), juce::Justification::centredLeft);
+            g.setFont (jkit::mf (9)); g.setColour (C::dim); g.drawText (U ("NOTE NUOVE IN:"), juce::Rectangle<float> (84, 392, 94, 22), juce::Justification::centredLeft);
         }
         else if (m == ARPEGGIO)
         {   // figura delle corde e ritmo, separati; lo stile e' una combinazione pronta

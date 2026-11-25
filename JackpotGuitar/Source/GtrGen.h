@@ -334,10 +334,49 @@ struct Gen
         else { base = rhythmMask (R.steps, steps, S.density, 1); lift = rhythmMask (R.steps, steps, juce::jmin (1.0f, S.density + 0.12f * mk.lift), 2); }
         auto gridTok = [&] (int k) { juce::String t; static const char rc[5] = { '1', '2', '3', '4', 'B' }; for (int rr = 0; rr < 5; ++rr) if (S.grid[(size_t) rr] & (1 << k)) t += juce::String::charToString (rc[rr]); return t; };
         int lastSlot = -1, fi = 0;
+        int nBase = 0; for (auto x : base) nBase += x > 0;
+        const float npb = useGrid ? 0.0f : (float) nBase / 4.0f;   // note per battito: sopra 2 sono sedicesimi
+        int lastPlan = -1;
         for (int b = 0; b < P.bars; ++b)
         {
             const int rl = role (b); Rng br (S.seed * 7919u + (juce::uint32) b * 104729u);
-            const auto& m = lifted (b) && rl != 3 ? lift : base;
+            // FRASEGGIO: un chitarrista vero non va avanti a sedicesimi senza tregua. Ogni battito della battuta e':
+            // A suona, S una nota sola che resta a suonare, R vuoto (risuona quella prima), P ripresa (solo le ultime note, verso il battito dopo)
+            std::vector<int> m = lifted (b) && rl != 3 ? lift : base;
+            if (! useGrid)
+            {
+                enum { A, Sx, Rx, Px };
+                static const int fast[4][3][4] = {
+                    { { A, A, Sx, A }, { A, A, A, Sx }, { A, Sx, A, A } },        // proposta
+                    { { A, Sx, A, Sx }, { Sx, A, A, Sx }, { A, A, Sx, Px } },     // risposta
+                    { { A, A, Sx, A }, { A, A, A, Px }, { A, Sx, A, Px } },       // proposta che torna
+                    { { A, Sx, Rx, Px }, { A, A, Sx, Rx }, { Sx, Rx, A, Px } } }; // chiusura: respiro e ripresa
+                static const int mid[4][3][4] = {
+                    { { A, A, A, A }, { A, A, A, A }, { A, A, Sx, A } },
+                    { { A, A, A, Sx }, { A, Sx, A, A }, { A, A, A, A } },
+                    { { A, A, A, A }, { A, A, Sx, A }, { A, A, A, Px } },
+                    { { A, A, Sx, Rx }, { A, Sx, Rx, Px }, { A, A, A, Sx } } };
+                const bool isFast = npb > 2.2f, isMid = npb > 1.4f && ! isFast;
+                // in sedicesimi sempre (una battuta intera senza respiro non la suona nessuno); in ottavi dipende da PAUSE e mood
+                const float pPlan = isFast ? 1.0f : juce::jlimit (0.0f, 1.0f, 0.3f + space * 0.75f + (rl == 3 ? 0.35f : 0.0f));
+                if ((isFast || isMid) && br.p (pPlan))
+                {
+                    int pick = br.i (3); if (pick + rl * 3 == lastPlan) pick = (pick + 1) % 3; lastPlan = pick + rl * 3;
+                    const int* plan = isFast ? fast[rl][pick] : mid[rl][pick];
+                    for (int k = 0; k < steps; ++k)
+                    {
+                        const double pos = k * st; const int bt = juce::jlimit (0, 3, (int) std::floor (pos + 1e-6)); const double inB = pos - bt;
+                        switch (plan[bt])
+                        {
+                            case Sx: m[(size_t) k] = inB < 1e-6 ? 2 : 0; break;
+                            case Rx: m[(size_t) k] = 0; break;
+                            case Px: m[(size_t) k] = inB >= 0.5 - 1e-6 ? juce::jmax (1, m[(size_t) k]) : 0; break;
+                            default: break;
+                        }
+                    }
+                }
+            }
+            const bool pedal = ! useGrid && rl == 2 && br.p (0.35f);   // la proposta che torna: nota alta ripetuta fra le altre (pedale)
             const bool same = br.p (mk.repeat);
             const bool reverseHalf = ! useGrid && rl == 1 && ! same;              // risposta: la seconda meta' della battuta va al contrario
             const bool fill = ! useGrid && rl == 3 && P.bars > 1 && S.space <= 0.45f && dens > 0.3f && ! br.p (mk.repeat - 0.3f);   // fine frase: corsa dal basso all'acuto
@@ -359,7 +398,7 @@ struct Gen
                 else
                 {
                     const int n = fig.size(); int idx = (fi + S.arpRot) % n; if (reverseHalf && pos >= 2.0) idx = n - 1 - idx;   // PARTENZA: da quale nota della figura si comincia
-                    tk = fig[idx]; ++fi;
+                    tk = pedal && (fi % 2 == 1) ? juce::String ("1") : fig[idx]; ++fi;
                 }
                 // distanza dalla nota dopo: le corde suonano fino a li' (piu' a lungo con RISUONA)
                 int nk = k + 1; while (nk < steps && m[(size_t) nk] == 0 && ! (fill && nk * st >= 3.0)) ++nk;
@@ -370,6 +409,7 @@ struct Gen
                 const int imp = importance (k, steps);
                 float v = 0.55f + (imp >= 4 ? 0.15f : imp == 3 ? 0.10f : imp == 2 ? 0.05f : 0.0f) * (0.4f + S.dyn) + 0.05f * (float) (pos / 4.0) * S.dyn;
                 if (m[(size_t) k] == 2) v += 0.05f * S.dyn;
+                { int pk = k - 1; while (pk >= 0 && m[(size_t) pk] == 0) --pk; if (k - pk >= (steps == 16 ? 4 : 2)) v += 0.06f; }   // dopo un vuoto si riprende con piu' decisione
                 if (m[(size_t) k] == 3 || inFill) v *= 0.78f;
                 ++grpN; const double h = hum(); const float gv = hv();
                 Rng er (S.seed * 2654435u + (juce::uint32) k * 97u + (juce::uint32) (lifted (b) ? 1 : 0) * 7919u + (juce::uint32) (reverseHalf ? 3 : 0));
@@ -730,7 +770,7 @@ struct Gen
 // La prima battuta di ogni frase (4 battute) resta la "proposta"; le altre cambiano poco: un colpo debole che salta o si sposta
 // di un sedicesimo, un'ottava (linee a una voce), una ripetuta in levare, dinamica che respira sulla frase,
 // e a fine frase un'anacrusi per grado verso la battuta dopo. Solo note della scala o dell'accordo gia' presenti.
-inline void varyPart (Part& P, float amt, juce::uint32 seed, const std::array<bool, 12>& scale, bool mono, int lo, int hi, const std::vector<int>& tun = {})
+inline void varyPart (Part& P, float amt, juce::uint32 seed, const std::array<bool, 12>& scale, bool mono, int lo, int hi, const std::vector<int>& tun = {}, float breathe = 0.0f)
 {
     if (amt <= 0.001f || P.ev.empty()) return;
     // chitarra: ogni nota cambiata deve stare su una corda vera (tasto 0..17, vicino a dove sta la mano)
@@ -762,6 +802,17 @@ inline void varyPart (Part& P, float amt, juce::uint32 seed, const std::array<bo
         const float bv = 1.0f + (arc[ph] - 1.0f) * (0.5f + amt) + r.g() * 0.02f * amt;
         for (auto h : inBar) for (auto i : hits[h].idx) P.ev[i].vel = juce::jlimit (0.06f, 1.0f, P.ev[i].vel * bv);
         if (ph == 0 || inBar.size() < 2) continue;   // la proposta resta com'e'
+        if (breathe > 0.0f && (ph == 1 || ph == 3) && inBar.size() > 4 && r.p (breathe))
+        {   // respiro: un battito si svuota e la nota sul battere resta a suonare (la risposta e la chiusura respirano)
+            const int bt = ph == 3 ? 2 : (r.p (0.5f) ? 2 : 3); const double t0 = b * 4.0 + bt, t1 = t0 + 1.0; bool keepFirst = true;
+            for (auto h : inBar)
+            {
+                auto& H = hits[h]; if (H.t < t0 - 0.06 || H.t >= t1 - 0.06) continue;
+                bool art = false; for (auto i : H.idx) art |= P.ev[i].art != 0;
+                if (keepFirst && std::abs (H.t - t0) < 0.08 && ! art) { keepFirst = false; for (auto i : H.idx) P.ev[i].len = juce::jmax (P.ev[i].len, 0.9); continue; }
+                if (! art) for (auto i : H.idx) dead[i] = true;
+            }
+        }
         for (auto h : inBar)
         {
             auto& H = hits[h]; bool skip = false; for (auto i : H.idx) skip |= P.ev[i].art != 0 || bentAt (P.ev[i]);

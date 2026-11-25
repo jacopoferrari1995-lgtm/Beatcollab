@@ -287,7 +287,7 @@ inline Part generateBass (const BSettings& S)
         G.allow.push_back (a);
     }
     G.line();
-    varyPart (P, S.vary, S.seed, G.inScale, true, regLo (S), regLo (S) + 24);
+    varyPart (P, S.vary, S.seed, G.inScale, true, regLo (S), regLo (S) + 24, {}, juce::jlimit (0.0f, 0.8f, (0.15f + S.space * 0.6f) * (S.vary > 0.01f ? 1.0f : 0.0f)));
     G.finish();
     return P;
 }
