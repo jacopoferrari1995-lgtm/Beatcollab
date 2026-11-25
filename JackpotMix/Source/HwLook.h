@@ -37,6 +37,137 @@ inline void frame (juce::Graphics& g, const juce::Image& strip, int idx, juce::R
     g.drawImage (strip, dst.getX(), dst.getY(), dst.getWidth(), dst.getHeight(), 0, idx * w, w, w);
 }
 
+// manopole vettoriali: nitide a qualsiasi zoom. Famiglie: bakelite, chicken head, Davies 1900 (1176), avorio,
+// Marconi Neve (gonna grigia e cappuccio colorato), SSL (gonna nera e cappuccio colorato), alluminio tornito, pedale
+inline void vknob (juce::Graphics& g, float cx, float cy, float rs, float av, int style, bool enabled = true)
+{
+    using namespace juce;
+    auto P = [cx, cy] (float a, float r) { return Point<float> (cx + std::sin (a) * r, cy - std::cos (a) * r); };
+    auto disc = [cx, cy] (float r, float dy) { return Rectangle<float> (cx - r, cy - r + dy, 2 * r, 2 * r); };
+    const float depth = rs * 0.15f;
+    // ombra morbida sul pannello (luce dall'alto a sinistra)
+    for (int i = 6; i >= 1; --i) { const float e = i * rs * 0.065f; g.setColour (Colours::black.withAlpha (0.075f)); g.fillEllipse (cx - rs - e * 0.6f + depth * 0.6f, cy - rs + depth * 1.5f - e * 0.4f, 2 * rs + e * 1.2f, 2 * rs + e * 1.2f); }
+    auto knurl = [&] (float r0, float r1, int n, float a1, float a2)
+    { for (int i = 0; i < n; ++i) { const float a = av + i * MathConstants<float>::twoPi / n; g.setColour (Colours::white.withAlpha (a1)); g.drawLine (Line<float> (P (a, r0), P (a, r1)), 1.0f); g.setColour (Colours::black.withAlpha (a2)); g.drawLine (Line<float> (P (a + 0.6f / n, r0), P (a + 0.6f / n, r1)), 0.9f); } };
+    auto gloss = [&] (float r, float amt)
+    { ColourGradient hl (Colours::white.withAlpha (amt), cx - r * 0.25f, cy - r * 0.85f, Colours::white.withAlpha (0.0f), cx, cy - r * 0.05f, false); g.setGradientFill (hl); g.fillEllipse (cx - r * 0.78f, cy - r * 0.96f, r * 1.45f, r * 0.95f); };
+    auto bakelite = [&] (Colour hi, Colour lo, float r, float dy)
+    {
+        { ColourGradient sd (hi.darker (0.6f), cx - r, cy, lo, cx + r, cy, false); g.setGradientFill (sd); g.fillEllipse (disc (r, dy)); }
+        { ColourGradient sk (hi, cx - r * 0.45f, cy - r, lo, cx + r * 0.45f, cy + r, false); g.setGradientFill (sk); g.fillEllipse (disc (r, 0)); }
+    };
+    auto line = [&] (Colour c, float r0, float r1, float w) { g.setColour (Colours::black.withAlpha (0.55f)); g.drawLine (Line<float> (P (av, r0), P (av, r1)).withShortenedStart (0).withShortenedEnd (0), w + 1.6f); g.setColour (c); g.drawLine (Line<float> (P (av, r0), P (av, r1)), w); };
+    auto capCol = [] (int st) -> Colour
+    {
+        switch (st)
+        {
+            case KS_NEVE_BLUE: return Colour (0xff3f6fb0); case KS_NEVE_RED: return Colour (0xffb8372c); case KS_NEVE_GREY: return Colour (0xff8c9096);
+            case KS_SSL_BLUE: return Colour (0xff2f6fd6); case KS_SSL_GREEN: return Colour (0xff2f9a52); case KS_SSL_RED: return Colour (0xffd23a2e);
+            case KS_SSL_WHITE: return Colour (0xffe9e6de); case KS_SSL_YELLOW: return Colour (0xffe2b52a); default: return Colour (0xff888888);
+        }
+    };
+    switch (style)
+    {
+        case KS_SILVER:
+        {   // alluminio tornito: fianco zigrinato, anelli concentrici, riflesso conico
+            { ColourGradient sd (Colour (0xff9a9ea5), cx - rs, cy, Colour (0xff3d4045), cx + rs, cy, false); sd.addColour (0.35, Colour (0xffd8dbe0)); g.setGradientFill (sd); g.fillEllipse (disc (rs, depth)); }
+            { ColourGradient sk (Colour (0xfff2f3f5), cx - rs * 0.6f, cy - rs, Colour (0xff70747a), cx + rs * 0.5f, cy + rs, false); g.setGradientFill (sk); g.fillEllipse (disc (rs, 0)); }
+            knurl (rs - 0.3f, rs - 3.0f, 48, 0.0f, 0.2f);
+            const float rc = rs * 0.7f;
+            g.setColour (Colours::black.withAlpha (0.35f)); g.drawEllipse (disc (rc + 1.2f, 0), 1.2f);
+            { ColourGradient cg (Colour (0xffe9ebee), cx, cy - rc, Colour (0xffa2a6ad), cx, cy + rc, false); g.setGradientFill (cg); g.fillEllipse (disc (rc, 0)); }
+            for (float r2 = rc - 1.5f; r2 > 2; r2 -= 1.5f) { g.setColour ((((int) (r2 * 3)) & 1 ? Colours::white : Colours::black).withAlpha (0.06f)); g.drawEllipse (disc (r2, 0), 0.7f); }
+            for (float base : { -0.9f, 2.24f }) { Path sp; sp.addPieSegment (disc (rc, 0), base - 0.35f, base + 0.35f, 0.0f); ColourGradient hg (Colours::white.withAlpha (0.55f), cx, cy, Colours::white.withAlpha (0.0f), P (base, rc).x, P (base, rc).y, false); g.setGradientFill (hg); g.fillPath (sp); }
+            line (Colour (0xff15161a), rc * 0.3f, rs - 1.5f, 2.2f);
+            break;
+        }
+        case KS_CHICKEN:
+        {   // chicken head (Pultec, LA-2A): base tonda piccola e becco lungo
+            bakelite (Colour (0xff3a3b40), Colour (0xff050506), rs * 0.62f, depth);
+            Path beak; const float L = rs * 1.02f, Wd = rs * 0.36f;
+            beak.startNewSubPath (0, -L); beak.quadraticTo (Wd, -L * 0.45f, Wd * 1.05f, 0); beak.quadraticTo (Wd * 0.9f, L * 0.55f, 0, L * 0.62f);
+            beak.quadraticTo (-Wd * 0.9f, L * 0.55f, -Wd * 1.05f, 0); beak.quadraticTo (-Wd, -L * 0.45f, 0, -L); beak.closeSubPath();
+            const auto tr = AffineTransform::rotation (av).translated (cx, cy);
+            g.setColour (Colours::black.withAlpha (0.5f)); g.fillPath (beak, tr.translated (depth * 0.5f, depth * 1.2f));
+            { ColourGradient bg (Colour (0xff3e3f44), cx - rs * 0.5f, cy - rs, Colour (0xff060607), cx + rs * 0.5f, cy + rs, false); g.setGradientFill (bg); g.fillPath (beak, tr); }
+            g.setColour (Colours::white.withAlpha (0.12f)); g.strokePath (beak, PathStrokeType (0.9f), tr);
+            gloss (rs * 0.55f, 0.25f);
+            line (Colour (0xfff3eee2).withAlpha (enabled ? 1.0f : 0.4f), rs * 0.1f, rs * 0.95f, 1.8f);
+            break;
+        }
+        case KS_DAVIES: case KS_FET:
+        {   // Davies 1900: gonna nera larga con scanalature, corpo alto, inserto in alluminio
+            bakelite (Colour (0xff2c2d31), Colour (0xff030304), rs, depth);
+            knurl (rs - 0.5f, rs * 0.78f, 36, 0.09f, 0.3f);
+            const float rc = rs * 0.66f;
+            bakelite (Colour (0xff45464c), Colour (0xff08080a), rc, depth * 0.8f);
+            knurl (rc - 0.5f, rc - 3.0f, 28, 0.12f, 0.25f);
+            const float ri = rc * 0.55f;
+            { ColourGradient ag (Colour (0xffe3e5e8), cx - ri, cy - ri, Colour (0xff7d8187), cx + ri, cy + ri, false); g.setGradientFill (ag); g.fillEllipse (disc (ri, 0)); }
+            for (float base : { -0.9f, 2.24f }) { Path sp; sp.addPieSegment (disc (ri, 0), base - 0.4f, base + 0.4f, 0.0f); g.setColour (Colours::white.withAlpha (0.25f)); g.fillPath (sp); }
+            gloss (rc, 0.18f);
+            line (Colour (0xfff5f1e6), ri + 1.5f, rs - 1.5f, 2.0f);
+            break;
+        }
+        case KS_IVORY:
+        {   // bakelite color avorio, gonna con scala
+            bakelite (Colour (0xfff1e9d6), Colour (0xff8e8473), rs, depth);
+            knurl (rs - 0.5f, rs - 3.5f, 40, 0.15f, 0.12f);
+            const float rc = rs * 0.68f;
+            { ColourGradient cs (Colour (0xffcfc5ad), cx, cy - rc, Colour (0xff7a705e), cx, cy + rc, false); g.setGradientFill (cs); g.fillEllipse (disc (rc + 1.2f, 0.8f)); }
+            { ColourGradient cg (Colour (0xfffbf6ea), cx - rc * 0.5f, cy - rc, Colour (0xffb9ae95), cx + rc * 0.5f, cy + rc, true); g.setGradientFill (cg); g.fillEllipse (disc (rc, 0)); }
+            gloss (rc, 0.5f);
+            line (Colour (0xff1d1a16), rc * 0.15f, rs - 1.5f, 2.2f);
+            break;
+        }
+        case KS_NEVE_BLUE: case KS_NEVE_RED: case KS_NEVE_GREY:
+        {   // Marconi (Neve 1073): gonna grigia scanalata a cono, cappuccio colorato piccolo
+            { ColourGradient sd (Colour (0xff6e7177), cx - rs, cy, Colour (0xff25272b), cx + rs, cy, false); g.setGradientFill (sd); g.fillEllipse (disc (rs, depth)); }
+            { ColourGradient sk (Colour (0xffb3b6bb), cx - rs * 0.5f, cy - rs, Colour (0xff3b3d42), cx + rs * 0.5f, cy + rs, false); g.setGradientFill (sk); g.fillEllipse (disc (rs, 0)); }
+            for (int i = 0; i < 32; ++i) { const float a = av + i * MathConstants<float>::twoPi / 32; g.setColour (Colours::black.withAlpha (0.22f)); g.drawLine (Line<float> (P (a, rs - 0.5f), P (a, rs * 0.62f)), 1.0f); g.setColour (Colours::white.withAlpha (0.12f)); g.drawLine (Line<float> (P (a + 0.05f, rs - 0.5f), P (a + 0.05f, rs * 0.62f)), 0.8f); }
+            const float rc = rs * 0.5f; const auto cc = enabled ? capCol (style) : Colour (0xff55585e);
+            { ColourGradient cs (cc.darker (0.9f), cx, cy - rc, cc.darker (1.8f), cx, cy + rc, false); g.setGradientFill (cs); g.fillEllipse (disc (rc + 1.5f, depth * 0.6f)); }
+            { ColourGradient cg (cc.brighter (0.45f), cx - rc * 0.5f, cy - rc, cc.darker (0.5f), cx + rc * 0.4f, cy + rc, true); g.setGradientFill (cg); g.fillEllipse (disc (rc, 0)); }
+            gloss (rc, 0.55f);
+            line (Colour (0xfff4f0e6), rs * 0.18f, rs - 1.0f, 1.9f);
+            break;
+        }
+        case KS_PEDAL:
+        {   // pedale: manopolina nera a cappello piatto con tacca bianca
+            bakelite (Colour (0xff36373b), Colour (0xff040405), rs, depth);
+            knurl (rs - 0.4f, rs - 4.0f, 30, 0.1f, 0.3f);
+            const float rc = rs * 0.8f;
+            { ColourGradient cg (Colour (0xff2c2d31), cx, cy - rc, Colour (0xff0d0d0f), cx, cy + rc, false); g.setGradientFill (cg); g.fillEllipse (disc (rc, 0)); }
+            gloss (rc, 0.2f);
+            line (Colours::white, rc * 0.25f, rs - 2.0f, 2.2f);
+            break;
+        }
+        case KS_SSL_BLUE: case KS_SSL_GREEN: case KS_SSL_RED: case KS_SSL_WHITE: case KS_SSL_YELLOW:
+        {   // SSL: corpo nero con alette, cappuccio colorato lucido e tacca bianca
+            { ColourGradient sd (Colour (0xff2a2c31), cx - rs, cy, Colour (0xff0b0c0e), cx + rs, cy, false); g.setGradientFill (sd); g.fillEllipse (disc (rs, depth)); }
+            { ColourGradient sk (Colour (0xff50545b), cx, cy - rs, Colour (0xff15161a), cx, cy + rs, false); g.setGradientFill (sk); g.fillEllipse (disc (rs, 0)); }
+            knurl (rs - 0.5f, rs * 0.7f, 24, 0.08f, 0.25f);
+            const float rc = rs * 0.62f; const auto cc = enabled ? capCol (style) : Colour (0xff55585e);
+            { ColourGradient cs (cc.darker (0.8f), cx - rc, cy, cc.darker (1.6f), cx + rc, cy, false); g.setGradientFill (cs); g.fillEllipse (disc (rc, depth * 0.7f)); }
+            { ColourGradient cg (cc.brighter (0.5f), cx - rc * 0.5f, cy - rc, cc.darker (0.45f), cx + rc * 0.4f, cy + rc, true); g.setGradientFill (cg); g.fillEllipse (disc (rc, 0)); }
+            gloss (rc, 0.55f);
+            line (style == KS_SSL_WHITE ? Colour (0xff1a1a1a) : Colours::white, rc * 0.2f, rs - 1.5f, 2.0f);
+            break;
+        }
+        default:
+        {   // bakelite nera grande zigrinata (anni 60) con punta crema
+            bakelite (Colour (0xff3f4045), Colour (0xff060607), rs, depth);
+            knurl (rs - 0.5f, rs - 4.0f, 40, 0.1f, 0.0f);
+            const float rc = rs * 0.64f;
+            { ColourGradient cs (Colour (0xff1b1c1f), cx, cy - rc, Colour (0xff000000), cx, cy + rc, false); g.setGradientFill (cs); g.fillEllipse (disc (rc + 1.5f, 1.0f)); }
+            { ColourGradient cg (Colour (0xff35363b), cx - rc * 0.5f, cy - rc, Colour (0xff040405), cx + rc * 0.5f, cy + rc, true); g.setGradientFill (cg); g.fillEllipse (disc (rc, 0)); }
+            gloss (rc, 0.28f);
+            line (Colour (0xfff3eee2).withAlpha (enabled ? 1.0f : 0.4f), rc * 0.15f, rs - 1.5f, 2.4f);
+            break;
+        }
+    }
+}
+
 // ----------------------------------------------------------------------- pannelli
 enum Face { FACE_PAINT, FACE_BRUSHED, FACE_BLACK, FACE_CREAM, FACE_PEDAL, FACE_WOOD };
 inline void brushed (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour base, int seed, float amt)
@@ -169,19 +300,23 @@ public:
             g.drawLine (cx + std::sin (a) * ri, cy - std::cos (a) * ri, cx + std::sin (a) * ro, cy - std::cos (a) * ro, major ? 1.3f : 0.9f);
         }
         if (bipolar) { g.setColour (inkC); g.fillEllipse (cx - 1.6f, cy - R - 4.5f, 3.2f, 3.2f); }
-        const float rk = R - 6.0f, fs = rk * 2.0f * frameMul;
-        // ombra di contatto
-        for (int i = 5; i >= 1; --i) { const float e = rk * 0.04f * i; g.setColour (juce::Colours::black.withAlpha (0.07f)); g.fillEllipse (cx - rk - e + rk * 0.08f, cy - rk - e + rk * 0.14f, (rk + e) * 2, (rk + e) * 2); }
-        frame (g, knobArt (style), juce::roundToInt (v * 63), { cx - fs / 2, cy - fs / 2, fs, fs });
-        if (isMouseOverOrDragging())
-        {   // arco di valore discreto mentre lo tocchi
-            juce::Path arc; const float va = bipolar ? 0.0f : a0;
-            arc.addCentredArc (cx, cy, R + 2.5f, R + 2.5f, 0, va, a0 + (a1 - a0) * v, true);
-            g.setColour (hot.withAlpha (0.9f)); g.strokePath (arc, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        const float rk = (R - 7.0f) * frameMul;
+        {   // arco del valore sulla scala: sottile, piu' acceso quando la tocchi
+            juce::Path arc; const float va = bipolar ? 0.0f : a0, ve = a0 + (a1 - a0) * v;
+            arc.addCentredArc (cx, cy, R + 2.5f, R + 2.5f, 0, juce::jmin (va, ve), juce::jmax (va, ve), true);
+            const bool on = isMouseOverOrDragging();
+            g.setColour (hot.withAlpha (on ? 0.35f : 0.18f)); g.strokePath (arc, juce::PathStrokeType (on ? 5.0f : 4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour (hot.withAlpha (on ? 1.0f : 0.75f)); g.strokePath (arc, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
+        vknob (g, cx, cy, rk, a0 + (a1 - a0) * v, style, isEnabled());
+        // lettura in un piccolo display, come sui moduli di Butter e Studio Comp
         const juce::String t = text ? text() : param->getCurrentValueAsText();
-        g.setFont (alook::typed (valueSize)); g.setColour (isMouseOverOrDragging() ? hot : inkC.withAlpha (0.78f));
-        g.drawText (t, juce::Rectangle<float> (-12, (float) getHeight() - vh, getWidth() + 24.0f, vh), juce::Justification::centred);
+        g.setFont (alook::typed (valueSize + 0.5f));
+        const float tw = juce::jlimit (34.0f, (float) getWidth() + 10.0f, juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), t) + 14.0f);
+        auto rr = juce::Rectangle<float> (cx - tw * 0.5f, (float) getHeight() - vh, tw, vh - 1);
+        g.setColour (juce::Colour (0xf0060708)); g.fillRoundedRectangle (rr, 3); g.setColour (hot.withAlpha (isMouseOverOrDragging() ? 0.8f : 0.35f)); g.drawRoundedRectangle (rr.reduced (0.5f), 3, 1.0f);
+        const auto vc = hot.getPerceivedBrightness() < 0.5f ? hot.interpolatedWith (juce::Colours::white, 0.5f) : hot;
+        g.setColour (isMouseOverOrDragging() ? vc.brighter (0.3f) : vc); g.drawText (t, rr, juce::Justification::centred);
     }
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -210,7 +345,7 @@ public:
     juce::RangedAudioParameter* param; juce::String label; int style;
     std::function<juce::String()> text;
     juce::Colour inkC { 0xff1e1b17 }, hot { 0xffd8452f };
-    float labelH = 15, valueH = 14, labelSize = 9.5f, valueSize = 9.0f, frameMul = 1.0f;
+    float labelH = 15, valueH = 16, labelSize = 9.5f, valueSize = 9.0f, frameMul = 1.0f;
     int ticks = 10, stepsN = 0; bool bipolar = false;
 private:
     float start = 0; bool drag = false;
@@ -226,10 +361,22 @@ public:
     {
         const float w = (float) getWidth(), h = (float) getHeight();
         silk (g, label, { -6, 0, w + 12, 13 }, alook::serif (9.0f), inkC);
-        const float s = juce::jmin (w, h - 26) * 1.9f;
-        silk (g, upT, { 0, 13, w, 11 }, alook::serif (7.5f), inkC);
-        alook::Art::frame (g, alook::Art::toggle (isUp()), 0, { w * 0.5f - s / 2, 13 + (h - 26) * 0.5f - s / 2 + 6, s, s });
-        silk (g, dnT, { 0, h - 11, w, 11 }, alook::serif (7.5f), inkC);
+        silk (g, upT, { 0, 13, w, 11 }, alook::serif (8.0f), inkC.withAlpha (isUp() ? 1.0f : 0.5f));
+        silk (g, dnT, { 0, h - 11, w, 11 }, alook::serif (8.0f), inkC.withAlpha (isUp() ? 0.5f : 1.0f));
+        // deviatore a levetta: dado esagonale cromato e levetta a bastoncino che punta su o giu'
+        using namespace juce;
+        const float cx = w * 0.5f, cy = 13 + 11 + (h - 13 - 22) * 0.5f, r = juce::jmin (w * 0.3f, (h - 46) * 0.28f);
+        { Path hex; for (int i = 0; i < 6; ++i) { const float a = i * MathConstants<float>::pi / 3 + 0.52f; const auto pt = Point<float> (cx + std::cos (a) * r * 1.35f, cy + std::sin (a) * r * 1.35f); if (i == 0) hex.startNewSubPath (pt); else hex.lineTo (pt); } hex.closeSubPath();
+          g.setColour (Colours::black.withAlpha (0.4f)); g.fillPath (hex, AffineTransform::translation (1.0f, 2.0f));
+          ColourGradient hg (Colour (0xffeceef1), cx - r, cy - r, Colour (0xff6c7076), cx + r, cy + r, false); g.setGradientFill (hg); g.fillPath (hex);
+          g.setColour (Colours::black.withAlpha (0.35f)); g.strokePath (hex, PathStrokeType (0.8f)); }
+        { ColourGradient rg (Colour (0xff2a2b2f), cx, cy - r, Colour (0xff6b6e74), cx, cy + r, false); g.setGradientFill (rg); g.fillEllipse (cx - r * 0.7f, cy - r * 0.7f, r * 1.4f, r * 1.4f); }
+        const float dir = isUp() ? -1.0f : 1.0f, L = r * 2.6f;
+        const auto tip = Point<float> (cx, cy + dir * L);
+        g.setColour (Colours::black.withAlpha (0.35f)); g.drawLine (Line<float> (Point<float> (cx + 1.5f, cy + 2), tip.translated (2.5f, 3)), r * 0.7f);
+        { ColourGradient lg (Colour (0xfff6f7f9), cx - r * 0.4f, cy, Colour (0xff7f838a), cx + r * 0.4f, cy, false); g.setGradientFill (lg);
+          Path lev; lev.startNewSubPath (cx - r * 0.22f, cy); lev.lineTo (cx - r * 0.34f, tip.y); lev.lineTo (cx + r * 0.34f, tip.y); lev.lineTo (cx + r * 0.22f, cy); lev.closeSubPath(); g.fillPath (lev); }
+        { ColourGradient bg (Colour (0xffffffff), tip.x - r * 0.3f, tip.y - r * 0.3f, Colour (0xff8a8e95), tip.x + r * 0.4f, tip.y + r * 0.4f, true); g.setGradientFill (bg); g.fillEllipse (tip.x - r * 0.45f, tip.y - r * 0.45f, r * 0.9f, r * 0.9f); }
     }
     void mouseDown (const juce::MouseEvent&) override { param->setValueNotifyingHost (param->getValue() > 0.5f ? 0.0f : 1.0f); if (onChange) onChange(); repaint(); }
     juce::RangedAudioParameter* param; juce::String label, upT, dnT; bool invert; juce::Colour inkC { 0xff1e1b17 }; std::function<void()> onChange;

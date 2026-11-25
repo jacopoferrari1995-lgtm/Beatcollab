@@ -218,7 +218,7 @@ int main (int argc, char** argv)
         if (std::getenv ("JMODS")) ed.openModuleChooser (std::atoi (std::getenv ("JMODS")));
         if (std::getenv ("JMODP")) ed.openModulePresets (std::atoi (std::getenv ("JMODP")));
         if (std::getenv ("JSCROLL")) { ed.rackView.scrollTo ((float) std::atoi (std::getenv ("JSCROLL")), false); }
-        auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, 1.0f);
+        auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, std::getenv ("JX2") ? 2.0f : 1.0f);
         if (std::getenv ("JPERF"))
         {
             auto tm = [] (juce::Component& c, int n) { const auto t0 = juce::Time::getMillisecondCounterHiRes(); for (int i = 0; i < n; ++i) c.createComponentSnapshot (c.getLocalBounds(), true, 2.0f); return (juce::Time::getMillisecondCounterHiRes() - t0) / n; };

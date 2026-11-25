@@ -207,8 +207,10 @@ int SlotView::unitsFor (int t, int height)
     if (heroes > 0) ctrlH -= juce::jmin (140.0f, ctrlH * (btns > 0 ? 0.34f : 0.4f)) + 2;
     ctrlH -= btns * (kBtnH + 4);
     const int rows = juce::jmax (1, (int) (ctrlH / kCellH));
-    // largo abbastanza per le file di pulsanti e per i comandi che restano
-    return juce::jlimit (1, 3, juce::jmax (btns > 0 || heroes > 1 ? 2 : 1, (rest + 2 * rows - 1) / (2 * rows)));
+    // largo abbastanza per le file di pulsanti e per i comandi che restano (le colonne vere che ci stanno)
+    const int minU = btns > 0 || heroes > 1 ? 2 : 1;
+    for (int u = minU; u <= 3; ++u) { const int cols = juce::jmax (1, (int) ((u * kUnit - 12) / 66.0f)); if ((rest + cols - 1) / cols <= rows) return u; }
+    return 3;
 }
 SlotView::SlotView (Editor& e, int s) : ed (e), slot (s)
 {
