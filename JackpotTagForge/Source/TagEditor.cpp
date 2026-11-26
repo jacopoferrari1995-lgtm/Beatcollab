@@ -591,6 +591,35 @@ Editor::Editor (Processor& p) : juce::AudioProcessorEditor (p), proc (p)
         root.addAndMakeVisible (*kn); knobs.push_back (std::move (kn));
     }
     root.addAndMakeVisible (sizeChip);
+    {
+        auto userFiles = [] { auto f = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.tagforge"); f.sort(); return f; };
+        browser.entries = [this, userFiles]
+        {
+            std::vector<jcyber::Entry> v;
+            for (int i = 0; i < (int) presets().size(); ++i) v.push_back ({ presets()[(size_t) i].cat, presets()[(size_t) i].name, presets()[(size_t) i].note, i, false });
+            auto files = userFiles();
+            for (int i = 0; i < files.size(); ++i) v.push_back ({ "I MIEI", files[i].getFileNameWithoutExtension(), "preset salvato da te", 1000 + i, true });
+            return v;
+        };
+        browser.current = [this, userFiles] { if (proc.userName.isEmpty()) return proc.preset; auto files = userFiles(); for (int i = 0; i < files.size(); ++i) if (files[i].getFileNameWithoutExtension() == juce::File::createLegalFileName (proc.userName)) return 1000 + i; return -1; };
+        browser.load = [this, userFiles] (const jcyber::Entry& e)
+        {
+            if (e.user) { auto files = userFiles(); if (juce::isPositiveAndBelow (e.id - 1000, files.size())) proc.loadUserPreset (files[e.id - 1000]); }
+            else proc.loadPreset (e.id);
+            root.repaint();
+        };
+        browser.save = [this] { askSave(); };
+        browser.canOverwrite = [this] { return proc.userName.isNotEmpty(); };
+        browser.overwrite = [this] { proc.saveUserPreset (proc.userName); };
+        browser.folder = [] { Processor::presetFolder().revealToUser(); };
+        browser.remove = [userFiles] (const jcyber::Entry& e) { auto files = userFiles(); if (juce::isPositiveAndBelow (e.id - 1000, files.size())) files[e.id - 1000].moveToTrash(); };
+        browser.onClose = [this] { root.repaint(); };
+        browser.title = "TAG // ARCHIVIO"; browser.sub = "FIRME IN MEMORIA";
+        browser.titleFont = bun (30.0f); browser.nameFont = arc (22.0f); browser.monoFont = mon (11.0f);
+        browser.accent = Y; browser.accent2 = M; browser.ink = WH; browser.dim = juce::Colour (0xff8a8296);
+        browser.bg0 = juce::Colour (0xf50a0810); browser.bg1 = juce::Colour (0xf5161020);
+        root.addChildComponent (browser);
+    }
     setWantsKeyboardFocus (true);
     scaler.setup();
     startTimerHz (30);
@@ -602,6 +631,7 @@ void Editor::resized()
     root.setBounds (0, 0, W, H); root.setTransform (juce::AffineTransform::scale (s));
     screen.setBounds (456, 190, 708, 194);
     sizeChip.setBounds (1104, 701, 58, 15);
+    browser.setBounds (0, 0, W, H);
 }
 bool Editor::keyPressed (const juce::KeyPress& k)
 {
@@ -656,30 +686,7 @@ void Editor::click (int h, const juce::MouseEvent& e)
     }
     root.repaint(); screen.repaint();
 }
-void Editor::presetMenu()
-{
-    juce::PopupMenu m; juce::StringArray cats;
-    for (auto& p : presets()) if (! cats.contains (p.cat)) cats.add (p.cat);
-    for (auto& c : cats)
-    {
-        juce::PopupMenu sub;
-        for (int i = 0; i < (int) presets().size(); ++i) if (presets()[(size_t) i].cat == c) sub.addItem (i + 1, presets()[(size_t) i].name, true, i == proc.preset && proc.userName.isEmpty());
-        m.addSubMenu (c, sub);
-    }
-    auto files = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.tagforge");
-    files.sort();
-    if (! files.isEmpty()) { juce::PopupMenu u; for (int i = 0; i < files.size(); ++i) u.addItem (500 + i, files[i].getFileNameWithoutExtension()); m.addSubMenu ("I MIEI", u); }
-    m.addSeparator(); m.addItem (900, "Salva il preset...");
-    juce::Component::SafePointer<Editor> safe (this);
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&root), [safe, files] (int r)
-    {
-        if (safe == nullptr || r <= 0) return;
-        if (r == 900) safe->askSave();
-        else if (r >= 500 && r < 900) safe->proc.loadUserPreset (files[r - 500]);
-        else safe->proc.loadPreset (r - 1);
-        safe->root.repaint();
-    });
-}
+void Editor::presetMenu() { browser.open(); }
 void Editor::askSave()
 {
     auto* w = new juce::AlertWindow ("SALVA IL PRESET", "Nome del preset (solo il carattere del tag, non la frase)", juce::MessageBoxIconType::NoIcon, this);

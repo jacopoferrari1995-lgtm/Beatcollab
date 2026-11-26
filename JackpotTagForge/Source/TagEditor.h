@@ -5,6 +5,7 @@
 #include "JackpotScale.h"
 #include "NeoData.h"
 #include "TagArt.h"
+#include "CyberBrowser.h"
 
 namespace jtag
 {
@@ -102,6 +103,7 @@ public:
     juce::Rectangle<float> hotR[H_COUNT];
     void click (int h, const juce::MouseEvent&);
     void presetMenu();
+    jcyber::Browser browser;
     void askSave();
     void drawStatic (juce::Graphics&);
     void drawCharacter (juce::Graphics&);

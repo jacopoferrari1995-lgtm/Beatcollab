@@ -34,6 +34,7 @@ int main (int argc, char** argv)
         Editor ed (p); ed.setSize (Editor::W, Editor::H);
         if (std::getenv ("JPLAY")) { p.play(); juce::AudioBuffer<float> b (2, B); juce::MidiBuffer m; for (int k = 0; k < 60; ++k) { b.clear(); p.processBlock (b, m); } ed.lvl = 0.6f; }
         for (int k = 0; k < 3; ++k) { ed.screen.gen = -1; ed.screen.refresh(); }
+        if (std::getenv ("JBROWSE")) { ed.browser.open(); ed.browser.finishBoot(); }
         auto img = ed.createComponentSnapshot (ed.getLocalBounds(), true, std::getenv ("JX2") ? 2.0f : 1.0f);
         juce::File f (argc > 2 ? argv[2] : "/tmp/tag.png"); f.deleteFile(); juce::FileOutputStream os (f); juce::PNGImageFormat().writeImageToStream (img, os);
         std::printf ("snap %s\n", f.getFullPathName().toRawUTF8());

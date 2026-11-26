@@ -4,7 +4,7 @@
 
 namespace jcrew
 {
-struct Preset { juce::String name, cat; std::vector<std::pair<juce::String, float>> v; };
+struct Preset { juce::String name, cat; std::vector<std::pair<juce::String, float>> v; juce::String note; };
 const std::vector<Preset>& presets();
 
 class Processor : public juce::AudioProcessor
@@ -46,7 +46,7 @@ public:
     int preset = 0, uiTheme = 0;   // 0 ologrammi, 1 quaderno sporco
     Engine eng;
     std::array<std::atomic<float>, kVoices> uiMeter {};
-    std::atomic<float> uiIn { 0 };
+    std::atomic<float> uiIn { 0 }; double hostBpm = 120;
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout layout();
 };

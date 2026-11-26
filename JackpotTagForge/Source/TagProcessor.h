@@ -4,7 +4,7 @@
 
 namespace jtag
 {
-struct Preset { juce::String name, cat; std::vector<std::pair<const char*, float>> v; };
+struct Preset { juce::String name, cat; std::vector<std::pair<const char*, float>> v; juce::String note; };
 const std::vector<Preset>& presets();
 
 class Processor : public juce::AudioProcessor, private juce::Thread, private juce::AsyncUpdater

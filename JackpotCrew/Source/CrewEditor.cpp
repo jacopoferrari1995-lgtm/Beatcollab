@@ -258,18 +258,18 @@ void Card::paintSketch (juce::Graphics& g, bool on)
         juce::Graphics ig (cache); ig.addTransform (juce::AffineTransform::scale (sc));
         sheet (ig, getLocalBounds().toFloat().reduced (4), 50 + idx * 17);
         tape (ig, getWidth() * 0.5f, 6, (idx % 2 ? 0.05f : -0.06f));
-        if (on) { ig.setColour (accent (idx).withAlpha (0.16f)); ig.fillRect (juce::Rectangle<float> (40, 30, 200, 146)); }
-        Editor::drawCharacter (ig, idx, { 0, 0, (float) getWidth(), 176 }, on);
+        if (on) { ig.setColour (accent (idx).withAlpha (0.16f)); ig.fillRect (juce::Rectangle<float> (60, 24, 160, 124)); }
+        { ig.saveState(); ig.addTransform (juce::AffineTransform::scale (0.8f).translated (28, 6)); Editor::drawCharacter (ig, idx, { 0, 0, 280, 176 }, on); ig.restoreState(); }
         const auto& c = characters()[(size_t) idx];
-        if (on) { ig.setColour (accent (idx).darker (0.2f)); ig.fillRect (juce::Rectangle<float> (16, 182, 132, 30).translated (3, 2)); }
-        text (ig, c.name, { 16, 178, 160, 36 }, beb (34.0f), on ? INK : PENCIL, juce::Justification::centredLeft);
+        if (on) { ig.setColour (accent (idx).darker (0.2f)); ig.fillRect (juce::Rectangle<float> (16, 150, 116, 26).translated (3, 2)); }
+        text (ig, c.name, { 16, 146, 160, 32 }, beb (30.0f), on ? INK : PENCIL, juce::Justification::centredLeft);
         ig.setFont (mon (8.5f)); ig.setColour (on ? INK.withAlpha (0.75f) : PENCIL);
-        ig.drawFittedText (c.role, juce::Rectangle<int> (156, 182, getWidth() - 168, 28), juce::Justification::centredRight, 2, 0.8f);
-        if (! on) text (ig, "clicca per farlo entrare", { 0, 156, (float) getWidth(), 18 }, mon (10.0f), PENCIL);
+        ig.drawFittedText (c.role, juce::Rectangle<int> (140, 150, getWidth() - 152, 26), juce::Justification::centredRight, 2, 0.8f);
+        if (! on) text (ig, "clicca per farlo entrare", { 0, 124, (float) getWidth(), 18 }, mon (10.0f), PENCIL);
         grime (ig, getLocalBounds().toFloat().reduced (4), 900 + idx, 1.3f);
     }
     g.drawImageTransformed (cache, juce::AffineTransform::scale (1.0f / sc));
-    Editor::drawMouth (g, idx, { 0, 0, (float) getWidth(), 176 }, on, mouth, ed.tick);
+    { g.saveState(); g.addTransform (juce::AffineTransform::scale (0.8f).translated (28, 6)); Editor::drawMouth (g, idx, { 0, 0, 280, 176 }, on, mouth, ed.tick); g.restoreState(); }
     if (hover) { g.setColour (RED.withAlpha (0.7f)); g.drawRect (getLocalBounds().toFloat().reduced (6), 1.5f); }
 }
 void Card::paintHolo (juce::Graphics& g, bool on)
@@ -357,7 +357,7 @@ void Card::paintHolo (juce::Graphics& g, bool on)
 }
 void Card::mouseDown (const juce::MouseEvent& e)
 {
-    if (! ed.holoTheme() && e.position.y > 176) return;
+    if (! ed.holoTheme() && e.position.y > 146) return;
     ed.proc.undo.beginNewTransaction();
     const auto id = Processor::vid (idx, "on");
     ed.proc.setP (id, ed.proc.value (id) > 0.5f ? 0.0f : 1.0f);
@@ -373,15 +373,16 @@ void Knob::paint (juce::Graphics& g)
 {
     const bool holoT = ed.holoTheme();
     const bool live = voice < 0 || ed.proc.value (Processor::vid (voice, "on")) > 0.5f;
-    const float w = (float) getWidth(), h = (float) getHeight(), lh = holoT ? 14.0f : 17.0f, vh = 15;
-    const float S = juce::jmin (w - 18, h - lh - vh - 10), cx = w * 0.5f, cy = lh + 5 + S * 0.5f, R = S * 0.5f;
+    const bool small = getHeight() < 70 || getWidth() < 62;
+    const float w = (float) getWidth(), h = (float) getHeight(), lh = holoT ? 13.0f : (small ? 13.0f : 17.0f), vh = small ? 12.0f : 14.0f;
+    const float S = juce::jmin (w - 20, h - lh - vh - (small ? 6.0f : 10.0f)), cx = w * 0.5f, cy = lh + (small ? 3.0f : 5.0f) + S * 0.5f, R = S * 0.5f;
     const float v = prm->getValue(), a0 = -2.36f, a1 = 2.36f, av = a0 + (a1 - a0) * v;
     const juce::String t = fmt ? fmt (prm->convertFrom0to1 (v)) : prm->getCurrentValueAsText();
     const bool hov = isMouseOverOrDragging();
     if (holoT)
     {
         const auto c = live ? fill : juce::Colour (0xff4b4f60);
-        text (g, label, { -10, 0, w + 20, lh }, mon (9.5f), c.withAlpha (0.9f));
+        text (g, label, { -10, 0, w + 20, lh }, mon (w < 60 ? 8.0f : 9.0f), c.withAlpha (0.9f));
         for (int i = 0; i <= 20; ++i)
         {
             const float a = a0 + (a1 - a0) * i / 20.0f, r1 = R + 4, r2 = R + (i % 5 == 0 ? 9.0f : 6.5f); const bool lit = live && i / 20.0f <= v + 1e-4f;
@@ -395,10 +396,10 @@ void Knob::paint (juce::Graphics& g)
         g.setColour (juce::Colours::white.withAlpha (0.12f)); g.drawEllipse (cx - rc, cy - rc, rc * 2, rc * 2, 1.0f);
         { const auto p0 = juce::Point<float> (cx + std::sin (av) * rc * 0.2f, cy - std::cos (av) * rc * 0.2f), p1 = juce::Point<float> (cx + std::sin (av) * (R - 2), cy - std::cos (av) * (R - 2));
           g.setColour (c.withAlpha (0.35f)); g.drawLine ({ p0, p1 }, 5.0f); g.setColour (live ? juce::Colours::white.interpolatedWith (c, 0.4f) : c); g.drawLine ({ p0, p1 }, 2.0f); }
-        text (g, t, { -10, h - vh, w + 20, vh }, mon (10.0f), hov ? juce::Colours::white : (live ? c.interpolatedWith (juce::Colours::white, 0.35f) : c));
+        text (g, t, { -10, h - vh, w + 20, vh }, mon (w < 60 ? 8.5f : 9.5f), hov ? juce::Colours::white : (live ? c.interpolatedWith (juce::Colours::white, 0.35f) : c));
         return;
     }
-    text (g, label, { -10, 0, w + 20, lh }, beb (17.0f), INK);
+    text (g, label, { -10, 0, w + 20, lh }, beb (small ? 14.0f : 17.0f), INK);
     for (int i = 0; i <= 10; ++i)
     {
         const float a = a0 + (a1 - a0) * i / 10.0f, r1 = R + 3, r2 = R + (i % 5 == 0 ? 8.0f : 6.0f);
@@ -414,7 +415,7 @@ void Knob::paint (juce::Graphics& g)
     ink (g, body, seed, 2.0f);
     Path ptr; ptr.startNewSubPath (cx + std::sin (av) * R * 0.2f, cy - std::cos (av) * R * 0.2f); ptr.lineTo (cx + std::sin (av) * (R + 1), cy - std::cos (av) * (R + 1));
     g.setColour (INK); g.strokePath (ptr, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    text (g, t, { -10, h - vh, w + 20, vh }, mon (10.5f), hov ? RED : INK);
+    text (g, t, { -10, h - vh, w + 20, vh }, mon (small ? 9.0f : 10.5f), hov ? RED : INK);
     if (! live) { g.setColour (PAPER.withAlpha (0.45f)); g.fillRect (getLocalBounds()); }
 }
 void Knob::mouseDown (const juce::MouseEvent& e)
@@ -466,8 +467,7 @@ void Editor::drawSketchStatic (juce::Graphics& g)
         auto clip = juce::Rectangle<float> (b.getCentreX() - 58, b.getY() - 8, 116, 38);
         g.setColour (STEEL.darker (0.5f)); g.fillRoundedRectangle (clip.translated (0, 2), 8); g.setColour (STEEL.darker (0.2f)); g.fillRoundedRectangle (clip, 8);
         g.setColour (STEEL.darker (0.7f)); g.fillEllipse (clip.getCentreX() - 6, clip.getY() + 12, 12, 12);
-        text (g, "LA CREW", { b.getX(), b.getY() + 40, b.getWidth(), 34 }, beb (34.0f), INK);
-        text (g, "come cantano tutti insieme", { b.getX(), b.getY() + 70, b.getWidth(), 14 }, mon (9.0f), INK.withAlpha (0.65f));
+        text (g, "LA CREW", { b.getX(), b.getY() + 34, b.getWidth(), 34 }, beb (32.0f), INK);
         grime (g, b, 11, 1.4f);
     }
     text (g, "jackpot.wav '26", { 760, 694, 130, 16 }, mon (9.5f), PENCIL, juce::Justification::centredRight);
@@ -627,7 +627,7 @@ void Root::paint (juce::Graphics& g)
     text (g, "RIPETI", R (H::H_REDO), beb (18.0f), ed.proc.undo.canRedo() ? (hot == H::H_REDO ? RED : INK) : PENCIL.withAlpha (0.6f));
     text (g, "TEMA: QUADERNO", R (H::H_THEME), beb (18.0f), hot == H::H_THEME ? RED : INK);
     {
-        auto m = juce::Rectangle<float> (922, 668, 220, 10); const float l = juce::jlimit (0.0f, 1.0f, ed.inLvl * 1.4f);
+        auto m = juce::Rectangle<float> (922, 686, 220, 8); const float l = juce::jlimit (0.0f, 1.0f, ed.inLvl * 1.4f);
         g.setColour (INK.withAlpha (0.12f)); g.fillRect (m); g.setColour (RED); g.fillRect (m.withWidth (m.getWidth() * l));
         g.setColour (INK.withAlpha (0.6f)); g.drawRect (m, 1.2f); text (g, "LA TUA VOCE", m.translated (0, -16).withHeight (14), mon (9.0f), INK.withAlpha (0.7f), juce::Justification::centredLeft);
     }
@@ -648,37 +648,75 @@ Editor::Editor (Processor& p) : juce::AudioProcessorEditor (p), proc (p)
     auto pan = [] (float v) { const int q = juce::roundToInt (v * 100); return q == 0 ? juce::String ("C") : (q < 0 ? "L" : "R") + juce::String (std::abs (q)); };
     auto st = [] (float v) { const int q = juce::roundToInt (v); return q == 0 ? juce::String ("UNISONO") : (q > 0 ? "+" : "") + juce::String (q) + " st"; };
     auto tone = [] (float v) { return std::abs (v) < 0.05f ? juce::String ("NEUTRO") : v < 0 ? "SCURO " + juce::String (juce::roundToInt (-v * 100)) : "CHIARO " + juce::String (juce::roundToInt (v * 100)); };
+    auto form = [] (float v) { const int q = juce::roundToInt (v * 6); return q == 0 ? juce::String ("UGUALE") : (q < 0 ? "GROSSA " : "PICCOLA ") + juce::String (std::abs (q)); };
+    auto ms = [] (float v) { return juce::String (juce::roundToInt (v)) + " ms"; };
     for (int k = 0; k < kVoices; ++k)
     {
         auto c = std::make_unique<Card> (*this, k);
         c->setTooltip (juce::String (characters()[(size_t) k].name) + ": " + characters()[(size_t) k].role + " (clicca il personaggio per accenderlo)");
         root.addAndMakeVisible (*c); cards.push_back (std::move (c));
-        struct D { const char* w; const char* l; std::function<juce::String (float)> f; int steps; bool bip; };
-        const D d[] = { { "lvl", "VOLUME", db, 0, false }, { "pan", "POSTO", pan, 0, true }, { "pitch", "ALTEZZA", st, 25, true }, { "tone", "COLORE", tone, 0, true } };
-        for (int j = 0; j < 4; ++j)
+        struct D { const char* w; const char* l; std::function<juce::String (float)> f; int steps; bool bip; const char* tip; };
+        const D d[] = { { "lvl", "VOLUME", db, 0, false, "Volume del personaggio" }, { "pan", "POSTO", pan, 0, true, "Dove sta nello stereo" },
+                        { "pitch", "ALTEZZA", st, 25, true, "Altezza in semitoni (ottava, quinta o unisono)" },
+                        { "formant", "FORMANTE", form, 0, true, "La taglia della voce, senza cambiare la nota: giu' piu' grossa, su piu' piccola" },
+                        { "delay", "RITARDO", ms, 0, false, "Quanti millisecondi dopo di te entra (piu' alto = piu' indietro e piu' largo)" },
+                        { "tone", "COLORE", tone, 0, true, "Scuro (meno acuti) o chiaro (meno bassi, piu' presenza)" } };
+        for (int j = 0; j < 6; ++j)
         {
             auto kn = std::make_unique<Knob> (*this, Processor::vid (k, d[j].w), d[j].l, sk::accent (k), d[j].f, k * 10 + j);
-            kn->steps = d[j].steps; kn->bipolar = d[j].bip; kn->voice = k;
+            kn->steps = d[j].steps; kn->bipolar = d[j].bip; kn->voice = k; kn->setTooltip (d[j].tip);
             root.addAndMakeVisible (*kn); knobs.push_back (std::move (kn));
         }
     }
-    struct G { const char* id; const char* l; std::function<juce::String (float)> f; const char* tip; };
+    struct G { const char* id; const char* l; std::function<juce::String (float)> f; const char* tip; int steps; };
+    auto hz = [] (float v) { return v >= 1000 ? juce::String (v / 1000.0f, 1) + " k" : juce::String (juce::roundToInt (v)) + " Hz"; };
     const G gl[] = {
-        { "loose", "SCIOLTI", pct, "Quanto la crew entra in ritardo e respira: mai tutti perfettamente a tempo" },
-        { "drift", "STONATI", pct, "Quanto ognuno stona di qualche cent: piu' alto = piu' gente vera" },
-        { "spread", "LARGHEZZA", pct, "Quanto la crew si allarga nello stereo" },
-        { "shout", "GRIDATO", pct, "Compressione e saturazione: da cantato a urlato" },
-        { "room", "STANZA", pct, "La stanza in cui grida la crew" },
-        { "lowcut", "TAGLIO BASSI", [] (float v) { return juce::String (juce::roundToInt (v)) + " Hz"; }, "Taglia i bassi della crew per non impastare la voce principale" },
-        { "crew", "CREW", db, "Volume di tutta la crew" },
-        { "dry", "TU", db, "Volume della tua voce (la principale)" },
+        { "loose", "FUORI TEMPO", pct, "Quanto la crew esce dal tempo e respira: ognuno entra un po' prima o dopo, e cambia di continuo (0 = tutti perfetti)", 0 },
+        { "drift", "STONATI", pct, "Quanto ognuno stona di qualche cent e ondeggia: piu' alto = piu' gente vera", 0 },
+        { "spread", "LARGHEZZA", pct, "Quanto la crew si apre nello stereo", 0 },
+        { "shout", "GRIDATO", pct, "Compressione veloce: la crew viene avanti, da cantato a urlato", 0 },
+        { "drive", "DRIVE", pct, "Saturazione della crew (sporca, aggressiva)", 0 },
+        { "lowcut", "TAGLIO BASSI", hz, "Taglia i bassi della crew per non impastare la tua voce", 0 },
+        { "highcut", "TAGLIO ALTI", hz, "Taglia gli acuti della crew (piu' dietro, meno sibilanti)", 0 },
+        { "verb", "RIVERBERO", pct, "Quanto riverbero sulla crew", 0 },
+        { "size", "STANZA", pct, "Grandezza della stanza", 0 },
+        { "echo", "DELAY", pct, "Delay a tempo sulla crew (ping-pong)", 0 },
+        { "echoDiv", "TEMPO", [] (float v) { return juce::String (echoDivName (juce::roundToInt (v))); }, "Tempo del delay, a tempo col BPM", 6 },
+        { "echoFb", "RIPETIZ.", pct, "Quante ripetizioni del delay", 0 },
+        { "crew", "CREW", db, "Volume di tutta la crew", 0 },
+        { "dry", "TU", db, "Volume della tua voce (la principale)", 0 },
     };
-    for (int j = 0; j < 8; ++j)
+    for (int j = 0; j < 14; ++j)
     {
-        auto kn = std::make_unique<Knob> (*this, gl[j].id, gl[j].l, j < 5 ? RED : BLUE, gl[j].f, 200 + j);
-        kn->setTooltip (gl[j].tip);
+        auto kn = std::make_unique<Knob> (*this, gl[j].id, gl[j].l, j < 12 ? RED : BLUE, gl[j].f, 200 + j);
+        kn->setTooltip (gl[j].tip); kn->steps = gl[j].steps;
         root.addAndMakeVisible (*kn); knobs.push_back (std::move (kn));
     }
+    // scheda dei preset
+    browser.entries = [this]
+    {
+        std::vector<jcyber::Entry> v;
+        for (int i = 0; i < (int) presets().size(); ++i) v.push_back ({ presets()[(size_t) i].cat, presets()[(size_t) i].name, presets()[(size_t) i].note, i, false });
+        auto files = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.crew"); files.sort();
+        for (int i = 0; i < files.size(); ++i) v.push_back ({ "I MIEI", files[i].getFileNameWithoutExtension(), "preset salvato da te", 1000 + i, true });
+        return v;
+    };
+    browser.current = [this] { if (proc.userName.isEmpty()) return proc.preset; auto files = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.crew"); files.sort(); for (int i = 0; i < files.size(); ++i) if (files[i].getFileNameWithoutExtension() == juce::File::createLegalFileName (proc.userName)) return 1000 + i; return -1; };
+    browser.load = [this] (const jcyber::Entry& e)
+    {
+        if (e.user) { auto files = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.crew"); files.sort(); if (juce::isPositiveAndBelow (e.id - 1000, files.size())) proc.loadUserPreset (files[e.id - 1000]); }
+        else proc.loadPreset (e.id);
+        root.repaint(); for (auto& c : cards) c->repaint();
+    };
+    browser.save = [this] { askSave(); };
+    browser.canOverwrite = [this] { return proc.userName.isNotEmpty(); };
+    browser.overwrite = [this] { proc.saveUserPreset (proc.userName); };
+    browser.folder = [] { Processor::presetFolder().revealToUser(); };
+    browser.remove = [] (const jcyber::Entry& e) { auto files = Processor::presetFolder().findChildFiles (juce::File::findFiles, false, "*.crew"); files.sort(); if (juce::isPositiveAndBelow (e.id - 1000, files.size())) files[e.id - 1000].moveToTrash(); };
+    browser.onClose = [this] { root.repaint(); };
+    browser.title = "CREW // PRESET"; browser.sub = "ARCHIVIO CREW";
+    browser.titleFont = bun (30.0f); browser.nameFont = beb (24.0f); browser.monoFont = mon (11.0f);
+    root.addChildComponent (browser);
     root.addAndMakeVisible (sizeChip);
     setWantsKeyboardFocus (true);
     layout();
@@ -690,40 +728,45 @@ void Editor::layout()
     const bool ho = holoTheme();
     for (int k = 0; k < kVoices; ++k)
     {
-        juce::Rectangle<float> card; juce::Point<float> k0; float kw, kh; bool grid;
+        juce::Rectangle<float> card;
         if (ho)
         {
             const auto s = holoSlot (k); const bool L = leftSide (k);
             card = { L ? s.getX() : s.getX() + 188, s.getY(), 186, s.getHeight() };
-            k0 = { L ? s.getX() + 192 : s.getX() + 4, s.getY() + 16 }; kw = 89; kh = 84; grid = true;
+            const float px = L ? s.getX() + 190 : s.getX() + 2, py = s.getY() + 16;
+            for (int j = 0; j < 6; ++j) knobs[(size_t) (k * 6 + j)]->setBounds (juce::Rectangle<float> (px + (j % 3) * 61.0f, py + (j / 3) * 88.0f, 61, 86).toNearestInt());
         }
-        else { card = { 24 + (k % 3) * 292.0f, 100 + (k / 3) * 304.0f, 280, 296 }; k0 = { card.getX() + 8, card.getY() + 214 }; kw = 66; kh = 78; grid = false; }
-        cards[(size_t) k]->setBounds (card.toNearestInt()); cards[(size_t) k]->cache = {}; cards[(size_t) k]->holo = {};
-        for (int j = 0; j < 4; ++j)
+        else
         {
-            auto& kn = knobs[(size_t) (k * 4 + j)];
-            kn->fill = ho ? holoTint (k) : sk::accent (k);
-            kn->setBounds (juce::Rectangle<float> (k0.x + (grid ? (j % 2) * kw : j * kw), k0.y + (grid ? (j / 2) * kh : 0), kw, kh).toNearestInt());
+            card = { 24 + (k % 3) * 292.0f, 100 + (k / 3) * 304.0f, 280, 296 };
+            for (int j = 0; j < 6; ++j) knobs[(size_t) (k * 6 + j)]->setBounds (juce::Rectangle<float> (card.getX() + 10 + (j % 3) * 87.0f, card.getY() + 180 + (j / 3) * 56.0f, 86, 56).toNearestInt());
         }
+        cards[(size_t) k]->setBounds (card.toNearestInt()); cards[(size_t) k]->cache = {}; cards[(size_t) k]->holo = {};
+        for (int j = 0; j < 6; ++j) knobs[(size_t) (k * 6 + j)]->fill = ho ? holoTint (k) : sk::accent (k);
     }
-    for (int j = 0; j < 8; ++j)
+    for (int j = 0; j < 14; ++j)
     {
-        auto& kn = knobs[(size_t) (kVoices * 4 + j)];
-        if (ho) { kn->fill = j < 5 ? MAG : CYAN; kn->setBounds (juce::Rectangle<float> (406 + (j % 4) * 93.0f, 540 + (j / 4) * 84.0f, 92, 82).toNearestInt()); }
-        else { kn->fill = j < 5 ? RED : BLUE; kn->setBounds (juce::Rectangle<float> (930 + (j % 2) * 104.0f, 186 + (j / 2) * 116.0f, 100, 108).toNearestInt()); }
+        auto& kn = knobs[(size_t) (kVoices * 6 + j)];
+        if (ho) { kn->fill = j < 7 ? MAG : (j < 12 ? CYAN : ACID); kn->setBounds (juce::Rectangle<float> (401 + (j % 7) * 54.6f, 540 + (j / 7) * 84.0f, 54, 82).toNearestInt()); }
+        else { kn->fill = j < 7 ? RED : (j < 12 ? BLUE : YEL); kn->setBounds (juce::Rectangle<float> (926 + (j % 2) * 106.0f, 166 + (j / 2) * 70.0f, 104, 68).toNearestInt()); }
     }
     if (ho)
     {
         hotR[H_PREV] = { 404, 12, 30, 32 }; hotR[H_NEXT] = { 746, 12, 30, 32 }; hotR[H_NAME] = { 436, 8, 308, 40 };
         hotR[H_SAVE] = { 792, 14, 56, 28 }; hotR[H_UNDO] = { 850, 16, 70, 24 }; hotR[H_REDO] = { 920, 16, 62, 24 }; hotR[H_THEME] = { 990, 14, 128, 28 };
         sizeChip.setBounds (1124, 20, 50, 15);
+        browser.accent = MAG; browser.accent2 = CYAN; browser.ink = juce::Colour (0xffe8ecf7); browser.dim = juce::Colour (0xff6f7590);
+        browser.bg0 = juce::Colour (0xf4060810); browser.bg1 = juce::Colour (0xf40d1020);
     }
     else
     {
         hotR[H_PREV] = { 400, 34, 34, 40 }; hotR[H_NEXT] = { 776, 34, 34, 40 }; hotR[H_NAME] = { 436, 30, 338, 46 };
         hotR[H_SAVE] = { 836, 50, 66, 28 }; hotR[H_UNDO] = { 908, 50, 84, 26 }; hotR[H_REDO] = { 996, 50, 76, 26 }; hotR[H_THEME] = { 836, 12, 160, 28 };
         sizeChip.setBounds (1100, 18, 58, 15);
+        browser.accent = RED; browser.accent2 = YEL; browser.ink = INK; browser.dim = PENCIL.brighter (0.3f);
+        browser.bg0 = juce::Colour (0xf6121116); browser.bg1 = juce::Colour (0xf6221f27);
     }
+    browser.setBounds (0, 0, W, H);
     root.bg = {}; root.repaint();
 }
 void Editor::resized()
@@ -750,7 +793,8 @@ void Editor::click (int h)
     }
     root.repaint(); for (auto& c : cards) c->repaint(); for (auto& k : knobs) k->repaint();
 }
-void Editor::presetMenu()
+void Editor::presetMenu() { browser.open(); }
+void Editor::presetMenuOld()
 {
     juce::PopupMenu m; juce::StringArray cats;
     for (auto& p : presets()) if (! cats.contains (p.cat)) cats.add (p.cat);
@@ -791,8 +835,8 @@ void Editor::timerCallback()
         c->mouth += (target - c->mouth) * (target > c->mouth ? 0.6f : 0.25f);
         if (ho && on && rnd.nextFloat() < 0.012f) { c->glitch = 1.0f; c->glitchSeed = tick; }
         const bool gl = c->glitch > 0.01f; c->glitch *= 0.75f;
-        if (on != c->lastOn) { c->lastOn = on; c->repaint(); for (int j = 0; j < 4; ++j) knobs[(size_t) (c->idx * 4 + j)]->repaint(); }
-        else if (gl || std::abs (c->mouth - c->lastMouth) > 0.02f || (on && c->mouth > 0.2f && tick % 2 == 0)) { c->lastMouth = c->mouth; if (ho) c->repaint(); else c->repaint (juce::Rectangle<int> (0, 0, c->getWidth(), 178)); }
+        if (on != c->lastOn) { c->lastOn = on; c->repaint(); for (int j = 0; j < 6; ++j) knobs[(size_t) (c->idx * 6 + j)]->repaint(); }
+        else if (gl || std::abs (c->mouth - c->lastMouth) > 0.02f || (on && c->mouth > 0.2f && tick % 2 == 0)) { c->lastMouth = c->mouth; if (ho) c->repaint(); else c->repaint (juce::Rectangle<int> (0, 0, c->getWidth(), 150)); }
     }
     if (proc.preset != lastPreset || proc.userName != lastUser) { lastPreset = proc.preset; lastUser = proc.userName; root.repaint(); }
     const float il = proc.uiIn.load(); inLvl = juce::jmax (il, inLvl * 0.85f);

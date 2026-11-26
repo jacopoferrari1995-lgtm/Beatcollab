@@ -7,6 +7,7 @@
 #include "JackpotScale.h"
 #include "NeoData.h"
 #include "CrewArt.h"
+#include "CyberBrowser.h"
 
 namespace jcrew
 {
@@ -92,7 +93,7 @@ public:
     jlook::SizeChip sizeChip { scaler };
     Root root { *this };
     std::vector<std::unique_ptr<Card>> cards;
-    std::vector<std::unique_ptr<Knob>> knobs;   // 4 per personaggio, poi 8 della crew
+    std::vector<std::unique_ptr<Knob>> knobs;   // 6 per personaggio, poi 14 della crew
     juce::RangedAudioParameter* P (const juce::String& id) { return proc.apvts.getParameter (id); }
     enum Hot { H_PREV, H_NEXT, H_NAME, H_SAVE, H_UNDO, H_REDO, H_THEME, H_COUNT };
     juce::Rectangle<float> hotR[H_COUNT];
@@ -100,6 +101,8 @@ public:
     void layout();
     void click (int);
     void presetMenu();
+    void presetMenuOld();
+    jcyber::Browser browser;
     void askSave();
     void drawSketchStatic (juce::Graphics&);
     void drawHoloStatic (juce::Graphics&);
