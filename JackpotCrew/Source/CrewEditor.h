@@ -1,6 +1,8 @@
 #pragma once
-// CREW: un quaderno di schizzi. Ogni voce e' un personaggio disegnato a inchiostro con i colori piatti fuori registro;
-// si accende cliccandolo e quando canta apre la bocca.
+// CREW, due temi:
+//  OLOGRAMMI: una stanza buia, al centro tu (solido, cyber), intorno e dietro la crew proiettata come ologrammi,
+//             ognuno sul suo proiettore con il suo pannello di manopole.
+//  QUADERNO:  il quaderno di schizzi, ma sporco e notturno: carta scura, gesso, neon, graffi.
 #include "CrewProcessor.h"
 #include "JackpotScale.h"
 #include "NeoData.h"
@@ -10,8 +12,11 @@ namespace jcrew
 {
 namespace sk
 {
-const juce::Colour PAPER (0xffefe7d6), SHEET (0xfffbf8f1), INK (0xff1d1a1c), PENCIL (0xff8d8579), RED (0xffd9443a), YEL (0xfff3dd6f), BLUE (0xff8fb4d9),
-                   BOARD (0xff9a6b3f), STEEL (0xffb9bcc2);
+// quaderno sporco: carta scura, tratti a gesso, neon
+const juce::Colour PAPER (0xff121116), SHEET (0xff211f27), INK (0xffe9e4d8), PENCIL (0xff5f5a69), RED (0xffff2f6d), YEL (0xffd8ff3a), BLUE (0xff2fd6e6),
+                   BOARD (0xff2a2320), STEEL (0xff8d929c), DARKF (0xff0c0b0f);
+// ologrammi
+const juce::Colour ROOM0 (0xff07080e), ROOM1 (0xff0e1020), CYAN (0xff38f2ff), MAG (0xffff2fa0), ACID (0xffd8ff3a), GLASS (0xcc0a0d18), METAL (0xff1b1d26);
 struct Faces
 {
     juce::Typeface::Ptr bungee, bebas, mono;
@@ -26,6 +31,7 @@ inline juce::Font bun (float s) { return juce::Font (juce::FontOptions (juce::Sh
 inline juce::Font beb (float s, float k = 0.04f) { return juce::Font (juce::FontOptions (juce::SharedResourcePointer<Faces>()->bebas).withHeight (s)).withExtraKerningFactor (k); }
 inline juce::Font mon (float s) { return juce::Font (juce::FontOptions (juce::SharedResourcePointer<Faces>()->mono).withHeight (s)); }
 juce::Colour accent (int k);
+juce::Colour holoTint (int k);
 }
 
 class Editor;
@@ -39,23 +45,26 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
-    juce::RangedAudioParameter* prm; juce::String label; juce::Colour fill; std::function<juce::String (float)> fmt; int seed;
-    int steps = 0; bool bipolar = false; float last = -1;
+    Editor& ed; juce::RangedAudioParameter* prm; juce::String label; juce::Colour fill; std::function<juce::String (float)> fmt; int seed;
+    int steps = 0; bool bipolar = false; float last = -1; int voice = -1;
 private:
     float start = 0; bool drag = false;
 };
-// la carta di un personaggio: disegno (in cache), nome, e la bocca che si muove dal vivo
+// un personaggio: carta (quaderno) o proiezione (ologrammi); la bocca / la luce si muovono dal vivo
 class Card : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     Card (Editor& e, int k) : ed (e), idx (k) { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
     void paint (juce::Graphics&) override;
+    void paintSketch (juce::Graphics&, bool on);
+    void paintHolo (juce::Graphics&, bool on);
     void mouseDown (const juce::MouseEvent&) override;
     void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
     void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
     Editor& ed; const int idx; float mouth = 0, lastMouth = -1; bool hover = false, lastOn = false;
-    juce::Image cache; float cacheScale = 0; int cacheOn = -1;
-    juce::Rectangle<float> headR() const { return { 0, 0, (float) getWidth(), 176 }; }
+    juce::Image cache; float cacheScale = 0; int cacheKey = -1;
+    juce::Image holo; float holoScale = 0;   // il personaggio gia' trasformato in luce
+    float glitch = 0; int glitchSeed = 0;
 };
 class Root : public juce::Component
 {
@@ -65,7 +74,7 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override { hot = -1; repaint(); }
-    Editor& ed; juce::Image bg; float bgScale = 0; int hot = -1;
+    Editor& ed; juce::Image bg; float bgScale = 0; int bgTheme = -1; int hot = -1;
 };
 
 class Editor : public juce::AudioProcessorEditor, private juce::Timer
@@ -83,17 +92,22 @@ public:
     jlook::SizeChip sizeChip { scaler };
     Root root { *this };
     std::vector<std::unique_ptr<Card>> cards;
-    std::vector<std::unique_ptr<Knob>> knobs;
+    std::vector<std::unique_ptr<Knob>> knobs;   // 4 per personaggio, poi 8 della crew
     juce::RangedAudioParameter* P (const juce::String& id) { return proc.apvts.getParameter (id); }
-    enum Hot { H_PREV, H_NEXT, H_NAME, H_SAVE, H_UNDO, H_REDO, H_COUNT };
+    enum Hot { H_PREV, H_NEXT, H_NAME, H_SAVE, H_UNDO, H_REDO, H_THEME, H_COUNT };
     juce::Rectangle<float> hotR[H_COUNT];
+    bool holoTheme() const { return proc.uiTheme == 0; }
+    void layout();
     void click (int);
     void presetMenu();
     void askSave();
-    void drawStatic (juce::Graphics&);
+    void drawSketchStatic (juce::Graphics&);
+    void drawHoloStatic (juce::Graphics&);
+    void drawMain (juce::Graphics&, float lvl);   // tu, al centro della stanza
     static void drawCharacter (juce::Graphics&, int k, juce::Rectangle<float> box, bool on);
     static void drawMouth (juce::Graphics&, int k, juce::Rectangle<float> box, bool on, float open, int tick);
-    int tick = 0;
+    static juce::Rectangle<float> holoSlot (int k);
+    int tick = 0; float inLvl = 0, lastIn = -1; float signFlicker = 1;
 private:
     void timerCallback() override;
     int lastPreset = -2; juce::String lastUser;

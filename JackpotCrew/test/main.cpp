@@ -22,6 +22,7 @@ int main (int argc, char** argv)
     {
         Processor p; p.prepareToPlay (sr, B);
         if (auto* e = std::getenv ("JPRESET")) p.loadPreset (std::atoi (e));
+        if (auto* e = std::getenv ("JTHEME")) p.uiTheme = std::atoi (e);
         Editor ed (p); ed.setSize (Editor::W, Editor::H);
         juce::AudioBuffer<float> b (2, B); juce::MidiBuffer m; double ph = 0;
         for (int k = 0; k < 40; ++k) { voice (b, sr, ph, k * B); p.processBlock (b, m); }
@@ -54,6 +55,37 @@ int main (int argc, char** argv)
         const bool ok = ! nan && pk < 1.5f && gain > 0.3 && jump < 0.3f;
         std::printf ("%-16s crew %+5.1f dB picco %.2f salto %.3f CPU %.1f%% %s\n", p.getProgramName (i).toRawUTF8(), gain, pk, jump, cpu, ok ? "OK" : "ERRORE");
         if (! ok) ++fails;
+    }
+    {   // click: accendi/spegni personaggi, cambia altezza, sciolti, stanza e gridato di colpo, a varie frequenze e blocchi
+        for (double rate : { 44100.0, 48000.0, 96000.0, 192000.0 })
+        {
+            auto run = [&] (bool moves, double& worst)
+            {
+                Processor p; p.prepareToPlay (rate, 2048); p.loadPreset (2);
+                juce::AudioBuffer<float> b (2, 2048); juce::MidiBuffer m; double ph = 0; float x1 = 0, x2 = 0; worst = 0; juce::Random r (9); int pos = 0;
+                for (int k = 0; k < 300; ++k)
+                {
+                    const int n = 1 + r.nextInt (2047); b.setSize (2, n, false, false, true);
+                    if (moves && k % 7 == 3)
+                    {
+                        const int v = r.nextInt (kVoices);
+                        switch (k % 5) { case 0: p.setP (Processor::vid (v, "on"), r.nextBool() ? 1.0f : 0.0f); break; case 1: p.setP (Processor::vid (v, "pitch"), (float) (r.nextInt (25) - 12)); break;
+                                         case 2: p.setP ("loose", r.nextFloat()); break; case 3: p.setP ("room", r.nextFloat()); break; default: p.setP ("shout", r.nextFloat()); }
+                    }
+                    voice (b, rate, ph, pos); pos += n; p.processBlock (b, m);
+                    for (int q = 0; q < n; ++q) { const float x = b.getSample (0, q); if (k > 10) worst = std::max (worst, (double) std::abs (x - 2 * x1 + x2)); x2 = x1; x1 = x; if (! std::isfinite (x)) worst = 99; }
+                }
+            };
+            double base = 0, mov = 0; run (false, base); run (true, mov);
+            const bool ok = mov < base * 2.5 + 0.02;
+            std::printf ("click %6.0f Hz, blocchi casuali: curvatura max %.3f (fermo %.3f) %s\n", rate, mov, base, ok ? "OK" : "ERRORE"); if (! ok) ++fails;
+        }
+    }
+    {   // latenza dichiarata e stato
+        Processor p; p.prepareToPlay (sr, B); p.loadPreset (3); p.uiTheme = 1;
+        juce::MemoryBlock mb; p.getStateInformation (mb); Processor q; q.setStateInformation (mb.getData(), (int) mb.getSize());
+        const bool ok = p.getLatencySamples() == 0 && q.uiTheme == 1 && std::abs (q.value ("v1_on") - 1.0f) < 0.01f;
+        std::printf ("latenza %d campioni, stato e tema ripristinati %s\n", p.getLatencySamples(), ok ? "OK" : "ERRORE"); if (! ok) ++fails;
     }
     std::printf (fails == 0 ? "TUTTO OK\n" : "ERRORI: %d\n", fails);
     return fails;

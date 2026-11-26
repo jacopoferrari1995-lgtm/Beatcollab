@@ -43,7 +43,7 @@ public:
 
     juce::UndoManager undo { 200000, 60 };
     juce::AudioProcessorValueTreeState apvts;
-    int preset = 0;
+    int preset = 0, uiTheme = 0;   // 0 ologrammi, 1 quaderno sporco
     Engine eng;
     std::array<std::atomic<float>, kVoices> uiMeter {};
     std::atomic<float> uiIn { 0 };

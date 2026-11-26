@@ -33,7 +33,7 @@ void ink (juce::Graphics& g, const Path& p, int seed, float w, bool on = true)
     g.setColour (c.withAlpha (0.55f)); g.strokePath (wob (p, seed + 13, 1.1f), juce::PathStrokeType (w * 0.45f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 // colore piatto fuori registro (come una stampa a due passaggi)
-void flat (juce::Graphics& g, const Path& p, juce::Colour c, bool on) { if (! on) return; g.setColour (c); g.fillPath (p, juce::AffineTransform::translation (3.0f, 2.0f)); }
+void flat (juce::Graphics& g, const Path& p, juce::Colour c, bool on) { if (! on) return; g.setColour (c.darker (0.18f)); g.fillPath (p, juce::AffineTransform::translation (3.0f, 2.0f)); }
 void both (juce::Graphics& g, const Path& p, juce::Colour c, bool on, int seed, float w = 2.2f) { flat (g, p, c, on); ink (g, p, seed, w, on); }
 Path ell (float x, float y, float w, float h) { Path p; p.addEllipse (x, y, w, h); return p; }
 Path rr (float x, float y, float w, float h, float r) { Path p; p.addRoundedRectangle (x, y, w, h, r); return p; }
@@ -55,6 +55,7 @@ void tape (juce::Graphics& g, float cx, float cy, float ang, float w = 64)
     g.setColour (juce::Colours::black.withAlpha (0.08f)); for (float x = cx - w * 0.5f; x < cx + w * 0.5f; x += 4) g.drawVerticalLine ((int) x, cy - 10, cy - 7);
     g.restoreState();
 }
+const juce::Colour LITE (0xfff1ece2);
 juce::Point<float> mouthAt (int k) { return k == 5 ? juce::Point<float> (140, 110) : k == 1 ? juce::Point<float> (140, 109) : juce::Point<float> (140, 106); }
 }
 
@@ -71,14 +72,14 @@ void Editor::drawCharacter (juce::Graphics& g, int k, juce::Rectangle<float> box
         {   // BIG MO: completo scuro, cresta corta, visiera nera, orecchino d'oro
             const juce::Colour skin (0xff8a5a3c);
             both (g, shoulders(), juce::Colour (0xff3b3f46), on, s);
-            both (g, poly ({ { 124, 134 }, { 156, 134 }, { 140, 168 } }), SHEET, on, s + 1, 1.8f);
+            both (g, poly ({ { 124, 134 }, { 156, 134 }, { 140, 168 } }), LITE, on, s + 1, 1.8f);
             ink (g, poly ({ { 112, 136 }, { 140, 172 }, { 168, 136 } }), s + 2, 2.0f, on);
             both (g, neck, skin.darker (0.15f), on, s + 3);
             both (g, ell (94, 70, 12, 20), skin, on, s + 4, 1.6f); both (g, ell (174, 70, 12, 20), skin, on, s + 5, 1.6f);
             both (g, rr (102, 36, 76, 90, 28), skin, on, s + 6);
-            both (g, rr (126, 20, 28, 30, 10), INK, on, s + 7);
-            both (g, poly ({ { 100, 70 }, { 180, 70 }, { 176, 86 }, { 148, 89 }, { 140, 82 }, { 132, 89 }, { 104, 86 } }), INK, on, s + 8);
-            if (on) { g.setColour (SHEET.withAlpha (0.8f)); g.drawLine (110, 74, 126, 74, 2.0f); }
+            both (g, rr (126, 20, 28, 30, 10), DARKF, on, s + 7);
+            both (g, poly ({ { 100, 70 }, { 180, 70 }, { 176, 86 }, { 148, 89 }, { 140, 82 }, { 132, 89 }, { 104, 86 } }), DARKF, on, s + 8);
+            if (on) { g.setColour (LITE.withAlpha (0.8f)); g.drawLine (110, 74, 126, 74, 2.0f); }
             both (g, ell (96, 92, 7, 7), juce::Colour (0xffe8b83a), on, s + 9, 1.2f);
             ink (g, poly ({ { 136, 92 }, { 144, 92 }, { 140, 98 } }), s + 10, 1.4f, on);
             break;
@@ -108,7 +109,7 @@ void Editor::drawCharacter (juce::Graphics& g, int k, juce::Rectangle<float> box
             both (g, poly ({ { 108, 124 }, { 172, 124 }, { 178, 152 }, { 102, 152 } }), juce::Colour (0xffd9601e), on, s + 3);
             both (g, ell (108, 42, 64, 82), skin, on, s + 4);
             { Path b; b.startNewSubPath (104, 68); b.cubicTo (106, 28, 174, 28, 176, 68); b.cubicTo (162, 58, 150, 62, 140, 54); b.cubicTo (128, 62, 116, 58, 104, 68); b.closeSubPath(); both (g, b, hair, on, s + 5); }
-            both (g, rr (104, 68, 72, 22, 4), SHEET, on, s + 6, 1.8f);
+            both (g, rr (104, 68, 72, 22, 4), LITE, on, s + 6, 1.8f);
             both (g, rr (108, 71, 28, 15, 2), juce::Colour (0xffe0453c), on, s + 7, 1.2f); both (g, rr (144, 71, 28, 15, 2), juce::Colour (0xff4cc6d6), on, s + 8, 1.2f);
             if (on) { g.setColour (juce::Colour (0xffc0704a)); for (int i = 0; i < 6; ++i) g.fillEllipse (116.0f + (i % 3) * 5 + (i > 2 ? 34 : 0), 94.0f + (i % 2) * 3, 2.2f, 2.2f); }
             break;
@@ -147,8 +148,8 @@ void Editor::drawCharacter (juce::Graphics& g, int k, juce::Rectangle<float> box
             both (g, ell (108, 44, 64, 82), skin, on, s + 2);
             both (g, ell (92, 44, 96, 20), juce::Colour (0xffe8dcc0), on, s + 3);
             both (g, rr (112, 22, 56, 34, 12), juce::Colour (0xffe8dcc0), on, s + 4);
-            both (g, ell (112, 70, 24, 24), INK, on, s + 5, 2.0f); both (g, ell (144, 70, 24, 24), INK, on, s + 6, 2.0f);
-            if (on) { g.setColour (juce::Colour (0xffe8b83a)); g.drawEllipse (112, 70, 24, 24, 1.4f); g.drawEllipse (144, 70, 24, 24, 1.4f); g.setColour (SHEET.withAlpha (0.8f)); g.drawLine (118, 76, 124, 74, 1.6f); }
+            both (g, ell (112, 70, 24, 24), DARKF, on, s + 5, 2.0f); both (g, ell (144, 70, 24, 24), DARKF, on, s + 6, 2.0f);
+            if (on) { g.setColour (juce::Colour (0xffe8b83a)); g.drawEllipse (112, 70, 24, 24, 1.4f); g.drawEllipse (144, 70, 24, 24, 1.4f); g.setColour (LITE.withAlpha (0.8f)); g.drawLine (118, 76, 124, 74, 1.6f); }
             { Path b; b.startNewSubPath (136, 80); b.lineTo (144, 80); ink (g, b, s + 7, 1.6f, on); }
             break;
         }
@@ -162,14 +163,14 @@ void Editor::drawMouth (juce::Graphics& g, int k, juce::Rectangle<float> box, bo
     if (k == 3)
     {   // il casco: la visiera si accende e ne escono onde
         g.setColour (juce::Colour (0xff3fd3c6).withAlpha (on ? 0.12f + 0.65f * open : 0.0f)); g.fillRoundedRectangle (106, 52, 70, 52, 20);
-        if (on) { g.setColour (SHEET.withAlpha (0.7f)); g.drawLine (112, 58, 126, 56, 2.5f); }
+        if (on) { g.setColour (LITE.withAlpha (0.7f)); g.drawLine (112, 58, 126, 56, 2.5f); }
     }
     else if (k == 4)
     {   // bandana: la stoffa si gonfia
         Path b; const float bulge = 6 + open * 10;
         b.startNewSubPath (104, 84); b.lineTo (176, 84); b.cubicTo (176, 100, 160, 118 + bulge * 0.4f, 140, 128 + bulge * 0.3f); b.cubicTo (120, 118 + bulge * 0.4f, 104, 100, 104, 84); b.closeSubPath();
         both (g, b, juce::Colour (0xff3567b5), on, 400 + tk / 6 % 3);
-        if (on) { g.setColour (SHEET); for (int i = 0; i < 9; ++i) g.fillEllipse (112.0f + (i % 5) * 12, 90.0f + (i / 5) * 12 + (i % 2) * 3, 3, 3); }
+        if (on) { g.setColour (LITE); for (int i = 0; i < 9; ++i) g.fillEllipse (112.0f + (i % 5) * 12, 90.0f + (i / 5) * 12 + (i % 2) * 3, 3, 3); }
     }
     else
     {
@@ -178,9 +179,9 @@ void Editor::drawMouth (juce::Graphics& g, int k, juce::Rectangle<float> box, bo
         {
             const float w = 14 + 10 * open + (k == 1 ? 6 : 0), h = 4 + 16 * open;
             Path mo; mo.addEllipse (m.x - w * 0.5f, m.y - h * 0.3f, w, h);
-            g.setColour (INK); g.fillPath (mo);
+            g.setColour (DARKF); g.fillPath (mo);
             g.saveState(); g.reduceClipRegion (mo);
-            g.setColour (k == 5 ? juce::Colour (0xffe8b83a) : SHEET); g.fillRect (m.x - w * 0.5f, m.y - h * 0.3f, w, juce::jmin (h * 0.3f, 5.0f));
+            g.setColour (k == 5 ? juce::Colour (0xffe8b83a) : LITE); g.fillRect (m.x - w * 0.5f, m.y - h * 0.3f, w, juce::jmin (h * 0.3f, 5.0f));
             g.setColour (juce::Colour (0xffd9443a)); g.fillEllipse (m.x - w * 0.3f, m.y + h * 0.35f, w * 0.6f, h * 0.4f);
             g.restoreState();
             ink (g, mo, 300 + k + tk / 4 % 3, 1.8f, on);
@@ -194,68 +195,227 @@ void Editor::drawMouth (juce::Graphics& g, int k, juce::Rectangle<float> box, bo
     g.restoreState();
 }
 
-// =============================================================================================== carta del personaggio
+juce::Colour sk::holoTint (int k)
+{
+    static const juce::Colour c[] = { juce::Colour (0xffffb347), juce::Colour (0xff5dff8a), juce::Colour (0xffff7a3d), juce::Colour (0xff38f2ff), juce::Colour (0xff6f9bff), juce::Colour (0xffffd84a) };
+    return c[juce::jlimit (0, kVoices - 1, k)];
+}
+// posto di ogni ologramma nella stanza: tre a sinistra, tre a destra, quelli in mezzo piu' vicini al centro
+juce::Rectangle<float> Editor::holoSlot (int k)
+{
+    static const int side[] = { 0, 1, 1, 0, 0, 1 }, row[] = { 0, 0, 1, 1, 2, 2 };
+    const float y = 66.0f + row[k] * 212.0f, inset = row[k] == 1 ? 50.0f : 12.0f;
+    return { side[k] == 0 ? inset : (float) W - inset - 374, y, 374, 206 };
+}
+namespace
+{
+bool leftSide (int k) { return k == 0 || k == 3 || k == 4; }
+void glowText (juce::Graphics& g, const juce::String& t, juce::Rectangle<float> r, juce::Font f, juce::Colour c, float amt, juce::Justification j = juce::Justification::centred)
+{
+    g.setFont (f);
+    for (int i = 4; i >= 1; --i) { g.setColour (c.withAlpha (0.07f * amt)); for (auto o : { juce::Point<float> (-1, 0), juce::Point<float> (1, 0), juce::Point<float> (0, -1), juce::Point<float> (0, 1) }) g.drawText (t, r.translated (o.x * i * 1.6f, o.y * i * 1.6f), j, false); }
+    g.setColour (c.withAlpha (amt)); g.drawText (t, r, j, false);
+    g.setColour (juce::Colours::white.withAlpha (0.55f * amt)); g.drawText (t, r.translated (0, -0.5f), j, false);
+}
+void bracket (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c, float len = 14, float w = 2)
+{
+    g.setColour (c);
+    g.fillRect (r.getX(), r.getY(), len, w); g.fillRect (r.getX(), r.getY(), w, len);
+    g.fillRect (r.getRight() - len, r.getY(), len, w); g.fillRect (r.getRight() - w, r.getY(), w, len);
+    g.fillRect (r.getX(), r.getBottom() - w, len, w); g.fillRect (r.getX(), r.getBottom() - len, w, len);
+    g.fillRect (r.getRight() - len, r.getBottom() - w, len, w); g.fillRect (r.getRight() - w, r.getBottom() - len, w, len);
+}
+void grime (juce::Graphics& g, juce::Rectangle<float> r, int seed, float amt)
+{   // sporco: puntini, graffi, colature
+    juce::Random rnd (seed);
+    for (int i = 0; i < (int) (r.getWidth() * r.getHeight() / 90); ++i) { g.setColour ((rnd.nextBool() ? juce::Colours::black : juce::Colours::white).withAlpha (0.05f * amt + rnd.nextFloat() * 0.04f * amt)); g.fillRect (r.getX() + rnd.nextFloat() * r.getWidth(), r.getY() + rnd.nextFloat() * r.getHeight(), 1.3f, 1.3f); }
+    for (int i = 0; i < 26; ++i)
+    {
+        const float x = r.getX() + rnd.nextFloat() * r.getWidth(), y = r.getY() + rnd.nextFloat() * r.getHeight(), l = 8 + rnd.nextFloat() * 60, a = rnd.nextFloat() * 3.14f;
+        g.setColour (juce::Colours::white.withAlpha (0.04f * amt)); g.drawLine (x, y, x + std::cos (a) * l, y + std::sin (a) * l, 0.7f);
+    }
+    for (int i = 0; i < 10; ++i)
+    {
+        const float x = r.getX() + rnd.nextFloat() * r.getWidth(), y = r.getY() + rnd.nextFloat() * r.getHeight() * 0.4f, l = 30 + rnd.nextFloat() * 120;
+        juce::ColourGradient cg (juce::Colours::black.withAlpha (0.28f * amt), x, y, juce::Colours::transparentBlack, x, y + l, false); g.setGradientFill (cg); g.fillRect (x, y, 1.5f + rnd.nextFloat() * 2.5f, l);
+    }
+}
+}
+
+// =============================================================================================== carta / proiezione del personaggio
 void Card::paint (juce::Graphics& g)
 {
     const bool on = ed.proc.value (Processor::vid (idx, "on")) > 0.5f;
+    if (ed.holoTheme()) paintHolo (g, on); else paintSketch (g, on);
+}
+void Card::paintSketch (juce::Graphics& g, bool on)
+{
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
-    if (cache.isNull() || std::abs (cacheScale - sc) > 0.01f || cacheOn != (int) on)
+    if (cache.isNull() || std::abs (cacheScale - sc) > 0.01f || cacheKey != (int) on)
     {
-        cacheScale = sc; cacheOn = on;
+        cacheScale = sc; cacheKey = on;
         cache = juce::Image (juce::Image::ARGB, juce::roundToInt (getWidth() * sc), juce::roundToInt (getHeight() * sc), true);
         juce::Graphics ig (cache); ig.addTransform (juce::AffineTransform::scale (sc));
         sheet (ig, getLocalBounds().toFloat().reduced (4), 50 + idx * 17);
         tape (ig, getWidth() * 0.5f, 6, (idx % 2 ? 0.05f : -0.06f));
-        // fondo colorato dietro al busto (come un timbro)
-        if (on) { ig.setColour (accent (idx).withAlpha (0.28f)); ig.fillRect (juce::Rectangle<float> (40, 30, 200, 146)); }
+        if (on) { ig.setColour (accent (idx).withAlpha (0.16f)); ig.fillRect (juce::Rectangle<float> (40, 30, 200, 146)); }
         Editor::drawCharacter (ig, idx, { 0, 0, (float) getWidth(), 176 }, on);
         const auto& c = characters()[(size_t) idx];
-        if (on) { ig.setColour (accent (idx)); ig.fillRect (juce::Rectangle<float> (16, 182, 132, 30).translated (3, 2)); }
+        if (on) { ig.setColour (accent (idx).darker (0.2f)); ig.fillRect (juce::Rectangle<float> (16, 182, 132, 30).translated (3, 2)); }
         text (ig, c.name, { 16, 178, 160, 36 }, beb (34.0f), on ? INK : PENCIL, juce::Justification::centredLeft);
         ig.setFont (mon (8.5f)); ig.setColour (on ? INK.withAlpha (0.75f) : PENCIL);
         ig.drawFittedText (c.role, juce::Rectangle<int> (156, 182, getWidth() - 168, 28), juce::Justification::centredRight, 2, 0.8f);
         if (! on) text (ig, "clicca per farlo entrare", { 0, 156, (float) getWidth(), 18 }, mon (10.0f), PENCIL);
+        grime (ig, getLocalBounds().toFloat().reduced (4), 900 + idx, 1.3f);
     }
     g.drawImageTransformed (cache, juce::AffineTransform::scale (1.0f / sc));
     Editor::drawMouth (g, idx, { 0, 0, (float) getWidth(), 176 }, on, mouth, ed.tick);
-    if (hover) { g.setColour (INK.withAlpha (0.5f)); g.drawRect (getLocalBounds().toFloat().reduced (6), 1.5f); }
+    if (hover) { g.setColour (RED.withAlpha (0.7f)); g.drawRect (getLocalBounds().toFloat().reduced (6), 1.5f); }
+}
+void Card::paintHolo (juce::Graphics& g, bool on)
+{
+    const float w = (float) getWidth(), h = (float) getHeight(); const auto tint = holoTint (idx);
+    const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+    const auto fig = juce::Rectangle<float> (0, 32, w, 150);
+    if (holo.isNull() || std::abs (holoScale - sc) > 0.01f)
+    {   // il personaggio disegnato e poi trasformato in luce: i tratti brillano, i colori diventano velo, righe di scansione e alone
+        holoScale = sc;
+        const int iw = juce::roundToInt (fig.getWidth() * sc), ih = juce::roundToInt (fig.getHeight() * sc);
+        juce::Image src (juce::Image::ARGB, iw, ih, true);
+        { juce::Graphics ig (src); const float s0 = fig.getWidth() / 220.0f; ig.addTransform (juce::AffineTransform::translation (-30, 0).scaled (s0 * sc)); Editor::drawCharacter (ig, idx, { 0, 0, 280, 176 }, true); }
+        {
+            juce::Image::BitmapData bd (src, juce::Image::BitmapData::readWrite);
+            for (int y = 0; y < ih; ++y)
+            {
+                const float scan = (y % 3 == 0) ? 0.45f : 1.0f;
+                for (int x = 0; x < iw; ++x)
+                {
+                    const auto c = bd.getPixelColour (x, y); const float a = c.getFloatAlpha(); if (a <= 0.001f) continue;
+                    const float lum = (0.3f * c.getFloatRed() + 0.59f * c.getFloatGreen() + 0.11f * c.getFloatBlue());
+                    const float out = a * (0.16f + 0.84f * std::pow (lum, 1.4f)) * scan;
+                    bd.setPixelColour (x, y, tint.interpolatedWith (juce::Colours::white, std::pow (lum, 3.0f) * 0.55f).withAlpha (juce::jlimit (0.0f, 1.0f, out)));
+                }
+            }
+        }
+        juce::Image glow = src.createCopy();
+        juce::ImageConvolutionKernel k (9); k.createGaussianBlur (3.5f * sc / 2.0f + 1.5f); k.applyToImage (glow, glow, glow.getBounds());
+        holo = juce::Image (juce::Image::ARGB, iw, ih, true);
+        { juce::Graphics hg (holo); hg.setOpacity (0.9f); hg.drawImageAt (glow, 0, 0); hg.setOpacity (1.0f); hg.drawImageAt (src, 0, 0); }
+    }
+    // proiettore
+    const float pcx = w * 0.5f, pcy = h - 18;
+    {
+        g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillEllipse (pcx - 80, pcy - 8, 160, 30);
+        juce::ColourGradient mg (juce::Colour (0xff2b2e3a), pcx, pcy - 12, juce::Colour (0xff0b0c12), pcx, pcy + 14, false); g.setGradientFill (mg); g.fillEllipse (pcx - 74, pcy - 13, 148, 26);
+        g.setColour (juce::Colour (0xff3c4050)); g.drawEllipse (pcx - 74, pcy - 13, 148, 26, 1.5f);
+        g.setColour ((on ? tint : juce::Colour (0xffff3a3a)).withAlpha (on ? 0.85f : 0.35f)); g.drawEllipse (pcx - 52, pcy - 8, 104, 16, 2.0f);
+        if (on)
+        {
+            const float pulse = 0.35f + 0.65f * mouth;
+            juce::ColourGradient beam (tint.withAlpha (0.18f + 0.15f * pulse), pcx, pcy, tint.withAlpha (0.0f), pcx, fig.getY(), false);
+            g.setGradientFill (beam); juce::Path b; b.startNewSubPath (pcx - 50, pcy); b.lineTo (pcx + 50, pcy); b.lineTo (pcx + 86, fig.getY() + 10); b.lineTo (pcx - 86, fig.getY() + 10); b.closeSubPath(); g.fillPath (b);
+            // anello che pulsa con la voce
+            for (int i = 0; i < 24; ++i) { const float a = i / 24.0f * juce::MathConstants<float>::twoPi, l = 3 + 10 * mouth * (0.5f + 0.5f * std::sin (a * 3 + ed.tick * 0.4f)); g.setColour (tint.withAlpha (0.8f)); g.drawLine (pcx + std::cos (a) * 52, pcy + std::sin (a) * 8, pcx + std::cos (a) * (52 + l), pcy + std::sin (a) * (8 + l * 0.15f), 1.6f); }
+        }
+    }
+    // figura
+    {
+        float alpha = on ? (0.78f + 0.22f * mouth) * (glitch > 0.5f ? 0.6f : 1.0f) : 0.07f;
+        if (on && ed.tick % 47 == idx * 7) alpha *= 0.7f;
+        if (glitch > 0.01f && on)
+        {   // sfarfallio: fette orizzontali spostate
+            juce::Random r (glitchSeed);
+            const int slices = 5;
+            for (int s = 0; s < slices; ++s)
+            {
+                const float y0 = fig.getY() + fig.getHeight() * s / slices, hh = fig.getHeight() / slices, dx = (r.nextFloat() - 0.5f) * 14 * glitch;
+                g.saveState(); g.reduceClipRegion (juce::Rectangle<float> (0, y0, w, hh).toNearestInt()); g.setOpacity (alpha);
+                g.drawImageTransformed (holo, juce::AffineTransform::scale (1.0f / holoScale).translated (fig.getX() + dx, fig.getY())); g.restoreState();
+            }
+        }
+        else { g.setOpacity (alpha); g.drawImageTransformed (holo, juce::AffineTransform::scale (1.0f / holoScale).translated (fig.getX(), fig.getY())); g.setOpacity (1.0f); }
+        if (! on)
+        {   // proiettore spento: solo rumore
+            juce::Random r (ed.tick / 3 + idx * 31);
+            for (int i = 0; i < 16; ++i) { g.setColour (juce::Colours::white.withAlpha (0.05f + r.nextFloat() * 0.07f)); g.fillRect (r.nextFloat() * w, fig.getY() + r.nextFloat() * fig.getHeight(), 6 + r.nextFloat() * 40, 1.0f); }
+            glowText (g, "OFFLINE", { 0, pcy - 52, w, 20 }, mon (12.0f), juce::Colour (0xffff3a3a), 0.8f);
+            text (g, "clicca per proiettarlo", { 0, pcy - 34, w, 14 }, mon (9.0f), juce::Colour (0xff8a8fa3));
+        }
+        else if (mouth > 0.2f)
+        {   // segni del suono
+            const float mx = fig.getX() + (140 - 30) * fig.getWidth() / 220.0f, my = fig.getY() + 106 * fig.getWidth() / 220.0f;
+            for (int i = 0; i < 3; ++i) { juce::Path a; const float r = 10 + i * 8 + (ed.tick % 6); a.addCentredArc (mx + 24, my, r, r, 0, 0.9f, 2.2f, true); g.setColour (tint.withAlpha (0.8f - i * 0.22f)); g.strokePath (a, juce::PathStrokeType (1.8f)); }
+            g.setColour (tint.withAlpha (0.9f)); g.fillEllipse (mx - 4 - 5 * mouth, my - 2, 8 + 10 * mouth, 3 + 9 * mouth);
+        }
+    }
+    // nome e ruolo
+    const auto& c = characters()[(size_t) idx];
+    const bool L = leftSide (idx);
+    glowText (g, c.name, { 6, 2, w - 12, 26 }, beb (28.0f), on ? tint : juce::Colour (0xff4b4f60), on ? 1.0f : 0.6f, L ? juce::Justification::centredLeft : juce::Justification::centredRight);
+    text (g, c.role, { 6, 24, w - 12, 12 }, mon (8.5f), on ? tint.withAlpha (0.7f) : juce::Colour (0xff4b4f60), L ? juce::Justification::centredLeft : juce::Justification::centredRight);
+    if (hover) bracket (g, getLocalBounds().toFloat().reduced (2), tint.withAlpha (0.9f), 12, 1.5f);
 }
 void Card::mouseDown (const juce::MouseEvent& e)
 {
-    if (e.position.y > 176) return;
+    if (! ed.holoTheme() && e.position.y > 176) return;
     ed.proc.undo.beginNewTransaction();
     const auto id = Processor::vid (idx, "on");
     ed.proc.setP (id, ed.proc.value (id) > 0.5f ? 0.0f : 1.0f);
+    glitch = 1.0f; glitchSeed = ed.tick;
     repaint();
 }
 
-// =============================================================================================== manopola a matita
+// =============================================================================================== manopola (gesso o metallo con neon)
 Knob::Knob (Editor& e, const juce::String& id, juce::String l, juce::Colour f, std::function<juce::String (float)> fm, int sd)
-    : prm (e.P (id)), label (std::move (l)), fill (f), fmt (std::move (fm)), seed (sd)
+    : ed (e), prm (e.P (id)), label (std::move (l)), fill (f), fmt (std::move (fm)), seed (sd)
 { setRepaintsOnMouseActivity (true); setMouseCursor (juce::MouseCursor::UpDownResizeCursor); }
 void Knob::paint (juce::Graphics& g)
 {
-    const float w = (float) getWidth(), h = (float) getHeight(), lh = 17, vh = 15;
-    const float S = juce::jmin (w - 16, h - lh - vh - 8), cx = w * 0.5f, cy = lh + 4 + S * 0.5f, R = S * 0.5f;
+    const bool holoT = ed.holoTheme();
+    const bool live = voice < 0 || ed.proc.value (Processor::vid (voice, "on")) > 0.5f;
+    const float w = (float) getWidth(), h = (float) getHeight(), lh = holoT ? 14.0f : 17.0f, vh = 15;
+    const float S = juce::jmin (w - 18, h - lh - vh - 10), cx = w * 0.5f, cy = lh + 5 + S * 0.5f, R = S * 0.5f;
     const float v = prm->getValue(), a0 = -2.36f, a1 = 2.36f, av = a0 + (a1 - a0) * v;
+    const juce::String t = fmt ? fmt (prm->convertFrom0to1 (v)) : prm->getCurrentValueAsText();
+    const bool hov = isMouseOverOrDragging();
+    if (holoT)
+    {
+        const auto c = live ? fill : juce::Colour (0xff4b4f60);
+        text (g, label, { -10, 0, w + 20, lh }, mon (9.5f), c.withAlpha (0.9f));
+        for (int i = 0; i <= 20; ++i)
+        {
+            const float a = a0 + (a1 - a0) * i / 20.0f, r1 = R + 4, r2 = R + (i % 5 == 0 ? 9.0f : 6.5f); const bool lit = live && i / 20.0f <= v + 1e-4f;
+            g.setColour (lit ? c : juce::Colour (0xff2c3040)); g.drawLine (cx + std::sin (a) * r1, cy - std::cos (a) * r1, cx + std::sin (a) * r2, cy - std::cos (a) * r2, i % 5 == 0 ? 2.0f : 1.4f);
+        }
+        if (live) { juce::Path p; const float s0 = bipolar ? 0.0f : a0; p.addCentredArc (cx, cy, R + 2, R + 2, 0, juce::jmin (s0, av), juce::jmax (s0, av), true); g.setColour (c.withAlpha (hov ? 0.5f : 0.3f)); g.strokePath (p, juce::PathStrokeType (5.0f)); g.setColour (c); g.strokePath (p, juce::PathStrokeType (1.6f)); }
+        g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillEllipse (cx - R + 2, cy - R + 4, R * 2, R * 2);
+        { juce::ColourGradient body (juce::Colour (0xff3a3e4c), cx, cy - R, juce::Colour (0xff0e1017), cx, cy + R, false); g.setGradientFill (body); g.fillEllipse (cx - R, cy - R, R * 2, R * 2); }
+        for (int i = 0; i < 36; ++i) { const float a = av + i * juce::MathConstants<float>::twoPi / 36; g.setColour (juce::Colours::black.withAlpha (0.35f)); g.drawLine (cx + std::sin (a) * (R - 0.5f), cy - std::cos (a) * (R - 0.5f), cx + std::sin (a) * (R - 3.5f), cy - std::cos (a) * (R - 3.5f), 1.0f); }
+        const float rc = R * 0.66f; { juce::ColourGradient cap (juce::Colour (0xff2a2d38), cx - rc * 0.4f, cy - rc, juce::Colour (0xff0a0b10), cx + rc * 0.4f, cy + rc, false); g.setGradientFill (cap); g.fillEllipse (cx - rc, cy - rc, rc * 2, rc * 2); }
+        g.setColour (juce::Colours::white.withAlpha (0.12f)); g.drawEllipse (cx - rc, cy - rc, rc * 2, rc * 2, 1.0f);
+        { const auto p0 = juce::Point<float> (cx + std::sin (av) * rc * 0.2f, cy - std::cos (av) * rc * 0.2f), p1 = juce::Point<float> (cx + std::sin (av) * (R - 2), cy - std::cos (av) * (R - 2));
+          g.setColour (c.withAlpha (0.35f)); g.drawLine ({ p0, p1 }, 5.0f); g.setColour (live ? juce::Colours::white.interpolatedWith (c, 0.4f) : c); g.drawLine ({ p0, p1 }, 2.0f); }
+        text (g, t, { -10, h - vh, w + 20, vh }, mon (10.0f), hov ? juce::Colours::white : (live ? c.interpolatedWith (juce::Colours::white, 0.35f) : c));
+        return;
+    }
     text (g, label, { -10, 0, w + 20, lh }, beb (17.0f), INK);
     for (int i = 0; i <= 10; ++i)
     {
         const float a = a0 + (a1 - a0) * i / 10.0f, r1 = R + 3, r2 = R + (i % 5 == 0 ? 8.0f : 6.0f);
         g.setColour (PENCIL); g.drawLine (cx + std::sin (a) * r1, cy - std::cos (a) * r1, cx + std::sin (a) * r2, cy - std::cos (a) * r2, i % 5 == 0 ? 1.6f : 1.0f);
     }
-    {   // il valore come un tratto di evidenziatore
+    {
         const float s0 = bipolar ? 0.0f : a0; Path p; p.addCentredArc (cx, cy, R + 4.5f, R + 4.5f, 0, juce::jmin (s0, av), juce::jmax (s0, av), true);
-        g.setColour (fill.withAlpha (isMouseOverOrDragging() ? 0.95f : 0.75f)); g.strokePath (p, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (fill.withAlpha (hov ? 0.95f : 0.75f)); g.strokePath (p, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
     Path body; body.addEllipse (cx - R, cy - R, R * 2, R * 2);
-    g.setColour (fill); g.fillPath (body, juce::AffineTransform::translation (2.5f, 2.0f));
-    g.setColour (SHEET.withAlpha (0.55f)); g.fillEllipse (cx - R * 0.55f, cy - R * 0.7f, R * 0.6f, R * 0.35f);
+    g.setColour (fill.darker (0.35f)); g.fillPath (body, juce::AffineTransform::translation (2.5f, 2.0f));
+    g.setColour (INK.withAlpha (0.25f)); g.fillEllipse (cx - R * 0.55f, cy - R * 0.7f, R * 0.6f, R * 0.35f);
     ink (g, body, seed, 2.0f);
     Path ptr; ptr.startNewSubPath (cx + std::sin (av) * R * 0.2f, cy - std::cos (av) * R * 0.2f); ptr.lineTo (cx + std::sin (av) * (R + 1), cy - std::cos (av) * (R + 1));
     g.setColour (INK); g.strokePath (ptr, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    const juce::String t = fmt ? fmt (prm->convertFrom0to1 (v)) : prm->getCurrentValueAsText();
-    text (g, t, { -10, h - vh, w + 20, vh }, mon (10.5f), isMouseOverOrDragging() ? RED : INK);
+    text (g, t, { -10, h - vh, w + 20, vh }, mon (10.5f), hov ? RED : INK);
+    if (! live) { g.setColour (PAPER.withAlpha (0.45f)); g.fillRect (getLocalBounds()); }
 }
 void Knob::mouseDown (const juce::MouseEvent& e)
 {
@@ -271,79 +431,205 @@ void Knob::mouseDrag (const juce::MouseEvent& e)
 }
 void Knob::mouseUp (const juce::MouseEvent&) { if (drag) prm->endChangeGesture(); drag = false; }
 void Knob::mouseDoubleClick (const juce::MouseEvent&) { prm->setValueNotifyingHost (prm->getDefaultValue()); }
-void Knob::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
+void Knob::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wd)
 {
-    const float dy = w.isReversed ? -w.deltaY : w.deltaY;
+    const float dy = wd.isReversed ? -wd.deltaY : wd.deltaY;
     if (steps > 1) { const float st = 1.0f / (steps - 1); prm->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, prm->getValue() + (dy > 0 ? st : -st))); }
     else prm->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, prm->getValue() + juce::jlimit (-0.05f, 0.05f, dy * 0.08f)));
 }
 
-// =============================================================================================== quaderno
-void Editor::drawStatic (juce::Graphics& g)
+// =============================================================================================== quaderno sporco
+void Editor::drawSketchStatic (juce::Graphics& g)
 {
     g.fillAll (PAPER);
-    {   // grana della carta e quadretti
-        juce::Random r (5);
-        for (int i = 0; i < 9000; ++i) { g.setColour ((r.nextBool() ? juce::Colours::black : juce::Colours::white).withAlpha (0.035f)); g.fillRect (r.nextFloat() * W, r.nextFloat() * H, 1.2f, 1.2f); }
-        g.setColour (BLUE.withAlpha (0.22f)); for (float x = 12; x < W; x += 24) g.drawVerticalLine ((int) x, 0, (float) H); for (float y = 12; y < H; y += 24) g.drawHorizontalLine ((int) y, 0, (float) W);
-        g.setColour (RED.withAlpha (0.35f)); g.drawVerticalLine (14, 0, (float) H);
-    }
-    {   // macchia di caffe'
-        for (int k = 0; k < 3; ++k) { g.setColour (juce::Colour (0xff8a5a2b).withAlpha (0.08f + k * 0.03f)); g.drawEllipse (840.0f - k, 640.0f + k * 0.5f, 120.0f + k * 2, 112.0f, 3.0f - k); }
-    }
-    // titolo a mano, stampato due volte fuori registro
-    text (g, "CREW", { 27, 13, 300, 70 }, bun (64.0f), RED, juce::Justification::centredLeft);
-    text (g, "CREW", { 22, 9, 300, 70 }, bun (64.0f), INK, juce::Justification::centredLeft);
-    text (g, "JACKPOT CYBERNET  //  GANG VOCALS DA UNA VOCE", { 26, 74, 420, 16 }, mon (10.0f), INK.withAlpha (0.7f), juce::Justification::centredLeft);
-    {   // scarabocchi a matita
-        g.setColour (PENCIL.withAlpha (0.8f));
-        Path star; star.addStar ({ 352, 44 }, 5, 6, 15, 0.2f); g.strokePath (wob (star, 3, 0.8f), juce::PathStrokeType (1.6f));
-        Path ar; ar.startNewSubPath (842, 30); ar.quadraticTo (870, 10, 896, 34); ar.startNewSubPath (888, 24); ar.lineTo (896, 34); ar.lineTo (884, 38); g.strokePath (wob (ar, 9, 0.8f), juce::PathStrokeType (1.6f));
-        g.saveState(); g.addTransform (juce::AffineTransform::rotation (-0.12f, 1100, 40)); text (g, "tutti insieme!!", { 1010, 28, 160, 24 }, beb (22.0f), PENCIL); g.restoreState();
-    }
-    // la cartellina della crew (comandi di tutti)
     {
+        juce::Random r (5);
+        for (int i = 0; i < 14000; ++i) { g.setColour ((r.nextBool() ? juce::Colours::black : juce::Colours::white).withAlpha (0.05f)); g.fillRect (r.nextFloat() * W, r.nextFloat() * H, 1.2f, 1.2f); }
+        g.setColour (BLUE.withAlpha (0.08f)); for (float x = 12; x < W; x += 24) g.drawVerticalLine ((int) x, 0, (float) H); for (float y = 12; y < H; y += 24) g.drawHorizontalLine ((int) y, 0, (float) H > 0 ? (float) W : 0.0f);
+        g.setColour (RED.withAlpha (0.4f)); g.drawVerticalLine (14, 0, (float) H);
+    }
+    for (int k = 0; k < 3; ++k) { g.setColour (juce::Colour (0xff6b4a2b).withAlpha (0.14f + k * 0.04f)); g.drawEllipse (840.0f - k, 640.0f + k * 0.5f, 120.0f + k * 2, 112.0f, 3.0f - k); }
+    grime (g, { 0, 0, (float) W, (float) H }, 3, 1.6f);
+    // titolo: neon fuori registro
+    glowText (g, "CREW", { 28, 13, 300, 70 }, bun (64.0f), BLUE, 0.7f, juce::Justification::centredLeft);
+    glowText (g, "CREW", { 22, 9, 300, 70 }, bun (64.0f), RED, 1.0f, juce::Justification::centredLeft);
+    text (g, "JACKPOT CYBERNET  //  GANG VOCALS DA UNA VOCE", { 26, 74, 420, 16 }, mon (10.0f), INK.withAlpha (0.7f), juce::Justification::centredLeft);
+    {
+        g.setColour (PENCIL);
+        Path star; star.addStar ({ 352, 44 }, 5, 6, 15, 0.2f); g.strokePath (wob (star, 3, 0.8f), juce::PathStrokeType (1.6f));
+    }
+    {   // la cartellina
         auto b = juce::Rectangle<float> (904, 96, 256, 612);
-        g.setColour (juce::Colours::black.withAlpha (0.18f)); g.fillRoundedRectangle (b.translated (5, 6), 10);
-        g.setColour (BOARD); g.fillRoundedRectangle (b, 10); g.setColour (BOARD.darker (0.4f)); g.drawRoundedRectangle (b, 10, 2.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.4f)); g.fillRoundedRectangle (b.translated (5, 6), 10);
+        g.setColour (BOARD); g.fillRoundedRectangle (b, 10); g.setColour (BOARD.darker (0.5f)); g.drawRoundedRectangle (b, 10, 2.0f);
         sheet (g, b.reduced (12).withTrimmedTop (26), 77);
         auto clip = juce::Rectangle<float> (b.getCentreX() - 58, b.getY() - 8, 116, 38);
-        g.setColour (STEEL.darker (0.3f)); g.fillRoundedRectangle (clip.translated (0, 2), 8); g.setColour (STEEL); g.fillRoundedRectangle (clip, 8);
-        g.setColour (juce::Colours::white.withAlpha (0.6f)); g.drawLine (clip.getX() + 10, clip.getY() + 6, clip.getRight() - 10, clip.getY() + 6, 2.0f);
-        g.setColour (STEEL.darker (0.5f)); g.fillEllipse (clip.getCentreX() - 6, clip.getY() + 12, 12, 12);
+        g.setColour (STEEL.darker (0.5f)); g.fillRoundedRectangle (clip.translated (0, 2), 8); g.setColour (STEEL.darker (0.2f)); g.fillRoundedRectangle (clip, 8);
+        g.setColour (STEEL.darker (0.7f)); g.fillEllipse (clip.getCentreX() - 6, clip.getY() + 12, 12, 12);
         text (g, "LA CREW", { b.getX(), b.getY() + 40, b.getWidth(), 34 }, beb (34.0f), INK);
         text (g, "come cantano tutti insieme", { b.getX(), b.getY() + 70, b.getWidth(), 14 }, mon (9.0f), INK.withAlpha (0.65f));
+        grime (g, b, 11, 1.4f);
     }
     text (g, "jackpot.wav '26", { 760, 694, 130, 16 }, mon (9.5f), PENCIL, juce::Justification::centredRight);
 }
+
+// =============================================================================================== la stanza degli ologrammi
+void Editor::drawMain (juce::Graphics& g, float lvl)
+{
+    juce::ignoreUnused (lvl);
+    const float cx = 590;
+    // tu: cappuccio scuro, visiera, respiratore, microfono in cuffia, cuciture che brillano; luce magenta a sinistra e ciano a destra
+    Path hood; hood.startNewSubPath (cx - 168, 532); hood.cubicTo (cx - 160, 440, cx - 120, 392, cx - 96, 370); hood.cubicTo (cx - 118, 300, cx - 104, 210, cx - 58, 176);
+    hood.cubicTo (cx - 30, 156, cx + 30, 156, cx + 58, 176); hood.cubicTo (cx + 104, 210, cx + 118, 300, cx + 96, 370); hood.cubicTo (cx + 120, 392, cx + 160, 440, cx + 168, 532); hood.closeSubPath();
+    g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillPath (hood, juce::AffineTransform::translation (0, 8));
+    { juce::ColourGradient hg (juce::Colour (0xff1c1f2c), cx, 170, juce::Colour (0xff07080d), cx, 532, false); g.setGradientFill (hg); g.fillPath (hood); }
+    g.saveState(); g.reduceClipRegion (hood);
+    { juce::ColourGradient rl (MAG.withAlpha (0.35f), cx - 170, 300, MAG.withAlpha (0.0f), cx - 90, 300, false); g.setGradientFill (rl); g.fillRect (cx - 170, 150.0f, 90.0f, 390.0f); }
+    { juce::ColourGradient rr2 (CYAN.withAlpha (0.3f), cx + 170, 300, CYAN.withAlpha (0.0f), cx + 90, 300, false); g.setGradientFill (rr2); g.fillRect (cx + 80, 150.0f, 90.0f, 390.0f); }
+    // cuciture e cinghie
+    g.setColour (CYAN.withAlpha (0.45f)); { Path s; s.startNewSubPath (cx - 70, 400); s.cubicTo (cx - 40, 440, cx - 20, 480, cx - 18, 532); g.strokePath (s, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::butt)); }
+    g.setColour (MAG.withAlpha (0.45f)); { Path s; s.startNewSubPath (cx + 70, 400); s.cubicTo (cx + 40, 440, cx + 20, 480, cx + 18, 532); g.strokePath (s, juce::PathStrokeType (1.4f)); }
+    g.setColour (juce::Colour (0xff0b0c11)); g.fillRect (cx - 120, 448.0f, 240.0f, 16.0f); g.setColour (juce::Colour (0xff3a3e4c)); g.fillRect (cx - 14, 446.0f, 28.0f, 20.0f);
+    g.restoreState();
+    g.setColour (MAG.withAlpha (0.8f)); { Path e; e.startNewSubPath (cx - 168, 532); e.cubicTo (cx - 160, 440, cx - 120, 392, cx - 96, 370); e.cubicTo (cx - 118, 300, cx - 104, 210, cx - 58, 176); g.strokePath (e, juce::PathStrokeType (2.0f)); }
+    g.setColour (CYAN.withAlpha (0.8f)); { Path e; e.startNewSubPath (cx + 168, 532); e.cubicTo (cx + 160, 440, cx + 120, 392, cx + 96, 370); e.cubicTo (cx + 118, 300, cx + 104, 210, cx + 58, 176); g.strokePath (e, juce::PathStrokeType (2.0f)); }
+    // il buio dentro il cappuccio
+    Path face; face.startNewSubPath (cx - 62, 270); face.cubicTo (cx - 64, 210, cx - 30, 192, cx, 192); face.cubicTo (cx + 30, 192, cx + 64, 210, cx + 62, 270);
+    face.cubicTo (cx + 60, 330, cx + 34, 376, cx, 384); face.cubicTo (cx - 34, 376, cx - 60, 330, cx - 62, 270); face.closeSubPath();
+    g.setColour (juce::Colour (0xff030305)); g.fillPath (face);
+    // respiratore
+    { Path m; m.startNewSubPath (cx - 40, 300); m.lineTo (cx + 40, 300); m.lineTo (cx + 30, 350); m.lineTo (cx + 12, 368); m.lineTo (cx - 12, 368); m.lineTo (cx - 30, 350); m.closeSubPath();
+      juce::ColourGradient mg (juce::Colour (0xff2a2e3a), cx, 300, juce::Colour (0xff101218), cx, 368, false); g.setGradientFill (mg); g.fillPath (m);
+      g.setColour (juce::Colour (0xff4a5062)); g.strokePath (m, juce::PathStrokeType (1.2f));
+      g.setColour (juce::Colour (0xff07080b)); for (int i = 0; i < 5; ++i) g.fillRect (cx - 18 + i * 8.0f, 318.0f, 4.0f, 34.0f); }
+    // cuffia col microfono
+    g.setColour (juce::Colour (0xff1a1c25)); g.fillRoundedRectangle (cx - 84, 248, 26, 58, 9); g.fillRoundedRectangle (cx + 58, 248, 26, 58, 9);
+    g.setColour (MAG.withAlpha (0.7f)); g.drawRoundedRectangle (cx - 84, 248, 26, 58, 9, 1.2f); g.setColour (CYAN.withAlpha (0.7f)); g.drawRoundedRectangle (cx + 58, 248, 26, 58, 9, 1.2f);
+    { Path boom; boom.startNewSubPath (cx + 70, 300); boom.cubicTo (cx + 70, 350, cx + 40, 362, cx + 18, 360); g.setColour (juce::Colour (0xff2a2d38)); g.strokePath (boom, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)); }
+    g.setColour (juce::Colour (0xff15161d)); g.fillEllipse (cx + 6, 352, 16, 16);
+    // targhetta
+    { auto p = juce::Rectangle<float> (cx + 40, 470, 64, 26); g.setColour (juce::Colour (0xff0b0c11)); g.fillRect (p); g.setColour (ACID); g.drawRect (p, 1.2f); text (g, "TU", p, bun (16.0f), ACID); }
+}
+void Editor::drawHoloStatic (juce::Graphics& g)
+{
+    { juce::ColourGradient bg (ROOM1, 590, 40, ROOM0, 590, (float) H, false); g.setGradientFill (bg); g.fillAll(); }
+    // parete: pannelli, tubi, cavi
+    g.setColour (juce::Colour (0xff141726)); for (float x = 0; x < W; x += 64) g.drawVerticalLine ((int) x, 56, 470);
+    g.setColour (juce::Colour (0xff1b1f33)); g.drawHorizontalLine (180, 0, (float) W); g.drawHorizontalLine (182, 0, (float) W);
+    for (int i = 0; i < 5; ++i) { Path c; const float x0 = 120.0f + i * 230, x1 = x0 + 140 + i * 10; c.startNewSubPath (x0, 56); c.quadraticTo ((x0 + x1) * 0.5f, 140.0f + i * 12, x1, 56); g.setColour (juce::Colour (0xff05060a)); g.strokePath (c, juce::PathStrokeType (3.0f)); }
+    // foschia colorata
+    { juce::ColourGradient hz (MAG.withAlpha (0.16f), 140, 360, MAG.withAlpha (0.0f), 520, 360, true); g.setGradientFill (hz); g.fillAll(); }
+    { juce::ColourGradient hz (CYAN.withAlpha (0.13f), 1040, 360, CYAN.withAlpha (0.0f), 660, 360, true); g.setGradientFill (hz); g.fillAll(); }
+    // pavimento a griglia in prospettiva, bagnato
+    {
+        const float vx = 590, vy = 360, fy = 470;
+        g.saveState(); g.reduceClipRegion (juce::Rectangle<int> (0, (int) fy, W, H - (int) fy));
+        g.setColour (CYAN.withAlpha (0.12f));
+        for (int i = -14; i <= 14; ++i) g.drawLine (vx, vy, vx + i * 120.0f, (float) H + 200, 1.0f);
+        for (float t = 0.06f; t < 1.2f; t *= 1.35f) { const float y = fy + (H - fy) * t; g.drawHorizontalLine ((int) y, 0, (float) W); }
+        juce::Random r (4); for (int i = 0; i < 14; ++i) { const float x = r.nextFloat() * W, y = fy + 20 + r.nextFloat() * (H - fy - 20); g.setColour ((r.nextBool() ? MAG : CYAN).withAlpha (0.08f)); g.fillRect (x, y, 30 + r.nextFloat() * 80, 1.5f); }
+        g.restoreState();
+    }
+    grime (g, { 0, 50, (float) W, (float) H - 50 }, 7, 1.8f);
+    drawMain (g, 0);
+    // pannelli di vetro dei personaggi
+    for (int k = 0; k < kVoices; ++k)
+    {
+        const auto s = holoSlot (k); const bool L = leftSide (k);
+        auto panel = juce::Rectangle<float> (L ? s.getX() + 188 : s.getX(), s.getY() + 12, 186, 186);
+        g.setColour (GLASS); g.fillRect (panel); g.setColour (holoTint (k).withAlpha (0.18f)); g.drawRect (panel, 1.0f);
+        bracket (g, panel, holoTint (k).withAlpha (0.75f));
+        text (g, "0" + juce::String (k + 1), panel.removeFromBottom (14).translated (0, -2), mon (8.5f), holoTint (k).withAlpha (0.5f), L ? juce::Justification::centredRight : juce::Justification::centredLeft);
+        // cavo dal pannello al proiettore
+        g.setColour (juce::Colour (0xff05060a)); g.drawLine (L ? panel.getX() : panel.getRight(), panel.getBottom() - 20, L ? s.getX() + 140 : s.getRight() - 140, s.getBottom() - 10, 2.5f);
+    }
+    // consolle della crew davanti a te
+    {
+        auto c = juce::Rectangle<float> (398, 530, 384, 182);
+        Path d; d.startNewSubPath (c.getX() + 18, c.getY()); d.lineTo (c.getRight() - 18, c.getY()); d.lineTo (c.getRight(), c.getBottom()); d.lineTo (c.getX(), c.getBottom()); d.closeSubPath();
+        g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillPath (d, juce::AffineTransform::translation (0, 6));
+        { juce::ColourGradient cg (juce::Colour (0xff20232f), c.getX(), c.getY(), juce::Colour (0xff0c0d13), c.getX(), c.getBottom(), false); g.setGradientFill (cg); g.fillPath (d); }
+        g.setColour (juce::Colour (0xff3a3f52)); g.strokePath (d, juce::PathStrokeType (1.5f));
+        g.setColour (MAG.withAlpha (0.6f)); g.drawLine (c.getX() + 18, c.getY() + 1, c.getRight() - 18, c.getY() + 1, 2.0f);
+        for (auto p : { juce::Point<float> (c.getX() + 14, c.getBottom() - 10), juce::Point<float> (c.getRight() - 14, c.getBottom() - 10) }) { g.setColour (juce::Colour (0xff4a4f60)); g.fillEllipse (p.x - 4, p.y - 4, 8, 8); g.setColour (juce::Colours::black); g.drawLine (p.x - 3, p.y, p.x + 3, p.y, 1.2f); }
+        // nastro adesivo con scritto a pennarello
+        g.saveState(); g.addTransform (juce::AffineTransform::rotation (-0.03f, c.getCentreX(), c.getY() - 2));
+        g.setColour (juce::Colour (0xffd9d4c6)); g.fillRect (c.getCentreX() - 60, c.getY() - 13, 120.0f, 20.0f);
+        text (g, "LA CREW", { c.getCentreX() - 60, c.getY() - 13, 120, 20 }, beb (20.0f), juce::Colour (0xff141418));
+        g.restoreState();
+        grime (g, c, 13, 1.2f);
+    }
+    // barra in alto
+    { g.setColour (juce::Colour (0xf0040509)); g.fillRect (0, 0, W, 56); g.setColour (MAG.withAlpha (0.5f)); g.drawHorizontalLine (56, 0, (float) W); }
+    glowText (g, "CREW", { 21, 2, 200, 50 }, bun (40.0f), CYAN, 0.55f, juce::Justification::centredLeft);
+    glowText (g, "CREW", { 18, 0, 200, 50 }, bun (40.0f), MAG, 1.0f, juce::Justification::centredLeft);
+    text (g, "JACKPOT CYBERNET", { 150, 12, 200, 14 }, mon (10.0f), CYAN.withAlpha (0.8f), juce::Justification::centredLeft);
+    text (g, "GANG VOCALS // OLOGRAMMI", { 150, 28, 220, 14 }, mon (9.0f), juce::Colour (0xff6f7590), juce::Justification::centredLeft);
+    { auto lcd = juce::Rectangle<float> (398, 8, 384, 40); g.setColour (juce::Colour (0xff06080e)); g.fillRect (lcd); g.setColour (CYAN.withAlpha (0.35f)); g.drawRect (lcd, 1.0f); bracket (g, lcd, CYAN, 8, 1.5f); }
+    // righe di scansione su tutto
+    g.setColour (juce::Colours::black.withAlpha (0.10f)); for (int y = 0; y < H; y += 3) g.drawHorizontalLine (y, 0, (float) W);
+    { juce::ColourGradient vg (juce::Colours::transparentBlack, 590, 380, juce::Colours::black.withAlpha (0.55f), 0, 0, true); g.setGradientFill (vg); g.fillAll(); }
+}
+
 void Root::paint (juce::Graphics& g)
 {
     const float sc = juce::jlimit (1.0f, 4.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
-    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f)
+    const int th = ed.proc.uiTheme;
+    if (bg.isNull() || std::abs (bgScale - sc) > 0.01f || bgTheme != th)
     {
-        bgScale = sc; bg = juce::Image (juce::Image::RGB, juce::roundToInt (Editor::W * sc), juce::roundToInt (Editor::H * sc), false);
-        juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc)); ed.drawStatic (ig);
+        bgScale = sc; bgTheme = th; bg = juce::Image (juce::Image::RGB, juce::roundToInt (Editor::W * sc), juce::roundToInt (Editor::H * sc), false);
+        juce::Graphics ig (bg); ig.addTransform (juce::AffineTransform::scale (sc));
+        if (th == 0) ed.drawHoloStatic (ig); else ed.drawSketchStatic (ig);
     }
     g.drawImageTransformed (bg, juce::AffineTransform::scale (1.0f / sc));
     using H = Editor::Hot; auto R = [this] (int i) { return ed.hotR[i]; };
-    // il preset su un post-it
+    const auto name = ed.proc.currentName().toUpperCase();
+    if (th == 0)
+    {
+        // insegna al neon dietro di te (sfarfalla ogni tanto)
+        glowText (g, "C R E W", { 460, 70, 260, 70 }, bun (46.0f), MAG, 0.55f + 0.45f * ed.signFlicker);
+        // visiera: le barre seguono la tua voce
+        {
+            const float cx = 590, l = juce::jlimit (0.0f, 1.0f, ed.inLvl * 1.5f);
+            auto vz = juce::Rectangle<float> (cx - 52, 246, 104, 30);
+            g.setColour (juce::Colour (0xff020205)); g.fillRoundedRectangle (vz, 6);
+            for (int i = 0; i < 13; ++i)
+            {
+                const float f = std::abs (i - 6) / 6.0f, hh = 3 + 22 * l * (1.0f - 0.6f * f) * (0.7f + 0.3f * std::sin (ed.tick * 0.5f + i * 1.7f));
+                g.setColour ((i < 6 ? MAG : i > 6 ? CYAN : juce::Colours::white).withAlpha (0.35f + 0.65f * l)); g.fillRect (vz.getX() + 6 + i * 7.3f, vz.getCentreY() - hh * 0.5f, 4.5f, hh);
+            }
+            g.setColour (CYAN.withAlpha (0.25f + 0.5f * l)); g.drawRoundedRectangle (vz.expanded (2), 7, 1.5f);
+            g.setColour (juce::Colour (0xffff3030).withAlpha (0.4f + 0.6f * l)); g.fillEllipse (cx + 10, 356, 8, 8);
+        }
+        glowText (g, "<", R (H::H_PREV), bun (22.0f), hot == H::H_PREV ? MAG : CYAN, 1.0f);
+        glowText (g, ">", R (H::H_NEXT), bun (22.0f), hot == H::H_NEXT ? MAG : CYAN, 1.0f);
+        glowText (g, name, R (H::H_NAME), beb (30.0f), hot == H::H_NAME ? MAG : CYAN, 1.0f);
+        text (g, "SALVA", R (H::H_SAVE), mon (11.0f), hot == H::H_SAVE ? MAG : ACID);
+        text (g, "ANNULLA", R (H::H_UNDO), mon (10.0f), ed.proc.undo.canUndo() ? (hot == H::H_UNDO ? MAG : juce::Colour (0xffb7bdd6)) : juce::Colour (0xff3d4256));
+        text (g, "RIPETI", R (H::H_REDO), mon (10.0f), ed.proc.undo.canRedo() ? (hot == H::H_REDO ? MAG : juce::Colour (0xffb7bdd6)) : juce::Colour (0xff3d4256));
+        g.setColour (hot == H::H_THEME ? MAG : CYAN.withAlpha (0.6f)); g.drawRect (R (H::H_THEME), 1.0f);
+        text (g, "TEMA: OLOGRAMMI", R (H::H_THEME), mon (10.0f), hot == H::H_THEME ? MAG : CYAN);
+        return;
+    }
     {
         auto n = juce::Rectangle<float> (390, 16, 430, 64);
-        g.setColour (juce::Colours::black.withAlpha (0.15f)); g.fillRect (n.translated (4, 5));
-        g.setColour (YEL); g.fillRect (n); tape (g, n.getCentreX(), n.getY() + 2, 0.04f, 80);
-        text (g, "PRESET", n.withHeight (16).translated (14, 6), mon (9.0f), INK.withAlpha (0.6f), juce::Justification::centredLeft);
-        text (g, "<", R (H::H_PREV), bun (24.0f), hot == H::H_PREV ? RED : INK);
-        text (g, ">", R (H::H_NEXT), bun (24.0f), hot == H::H_NEXT ? RED : INK);
-        text (g, ed.proc.currentName().toUpperCase(), R (H::H_NAME), beb (34.0f), hot == H::H_NAME ? RED : INK);
+        g.setColour (juce::Colours::black.withAlpha (0.4f)); g.fillRect (n.translated (4, 5));
+        g.setColour (YEL.darker (0.15f)); g.fillRect (n); tape (g, n.getCentreX(), n.getY() + 2, 0.04f, 80);
+        grime (g, n, 21, 2.0f);
+        const auto ink2 = juce::Colour (0xff141418);
+        text (g, "PRESET", n.withHeight (16).translated (14, 6), mon (9.0f), ink2.withAlpha (0.6f), juce::Justification::centredLeft);
+        text (g, "<", R (H::H_PREV), bun (24.0f), hot == H::H_PREV ? RED : ink2);
+        text (g, ">", R (H::H_NEXT), bun (24.0f), hot == H::H_NEXT ? RED : ink2);
+        text (g, name, R (H::H_NAME), beb (34.0f), hot == H::H_NAME ? RED : ink2);
     }
     text (g, "SALVA", R (H::H_SAVE), beb (22.0f), hot == H::H_SAVE ? RED : INK);
-    text (g, "ANNULLA", R (H::H_UNDO), beb (18.0f), ed.proc.undo.canUndo() ? (hot == H::H_UNDO ? RED : INK) : PENCIL.withAlpha (0.5f));
-    text (g, "RIPETI", R (H::H_REDO), beb (18.0f), ed.proc.undo.canRedo() ? (hot == H::H_REDO ? RED : INK) : PENCIL.withAlpha (0.5f));
-    for (int i = (int) H::H_SAVE; i <= (int) H::H_REDO; ++i) if (hot == i) { Path u; u.startNewSubPath (R (i).getX() + 6, R (i).getBottom() - 2); u.lineTo (R (i).getRight() - 6, R (i).getBottom() - 3); g.setColour (RED); g.strokePath (wob (u, i, 0.6f), juce::PathStrokeType (2.0f)); }
-    {   // ingresso: quanto canti forte
-        auto m = juce::Rectangle<float> (922, 668, 220, 10); const float l = juce::jlimit (0.0f, 1.0f, ed.proc.uiIn.load() * 1.4f);
-        g.setColour (INK.withAlpha (0.15f)); g.fillRect (m); g.setColour (RED); g.fillRect (m.withWidth (m.getWidth() * l));
-        g.setColour (INK); g.drawRect (m, 1.2f); text (g, "LA TUA VOCE", m.translated (0, -16).withHeight (14), mon (9.0f), INK.withAlpha (0.7f), juce::Justification::centredLeft);
+    text (g, "ANNULLA", R (H::H_UNDO), beb (18.0f), ed.proc.undo.canUndo() ? (hot == H::H_UNDO ? RED : INK) : PENCIL.withAlpha (0.6f));
+    text (g, "RIPETI", R (H::H_REDO), beb (18.0f), ed.proc.undo.canRedo() ? (hot == H::H_REDO ? RED : INK) : PENCIL.withAlpha (0.6f));
+    text (g, "TEMA: QUADERNO", R (H::H_THEME), beb (18.0f), hot == H::H_THEME ? RED : INK);
+    {
+        auto m = juce::Rectangle<float> (922, 668, 220, 10); const float l = juce::jlimit (0.0f, 1.0f, ed.inLvl * 1.4f);
+        g.setColour (INK.withAlpha (0.12f)); g.fillRect (m); g.setColour (RED); g.fillRect (m.withWidth (m.getWidth() * l));
+        g.setColour (INK.withAlpha (0.6f)); g.drawRect (m, 1.2f); text (g, "LA TUA VOCE", m.translated (0, -16).withHeight (14), mon (9.0f), INK.withAlpha (0.7f), juce::Justification::centredLeft);
     }
 }
 void Root::mouseMove (const juce::MouseEvent& e)
@@ -356,8 +642,6 @@ void Root::mouseDown (const juce::MouseEvent& e) { for (int i = 0; i < Editor::H
 // =============================================================================================== editor
 Editor::Editor (Processor& p) : juce::AudioProcessorEditor (p), proc (p)
 {
-    hotR[H_PREV] = { 400, 34, 34, 40 }; hotR[H_NEXT] = { 776, 34, 34, 40 }; hotR[H_NAME] = { 436, 30, 338, 46 };
-    hotR[H_SAVE] = { 836, 46, 70, 30 }; hotR[H_UNDO] = { 916, 50, 84, 26 }; hotR[H_REDO] = { 1004, 50, 84, 26 };
     addAndMakeVisible (root);
     auto pct = [] (float v) { return juce::String (juce::roundToInt (v * 100)) + "%"; };
     auto db = [] (float v) { return v <= -59.9f ? juce::String ("MUTO") : (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; };
@@ -366,8 +650,7 @@ Editor::Editor (Processor& p) : juce::AudioProcessorEditor (p), proc (p)
     auto tone = [] (float v) { return std::abs (v) < 0.05f ? juce::String ("NEUTRO") : v < 0 ? "SCURO " + juce::String (juce::roundToInt (-v * 100)) : "CHIARO " + juce::String (juce::roundToInt (v * 100)); };
     for (int k = 0; k < kVoices; ++k)
     {
-        const float cx = 24 + (k % 3) * 292.0f, cy = 100 + (k / 3) * 304.0f;
-        auto c = std::make_unique<Card> (*this, k); c->setBounds (juce::Rectangle<float> (cx, cy, 280, 296).toNearestInt());
+        auto c = std::make_unique<Card> (*this, k);
         c->setTooltip (juce::String (characters()[(size_t) k].name) + ": " + characters()[(size_t) k].role + " (clicca il personaggio per accenderlo)");
         root.addAndMakeVisible (*c); cards.push_back (std::move (c));
         struct D { const char* w; const char* l; std::function<juce::String (float)> f; int steps; bool bip; };
@@ -375,8 +658,7 @@ Editor::Editor (Processor& p) : juce::AudioProcessorEditor (p), proc (p)
         for (int j = 0; j < 4; ++j)
         {
             auto kn = std::make_unique<Knob> (*this, Processor::vid (k, d[j].w), d[j].l, sk::accent (k), d[j].f, k * 10 + j);
-            kn->steps = d[j].steps; kn->bipolar = d[j].bip;
-            kn->setBounds (juce::Rectangle<float> (cx + 8 + j * 66.0f, cy + 214, 66, 78).toNearestInt());
+            kn->steps = d[j].steps; kn->bipolar = d[j].bip; kn->voice = k;
             root.addAndMakeVisible (*kn); knobs.push_back (std::move (kn));
         }
     }
@@ -393,21 +675,61 @@ Editor::Editor (Processor& p) : juce::AudioProcessorEditor (p), proc (p)
     };
     for (int j = 0; j < 8; ++j)
     {
-        auto kn = std::make_unique<Knob> (*this, gl[j].id, gl[j].l, j < 5 ? RED : juce::Colour (0xff4f7fd0), gl[j].f, 200 + j);
+        auto kn = std::make_unique<Knob> (*this, gl[j].id, gl[j].l, j < 5 ? RED : BLUE, gl[j].f, 200 + j);
         kn->setTooltip (gl[j].tip);
-        kn->setBounds (juce::Rectangle<float> (930 + (j % 2) * 104.0f, 186 + (j / 2) * 116.0f, 100, 108).toNearestInt());
         root.addAndMakeVisible (*kn); knobs.push_back (std::move (kn));
     }
     root.addAndMakeVisible (sizeChip);
     setWantsKeyboardFocus (true);
+    layout();
     scaler.setup();
     startTimerHz (30);
+}
+void Editor::layout()
+{
+    const bool ho = holoTheme();
+    for (int k = 0; k < kVoices; ++k)
+    {
+        juce::Rectangle<float> card; juce::Point<float> k0; float kw, kh; bool grid;
+        if (ho)
+        {
+            const auto s = holoSlot (k); const bool L = leftSide (k);
+            card = { L ? s.getX() : s.getX() + 188, s.getY(), 186, s.getHeight() };
+            k0 = { L ? s.getX() + 192 : s.getX() + 4, s.getY() + 16 }; kw = 89; kh = 84; grid = true;
+        }
+        else { card = { 24 + (k % 3) * 292.0f, 100 + (k / 3) * 304.0f, 280, 296 }; k0 = { card.getX() + 8, card.getY() + 214 }; kw = 66; kh = 78; grid = false; }
+        cards[(size_t) k]->setBounds (card.toNearestInt()); cards[(size_t) k]->cache = {}; cards[(size_t) k]->holo = {};
+        for (int j = 0; j < 4; ++j)
+        {
+            auto& kn = knobs[(size_t) (k * 4 + j)];
+            kn->fill = ho ? holoTint (k) : sk::accent (k);
+            kn->setBounds (juce::Rectangle<float> (k0.x + (grid ? (j % 2) * kw : j * kw), k0.y + (grid ? (j / 2) * kh : 0), kw, kh).toNearestInt());
+        }
+    }
+    for (int j = 0; j < 8; ++j)
+    {
+        auto& kn = knobs[(size_t) (kVoices * 4 + j)];
+        if (ho) { kn->fill = j < 5 ? MAG : CYAN; kn->setBounds (juce::Rectangle<float> (406 + (j % 4) * 93.0f, 540 + (j / 4) * 84.0f, 92, 82).toNearestInt()); }
+        else { kn->fill = j < 5 ? RED : BLUE; kn->setBounds (juce::Rectangle<float> (930 + (j % 2) * 104.0f, 186 + (j / 2) * 116.0f, 100, 108).toNearestInt()); }
+    }
+    if (ho)
+    {
+        hotR[H_PREV] = { 404, 12, 30, 32 }; hotR[H_NEXT] = { 746, 12, 30, 32 }; hotR[H_NAME] = { 436, 8, 308, 40 };
+        hotR[H_SAVE] = { 792, 14, 56, 28 }; hotR[H_UNDO] = { 850, 16, 70, 24 }; hotR[H_REDO] = { 920, 16, 62, 24 }; hotR[H_THEME] = { 990, 14, 128, 28 };
+        sizeChip.setBounds (1124, 20, 50, 15);
+    }
+    else
+    {
+        hotR[H_PREV] = { 400, 34, 34, 40 }; hotR[H_NEXT] = { 776, 34, 34, 40 }; hotR[H_NAME] = { 436, 30, 338, 46 };
+        hotR[H_SAVE] = { 836, 50, 66, 28 }; hotR[H_UNDO] = { 908, 50, 84, 26 }; hotR[H_REDO] = { 996, 50, 76, 26 }; hotR[H_THEME] = { 836, 12, 160, 28 };
+        sizeChip.setBounds (1100, 18, 58, 15);
+    }
+    root.bg = {}; root.repaint();
 }
 void Editor::resized()
 {
     const float s = scaler.update();
     root.setBounds (0, 0, W, H); root.setTransform (juce::AffineTransform::scale (s));
-    sizeChip.setBounds (1100, 6, 58, 15);
 }
 bool Editor::keyPressed (const juce::KeyPress& k)
 {
@@ -423,9 +745,10 @@ void Editor::click (int h)
         case H_SAVE: askSave(); break;
         case H_UNDO: proc.undo.undo(); break;
         case H_REDO: proc.undo.redo(); break;
+        case H_THEME: proc.uiTheme = 1 - proc.uiTheme; layout(); break;
         default: break;
     }
-    root.repaint(); for (auto& c : cards) c->repaint();
+    root.repaint(); for (auto& c : cards) c->repaint(); for (auto& k : knobs) k->repaint();
 }
 void Editor::presetMenu()
 {
@@ -459,16 +782,27 @@ void Editor::askSave()
 void Editor::timerCallback()
 {
     ++tick;
+    const bool ho = holoTheme();
+    juce::Random rnd;
     for (auto& c : cards)
     {
         const bool on = proc.value (Processor::vid (c->idx, "on")) > 0.5f;
         const float target = on ? juce::jlimit (0.0f, 1.0f, proc.uiMeter[(size_t) c->idx].load() * 3.0f) : 0.0f;
         c->mouth += (target - c->mouth) * (target > c->mouth ? 0.6f : 0.25f);
-        if (on != c->lastOn) { c->lastOn = on; c->repaint(); }
-        else if (std::abs (c->mouth - c->lastMouth) > 0.02f || (on && c->mouth > 0.25f && tick % 2 == 0)) { c->lastMouth = c->mouth; c->repaint (juce::Rectangle<int> (0, 0, c->getWidth(), 178)); }
+        if (ho && on && rnd.nextFloat() < 0.012f) { c->glitch = 1.0f; c->glitchSeed = tick; }
+        const bool gl = c->glitch > 0.01f; c->glitch *= 0.75f;
+        if (on != c->lastOn) { c->lastOn = on; c->repaint(); for (int j = 0; j < 4; ++j) knobs[(size_t) (c->idx * 4 + j)]->repaint(); }
+        else if (gl || std::abs (c->mouth - c->lastMouth) > 0.02f || (on && c->mouth > 0.2f && tick % 2 == 0)) { c->lastMouth = c->mouth; if (ho) c->repaint(); else c->repaint (juce::Rectangle<int> (0, 0, c->getWidth(), 178)); }
     }
     if (proc.preset != lastPreset || proc.userName != lastUser) { lastPreset = proc.preset; lastUser = proc.userName; root.repaint(); }
-    if (tick % 3 == 0) root.repaint (juce::Rectangle<int> (918, 648, 230, 34));
+    const float il = proc.uiIn.load(); inLvl = juce::jmax (il, inLvl * 0.85f);
+    if (std::abs (inLvl - lastIn) > 0.01f || (ho && inLvl > 0.05f)) { lastIn = inLvl; if (ho) root.repaint (juce::Rectangle<int> (530, 240, 120, 130)); else root.repaint (juce::Rectangle<int> (918, 648, 230, 34)); }
+    if (ho)
+    {   // l'insegna sfarfalla ogni tanto
+        const float old = signFlicker;
+        signFlicker = rnd.nextFloat() < 0.04f ? 0.15f + rnd.nextFloat() * 0.5f : juce::jmin (1.0f, signFlicker + 0.25f);
+        if (std::abs (old - signFlicker) > 0.01f) root.repaint (juce::Rectangle<int> (450, 64, 280, 82));
+    }
     if (tick % 8 == 0) root.repaint (hotR[H_UNDO].getUnion (hotR[H_REDO]).toNearestInt());
     for (auto& k : knobs) { const float v = k->prm->getValue(); if (v != k->last) { k->last = v; k->repaint(); } }
 }

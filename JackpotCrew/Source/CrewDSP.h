@@ -55,12 +55,12 @@ public:
         }
         hpL.reset(); hpR.reset(); env = 0;
         juce::Reverb::Parameters p; p.roomSize = 0.32f; p.damping = 0.5f; p.width = 1; p.wetLevel = 1; p.dryLevel = 0; rv.setParameters (p); rv.setSampleRate (s); rv.reset();
-        wetL.assign ((size_t) maxBlock, 0.0f); wetR.assign ((size_t) maxBlock, 0.0f); tmpL.reserve ((size_t) maxBlock * 2); tmpR.reserve ((size_t) maxBlock * 2); crewGain.reset (s, 0.03); dryGain.reset (s, 0.03);
+        wetL.assign ((size_t) maxBlock, 0.0f); wetR.assign ((size_t) maxBlock, 0.0f); tmpL.assign ((size_t) maxBlock, 0.0f); tmpR.assign ((size_t) maxBlock, 0.0f); shoutS.reset (s, 0.05); roomS.reset (s, 0.05); shoutS.setCurrentAndTargetValue (0); roomS.setCurrentAndTargetValue (0); crewGain.reset (s, 0.03); dryGain.reset (s, 0.03);
         crewGain.setCurrentAndTargetValue (1); dryGain.setCurrentAndTargetValue (1);
     }
     void process (float* L, float* R, int n, const Settings& S)
     {
-        if ((int) wetL.size() < n) { wetL.resize ((size_t) n); wetR.resize ((size_t) n); }
+        if ((int) wetL.size() < n) { wetL.resize ((size_t) n); wetR.resize ((size_t) n); tmpL.resize ((size_t) n); tmpR.resize ((size_t) n); }
         std::fill (wetL.begin(), wetL.begin() + n, 0.0f); std::fill (wetR.begin(), wetR.begin() + n, 0.0f);
         bool any = false;
         for (int k = 0; k < kVoices; ++k)
@@ -70,14 +70,16 @@ public:
             v.lvl.setTargetValue (vsS.on ? juce::Decibels::decibelsToGain (vsS.lvlDb) : 0.0f); v.panL.setTargetValue (std::cos (a)); v.panR.setTargetValue (std::sin (a));
             const float cents = ch.cents * S.drift * 1.6f;
             v.ratio = std::pow (2.0f, (vsS.pitch + cents / 100.0f) / 12.0f);
-            v.win = std::abs (vsS.pitch) < 0.5f ? (float) (sr * 0.22) : (float) (sr * 0.06);
+            v.win = (float) (sr * 0.075);
             // colore: scuro (passa basso) o chiaro (passa alto + un filo di presenza)
             v.lp.lp (sr, vsS.tone < 0 ? 18000.0f * std::pow (0.07f, -vsS.tone) : 18000.0f);
             v.hpA = vsS.tone > 0 ? (float) std::exp (-juce::MathConstants<double>::twoPi * (40.0 + 900.0 * vsS.tone) / sr) : 0.0f;
-            v.baseD = (float) (sr * ch.baseMs * 0.001 * (0.6 + 0.8 * S.loose));
+            v.baseT = (float) (sr * ch.baseMs * 0.001 * (0.6 + 0.8 * S.loose));
             v.active = vsS.on || v.lvl.isSmoothing() || v.lvl.getCurrentValue() > 1e-4f;
             any = any || v.active;
         }
+        for (auto& v : vs) if (v.baseD < 0) v.baseD = v.baseT;   // al primo blocco niente scivolata
+        const float baseK = (float) (1.0 / (sr * 0.05));
         for (int i = 0; i < n; ++i)
         {
             const float x = 0.5f * (L[i] + R[i]);
@@ -89,6 +91,7 @@ public:
                 // tempo che respira: un nuovo obiettivo ogni ~120 ms, raggiunto con morbidezza
                 if (--v.next <= 0) { juce::Random r (v.seed += 7919); v.target = (r.nextFloat() * 2 - 1) * S.loose * (float) sr * 0.018f; v.next = (int) (sr * (0.09 + 0.08 * r.nextFloat())); }
                 v.wobble += (v.target - v.wobble) * (float) (1.0 / (sr * 0.09));
+                v.baseD += (v.baseT - v.baseD) * baseK;
                 const float d0 = juce::jmax (8.0f, v.baseD + v.wobble);
                 // due testine che scorrono e si danno il cambio (pitch che cambia altezza, non durata)
                 v.p += (1.0f - v.ratio) / v.win; if (v.p >= 1) v.p -= 1; if (v.p < 0) v.p += 1;
@@ -109,25 +112,28 @@ public:
         crewGain.setTargetValue (juce::Decibels::decibelsToGain (S.crewDb)); dryGain.setTargetValue (S.dryDb <= -59.9f ? 0.0f : juce::Decibels::decibelsToGain (S.dryDb));
         if (any)
         {
-            const float drive = 1.0f + S.shout * 7.0f, makeup = 1.0f / std::tanh (drive * 0.5f) * 0.55f;
+            shoutS.setTargetValue (S.shout); roomS.setTargetValue (S.room);
             for (int i = 0; i < n; ++i)
             {
                 float l = hpL.p (wetL[(size_t) i]), r = hpR.p (wetR[(size_t) i]);
-                if (S.shout > 0.001f)
+                const float sh = shoutS.getNextValue();
+                if (sh > 0.0005f)
                 {
+                    const float drive = 1.0f + sh * 7.0f, makeup = 1.0f / std::tanh (drive * 0.5f) * 0.55f;
                     const float lv = juce::jmax (std::abs (l), std::abs (r)); env += (lv - env) * (lv > env ? 0.02f : 0.0004f);
-                    const float comp = 1.0f / (1.0f + S.shout * 3.0f * env);
+                    const float comp = 1.0f / (1.0f + sh * 3.0f * env);
                     const float sl = std::tanh (l * comp * drive * 0.5f) * makeup, sr2 = std::tanh (r * comp * drive * 0.5f) * makeup;
-                    l = l * (1 - S.shout) + sl * S.shout * 1.6f; r = r * (1 - S.shout) + sr2 * S.shout * 1.6f;
+                    l = l * (1 - sh) + sl * sh * 1.6f; r = r * (1 - sh) + sr2 * sh * 1.6f;
                 }
                 wetL[(size_t) i] = l; wetR[(size_t) i] = r;
             }
-            if (S.room > 0.001f)
+            if (S.room > 0.0005f || roomS.isSmoothing() || roomS.getCurrentValue() > 0.0005f)
             {
-                std::vector<float>& tl = tmpL; std::vector<float>& tr = tmpR; tl.assign (wetL.begin(), wetL.begin() + n); tr.assign (wetR.begin(), wetR.begin() + n);
-                rv.processStereo (tl.data(), tr.data(), n);
-                for (int i = 0; i < n; ++i) { wetL[(size_t) i] += tl[(size_t) i] * S.room * 0.7f; wetR[(size_t) i] += tr[(size_t) i] * S.room * 0.7f; }
+                std::copy (wetL.begin(), wetL.begin() + n, tmpL.begin()); std::copy (wetR.begin(), wetR.begin() + n, tmpR.begin());
+                rv.processStereo (tmpL.data(), tmpR.data(), n);
+                for (int i = 0; i < n; ++i) { const float rm = roomS.getNextValue() * 0.7f; wetL[(size_t) i] += tmpL[(size_t) i] * rm; wetR[(size_t) i] += tmpR[(size_t) i] * rm; }
             }
+            else roomS.skip (n);
         }
         for (int i = 0; i < n; ++i)
         {
@@ -145,12 +151,12 @@ private:
         const float a = buf[(size_t) (i0 & (kLen - 1))], b = buf[(size_t) ((i0 + 1) & (kLen - 1))];
         return a + (b - a) * t;
     }
-    struct V { float p = 0, ratio = 1, win = 2000, baseD = 1000, wobble = 0, target = 0, hpA = 0, hz = 0, meter = 0; int next = 0, seed = 1; bool active = false; OnePole lp;
+    struct V { float p = 0, ratio = 1, win = 2000, baseD = -1, baseT = 1000, wobble = 0, target = 0, hpA = 0, hz = 0, meter = 0; int next = 0, seed = 1; bool active = false; OnePole lp;
                juce::LinearSmoothedValue<float> lvl, panL, panR; };
     double sr = 48000; std::vector<float> buf; int wp = 0;
     std::array<V, kVoices> vs;
     std::vector<float> wetL, wetR, tmpL, tmpR;
     Biq hpL, hpR; float env = 0; juce::Reverb rv;
-    juce::LinearSmoothedValue<float> crewGain, dryGain;
+    juce::LinearSmoothedValue<float> crewGain, dryGain, shoutS, roomS;
 };
 }

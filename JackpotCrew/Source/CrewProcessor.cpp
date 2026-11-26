@@ -104,13 +104,13 @@ bool Processor::loadUserPreset (const juce::File& f)
 void Processor::getStateInformation (juce::MemoryBlock& d)
 {
     auto st = apvts.copyState(); std::unique_ptr<juce::XmlElement> x (st.createXml());
-    x->setAttribute ("preset", preset); x->setAttribute ("user", userName); copyXmlToBinary (*x, d);
+    x->setAttribute ("preset", preset); x->setAttribute ("user", userName); x->setAttribute ("theme", uiTheme); copyXmlToBinary (*x, d);
 }
 void Processor::setStateInformation (const void* data, int size)
 {
     std::unique_ptr<juce::XmlElement> x (getXmlFromBinary (data, size));
     if (x == nullptr || ! x->hasTagName (apvts.state.getType())) return;
-    preset = x->getIntAttribute ("preset", 0); userName = x->getStringAttribute ("user");
+    preset = x->getIntAttribute ("preset", 0); userName = x->getStringAttribute ("user"); uiTheme = x->getIntAttribute ("theme", uiTheme);
     apvts.replaceState (juce::ValueTree::fromXml (*x));
 }
 juce::AudioProcessorEditor* Processor::createEditor() { return new Editor (*this); }
