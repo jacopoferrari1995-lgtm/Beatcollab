@@ -18,7 +18,7 @@ public:
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
-    const juce::String getName() const override { return "Jackpot Tag Forge"; }
+    const juce::String getName() const override { return "Jackpot Cybernet Tag Forge"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     double getTailLengthSeconds() const override { return 8.0; }

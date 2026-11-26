@@ -15,7 +15,7 @@ juce_add_plugin(JackpotTagForge
   AU_MAIN_TYPE kAudioUnitType_MusicEffect
   VST3_CATEGORIES Fx
   FORMATS ${JP_FORMATS} VST3
-  PRODUCT_NAME "Jackpot Tag Forge")
+  PRODUCT_NAME "Jackpot Cybernet Tag Forge")
 
 target_sources(JackpotTagForge PRIVATE Source/TagProcessor.cpp Source/TagEditor.cpp)
 target_include_directories(JackpotTagForge PRIVATE ${CMAKE_SOURCE_DIR}/Common)
